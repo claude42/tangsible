@@ -1,0 +1,12 @@
+# Two hosts diverge on the same task (one fails-and-ignores, the other
+# skips it), to exercise per-host aggregation within a single task. Run
+# with -i multihost-inventory.ini.
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: diverging task
+      command: /bin/false
+      when: inventory_hostname == "host1"
+      ignore_errors: true
+    - name: shared ok task
+      command: echo hi

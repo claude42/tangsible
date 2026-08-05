@@ -1,0 +1,19 @@
+# Exercises all four rollup buckets (OK/Changed/Skipped/Failed) on a single
+# host, including a failed-but-ignored task.
+- hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: ok task
+      command: echo hi
+    - name: changed task
+      command: echo changed
+    - name: skipped task
+      command: echo nope
+      when: false
+    - name: failed task
+      command: /bin/false
+      ignore_errors: true
+    - name: after failure
+      debug:
+        msg: still running

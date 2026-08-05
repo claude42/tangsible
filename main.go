@@ -63,34 +63,42 @@ func streamStderr(r io.Reader, done chan struct{}) {
 	}
 }
 
-// streamEvents reads one JSON object per line from r and prints it as soon
-// as it arrives, so we can see events show up while the playbook is still
-// running rather than all at once at the end.
+// streamEvents reads one JSON object per line from r, feeds it into the
+// play/task/host aggregator, and reprints the whole current tree after each
+// event — so the terminal scrollback shows the model's progression live,
+// while the playbook is still running, rather than all at once at the end.
 func streamEvents(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-	n := 0
+	state := &playbookState{}
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		n++
 
-		var event map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			fmt.Printf("[%d] (not JSON) %s\n", n, line)
+		var ev rawEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			fmt.Println("(not JSON)", line)
 			continue
 		}
 
-		keys := make([]string, 0, len(event))
-		for k := range event {
-			keys = append(keys, k)
-		}
+		state.Apply(ev)
 
-		pretty, _ := json.MarshalIndent(event, "  ", "  ")
-		fmt.Printf("[%d] keys=%v\n  %s\n", n, keys, pretty)
+		fmt.Println("----")
+		Render(os.Stdout, state)
+
+		if ev.Event == "v2_playbook_on_stats" {
+			var stats struct {
+				Stats map[string]interface{} `json:"stats"`
+			}
+			json.Unmarshal([]byte(line), &stats)
+			fmt.Println("ansible's own final stats (for cross-checking):")
+			pretty, _ := json.MarshalIndent(stats.Stats, "  ", "  ")
+			fmt.Printf("  %s\n", pretty)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "error reading ansible-playbook output:", err)

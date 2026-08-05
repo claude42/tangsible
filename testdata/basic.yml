@@ -1,0 +1,14 @@
+# A few simple sequential tasks, including a sleep, to demonstrate that
+# events show up live while the playbook is still running rather than all
+# at once at the end.
+- hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: step one
+      command: echo hi
+    - name: step two
+      command: sleep 1
+    - name: step three
+      debug:
+        msg: done
