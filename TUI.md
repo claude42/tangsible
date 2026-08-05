@@ -55,6 +55,16 @@ ________________________________________________________________________________
   the per-task rollup counts and the per-host status lines. Exact palette
   still TBD, but conceptually similar to ansible-playbook's own
   green/yellow/cyan/red convention.
+* Rendering of the TASK should be as follows  
+  * The title of the task should be on the left (of course appropriately
+    indented, current implementation is fine)
+  * The "OK: 01, Chgd: 01, Skip: 01, Fail: 00" part should be rendered on the far
+    right of the line. Each number should be printed with a fixed width of
+    two digits.
+  * If the length of the title plus the length of the "OK: 1, Chgd: 1, Skip: 1, Fail: 0"
+    part exceeds the total line length, the title shall be abbreviated
+    accordingly.
+
 
 ## Open questions / decisions
 
@@ -63,4 +73,3 @@ ________________________________________________________________________________
   now, rather than a dedicated per-task spinner/indicator. May be too
   inconspicuous in practice; revisit once there's something to click
   through.
-
