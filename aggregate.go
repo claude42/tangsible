@@ -63,12 +63,27 @@ type playNode struct {
 // playbookState is the play -> task -> host tree built up from the live
 // event stream. Plays and tasks are appended lazily, on their first task's
 // start, so plays with no executed tasks never show up (see TUI.md).
+//
+// Once its On*Added/OnHostRecorded hooks are wired up (by tui.go), this is
+// only safe to mutate from whichever single goroutine calls Apply — no
+// mutex, by construction, since that's always tview's event-loop goroutine
+// (Apply runs inside an app.QueueUpdateDraw closure). Not a general-purpose
+// concurrent data structure.
 type playbookState struct {
 	Plays []*playNode
 
 	pendingPlayName string
 	currentPlay     *playNode
 	currentTask     *taskNode
+
+	// Optional hooks a UI layer wires up before streaming begins, so a
+	// tree can grow incrementally instead of being rebuilt from scratch on
+	// every event. nil-checked before every call. Deliberately typed using
+	// only this file's own types, so this file stays free of any UI
+	// dependency.
+	OnPlayAdded    func(play *playNode)
+	OnTaskAdded    func(play *playNode, task *taskNode)
+	OnHostRecorded func(task *taskNode, host string)
 }
 
 func (s *playbookState) Apply(ev rawEvent) {
@@ -83,10 +98,16 @@ func (s *playbookState) Apply(ev rawEvent) {
 		if s.currentPlay == nil {
 			s.currentPlay = &playNode{Name: s.pendingPlayName}
 			s.Plays = append(s.Plays, s.currentPlay)
+			if s.OnPlayAdded != nil {
+				s.OnPlayAdded(s.currentPlay)
+			}
 		}
 		if ev.Task != nil {
 			s.currentTask = &taskNode{Name: ev.Task.Name, Hosts: map[string]outcome{}}
 			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
+			if s.OnTaskAdded != nil {
+				s.OnTaskAdded(s.currentPlay, s.currentTask)
+			}
 		}
 
 	case "v2_runner_on_ok":
@@ -115,4 +136,7 @@ func (s *playbookState) recordHost(host string, o outcome) {
 		return
 	}
 	s.currentTask.record(host, o)
+	if s.OnHostRecorded != nil {
+		s.OnHostRecorded(s.currentTask, host)
+	}
 }

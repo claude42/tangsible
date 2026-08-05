@@ -1,7 +1,5 @@
-// Prototype: shells out to ansible-playbook using the ansible.posix.jsonl
-// stdout callback and prints each event as it arrives, to validate that we
-// really do get live, line-delimited JSON rather than one buffered blob at
-// the end of the run.
+// Shells out to ansible-playbook using the ansible.posix.jsonl stdout
+// callback and streams events live into an interactive TUI as they arrive.
 package main
 
 import (
@@ -13,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 )
 
 func main() {
@@ -39,46 +38,78 @@ func main() {
 		fmt.Fprintln(os.Stderr, "failed to attach stderr:", err)
 		os.Exit(1)
 	}
-
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "failed to start ansible-playbook:", err)
 		os.Exit(1)
 	}
 
-	stderrDone := make(chan struct{})
-	go streamStderr(stderr, stderrDone)
-	state := streamEvents(stdout)
-	<-stderrDone
+	state := &playbookState{}
+	var processDone, quitting atomic.Bool
+	app, applyLive := NewLiveTUI(state, filepath.Base(os.Args[1]), cmd.Process, &processDone, &quitting)
 
-	waitErr := cmd.Wait()
+	stderrLines := make(chan []string, 1)
+	go func() { stderrLines <- streamStderr(stderr) }()
 
-	if err := RunTUI(state, filepath.Base(os.Args[1])); err != nil {
-		fmt.Fprintln(os.Stderr, "TUI error:", err)
-		os.Exit(1)
+	type runResult struct {
+		waitErr     error
+		childStderr []string
+		diagnostics []string
+	}
+	resultCh := make(chan runResult, 1)
+	go func() {
+		diagnostics := streamEvents(stdout, applyLive, &quitting)
+		childStderr := <-stderrLines // wait for stderr to fully drain before Wait()
+		waitErr := cmd.Wait()
+		resultCh <- runResult{waitErr: waitErr, childStderr: childStderr, diagnostics: diagnostics}
+		processDone.Store(true)
+	}()
+
+	runErr := app.Run()
+	quitting.Store(true) // defensive: also stop the streamer if Run() ever
+	// returns for a reason other than our own Stop()
+
+	result := <-resultCh
+	for _, l := range result.childStderr {
+		fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+	}
+	for _, l := range result.diagnostics {
+		fmt.Println(l)
 	}
 
-	if waitErr != nil {
-		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", waitErr)
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "TUI error:", runErr)
+		os.Exit(1)
+	}
+	if result.waitErr != nil {
+		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", result.waitErr)
 		os.Exit(1)
 	}
 }
 
-func streamStderr(r io.Reader, done chan struct{}) {
-	defer close(done)
+// streamStderr collects the child's stderr lines instead of printing them
+// live — printing directly to the terminal while the TUI's alternate
+// screen is active would corrupt the display. main prints them after
+// app.Run() returns and the real terminal is restored.
+func streamStderr(r io.Reader) []string {
+	var lines []string
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", scanner.Text())
+		lines = append(lines, scanner.Text())
 	}
+	return lines
 }
 
-// streamEvents reads one JSON object per line from r and feeds it into the
-// play/task/host aggregator, returning the final state once r is exhausted.
-func streamEvents(r io.Reader) *playbookState {
+// streamEvents reads one JSON object per line from r and feeds each into
+// applyLive, which queues it onto the TUI's event loop. Diagnostic output
+// (parse failures, the final stats cross-check) is collected rather than
+// printed live, for the same terminal-corruption reason as streamStderr.
+// Once quitting is set, r keeps being drained (so ansible-playbook's
+// stdout pipe never backs up) but applyLive is no longer called.
+func streamEvents(r io.Reader, applyLive func(rawEvent), quitting *atomic.Bool) []string {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-	state := &playbookState{}
-
+	var diagnostics []string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -87,24 +118,26 @@ func streamEvents(r io.Reader) *playbookState {
 
 		var ev rawEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			fmt.Println("(not JSON)", line)
+			diagnostics = append(diagnostics, "(not JSON) "+line)
 			continue
 		}
-
-		state.Apply(ev)
 
 		if ev.Event == "v2_playbook_on_stats" {
 			var stats struct {
 				Stats map[string]interface{} `json:"stats"`
 			}
 			json.Unmarshal([]byte(line), &stats)
-			fmt.Println("ansible's own final stats (for cross-checking):")
 			pretty, _ := json.MarshalIndent(stats.Stats, "  ", "  ")
-			fmt.Printf("  %s\n", pretty)
+			diagnostics = append(diagnostics, fmt.Sprintf("ansible's own final stats (for cross-checking):\n  %s", pretty))
 		}
+
+		if quitting.Load() {
+			continue
+		}
+		applyLive(ev)
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "error reading ansible-playbook output:", err)
+		diagnostics = append(diagnostics, fmt.Sprintf("error reading ansible-playbook output: %v", err))
 	}
-	return state
+	return diagnostics
 }
