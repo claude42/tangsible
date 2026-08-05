@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	"github.com/gdamore/tcell/v2"
@@ -31,14 +32,17 @@ type hostRowID struct {
 // respecting which tasks are currently expanded. Rebuilt fresh on every
 // event - cheap at this project's target scale (~10 hosts, Purpose.md), and
 // avoids needing to incrementally patch a tree structure by hand.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool) []row {
+//
+// width is the list's current available width (see rebuild), used to
+// right-align each TASK row's counts segment (see taskLabel).
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		rows = append(rows, row{text: fmt.Sprintf("PLAY: %s", play.Name), id: play})
 		for _, task := range play.Tasks {
 			t := task
 			rows = append(rows, row{
-				text:     "  " + taskLabel(t),
+				text:     taskLabel(t, width),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -75,7 +79,16 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		rebuilding = true
 		defer func() { rebuilding = false }()
 
-		currentRows = flattenRows(state, expanded)
+		_, _, width, _ := list.GetInnerRect()
+		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
+		// (never 0), and QueueUpdateDraw can't run this closure before
+		// Run()'s first real-size draw pass anyway - taskLabel is also
+		// panic-safe for any width - but clamp defensively in case that
+		// ordering assumption ever changes.
+		if width < 20 {
+			width = 20
+		}
+		currentRows = flattenRows(state, expanded, width)
 		list.Clear()
 		for _, r := range currentRows {
 			r := r
@@ -155,12 +168,88 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	return app, applyLive
 }
 
-func taskLabel(task *taskNode) string {
-	ok, changed, skipped, failed := task.counts()
-	return fmt.Sprintf("TASK: %-40s OK: %d, Chgd: %d, Skip: %d, Fail: %d",
-		task.Name, ok, changed, skipped, failed)
+const taskIndent = "  "
+
+// colorTag returns the tview style-tag foreground color name for o, per
+// TUI.md's OK/Changed/Skipped/Failed = green/yellow/cyan/red convention
+// (using tcell's/W3C's "teal" as the closest named match for cyan).
+func colorTag(o outcome) string {
+	switch o {
+	case outcomeOK:
+		return "green"
+	case outcomeChanged:
+		return "yellow"
+	case outcomeSkipped:
+		return "teal"
+	case outcomeFailed:
+		return "red"
+	default:
+		return "-"
+	}
 }
 
+// taskLabel builds one TASK row's full text, including its leading indent.
+// Per TUI.md, the "OK: 01, Chgd: 01, Skip: 01, Fail: 00" counts segment is
+// right-aligned to the far right of avail (the row's full available width,
+// e.g. straight from the list's GetInnerRect); the title is truncated with
+// an ellipsis if title+counts wouldn't otherwise fit, down to an empty
+// title in the extreme case where even that doesn't help.
+//
+// avail reflects the terminal size as of the last rebuild (see
+// flattenRows) - a bare terminal resize with no new incoming event won't
+// re-flow existing rows until the next event triggers one. Accepted
+// limitation, not a bug.
+//
+// Uses rune count as a proxy for on-screen width when truncating, same as
+// the previous %-40s formatting did - undercounts wide (e.g. CJK)
+// characters in a task name, a pre-existing simplification, not a new gap.
+func taskLabel(task *taskNode, avail int) string {
+	ok, changed, skipped, failed := task.counts()
+	counts := fmt.Sprintf(
+		"[%s]OK: %02d[-], [%s]Chgd: %02d[-], [%s]Skip: %02d[-], [%s]Fail: %02d[-]",
+		colorTag(outcomeOK), ok, colorTag(outcomeChanged), changed,
+		colorTag(outcomeSkipped), skipped, colorTag(outcomeFailed), failed,
+	)
+	countsWidth := tview.TaggedStringWidth(counts)
+
+	availContent := avail - len(taskIndent)
+	if availContent < 0 {
+		availContent = 0
+	}
+
+	const gap = 1 // minimum space between title and counts
+	targetTitleWidth := availContent - gap - countsWidth
+	if targetTitleWidth < 0 {
+		targetTitleWidth = 0
+	}
+
+	rawTitle := "TASK: " + task.Name
+	titleRunes := []rune(rawTitle)
+	var title string
+	switch {
+	case len(titleRunes) <= targetTitleWidth:
+		title = rawTitle
+	case targetTitleWidth > 1:
+		title = string(titleRunes[:targetTitleWidth-1]) + "…"
+	default:
+		title = ""
+	}
+	// Escape only after truncating the raw text, so slicing can never cut
+	// into an escape sequence Escape() would otherwise have produced.
+	title = tview.Escape(title)
+
+	padding := availContent - tview.TaggedStringWidth(title) - countsWidth
+	if padding < 1 {
+		padding = 1
+	}
+
+	return taskIndent + title + strings.Repeat(" ", padding) + counts
+}
+
+// hostLabel builds one host row's text, colored uniformly by its single
+// outcome. No width-based truncation/alignment applies here - that rule is
+// TASK-row-specific per TUI.md.
 func hostLabel(task *taskNode, host string) string {
-	return fmt.Sprintf("%s: %s", host, task.Hosts[host])
+	o := task.Hosts[host]
+	return fmt.Sprintf("[%s]%s: %s[-]", colorTag(o), tview.Escape(host), o)
 }
