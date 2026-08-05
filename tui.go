@@ -68,11 +68,14 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int) [
 // this function only reads processDone and only writes quitting.
 func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, processDone, quitting *atomic.Bool) (app *tview.Application, applyLive func(rawEvent)) {
 	list := tview.NewList().ShowSecondaryText(false)
+	list.SetWrapAround(false)
 
 	expanded := map[*taskNode]bool{}
 	var currentRows []row
 	var currentID any
 	var rebuilding bool
+	following := true    // auto-follow the newest row until the user navigates away
+	var jumpingToEnd bool // true only while our own End/G handler drives SetCurrentItem
 
 	var rebuild func()
 	rebuild = func() {
@@ -104,6 +107,13 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		if list.GetItemCount() == 0 {
 			return
 		}
+		if following {
+			// Keep pinned to the newest row; currentID is intentionally
+			// left stale here - it's never read while following, and gets
+			// refreshed the instant a genuine navigation disengages it.
+			list.SetCurrentItem(list.GetItemCount() - 1)
+			return
+		}
 		for i, r := range currentRows {
 			if r.id == currentID {
 				list.SetCurrentItem(i)
@@ -124,6 +134,9 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		if index >= 0 && index < len(currentRows) {
 			currentID = currentRows[index].id
 		}
+		if !jumpingToEnd {
+			following = false
+		}
 	})
 
 	state.OnPlayAdded = func(*playNode) { rebuild() }
@@ -133,7 +146,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	topBar := tview.NewTextView().SetText(fmt.Sprintf(" %s ", playbookName))
 	topBar.SetTextStyle(reverseStyle)
 
-	bottomBar := tview.NewTextView().SetText(" ↑/↓ navigate  enter: expand/collapse  q: quit ")
+	bottomBar := tview.NewTextView().SetText(" ↑/↓ navigate  home/end/G: top/bottom  enter: expand/collapse  q: quit ")
 	bottomBar.SetTextStyle(reverseStyle)
 
 	flex := tview.NewFlex().
@@ -147,16 +160,29 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		isQuit := event.Key() == tcell.KeyCtrlC ||
 			(event.Key() == tcell.KeyRune && event.Rune() == 'q')
-		if !isQuit {
-			return event
+		if isQuit {
+			if processDone.Load() {
+				quitting.Store(true) // before Stop() - see main.go's race note
+				app.Stop()
+			} else {
+				_ = proc.Signal(os.Interrupt) // best-effort; child may race-exit
+			}
+			return nil
 		}
-		if processDone.Load() {
-			quitting.Store(true) // before Stop() - see main.go's race note
-			app.Stop()
-		} else {
-			_ = proc.Signal(os.Interrupt) // best-effort; child may race-exit
+
+		isJumpToEnd := event.Key() == tcell.KeyEnd ||
+			(event.Key() == tcell.KeyRune && event.Rune() == 'G')
+		if isJumpToEnd {
+			following = true
+			jumpingToEnd = true
+			if list.GetItemCount() > 0 {
+				list.SetCurrentItem(list.GetItemCount() - 1)
+			}
+			jumpingToEnd = false
+			return nil
 		}
-		return nil
+
+		return event
 	})
 
 	applyLive = func(ev rawEvent) {
