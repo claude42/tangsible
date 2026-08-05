@@ -21,7 +21,12 @@ func main() {
 	}
 
 	cmd := exec.Command("ansible-playbook", os.Args[1:]...)
-	cmd.Env = append(os.Environ(), "ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl")
+	cmd.Env = append(os.Environ(),
+		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
+		// Pin compact (single-line) JSON so our line-based scanner can't be
+		// broken by a user's ansible.cfg overriding this to pretty-print.
+		"ANSIBLE_JSON_INDENT=0",
+	)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
