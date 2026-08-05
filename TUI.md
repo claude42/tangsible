@@ -64,7 +64,22 @@ ________________________________________________________________________________
   * If the length of the title plus the length of the "OK: 1, Chgd: 1, Skip: 1, Fail: 0"
     part exceeds the total line length, the title shall be abbreviated
     accordingly.
-
+* Autoscrolling
+  * By default, the view will autoscroll once it has reached the bottom of
+    the window and new elements arrive.
+  * The user can escape from autoscrolling by navigating with the cursor keys
+  * We introduce a couple of new shortcuts
+    * Home key -> jump to the first line
+    * End key as well as 'G' -> jump to the last line
+      * This will also re-enable autoscrolling
+  * Finding from user testing:
+    * When scrolling beyond the upper or lower end of the list the cursor wraps
+      around to the other end - not what I would have expected. Therefore ->
+      remove this functionality
+      * Instead when the user is already at the first line and presses cursor
+        up -> nothing happens
+      * When user is already at the last line and presses cursor down ->
+        nothing happens
 
 ## Open questions / decisions
 
