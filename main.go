@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -46,11 +47,18 @@ func main() {
 
 	stderrDone := make(chan struct{})
 	go streamStderr(stderr, stderrDone)
-	streamEvents(stdout)
+	state := streamEvents(stdout)
 	<-stderrDone
 
-	if err := cmd.Wait(); err != nil {
-		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", err)
+	waitErr := cmd.Wait()
+
+	if err := RunTUI(state, filepath.Base(os.Args[1])); err != nil {
+		fmt.Fprintln(os.Stderr, "TUI error:", err)
+		os.Exit(1)
+	}
+
+	if waitErr != nil {
+		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", waitErr)
 		os.Exit(1)
 	}
 }
@@ -63,11 +71,9 @@ func streamStderr(r io.Reader, done chan struct{}) {
 	}
 }
 
-// streamEvents reads one JSON object per line from r, feeds it into the
-// play/task/host aggregator, and reprints the whole current tree after each
-// event — so the terminal scrollback shows the model's progression live,
-// while the playbook is still running, rather than all at once at the end.
-func streamEvents(r io.Reader) {
+// streamEvents reads one JSON object per line from r and feeds it into the
+// play/task/host aggregator, returning the final state once r is exhausted.
+func streamEvents(r io.Reader) *playbookState {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -87,9 +93,6 @@ func streamEvents(r io.Reader) {
 
 		state.Apply(ev)
 
-		fmt.Println("----")
-		Render(os.Stdout, state)
-
 		if ev.Event == "v2_playbook_on_stats" {
 			var stats struct {
 				Stats map[string]interface{} `json:"stats"`
@@ -103,4 +106,5 @@ func streamEvents(r io.Reader) {
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "error reading ansible-playbook output:", err)
 	}
+	return state
 }
