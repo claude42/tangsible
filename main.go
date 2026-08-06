@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,30 @@ import (
 	"strings"
 	"sync/atomic"
 )
+
+// ansibleUserInterruptedExitCode is ansible-playbook's documented exit code
+// for "user interrupted execution" (its own CLI exit-code table). In
+// Tangsible specifically, the only source of SIGINT to the child is our own
+// SetInputCapture handler (tcell's raw mode disables the OS's normal
+// Ctrl-C-to-SIGINT delivery) - so this code unambiguously means "the user
+// asked us to stop this run," never a signal from anywhere else.
+const ansibleUserInterruptedExitCode = 99
+
+// exitCodeOf extracts ansible-playbook's process exit code from the error
+// returned by cmd.Wait(), or 0 if it exited cleanly. Returns -1 for a
+// non-ExitError failure from Wait() itself (e.g. an I/O error) - not a real
+// exit code, but distinct from every real one (0-255), so it never
+// accidentally matches ansibleUserInterruptedExitCode or 0.
+func exitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -45,13 +70,15 @@ func main() {
 
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
-	app, applyLive := NewLiveTUI(state, filepath.Base(os.Args[1]), cmd.Process, &processDone, &quitting)
+	var exitCode atomic.Int32
+	app, applyLive := NewLiveTUI(state, filepath.Base(os.Args[1]), cmd.Process, &processDone, &quitting, &exitCode)
 
 	stderrLines := make(chan []string, 1)
 	go func() { stderrLines <- streamStderr(stderr) }()
 
 	type runResult struct {
 		waitErr     error
+		exitCode    int
 		childStderr []string
 		diagnostics []string
 	}
@@ -60,7 +87,13 @@ func main() {
 		diagnostics := streamEvents(stdout, applyLive, &quitting)
 		childStderr := <-stderrLines // wait for stderr to fully drain before Wait()
 		waitErr := cmd.Wait()
-		resultCh <- runResult{waitErr: waitErr, childStderr: childStderr, diagnostics: diagnostics}
+		code := exitCodeOf(waitErr)
+		exitCode.Store(int32(code)) // before processDone below - tui.go's
+		// rebuild() only ever reads exitCode once it observes processDone
+		// true, and Go's atomics are sequentially consistent as a whole
+		// program (not just per-variable), so this ordering is what makes
+		// that store visible there.
+		resultCh <- runResult{waitErr: waitErr, exitCode: code, childStderr: childStderr, diagnostics: diagnostics}
 		processDone.Store(true)
 	}()
 
@@ -69,8 +102,14 @@ func main() {
 	// returns for a reason other than our own Stop()
 
 	result := <-resultCh
-	for _, l := range result.childStderr {
-		fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+
+	// A 99 exit means the user asked us (via q/Ctrl-C) to interrupt the run
+	// - not a failure. Suppress the two lines that would otherwise read
+	// like an error report for something the user deliberately did.
+	if result.exitCode != ansibleUserInterruptedExitCode {
+		for _, l := range result.childStderr {
+			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+		}
 	}
 	for _, l := range result.diagnostics {
 		fmt.Println(l)
@@ -80,10 +119,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "TUI error:", runErr)
 		os.Exit(1)
 	}
-	if result.waitErr != nil {
+	if result.waitErr != nil && result.exitCode != ansibleUserInterruptedExitCode {
 		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", result.waitErr)
 		os.Exit(1)
 	}
+	// A user-interrupted run (exit 99) falls through to a normal return
+	// (implicit exit code 0) - it followed the user's own request, not an
+	// error in Tangsible or in the playbook.
 }
 
 // streamStderr collects the child's stderr lines instead of printing them

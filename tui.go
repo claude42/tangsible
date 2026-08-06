@@ -60,6 +60,29 @@ type hostRowID struct {
 	host string
 }
 
+// statusRowID/statusDividerRowID identify the trailing status rows rebuild()
+// appends once the run has finished (see statusRowText) - given explicit
+// non-nil ids rather than leaving the divider row's id as the implicit zero
+// value, so nothing relies on "no other row's id is ever nil" holding by
+// coincidence.
+type statusRowID struct{}
+type statusDividerRowID struct{}
+
+// statusRowText returns the inline status line to append below the last
+// task row once the run has finished, or "" for any code this deliberately
+// doesn't speak for (genuine failures, or a non-ExitError -1) - no extra
+// row at all for those, preserving today's behavior.
+func statusRowText(code int) string {
+	switch code {
+	case 0:
+		return "[green]Playbook completed successfully[-]"
+	case ansibleUserInterruptedExitCode:
+		return "[red]Playbook stopped, press q again to quit tangsible.[-]"
+	default:
+		return ""
+	}
+}
+
 // flattenRows walks state's play/task/host tree into an ordered row list,
 // respecting which tasks are currently expanded. Rebuilt fresh on every
 // event - cheap at this project's target scale (~10 hosts, Purpose.md), and
@@ -119,7 +142,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, a
 // receiving the interrupt it used to get for free — see Purpose.md's
 // Ctrl-C decision). processDone/quitting are shared with the caller:
 // this function only reads processDone and only writes quitting.
-func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, processDone, quitting *atomic.Bool) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, processDone, quitting *atomic.Bool, exitCode *atomic.Int32) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -216,6 +239,14 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		}
 
 		currentRows = flattenRows(state, expanded, width, activeTask, now, showOutput)
+		if frozen {
+			if text := statusRowText(int(exitCode.Load())); text != "" {
+				currentRows = append(currentRows,
+					row{text: "", id: statusDividerRowID{}},
+					row{text: text, id: statusRowID{}},
+				)
+			}
+		}
 		list.Clear()
 		for _, r := range currentRows {
 			r := r
