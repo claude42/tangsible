@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -34,8 +35,10 @@ type hostRowID struct {
 // avoids needing to incrementally patch a tree structure by hand.
 //
 // width is the list's current available width (see rebuild), used to
-// right-align each TASK row's counts segment (see taskLabel).
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int) []row {
+// right-align each TASK row's counts segment (see taskLabel). showOutput is
+// called when a host row is selected (Enter), to display that host's full
+// result for that task.
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, showOutput func(task *taskNode, host string)) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		rows = append(rows, row{text: fmt.Sprintf("PLAY: %s", play.Name), id: play})
@@ -48,7 +51,12 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int) [
 			})
 			if expanded[t] {
 				for _, host := range t.HostOrder {
-					rows = append(rows, row{text: "    " + hostLabel(t, host), id: hostRowID{t, host}})
+					h := host
+					rows = append(rows, row{
+						text:     "    " + hostLabel(t, h),
+						id:       hostRowID{t, h},
+						selected: func() { showOutput(t, h) },
+					})
 				}
 			}
 		}
@@ -74,8 +82,57 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	var currentRows []row
 	var currentID any
 	var rebuilding bool
-	following := true    // auto-follow the newest row until the user navigates away
-	var jumpingToEnd bool // true only while our own End/G handler drives SetCurrentItem
+	following := true     // auto-follow the newest row until the user navigates away
+	var jumpingToEnd bool  // true only while our own End/G handler drives SetCurrentItem
+	var viewingOutput bool // true while the host-output page is frontmost; see
+	// SetInputCapture below - suppresses the list's own End/'G' handling so
+	// it doesn't swallow the output TextView's native End/'G' scrolling. A
+	// plain locally-owned bool, not a pages.GetFrontPage() query, since this
+	// function owns both places that ever switch pages.
+
+	// Output drill-down page: a single, reused TextView (never recreated
+	// per drill-down), updated via SetText each time a host row is
+	// selected. styleTags stays off (tview's default) so raw command
+	// output can go straight into SetText with no tview.Escape() and no
+	// risk of it being misparsed as color tags.
+	outputView := tview.NewTextView()
+	outputView.SetDynamicColors(false) // explicit, though already the
+	// default - self-documents that "no tag parsing" is deliberate here,
+	// not an oversight, given raw command output goes straight into it.
+
+	outputTopBar := tview.NewTextView()
+	outputTopBar.SetTextStyle(reverseStyle)
+
+	outputBottomBar := tview.NewTextView().SetText(" ↑/↓ or j/k/h/l scroll  g/home top  G/end bottom  esc/enter: back ")
+	outputBottomBar.SetTextStyle(reverseStyle)
+
+	outputFlex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(outputTopBar, 1, 0, false).
+		AddItem(outputView, 0, 1, true).
+		AddItem(outputBottomBar, 1, 0, false)
+
+	pages := tview.NewPages()
+
+	showOutput := func(task *taskNode, host string) {
+		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
+		outputView.SetText(formatHostOutput(task, host))
+		// SetText does not reset scroll position (lineOffset/trackEnd) -
+		// without this, reopening a different host's output right after
+		// scrolling through a previous one would open already scrolled to
+		// the old position, potentially hiding the new content entirely.
+		outputView.ScrollToBeginning()
+		viewingOutput = true
+		pages.SwitchToPage("output")
+	}
+
+	outputView.SetDoneFunc(func(tcell.Key) {
+		// Fires on Escape, Enter, Tab, or Backtab (TextView's fixed set of
+		// "done" keys). Tab/Backtab also backing out is a harmless side
+		// effect, not a real concern.
+		viewingOutput = false
+		pages.SwitchToPage("main")
+	})
 
 	var rebuild func()
 	rebuild = func() {
@@ -91,7 +148,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		if width < 20 {
 			width = 20
 		}
-		currentRows = flattenRows(state, expanded, width)
+		currentRows = flattenRows(state, expanded, width, showOutput)
 		list.Clear()
 		for _, r := range currentRows {
 			r := r
@@ -146,7 +203,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	topBar := tview.NewTextView().SetText(fmt.Sprintf(" %s ", playbookName))
 	topBar.SetTextStyle(reverseStyle)
 
-	bottomBar := tview.NewTextView().SetText(" ↑/↓ navigate  home/end/G: top/bottom  enter: expand/collapse  q: quit ")
+	bottomBar := tview.NewTextView().SetText(" ↑/↓ navigate  home/end/G: top/bottom  enter: expand/view output  q: quit ")
 	bottomBar.SetTextStyle(reverseStyle)
 
 	flex := tview.NewFlex().
@@ -155,7 +212,10 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		AddItem(list, 0, 1, true).
 		AddItem(bottomBar, 1, 0, false)
 
-	app = tview.NewApplication().SetRoot(flex, true)
+	pages.AddPage("main", flex, true, true)
+	pages.AddPage("output", outputFlex, true, false)
+
+	app = tview.NewApplication().SetRoot(pages, true)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		isQuit := event.Key() == tcell.KeyCtrlC ||
@@ -172,7 +232,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 		isJumpToEnd := event.Key() == tcell.KeyEnd ||
 			(event.Key() == tcell.KeyRune && event.Rune() == 'G')
-		if isJumpToEnd {
+		if isJumpToEnd && !viewingOutput {
 			following = true
 			jumpingToEnd = true
 			if list.GetItemCount() > 0 {
@@ -181,6 +241,10 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			jumpingToEnd = false
 			return nil
 		}
+		// While viewingOutput, End/'G' fall through unmodified so the output
+		// TextView's own native End/'G' scroll-to-bottom handling gets them
+		// instead - rebuild() keeps updating the hidden list regardless of
+		// which page is frontmost, so nothing about the list's state is lost.
 
 		return event
 	})
@@ -408,4 +472,52 @@ func taskLabel(task *taskNode, allHosts []string, avail int) string {
 func hostLabel(task *taskNode, host string) string {
 	o := task.Hosts[host]
 	return fmt.Sprintf("[%s]%s: %s[-]", colorTag(o), tview.Escape(host), o)
+}
+
+// formatHostOutput renders task.Raw[host] for the output drill-down view.
+// It decodes into a generic map (not a fixed struct) since different
+// Ansible modules return wildly different result shapes; msg/stdout/stderr
+// are pulled out as labeled, human-readable sections (real newlines, no
+// escaping needed - the output TextView keeps style tags off) since those
+// are by far the most commonly wanted fields for the common
+// command/shell/script case, followed unconditionally by the complete
+// result as pretty-printed JSON, which is what makes this work for any
+// module type without having to special-case each one.
+func formatHostOutput(task *taskNode, host string) string {
+	raw := task.Raw[host]
+	if len(raw) == 0 {
+		// Shouldn't happen in normal operation - every host recorded via
+		// recordHost always has some raw payload - but a live jsonl stream
+		// from an external process isn't something to trust blindly, so
+		// degrade gracefully rather than showing a blank screen.
+		return fmt.Sprintf("(no output recorded for %s)", host)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		// Not a JSON object - shouldn't happen for any real module
+		// result, but show the raw bytes rather than nothing.
+		return string(raw)
+	}
+
+	var b strings.Builder
+	writeSection := func(label, key string) {
+		s, ok := decoded[key].(string)
+		if !ok || s == "" {
+			return
+		}
+		fmt.Fprintf(&b, "%s:\n%s\n\n", label, s)
+	}
+	writeSection("MSG", "msg")
+	writeSection("STDOUT", "stdout")
+	writeSection("STDERR", "stderr")
+
+	pretty, err := json.MarshalIndent(decoded, "", "  ")
+	if err != nil {
+		fmt.Fprintf(&b, "FULL RESULT: (failed to format: %v)\n%s", err, string(raw))
+	} else {
+		fmt.Fprintf(&b, "FULL RESULT:\n%s", pretty)
+	}
+
+	return b.String()
 }

@@ -1,6 +1,9 @@
 package main
 
-import "sort"
+import (
+	"encoding/json"
+	"sort"
+)
 
 // outcome is a host's result for one task.
 type outcome int
@@ -34,13 +37,19 @@ type taskNode struct {
 	Name      string
 	HostOrder []string
 	Hosts     map[string]outcome
+	// Raw holds each host's full original result payload for this task,
+	// parallel to Hosts - populated alongside it in record, read by
+	// tui.go's showOutput on demand. Never formatted here; formatting is
+	// a UI concern (see tui.go).
+	Raw map[string]json.RawMessage
 }
 
-func (t *taskNode) record(host string, o outcome) {
+func (t *taskNode) record(host string, o outcome, raw json.RawMessage) {
 	if _, seen := t.Hosts[host]; !seen {
 		t.HostOrder = append(t.HostOrder, host)
 	}
 	t.Hosts[host] = o
+	t.Raw[host] = raw
 }
 
 func (t *taskNode) counts() (ok, changed, skipped, failed, unreachable int) {
@@ -121,7 +130,11 @@ func (s *playbookState) Apply(ev rawEvent) {
 			}
 		}
 		if ev.Task != nil {
-			s.currentTask = &taskNode{Name: ev.Task.Name, Hosts: map[string]outcome{}}
+			s.currentTask = &taskNode{
+				Name:  ev.Task.Name,
+				Hosts: map[string]outcome{},
+				Raw:   map[string]json.RawMessage{},
+			}
 			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
 			if s.OnTaskAdded != nil {
 				s.OnTaskAdded(s.currentPlay, s.currentTask)
@@ -129,36 +142,37 @@ func (s *playbookState) Apply(ev rawEvent) {
 		}
 
 	case "v2_runner_on_ok":
-		for host, r := range ev.Hosts {
+		for host, raw := range ev.Hosts {
+			r := decodeHostResult(raw)
 			o := outcomeOK
 			if r.Changed {
 				o = outcomeChanged
 			}
-			s.recordHost(host, o)
+			s.recordHost(host, o, raw)
 		}
 
 	case "v2_runner_on_skipped":
-		for host := range ev.Hosts {
-			s.recordHost(host, outcomeSkipped)
+		for host, raw := range ev.Hosts {
+			s.recordHost(host, outcomeSkipped, raw)
 		}
 
 	case "v2_runner_on_failed":
-		for host := range ev.Hosts {
-			s.recordHost(host, outcomeFailed)
+		for host, raw := range ev.Hosts {
+			s.recordHost(host, outcomeFailed, raw)
 		}
 
 	case "v2_runner_on_unreachable":
-		for host := range ev.Hosts {
-			s.recordHost(host, outcomeUnreachable)
+		for host, raw := range ev.Hosts {
+			s.recordHost(host, outcomeUnreachable, raw)
 		}
 	}
 }
 
-func (s *playbookState) recordHost(host string, o outcome) {
+func (s *playbookState) recordHost(host string, o outcome, raw json.RawMessage) {
 	if s.currentTask == nil {
 		return
 	}
-	s.currentTask.record(host, o)
+	s.currentTask.record(host, o, raw)
 	s.noteHost(host)
 	if s.OnHostRecorded != nil {
 		s.OnHostRecorded(s.currentTask, host)
