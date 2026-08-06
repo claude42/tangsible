@@ -106,6 +106,16 @@ type playbookState struct {
 	// been discovered.
 	AllHosts []string
 
+	// HadUnreachable is true once any host has been recorded as
+	// outcomeUnreachable, at any point in this run - run-wide, once true,
+	// never cleared, like AllHosts. Exists so main.go can disambiguate
+	// ansible-playbook's own overloaded exit code 4 (ansible-core's own
+	// ExitCode enum assigns 4 to both HOST_UNREACHABLE and PARSER_ERROR,
+	// with its own "FIXME: conflicts" comment) using evidence Tangsible
+	// independently observed via the real v2_runner_on_unreachable event
+	// stream, rather than trusting the exit code alone.
+	HadUnreachable bool
+
 	pendingPlayName string
 	currentPlay     *playNode
 	currentTask     *taskNode
@@ -182,6 +192,9 @@ func (s *playbookState) recordHost(host string, o outcome, raw json.RawMessage) 
 	}
 	s.currentTask.record(host, o, raw)
 	s.noteHost(host)
+	if o == outcomeUnreachable {
+		s.HadUnreachable = true
+	}
 	if s.OnHostRecorded != nil {
 		s.OnHostRecorded(s.currentTask, host)
 	}

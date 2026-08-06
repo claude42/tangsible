@@ -71,12 +71,17 @@ type statusDividerRowID struct{}
 // statusRowText returns the inline status line to append below the last
 // task row once the run has finished, or "" for any code this deliberately
 // doesn't speak for (genuine failures, or a non-ExitError -1) - no extra
-// row at all for those, preserving today's behavior.
-func statusRowText(code int) string {
-	switch code {
-	case 0:
+// row at all for those, preserving today's behavior. hadUnreachable mirrors
+// main.go's benignHostUnreachable check: exit 4 (ansible-core's own
+// overloaded HOST_UNREACHABLE/PARSER_ERROR value) reads as success here
+// too, once Tangsible has independently observed a real unreachable host
+// this run.
+func statusRowText(code int, hadUnreachable bool) string {
+	benignHostUnreachable := code == 4 && hadUnreachable
+	switch {
+	case code == 0 || benignHostUnreachable:
 		return "[green]Playbook completed successfully[-]"
-	case ansibleUserInterruptedExitCode:
+	case code == ansibleUserInterruptedExitCode:
 		return "[red]Playbook stopped, press q again to quit tangsible.[-]"
 	default:
 		return ""
@@ -240,7 +245,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 		currentRows = flattenRows(state, expanded, width, activeTask, now, showOutput)
 		if frozen {
-			if text := statusRowText(int(exitCode.Load())); text != "" {
+			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
 				currentRows = append(currentRows,
 					row{text: "", id: statusDividerRowID{}},
 					row{text: text, id: statusRowID{}},

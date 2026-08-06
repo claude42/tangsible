@@ -103,6 +103,35 @@ func main() {
 
 	result := <-resultCh
 
+	// benignHostUnreachable: ansible-playbook's exit code 4 is itself
+	// ambiguous - ansible-core's own ExitCode enum assigns 4 to both
+	// HOST_UNREACHABLE and PARSER_ERROR (a static-include syntax error),
+	// with its own "FIXME: conflicts" comment acknowledging this. We only
+	// treat 4 as benign when Tangsible independently observed concrete
+	// evidence explaining it that way: a real v2_runner_on_unreachable
+	// event during this run (state.HadUnreachable, aggregate.go). A static
+	// import/role's syntax error is resolved entirely at parse time, before
+	// any task in any play begins - so HadUnreachable can only become true
+	// after the playbook has already finished parsing without error,
+	// structurally ruling out that fatal cause whenever it's set.
+	//
+	// Read here with no synchronization, deliberately: every write to
+	// state.HadUnreachable happens inside a state.Apply call, and every
+	// state.Apply call - regardless of which goroutine enqueued it via
+	// QueueUpdate/QueueUpdateDraw - executes on whichever goroutine is
+	// running app.Run()'s event loop. Since app.Run() above is called
+	// directly by this goroutine (not spawned with `go`), that goroutine is
+	// this one - so every state.Apply call already happened-before this
+	// line in straightforward program order, the same as any other
+	// sequential self-read. Unlike processDone/quitting/exitCode below
+	// (genuinely written by the separate orchestrator goroutine), no atomic
+	// is needed.
+	//
+	// Deliberately gated on exitCode == 4 specifically, not a general
+	// "anything ever went unreachable" override: e.g. exit 6 (a real host
+	// failure alongside an unreachable one) still reports as today.
+	benignHostUnreachable := result.exitCode == 4 && state.HadUnreachable
+
 	// A 99 exit means the user asked us (via q/Ctrl-C) to interrupt the run
 	// - not a failure. Suppress the two lines that would otherwise read
 	// like an error report for something the user deliberately did.
@@ -119,13 +148,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "TUI error:", runErr)
 		os.Exit(1)
 	}
-	if result.waitErr != nil && result.exitCode != ansibleUserInterruptedExitCode {
+	if result.waitErr != nil && result.exitCode != ansibleUserInterruptedExitCode && !benignHostUnreachable {
 		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", result.waitErr)
 		os.Exit(1)
 	}
-	// A user-interrupted run (exit 99) falls through to a normal return
-	// (implicit exit code 0) - it followed the user's own request, not an
-	// error in Tangsible or in the playbook.
+	// A user-interrupted run (exit 99) or a benign "some host(s) were
+	// unreachable" run (exit 4 with independently-observed evidence) falls
+	// through to a normal return (implicit exit code 0) - neither is a
+	// failure of Tangsible or of the playbook itself.
 }
 
 // streamStderr collects the child's stderr lines instead of printing them
