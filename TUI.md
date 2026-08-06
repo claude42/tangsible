@@ -88,3 +88,59 @@ ________________________________________________________________________________
   now, rather than a dedicated per-task spinner/indicator. May be too
   inconspicuous in practice; revisit once there's something to click
   through.
+
+## New ideas for the task lines
+
+I'm not convinced about my original idea on how to display the task lines -
+especially the part with the OK, Skip, Chgd, Fail. Looking at it for a real
+playbook, it doesn't convey that much information and it's hard to identify
+task where actually something has changed or failed.
+
+Therefore I'm toying around with different ideas on an alternative
+visualization. At first a screen shot and then some explanations
+
+```
+_setup.yml | Hosts: hades, nirvana, mukti | Tags: base_packages | Time: 01:32___
+PLAY: First play
+PLAY: Some play
+  TASK: Some task              abyss artha charon hades moksha mukti nirvana zen
+  TASK: Another task, longer title   abys arth charo hades moksh mukti nirva zen
+PLAY: Next play
+  TASK: Yet another task with an awkwardly long name   ab ar ch ha mo mu nir zen
+
+    hades:   OK
+    nirvana: Changed
+    mukti:   Skipped
+    | Output
+    | From the executed command
+...
+...
+...
+
+
+________________________________________________________________________________
+ up/down navigate; enter: show info; q: exit
+```
+
+### Comments
+
+* Task title is display left aligned, idented - as before
+* The list of all host names is displayed right aligned
+* The color of each host name indicates OK, Skipped, Changed, Fail, Unreachable
+* The order of the hosts should be the same for each task (to make it easier
+  to scan visually). Initally I would sort it alphabetically, maybe we make it
+  configurable later on.
+  * It would be great if hosts for which the task did not run yet are still
+    displayed in grey and then "light up" in the respective colors as soon as
+    respective tasks have been completed.
+* If task name + all the host names (plus add'l 3 spaces between task name
+  and first host name) are longer than the line length, the following
+  algorithm applies
+  * First: shorten task title (minimum 15 characters). If everything fits now -> done
+  * Second: gradually shorten hostnames
+    * Take the longest host name (at the moment) and reduce by one
+    * If everything fits now -> done, otherwise repeat
+  * It is accepted that truncation of hostnames my lead to collisions. This
+    part is only meant for a quick glance. The user can always open the task.
+* Visualization when the task is selected and opened should be the same as
+  before
