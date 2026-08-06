@@ -11,8 +11,29 @@ immediately implemented.
 * Pressing q once seems to only stop ansible-playbook. Tangsible itself only
   stops I press q a second time.
 
+* Once I had saw the behavior that ansible-playbook finished (apparently
+  without problems) but after exiting with q I saw an error message
+
 * A summary page (comparable to what ansible-playbook does) would be nice
 
 * Hide cursor when autoscrolling is active
 
 * Skip PLAY / TASK prefixes, render them in different colors instead
+
+* Need some kind of indicator that more command output is available
+
+# Further Feature ideas
+
+* Filter
+  * All / OK / Skipped / Changed / Failed
+  * Full text
+
+* Re-run
+  * All, Selected tasks, failed tasks
+  * With different hosts
+
+* Progress bar (by analyzing playbook)
+
+* View Play, Task
+
+* --step
