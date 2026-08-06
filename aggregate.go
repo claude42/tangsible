@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"sort"
+	"time"
 )
 
 // outcome is a host's result for one task.
@@ -34,7 +35,13 @@ func (o outcome) String() string {
 }
 
 type taskNode struct {
-	Name      string
+	Name string
+	// StartedAt is from the starting event's own _timestamp
+	// (rawEvent.Timestamp()), not our wall-clock time.Now() at the moment
+	// we process it - "how long has Ansible itself been running this
+	// task." Zero if that timestamp was missing/malformed; tui.go must
+	// never render an elapsed suffix computed against a zero StartedAt.
+	StartedAt time.Time
 	HostOrder []string
 	Hosts     map[string]outcome
 	// Raw holds each host's full original result payload for this task,
@@ -131,9 +138,10 @@ func (s *playbookState) Apply(ev rawEvent) {
 		}
 		if ev.Task != nil {
 			s.currentTask = &taskNode{
-				Name:  ev.Task.Name,
-				Hosts: map[string]outcome{},
-				Raw:   map[string]json.RawMessage{},
+				Name:      ev.Task.Name,
+				StartedAt: ev.Timestamp(),
+				Hosts:     map[string]outcome{},
+				Raw:       map[string]json.RawMessage{},
 			}
 			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
 			if s.OnTaskAdded != nil {
@@ -177,6 +185,19 @@ func (s *playbookState) recordHost(host string, o outcome, raw json.RawMessage) 
 	if s.OnHostRecorded != nil {
 		s.OnHostRecorded(s.currentTask, host)
 	}
+}
+
+// CurrentTask returns the task currently receiving events, or nil before
+// the first task of the run has started. Exposed read-only for tui.go's
+// active-task elapsed timer; Apply/recordHost remain the only code that
+// ever assigns currentTask. Per the linear-strategy assumption already
+// documented above, this stays pointing at the most recently started task
+// even after all its hosts have reported - there's no separate "this task
+// is now done" signal - so a caller-side elapsed timer keeps advancing on
+// that task until either the next task starts or the run finishes.
+// Pre-existing approximation, not something this accessor introduces.
+func (s *playbookState) CurrentTask() *taskNode {
+	return s.currentTask
 }
 
 // noteHost adds host to AllHosts, keeping it sorted, the first time it's

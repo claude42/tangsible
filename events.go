@@ -1,6 +1,9 @@
 package main
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // rawEvent is the subset of the ansible.posix.jsonl event schema this app
 // cares about. Fields we don't need are simply dropped by json.Unmarshal.
@@ -12,6 +15,26 @@ type rawEvent struct {
 	Play  *playRef                   `json:"play"`
 	Task  *taskRef                   `json:"task"`
 	Hosts map[string]json.RawMessage `json:"hosts"`
+
+	// TimestampText is the event's own "_timestamp" (empirically RFC3339
+	// with fractional seconds, e.g. "2026-08-06T12:41:02.439015Z").
+	// Deliberately a plain string, not time.Time: a time.Time field's own
+	// UnmarshalJSON failing on a malformed value would make this whole
+	// struct's json.Unmarshal call return an error, which main.go's
+	// streamEvents treats as "not JSON" and drops the entire event - task
+	// and hosts included - over nothing but a bad timestamp. A string
+	// field can't fail that way; Timestamp() below does the fallible
+	// parsing on demand and swallows any error, same convention as
+	// decodeHostResult.
+	TimestampText string `json:"_timestamp"`
+}
+
+// Timestamp parses TimestampText as RFC3339, returning the zero time.Time
+// if it's missing or malformed. Callers must treat a zero result as
+// "unknown," never as the epoch.
+func (ev rawEvent) Timestamp() time.Time {
+	t, _ := time.Parse(time.RFC3339, ev.TimestampText)
+	return t
 }
 
 type playRef struct {

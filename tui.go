@@ -6,12 +6,43 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
 var reverseStyle = tcell.StyleDefault.Reverse(true)
+
+const spinnerInterval = 200 * time.Millisecond
+
+var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+// minutesSeconds splits d into whole minutes and the remaining seconds
+// (0-59), both floored - shared by the top bar's own elapsed display and
+// taskLabel's active-task elapsed suffix, which are two independent
+// measures (see NewLiveTUI's startedAt vs taskNode.StartedAt) that should
+// at least agree on formatting.
+func minutesSeconds(d time.Duration) (mm, ss int) {
+	return int(d / time.Minute), int(d/time.Second) % 60
+}
+
+// topBarText renders the top bar: playbook name, plus a heartbeat - a
+// spinner frame and total elapsed time since the TUI itself started (our
+// own time.Now(), NOT any event's _timestamp - "has our program been
+// alive/responsive," a different question from any one task's own
+// duration; see taskLabel's activeElapsed). Once frozen, the spinner is
+// dropped entirely (simplicity over cuteness) rather than stuck on an
+// arbitrary frame or swapped for a checkmark. No tview.Escape() needed
+// here - unlike the list, this TextView never enables dynamic color tags.
+func topBarText(playbookName string, elapsed time.Duration, frozen bool) string {
+	mm, ss := minutesSeconds(elapsed)
+	if frozen {
+		return fmt.Sprintf(" %s  %02d:%02d ", playbookName, mm, ss)
+	}
+	frame := spinnerFrames[int(elapsed/spinnerInterval)%len(spinnerFrames)]
+	return fmt.Sprintf(" %s  %c %02d:%02d ", playbookName, frame, mm, ss)
+}
 
 // row is one flattened, currently-visible line in the list: a play, a task,
 // or (if its task is expanded) a host. selected is nil for play/host rows;
@@ -35,17 +66,31 @@ type hostRowID struct {
 // avoids needing to incrementally patch a tree structure by hand.
 //
 // width is the list's current available width (see rebuild), used to
-// right-align each TASK row's counts segment (see taskLabel). showOutput is
-// called when a host row is selected (Enter), to display that host's full
-// result for that task.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, showOutput func(task *taskNode, host string)) []row {
+// right-align each TASK row's counts segment (see taskLabel). activeTask
+// (nil once the run has finished) gets an elapsed-time suffix on its row,
+// computed against now (captured once per rebuild, not per row, so a
+// single pass renders a self-consistent instant). showOutput is called
+// when a host row is selected (Enter), to display that host's full result
+// for that task.
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, now time.Time, showOutput func(task *taskNode, host string)) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		rows = append(rows, row{text: fmt.Sprintf("PLAY: %s", play.Name), id: play})
 		for _, task := range play.Tasks {
 			t := task
+			var activeElapsed *time.Duration
+			if t == activeTask && !t.StartedAt.IsZero() {
+				d := now.Sub(t.StartedAt)
+				if d < 0 {
+					// Defensive: a live external process's reported
+					// timestamp shouldn't be trusted not to ever look
+					// "in the future" relative to our own clock read.
+					d = 0
+				}
+				activeElapsed = &d
+			}
 			rows = append(rows, row{
-				text:     taskLabel(t, state.AllHosts, width),
+				text:     taskLabel(t, state.AllHosts, width, activeElapsed),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -75,6 +120,10 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, s
 // Ctrl-C decision). processDone/quitting are shared with the caller:
 // this function only reads processDone and only writes quitting.
 func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, processDone, quitting *atomic.Bool) (app *tview.Application, applyLive func(rawEvent)) {
+	startedAt := time.Now() // wall-clock the TUI itself came up - see
+	// topBarText's doc comment for why this is deliberately not sourced
+	// from any event.
+
 	list := tview.NewList().ShowSecondaryText(false)
 	list.SetWrapAround(false)
 
@@ -89,6 +138,11 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// it doesn't swallow the output TextView's native End/'G' scrolling. A
 	// plain locally-owned bool, not a pages.GetFrontPage() query, since this
 	// function owns both places that ever switch pages.
+
+	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
+	// now updates it on every call, so it must exist first.
+	topBar := tview.NewTextView().SetText(topBarText(playbookName, 0, false))
+	topBar.SetTextStyle(reverseStyle)
 
 	// Output drill-down page: a single, reused TextView (never recreated
 	// per drill-down), updated via SetText each time a host row is
@@ -139,6 +193,13 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		rebuilding = true
 		defer func() { rebuilding = false }()
 
+		now := time.Now() // captured once per rebuild - shared by the top
+		// bar's elapsed and every row's activeElapsed below, so a single
+		// pass renders a self-consistent instant rather than drifting
+		// per-row/per-call time.Now() reads.
+		frozen := processDone.Load()
+		topBar.SetText(topBarText(playbookName, now.Sub(startedAt), frozen))
+
 		_, _, width, _ := list.GetInnerRect()
 		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
 		// (never 0), and QueueUpdateDraw can't run this closure before
@@ -148,7 +209,13 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		if width < 20 {
 			width = 20
 		}
-		currentRows = flattenRows(state, expanded, width, showOutput)
+
+		var activeTask *taskNode
+		if !frozen {
+			activeTask = state.CurrentTask()
+		}
+
+		currentRows = flattenRows(state, expanded, width, activeTask, now, showOutput)
 		list.Clear()
 		for _, r := range currentRows {
 			r := r
@@ -200,9 +267,6 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	state.OnTaskAdded = func(*playNode, *taskNode) { rebuild() }
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
-	topBar := tview.NewTextView().SetText(fmt.Sprintf(" %s ", playbookName))
-	topBar.SetTextStyle(reverseStyle)
-
 	bottomBar := tview.NewTextView().SetText(" ↑/↓ navigate  home/end/G: top/bottom  enter: expand/view output  q: quit ")
 	bottomBar.SetTextStyle(reverseStyle)
 
@@ -216,6 +280,35 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	pages.AddPage("output", outputFlex, true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true)
+
+	// Top-bar heartbeat ticker - the first self-driven (not event- or
+	// input-triggered) source of QueueUpdateDraw calls in this codebase.
+	// Placed after `app` is assigned: the go statement's happens-before
+	// edge (Go memory model) guarantees this goroutine sees that
+	// assignment - if this were moved earlier in the function, reading
+	// `app` here would be a genuine data race, not just a latency
+	// curiosity, even though the first tick is spinnerInterval away.
+	go func() {
+		ticker := time.NewTicker(spinnerInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			if quitting.Load() {
+				return // mirrors main.go's streamEvents guard: tview's
+				// update queue is a fixed 100-slot buffer nothing drains
+				// once the app has stopped, so a goroutine blocked inside
+				// QueueUpdateDraw past that point hangs forever. Unlike
+				// streamEvents, nothing in main.go waits on this
+				// goroutine, so such a hang wouldn't itself block process
+				// exit - but there's no reason to rely on that.
+			}
+			done := processDone.Load()
+			app.QueueUpdateDraw(rebuild)
+			if done {
+				return // one frozen frame pushed above; stop ticking
+				// rather than redrawing a static screen forever.
+			}
+		}
+	}()
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		isQuit := event.Key() == tcell.KeyCtrlC ||
@@ -342,8 +435,26 @@ const (
 // flattenRows) - a bare resize with no new incoming event won't re-flow
 // existing rows until the next event triggers one. Accepted limitation,
 // not a bug - unchanged from the old taskLabel.
-func taskLabel(task *taskNode, allHosts []string, avail int) string {
+//
+// activeElapsed, when non-nil, is this task's elapsed running time (only
+// ever set for the currently active task - see flattenRows). It renders as
+// a fixed-cost " [MM:SS]" suffix right after the title, reserved from
+// availContent up front, before any of the shrink math below runs - it is
+// never itself a shrink target, unlike the title or hostnames. When nil,
+// this function's behavior is byte-for-byte unchanged from before this
+// suffix existed.
+func taskLabel(task *taskNode, allHosts []string, avail int, activeElapsed *time.Duration) string {
 	availContent := avail - len(taskIndent)
+	if availContent < 0 {
+		availContent = 0
+	}
+
+	var elapsedText string
+	if activeElapsed != nil {
+		mins, secs := minutesSeconds(*activeElapsed)
+		elapsedText = fmt.Sprintf(" [%02d:%02d]", mins, secs)
+	}
+	availContent -= len([]rune(elapsedText))
 	if availContent < 0 {
 		availContent = 0
 	}
@@ -439,9 +550,14 @@ func taskLabel(task *taskNode, allHosts []string, avail int) string {
 	// slicing above can never cut into an escape sequence Escape() would
 	// otherwise have produced.
 	title := tview.Escape(rawTitle)
+	// tview.Escape's own guaranteed-correct handling of "[...]"-shaped text
+	// applies here too (list rows parse tags, unlike the top bar) - a no-op
+	// when elapsedText == "", so the non-active-task path below is
+	// completely unaffected.
+	elapsed := tview.Escape(elapsedText)
 
 	if !haveHosts {
-		return taskIndent + title
+		return taskIndent + title + elapsed
 	}
 
 	// The actual rendered gap is whatever's really left over once title and
@@ -463,7 +579,7 @@ func taskLabel(task *taskNode, allHosts []string, avail int) string {
 		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(string(hostRunes[i])))
 	}
 
-	return taskIndent + title + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
+	return taskIndent + title + elapsed + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
 }
 
 // hostLabel builds one host row's text, colored uniformly by its single
