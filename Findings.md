@@ -22,6 +22,8 @@ immediately implemented.
 
 * Need some kind of indicator that more command output is available
 
+* Need concept on how / when to display stderr output
+
 # Further Feature ideas
 
 * Filter
@@ -36,4 +38,7 @@ immediately implemented.
 
 * View Play, Task
 
-* --step
+* --step, --check, --diff
+
+* Interactive input (passwords)
+
