@@ -1,0 +1,11 @@
+# Two tasks with a short per-host delay, meant to be run with --forks 1 so
+# hosts complete strictly one at a time - gives an observable window to see
+# the second task's row start fully grey (inherited from task one's
+# AllHosts) and light up host-by-host.
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: step one
+      command: sleep 1
+    - name: step two
+      command: sleep 1

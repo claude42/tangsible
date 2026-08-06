@@ -1,7 +1,8 @@
 package main
 
-// outcome is a host's result for one task. unreachable hosts fold into
-// outcomeFailed for now — see TUI.md.
+import "sort"
+
+// outcome is a host's result for one task.
 type outcome int
 
 const (
@@ -9,6 +10,7 @@ const (
 	outcomeChanged
 	outcomeSkipped
 	outcomeFailed
+	outcomeUnreachable
 )
 
 func (o outcome) String() string {
@@ -21,6 +23,8 @@ func (o outcome) String() string {
 		return "Skipped"
 	case outcomeFailed:
 		return "Failed"
+	case outcomeUnreachable:
+		return "Unreachable"
 	default:
 		return "?"
 	}
@@ -39,7 +43,7 @@ func (t *taskNode) record(host string, o outcome) {
 	t.Hosts[host] = o
 }
 
-func (t *taskNode) counts() (ok, changed, skipped, failed int) {
+func (t *taskNode) counts() (ok, changed, skipped, failed, unreachable int) {
 	for _, o := range t.Hosts {
 		switch o {
 		case outcomeOK:
@@ -50,6 +54,8 @@ func (t *taskNode) counts() (ok, changed, skipped, failed int) {
 			skipped++
 		case outcomeFailed:
 			failed++
+		case outcomeUnreachable:
+			unreachable++
 		}
 	}
 	return
@@ -71,6 +77,18 @@ type playNode struct {
 // concurrent data structure.
 type playbookState struct {
 	Plays []*playNode
+
+	// AllHosts is the run-wide, alphabetically-sorted set of hosts that have
+	// reported anything, for any task, so far this run. It only ever grows.
+	// tui.go's taskLabel uses it to show every known host on every task's
+	// collapsed row (grey if this specific task hasn't recorded a result
+	// for it yet) instead of only the hosts each task has itself heard
+	// from — see TUI.md's "New ideas for the task lines". There's no
+	// upstream event that reveals a task's target hosts before its first
+	// result, so a task's very first appearance in a run necessarily starts
+	// this list from empty; every later task inherits whatever's already
+	// been discovered.
+	AllHosts []string
 
 	pendingPlayName string
 	currentPlay     *playNode
@@ -124,9 +142,14 @@ func (s *playbookState) Apply(ev rawEvent) {
 			s.recordHost(host, outcomeSkipped)
 		}
 
-	case "v2_runner_on_failed", "v2_runner_on_unreachable":
+	case "v2_runner_on_failed":
 		for host := range ev.Hosts {
 			s.recordHost(host, outcomeFailed)
+		}
+
+	case "v2_runner_on_unreachable":
+		for host := range ev.Hosts {
+			s.recordHost(host, outcomeUnreachable)
 		}
 	}
 }
@@ -136,7 +159,23 @@ func (s *playbookState) recordHost(host string, o outcome) {
 		return
 	}
 	s.currentTask.record(host, o)
+	s.noteHost(host)
 	if s.OnHostRecorded != nil {
 		s.OnHostRecorded(s.currentTask, host)
 	}
+}
+
+// noteHost adds host to AllHosts, keeping it sorted, the first time it's
+// seen run-wide (across any task). A plain linear scan plus an unconditional
+// re-sort on every new host is dead simple and more than fast enough at this
+// project's explicit ~10-host target scale (Purpose.md) — not worth a
+// membership map or an insertion-sort for that size.
+func (s *playbookState) noteHost(host string) {
+	for _, h := range s.AllHosts {
+		if h == host {
+			return
+		}
+	}
+	s.AllHosts = append(s.AllHosts, host)
+	sort.Strings(s.AllHosts)
 }

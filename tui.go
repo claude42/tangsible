@@ -42,7 +42,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int) [
 		for _, task := range play.Tasks {
 			t := task
 			rows = append(rows, row{
-				text:     taskLabel(t, width),
+				text:     taskLabel(t, state.AllHosts, width),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -209,67 +209,197 @@ func colorTag(o outcome) string {
 		return "teal"
 	case outcomeFailed:
 		return "red"
+	case outcomeUnreachable:
+		return "maroon" // deliberately muted vs "red" - see TUI.md; both are
+		// base ANSI-16 names (index 9 vs 1), not RGB-approximated extended
+		// W3C names, so they stay reliably distinct across terminal themes.
 	default:
 		return "-"
 	}
 }
 
+const (
+	taskPrefix = "TASK: "
+
+	// minTaskTitleName is TUI.md's "minimum 15 characters" floor, applied to
+	// task.Name's own text (the part after the "TASK: " label - what a user
+	// would actually call "the title"), not the rendered "TASK: "+name
+	// string as a whole.
+	minTaskTitleName = 15
+
+	// titleHostGapFloor is the minimum acceptable breathing room between the
+	// title and the first host name, per TUI.md - used only to decide
+	// *whether* shrinking is needed and *how far* to shrink the title. The
+	// gap actually rendered (see taskLabel) is whatever's left over once
+	// title and hosts are sized, which is normally >= this - true
+	// right-alignment, matching TUI.md's own sketch, not a fixed 3 spaces.
+	titleHostGapFloor = 3
+
+	// minRenderedGap is the hard floor on the space actually rendered
+	// between title and hosts. Only reached once the title (floored at 15
+	// chars) and every hostname (floored at 1 char each) still don't leave
+	// titleHostGapFloor of room - a pathologically narrow, accepted overflow
+	// case (same style as aggregate.go's noteHost comment and this file's
+	// width-staleness note below), not engineered away further.
+	minRenderedGap = 1
+
+	grayTag = "gray" // placeholder color for a host AllHosts knows about
+	// run-wide but that hasn't reported for *this* task yet.
+)
+
 // taskLabel builds one TASK row's full text, including its leading indent.
-// Per TUI.md, the "OK: 01, Chgd: 01, Skip: 01, Fail: 00" counts segment is
-// right-aligned to the far right of avail (the row's full available width,
-// e.g. straight from the list's GetInnerRect); the title is truncated with
-// an ellipsis if title+counts wouldn't otherwise fit, down to an empty
-// title in the extreme case where even that doesn't help.
+// Per TUI.md's "New ideas for the task lines", every host in allHosts (the
+// run-wide, alphabetically-sorted set of hosts seen so far - see
+// playbookState.AllHosts) is shown right-aligned after the task title, each
+// colored by its outcome for this specific task, or gray if this task
+// hasn't recorded a result for it yet. If allHosts is empty (nothing has
+// been discovered run-wide yet - always true right up until the first
+// result of the run lands, for whichever task that turns out to be), the
+// row is just the title, with no trailing gap or content.
+//
+// Fitting/shrinking happens entirely in plain, untagged rune space (raw task
+// name, raw host names) and only wraps the final, already-correctly-sized
+// pieces in color tags and tview.Escape() once, at the end - avoids repeated
+// tview.TaggedStringWidth calls inside what can otherwise be a
+// multi-iteration shrink loop, and mirrors the truncate-raw-then-escape
+// discipline the old counts-based taskLabel already used.
+//
+// Per TUI.md: if title+gap+hosts doesn't fit, first the title's own name
+// text is shortened (down to a 15-rune floor, or its own natural length if
+// that's already shorter); if that alone isn't enough, hostnames are
+// gradually shortened next - always the currently-longest one, one
+// character at a time, down to a 1-character floor each. Truncation
+// collisions between hostnames are an accepted, known tradeoff (TUI.md) -
+// not solved here. Hostname truncation has no ellipsis marker (per TUI.md's
+// own example); title truncation keeps the old "…" convention, since
+// TUI.md says the title's rendering is otherwise unchanged ("as before").
 //
 // avail reflects the terminal size as of the last rebuild (see
-// flattenRows) - a bare terminal resize with no new incoming event won't
-// re-flow existing rows until the next event triggers one. Accepted
-// limitation, not a bug.
-//
-// Uses rune count as a proxy for on-screen width when truncating, same as
-// the previous %-40s formatting did - undercounts wide (e.g. CJK)
-// characters in a task name, a pre-existing simplification, not a new gap.
-func taskLabel(task *taskNode, avail int) string {
-	ok, changed, skipped, failed := task.counts()
-	counts := fmt.Sprintf(
-		"[%s]OK: %02d[-], [%s]Chgd: %02d[-], [%s]Skip: %02d[-], [%s]Fail: %02d[-]",
-		colorTag(outcomeOK), ok, colorTag(outcomeChanged), changed,
-		colorTag(outcomeSkipped), skipped, colorTag(outcomeFailed), failed,
-	)
-	countsWidth := tview.TaggedStringWidth(counts)
-
+// flattenRows) - a bare resize with no new incoming event won't re-flow
+// existing rows until the next event triggers one. Accepted limitation,
+// not a bug - unchanged from the old taskLabel.
+func taskLabel(task *taskNode, allHosts []string, avail int) string {
 	availContent := avail - len(taskIndent)
 	if availContent < 0 {
 		availContent = 0
 	}
 
-	const gap = 1 // minimum space between title and counts
-	targetTitleWidth := availContent - gap - countsWidth
-	if targetTitleWidth < 0 {
-		targetTitleWidth = 0
+	nameRunes := []rune(task.Name)
+	nameWidth := len(nameRunes)
+
+	// Per-host raw display text, shrunk (if at all) as independent copies -
+	// never mutates allHosts or its strings.
+	hostRunes := make([][]rune, len(allHosts))
+	for i, h := range allHosts {
+		hostRunes[i] = []rune(h)
+	}
+	hostsWidth := func() int {
+		w := 0
+		for i, hr := range hostRunes {
+			w += len(hr)
+			if i > 0 {
+				w++ // fixed 1-space separator between adjacent host names -
+				// not itself a shrink target per TUI.md's algorithm, which
+				// only calls out the title and the hostnames themselves.
+			}
+		}
+		return w
 	}
 
-	rawTitle := "TASK: " + task.Name
-	titleRunes := []rune(rawTitle)
-	var title string
-	switch {
-	case len(titleRunes) <= targetTitleWidth:
-		title = rawTitle
-	case targetTitleWidth > 1:
-		title = string(titleRunes[:targetTitleWidth-1]) + "…"
-	default:
-		title = ""
-	}
-	// Escape only after truncating the raw text, so slicing can never cut
-	// into an escape sequence Escape() would otherwise have produced.
-	title = tview.Escape(title)
+	haveHosts := len(allHosts) > 0
 
-	padding := availContent - tview.TaggedStringWidth(title) - countsWidth
-	if padding < 1 {
-		padding = 1
+	// fits reports whether the current nameWidth, plus a hypothetical
+	// titleHostGapFloor-sized gap, plus the current host list, would fit -
+	// i.e. "is there at least the minimum acceptable breathing room". Drives
+	// the shrink decisions below; the gap actually rendered (see padding,
+	// at the end) is computed separately, as whatever's really left over.
+	fits := func() bool {
+		need := len(taskPrefix) + nameWidth
+		if haveHosts {
+			need += titleHostGapFloor + hostsWidth()
+		}
+		return need <= availContent
 	}
 
-	return taskIndent + title + strings.Repeat(" ", padding) + counts
+	truncatedName := false
+
+	if !fits() {
+		// Step 1 (TUI.md): shorten the title's own name text, down to a
+		// 15-rune floor (or its own natural length, if that's already
+		// under 15 - the floor only ever shrinks, never pads).
+		floor := nameWidth
+		if floor > minTaskTitleName {
+			floor = minTaskTitleName
+		}
+		need := len(taskPrefix)
+		if haveHosts {
+			need += titleHostGapFloor + hostsWidth()
+		}
+		target := availContent - need
+		if target < floor {
+			target = floor
+		}
+		if target < nameWidth {
+			nameWidth = target
+			truncatedName = true
+		}
+	}
+
+	// Step 2 (TUI.md): if the title, even floored, still doesn't leave
+	// titleHostGapFloor of room before the full host list, gradually shrink
+	// hostnames - always the currently-longest, one character at a time,
+	// down to a 1-character floor each.
+	for !fits() {
+		longest := -1
+		for i, hr := range hostRunes {
+			if len(hr) > 1 && (longest == -1 || len(hr) > len(hostRunes[longest])) {
+				longest = i
+			}
+		}
+		if longest == -1 {
+			// Every hostname is already at its 1-character floor and it
+			// still doesn't fit even alongside a title floored at 15
+			// characters. Accept the overflow (see minRenderedGap).
+			break
+		}
+		hostRunes[longest] = hostRunes[longest][:len(hostRunes[longest])-1]
+	}
+
+	var rawTitle string
+	if truncatedName && nameWidth >= 1 {
+		rawTitle = taskPrefix + string(nameRunes[:nameWidth-1]) + "…"
+	} else {
+		rawTitle = taskPrefix + string(nameRunes[:nameWidth])
+	}
+	// Escape only now that the raw text is already correctly sized, so
+	// slicing above can never cut into an escape sequence Escape() would
+	// otherwise have produced.
+	title := tview.Escape(rawTitle)
+
+	if !haveHosts {
+		return taskIndent + title
+	}
+
+	// The actual rendered gap is whatever's really left over once title and
+	// (possibly-shrunk) hosts are sized - right-aligning the host list to
+	// the row's far edge, same "variable padding, floored low" shape as the
+	// old counts-based taskLabel's own padding math.
+	padding := availContent - tview.TaggedStringWidth(title) - hostsWidth()
+	if padding < minRenderedGap {
+		padding = minRenderedGap
+	}
+
+	hostSegments := make([]string, len(allHosts))
+	for i, h := range allHosts {
+		o, done := task.Hosts[h]
+		tag := grayTag
+		if done {
+			tag = colorTag(o)
+		}
+		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(string(hostRunes[i])))
+	}
+
+	return taskIndent + title + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
 }
 
 // hostLabel builds one host row's text, colored uniformly by its single

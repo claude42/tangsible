@@ -12,9 +12,9 @@ func Render(w io.Writer, s *playbookState) {
 	for _, play := range s.Plays {
 		fmt.Fprintf(w, "PLAY: %s\n", play.Name)
 		for _, task := range play.Tasks {
-			ok, changed, skipped, failed := task.counts()
-			fmt.Fprintf(w, "  TASK: %-40s OK: %d, Chgd: %d, Skip: %d, Fail: %d\n",
-				task.Name, ok, changed, skipped, failed)
+			ok, changed, skipped, failed, unreachable := task.counts()
+			fmt.Fprintf(w, "  TASK: %-40s OK: %d, Chgd: %d, Skip: %d, Fail: %d, Unrch: %d\n",
+				task.Name, ok, changed, skipped, failed, unreachable)
 			for _, host := range task.HostOrder {
 				fmt.Fprintf(w, "    %s: %s\n", host, task.Hosts[host])
 			}
