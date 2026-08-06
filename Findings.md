@@ -1,4 +1,4 @@
-# Random findings from user testing
+# Random findings / ideas from user testing
 
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
@@ -10,3 +10,9 @@ immediately implemented.
 
 * Pressing q once seems to only stop ansible-playbook. Tangsible itself only
   stops I press q a second time.
+
+* A summary page (comparable to what ansible-playbook does) would be nice
+
+* Hide cursor when autoscrolling is active
+
+* Skip PLAY / TASK prefixes, render them in different colors instead
