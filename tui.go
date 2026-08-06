@@ -12,11 +12,21 @@ import (
 	"github.com/rivo/tview"
 )
 
-var reverseStyle = tcell.StyleDefault.Reverse(true)
+// barStyle is used for every non-list chrome bar (top bar, bottom bar, and
+// the output drill-down page's own top/bottom bars) - white on blue, bold.
+var barStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorNavy).Bold(true)
 
 const spinnerInterval = 200 * time.Millisecond
 
 var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+// spinnerAt returns the spinner frame for a given elapsed duration - shared
+// by the top bar's own heartbeat and taskLabel's active-task suffix so both
+// tick the same frame at the same instant when driven from the same elapsed
+// value (see rebuild).
+func spinnerAt(elapsed time.Duration) rune {
+	return spinnerFrames[int(elapsed/spinnerInterval)%len(spinnerFrames)]
+}
 
 // minutesSeconds splits d into whole minutes and the remaining seconds
 // (0-59), both floored - shared by the top bar's own elapsed display and
@@ -31,17 +41,16 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // spinner frame and total elapsed time since the TUI itself started (our
 // own time.Now(), NOT any event's _timestamp - "has our program been
 // alive/responsive," a different question from any one task's own
-// duration; see taskLabel's activeElapsed). Once frozen, the spinner is
-// dropped entirely (simplicity over cuteness) rather than stuck on an
-// arbitrary frame or swapped for a checkmark. No tview.Escape() needed
-// here - unlike the list, this TextView never enables dynamic color tags.
+// duration). Once frozen, the spinner is dropped entirely (simplicity over
+// cuteness) rather than stuck on an arbitrary frame or swapped for a
+// checkmark. No tview.Escape() needed here - unlike the list, this
+// TextView never enables dynamic color tags.
 func topBarText(playbookName string, elapsed time.Duration, frozen bool) string {
 	mm, ss := minutesSeconds(elapsed)
 	if frozen {
 		return fmt.Sprintf(" %s  %02d:%02d ", playbookName, mm, ss)
 	}
-	frame := spinnerFrames[int(elapsed/spinnerInterval)%len(spinnerFrames)]
-	return fmt.Sprintf(" %s  %c %02d:%02d ", playbookName, frame, mm, ss)
+	return fmt.Sprintf(" %s  %c %02d:%02d ", playbookName, spinnerAt(elapsed), mm, ss)
 }
 
 // row is one flattened, currently-visible line in the list: a play, a task,
@@ -95,30 +104,20 @@ func statusRowText(code int, hadUnreachable bool) string {
 //
 // width is the list's current available width (see rebuild), used to
 // right-align each TASK row's counts segment (see taskLabel). activeTask
-// (nil once the run has finished) gets an elapsed-time suffix on its row,
-// computed against now (captured once per rebuild, not per row, so a
-// single pass renders a self-consistent instant). showOutput is called
-// when a host row is selected (Enter), to display that host's full result
-// for that task.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, now time.Time, showOutput func(task *taskNode, host string)) []row {
+// (nil once the run has finished) gets a spinner suffix on its row instead
+// of an elapsed-time readout - frame is the shared spinner frame for this
+// rebuild pass (see spinnerAt), computed once and passed in rather than
+// each row picking its own, so every active indicator in the UI ticks in
+// lockstep. showOutput is called when a host row is selected (Enter), to
+// display that host's full result for that task.
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, frame rune, showOutput func(task *taskNode, host string)) []row {
 	var rows []row
 	for _, play := range state.Plays {
-		rows = append(rows, row{text: fmt.Sprintf("PLAY: %s", play.Name), id: play})
+		rows = append(rows, row{text: playRowText(play, false), id: play})
 		for _, task := range play.Tasks {
 			t := task
-			var activeElapsed *time.Duration
-			if t == activeTask && !t.StartedAt.IsZero() {
-				d := now.Sub(t.StartedAt)
-				if d < 0 {
-					// Defensive: a live external process's reported
-					// timestamp shouldn't be trusted not to ever look
-					// "in the future" relative to our own clock read.
-					d = 0
-				}
-				activeElapsed = &d
-			}
 			rows = append(rows, row{
-				text:     taskLabel(t, state.AllHosts, width, activeElapsed),
+				text:     taskLabel(t, state.AllHosts, width, t == activeTask, frame, false),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -126,7 +125,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, a
 				for _, host := range t.HostOrder {
 					h := host
 					rows = append(rows, row{
-						text:     "    " + hostLabel(t, h),
+						text:     "    " + hostLabel(t, h, false),
 						id:       hostRowID{t, h},
 						selected: func() { showOutput(t, h) },
 					})
@@ -135,6 +134,20 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, a
 		}
 	}
 	return rows
+}
+
+// playRowText builds one PLAY row's text - just the play's name, white and
+// bold normally. selected switches to the cursor-row styling (see
+// taskLabel/hostLabel's own selected parameter and NewLiveTUI's
+// SetSelectedStyle comment for why this can't just be a single uniform
+// List-wide style): black bold text on a light gray background across the
+// whole name.
+func playRowText(play *playNode, selected bool) string {
+	name := tview.Escape(play.Name)
+	if selected {
+		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, name)
+	}
+	return fmt.Sprintf("[white::b]%s[-::-]", name)
 }
 
 // NewLiveTUI builds an initially-empty list UI and wires it to state's
@@ -170,7 +183,18 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
 	topBar := tview.NewTextView().SetText(topBarText(playbookName, 0, false))
-	topBar.SetTextStyle(reverseStyle)
+	topBar.SetTextStyle(barStyle)
+
+	// The cursor row's actual look (black-on-light-gray title, black bold
+	// text on a per-outcome colored background for each hostname - see
+	// playRowText/taskLabel/hostLabel's selected parameter) can't be
+	// expressed as a single style applied uniformly to a row's whole text -
+	// different runs of the same row need different foreground/background
+	// combinations. So List's own automatic per-row highlighting is turned
+	// into a no-op (matching mainTextStyle's own colors exactly) and
+	// rebuild() instead re-renders whichever one row is currently selected
+	// with its own selected=true variant before ever calling AddItem.
+	list.SetSelectedStyle(tcell.StyleDefault.Foreground(tview.Styles.PrimaryTextColor).Background(tview.Styles.PrimitiveBackgroundColor))
 
 	// Output drill-down page: a single, reused TextView (never recreated
 	// per drill-down), updated via SetText each time a host row is
@@ -183,10 +207,10 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// not an oversight, given raw command output goes straight into it.
 
 	outputTopBar := tview.NewTextView()
-	outputTopBar.SetTextStyle(reverseStyle)
+	outputTopBar.SetTextStyle(barStyle)
 
 	outputBottomBar := tview.NewTextView().SetText(" ↑/↓ or j/k/h/l scroll  g/home top  G/end bottom  esc/enter: back ")
-	outputBottomBar.SetTextStyle(reverseStyle)
+	outputBottomBar.SetTextStyle(barStyle)
 
 	outputFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -222,11 +246,12 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		defer func() { rebuilding = false }()
 
 		now := time.Now() // captured once per rebuild - shared by the top
-		// bar's elapsed and every row's activeElapsed below, so a single
-		// pass renders a self-consistent instant rather than drifting
-		// per-row/per-call time.Now() reads.
+		// bar's elapsed/spinner and every active row's spinner below, so a
+		// single pass renders a self-consistent instant rather than
+		// drifting per-row/per-call time.Now() reads.
 		frozen := processDone.Load()
-		topBar.SetText(topBarText(playbookName, now.Sub(startedAt), frozen))
+		elapsed := now.Sub(startedAt)
+		topBar.SetText(topBarText(playbookName, elapsed, frozen))
 
 		_, _, width, _ := list.GetInnerRect()
 		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
@@ -243,7 +268,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			activeTask = state.CurrentTask()
 		}
 
-		currentRows = flattenRows(state, expanded, width, activeTask, now, showOutput)
+		currentRows = flattenRows(state, expanded, width, activeTask, spinnerAt(elapsed), showOutput)
 		if frozen {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
 				currentRows = append(currentRows,
@@ -252,6 +277,49 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 				)
 			}
 		}
+
+		if len(currentRows) == 0 {
+			list.Clear()
+			return
+		}
+
+		// Determine which row the cursor belongs on *before* AddItem, not
+		// after - see the patch step right below, which needs to know this
+		// to re-render that one row's text. following pins to the newest
+		// row; otherwise restore by currentID's identity (row order shifts
+		// as things are appended, so a raw index can't be trusted across
+		// rebuilds), defaulting to 0 if that id no longer exists (shouldn't
+		// happen - nothing is ever removed - but not indexing out of range
+		// if it somehow did).
+		selectedIndex := 0
+		if following {
+			selectedIndex = len(currentRows) - 1
+		} else {
+			for i, r := range currentRows {
+				if r.id == currentID {
+					selectedIndex = i
+					break
+				}
+			}
+		}
+
+		// Re-render just the row under the cursor with its selected
+		// styling (see playRowText/taskLabel/hostLabel's own selected
+		// parameter, and NewLiveTUI's SetSelectedStyle comment for why
+		// this is done here rather than via a single List-wide style).
+		// statusRowID/statusDividerRowID rows have no selected variant and
+		// fall through untouched - they have no selected callback either
+		// (see flattenRows), so the cursor never deliberately lands there
+		// via Enter, only by navigating past them.
+		switch id := currentRows[selectedIndex].id.(type) {
+		case *playNode:
+			currentRows[selectedIndex].text = playRowText(id, true)
+		case *taskNode:
+			currentRows[selectedIndex].text = taskLabel(id, state.AllHosts, width, id == activeTask, spinnerAt(elapsed), true)
+		case hostRowID:
+			currentRows[selectedIndex].text = "    " + hostLabel(id.task, id.host, true)
+		}
+
 		list.Clear()
 		for _, r := range currentRows {
 			r := r
@@ -264,23 +332,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			}
 			list.AddItem(r.text, "", 0, selected)
 		}
-		if list.GetItemCount() == 0 {
-			return
-		}
-		if following {
-			// Keep pinned to the newest row; currentID is intentionally
-			// left stale here - it's never read while following, and gets
-			// refreshed the instant a genuine navigation disengages it.
-			list.SetCurrentItem(list.GetItemCount() - 1)
-			return
-		}
-		for i, r := range currentRows {
-			if r.id == currentID {
-				list.SetCurrentItem(i)
-				return
-			}
-		}
-		list.SetCurrentItem(0)
+		list.SetCurrentItem(selectedIndex)
 	}
 
 	list.SetChangedFunc(func(index int, _ string, _ string, _ rune) {
@@ -288,7 +340,17 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			// List.Clear()+AddItem() fires spurious "changed" events while
 			// rebuild() is repopulating (e.g. as soon as the first item
 			// lands back in the now-empty list) - ignore those, rebuild()
-			// restores the real selection itself once done.
+			// restores the real selection itself once done. This guard is
+			// also what makes the rebuild() call below safe against
+			// reentering itself: SetCurrentItem (tview's list.go) fires
+			// "changed" BEFORE updating its own currentItem, so if this
+			// handler's own rebuild() (via its closing SetCurrentItem call)
+			// cascaded back into this same handler with rebuilding still
+			// false, it would recurse without ever terminating. Since
+			// rebuild() sets rebuilding true for its entire body - Clear(),
+			// every AddItem(), and its own final SetCurrentItem() - any
+			// "changed" event that cascades from within it lands here while
+			// rebuilding is still true and is correctly ignored instead.
 			return
 		}
 		if index >= 0 && index < len(currentRows) {
@@ -297,6 +359,14 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		if !jumpingToEnd {
 			following = false
 		}
+		// A genuine navigation (this is the row's *text*, not just List's
+		// own current-item pointer) now carries the selected-row styling -
+		// see rebuild's selected-row patch - so it must re-render on every
+		// real cursor move, not just when new data arrives or the next
+		// heartbeat tick happens to fire (which stops entirely once the
+		// run is frozen - without this, the highlight would never move at
+		// all after a run finishes).
+		rebuild()
 	})
 
 	state.OnPlayAdded = func(*playNode) { rebuild() }
@@ -304,7 +374,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
 	bottomBar := tview.NewTextView().SetText(" ↑/↓ navigate  home/end/G: top/bottom  enter: expand/view output  q: quit ")
-	bottomBar.SetTextStyle(reverseStyle)
+	bottomBar.SetTextStyle(barStyle)
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -412,13 +482,11 @@ func colorTag(o outcome) string {
 }
 
 const (
-	taskPrefix = "TASK: "
-
-	// minTaskTitleName is TUI.md's "minimum 15 characters" floor, applied to
-	// task.Name's own text (the part after the "TASK: " label - what a user
-	// would actually call "the title"), not the rendered "TASK: "+name
-	// string as a whole.
-	minTaskTitleName = 15
+	// minTaskTitleName is the floor task.Name's own text is shortened to
+	// before hostnames start getting shrunk instead (see taskLabel) - 30
+	// runes, deliberately generous so a title only gives up ground to the
+	// host list once the host list has already been squeezed hard.
+	minTaskTitleName = 30
 
 	// titleHostGapFloor is the minimum acceptable breathing room between the
 	// title and the first host name, per TUI.md - used only to decide
@@ -436,9 +504,34 @@ const (
 	// width-staleness note below), not engineered away further.
 	minRenderedGap = 1
 
+	// halfBlock is U+258C LEFT HALF BLOCK - its filled ("ink") half renders
+	// in the cell's current foreground color, its unfilled half shows the
+	// current background color. Used as a two-tone transition cell between
+	// adjacent hostnames (see taskLabel/hostTransition): foreground = the
+	// previous hostname's own color, background = the next hostname's own
+	// color, so the separator blends from one into the other instead of an
+	// abrupt full-cell change.
+	halfBlock = "▌"
+
 	grayTag = "gray" // placeholder color for a host AllHosts knows about
 	// run-wide but that hasn't reported for *this* task yet.
+
+	// pureBlack is a fixed hex value, not tcell's named "black" - some
+	// terminal themes remap the base-16 ANSI "black" slot to a dark gray
+	// rather than true black (the same base-16-vs-fixed-value trap already
+	// documented for red/maroon, see colorTag). Used for every selected-row
+	// text color, which specifically needs to read as unambiguously black
+	// against the light backgrounds those rows use.
+	pureBlack = "#1a1a1a"
 )
+
+// hostTransition builds the halfBlock separator cell between two adjacent
+// hostnames' color tags - left's color bleeds into right's across that one
+// cell, rather than an abrupt full-cell jump from one solid color to the
+// next.
+func hostTransition(leftTag, rightTag string) string {
+	return fmt.Sprintf("[%s:%s:-]%s[-:-:-]", leftTag, rightTag, halfBlock)
+}
 
 // taskLabel builds one TASK row's full text, including its leading indent.
 // Per TUI.md's "New ideas for the task lines", every host in allHosts (the
@@ -458,7 +551,7 @@ const (
 // discipline the old counts-based taskLabel already used.
 //
 // Per TUI.md: if title+gap+hosts doesn't fit, first the title's own name
-// text is shortened (down to a 15-rune floor, or its own natural length if
+// text is shortened (down to minTaskTitleName, or its own natural length if
 // that's already shorter); if that alone isn't enough, hostnames are
 // gradually shortened next - always the currently-longest one, one
 // character at a time, down to a 1-character floor each. Truncation
@@ -472,25 +565,39 @@ const (
 // existing rows until the next event triggers one. Accepted limitation,
 // not a bug - unchanged from the old taskLabel.
 //
-// activeElapsed, when non-nil, is this task's elapsed running time (only
-// ever set for the currently active task - see flattenRows). It renders as
-// a fixed-cost " [MM:SS]" suffix right after the title, reserved from
+// active marks the currently-executing task (see flattenRows); when true,
+// frame (this rebuild's shared spinner frame - see spinnerAt) renders as a
+// fixed-cost " <frame>" suffix right after the title, reserved from
 // availContent up front, before any of the shrink math below runs - it is
-// never itself a shrink target, unlike the title or hostnames. When nil,
-// this function's behavior is byte-for-byte unchanged from before this
-// suffix existed.
-func taskLabel(task *taskNode, allHosts []string, avail int, activeElapsed *time.Duration) string {
+// never itself a shrink target, unlike the title or hostnames. When active
+// is false, frame is ignored and two blank spaces render in its place
+// instead - the same fixed width is reserved either way specifically so
+// every row's hostnames shrink identically regardless of which task, if
+// any, happens to be active; letting only the active row reserve it made
+// that one row's hostnames truncate slightly more than the others'.
+//
+// selected marks this as the row currently under the cursor (see rebuild's
+// selected-row patch, and NewLiveTUI's SetSelectedStyle comment for why
+// this can't just be a single uniform List-wide style): the title gets
+// black bold text on a light gray background, and each hostname gets black
+// bold text on its own outcome color as a background instead of a
+// foreground - the inverse of the normal rendering below.
+func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame rune, selected bool) string {
 	availContent := avail - len(taskIndent)
 	if availContent < 0 {
 		availContent = 0
 	}
 
-	var elapsedText string
-	if activeElapsed != nil {
-		mins, secs := minutesSeconds(*activeElapsed)
-		elapsedText = fmt.Sprintf(" [%02d:%02d]", mins, secs)
+	// Fixed 2-cell width regardless of active: previously only the active
+	// task's row reserved this, so its hostnames shrunk slightly more
+	// aggressively than every other row's - reserving the same width
+	// unconditionally (rendering blank spaces where the spinner would go,
+	// on every other row) keeps every row's hostname layout identical.
+	suffixText := "  "
+	if active {
+		suffixText = " " + string(frame)
 	}
-	availContent -= len([]rune(elapsedText))
+	availContent -= len([]rune(suffixText))
 	if availContent < 0 {
 		availContent = 0
 	}
@@ -525,7 +632,7 @@ func taskLabel(task *taskNode, allHosts []string, avail int, activeElapsed *time
 	// the shrink decisions below; the gap actually rendered (see padding,
 	// at the end) is computed separately, as whatever's really left over.
 	fits := func() bool {
-		need := len(taskPrefix) + nameWidth
+		need := nameWidth
 		if haveHosts {
 			need += titleHostGapFloor + hostsWidth()
 		}
@@ -535,14 +642,14 @@ func taskLabel(task *taskNode, allHosts []string, avail int, activeElapsed *time
 	truncatedName := false
 
 	if !fits() {
-		// Step 1 (TUI.md): shorten the title's own name text, down to a
-		// 15-rune floor (or its own natural length, if that's already
-		// under 15 - the floor only ever shrinks, never pads).
+		// Step 1 (TUI.md): shorten the title's own name text, down to
+		// minTaskTitleName (or its own natural length, if that's already
+		// shorter - the floor only ever shrinks, never pads).
 		floor := nameWidth
 		if floor > minTaskTitleName {
 			floor = minTaskTitleName
 		}
-		need := len(taskPrefix)
+		var need int
 		if haveHosts {
 			need += titleHostGapFloor + hostsWidth()
 		}
@@ -569,8 +676,9 @@ func taskLabel(task *taskNode, allHosts []string, avail int, activeElapsed *time
 		}
 		if longest == -1 {
 			// Every hostname is already at its 1-character floor and it
-			// still doesn't fit even alongside a title floored at 15
-			// characters. Accept the overflow (see minRenderedGap).
+			// still doesn't fit even alongside a title floored at
+			// minTaskTitleName characters. Accept the overflow (see
+			// minRenderedGap).
 			break
 		}
 		hostRunes[longest] = hostRunes[longest][:len(hostRunes[longest])-1]
@@ -578,33 +686,101 @@ func taskLabel(task *taskNode, allHosts []string, avail int, activeElapsed *time
 
 	var rawTitle string
 	if truncatedName && nameWidth >= 1 {
-		rawTitle = taskPrefix + string(nameRunes[:nameWidth-1]) + "…"
+		rawTitle = string(nameRunes[:nameWidth-1]) + "…"
 	} else {
-		rawTitle = taskPrefix + string(nameRunes[:nameWidth])
+		rawTitle = string(nameRunes[:nameWidth])
 	}
 	// Escape only now that the raw text is already correctly sized, so
 	// slicing above can never cut into an escape sequence Escape() would
 	// otherwise have produced.
 	title := tview.Escape(rawTitle)
 	// tview.Escape's own guaranteed-correct handling of "[...]"-shaped text
-	// applies here too (list rows parse tags, unlike the top bar) - a no-op
-	// when elapsedText == "", so the non-active-task path below is
-	// completely unaffected.
-	elapsed := tview.Escape(elapsedText)
+	// applies here too (list rows parse tags, unlike the top bar) - harmless
+	// no-op on suffixText's plain spaces/spinner rune, neither of which is
+	// ever "["-shaped.
+	suffix := tview.Escape(suffixText)
 
+	// Normally a foreground-only tag (background left untouched, so it
+	// shows whatever the row's base background already is), regular
+	// weight, per TUI.md's task-line styling. "silver", not "lightgray":
+	// deliberately not grayTag's plain "gray" either - that's already the
+	// established color for "host hasn't reported for this task yet";
+	// reusing it here for the title itself would blur that distinction.
+	// When selected, black bold text on an explicit light gray background
+	// instead - see this function's own selected doc above. pureBlack (a
+	// hex value, not the named "black") is used everywhere selected text
+	// needs black: tcell's named "black" is the base-16 ANSI slot, which
+	// some terminal themes remap to a dark gray rather than true black -
+	// the same base-16-vs-fixed-value trap already documented for
+	// red/maroon (colorTag) elsewhere in this file. A hex value is a fixed
+	// RGB, immune to that remapping.
 	if !haveHosts {
-		return taskIndent + title + elapsed
+		if selected {
+			return taskIndent + "[" + pureBlack + ":lightgray:b]" + title + suffix + "[-:-:-]"
+		}
+		return taskIndent + "[silver::-]" + title + suffix + "[-::-]"
 	}
 
 	// The actual rendered gap is whatever's really left over once title and
 	// (possibly-shrunk) hosts are sized - right-aligning the host list to
 	// the row's far edge, same "variable padding, floored low" shape as the
-	// old counts-based taskLabel's own padding math.
+	// old counts-based taskLabel's own padding math. suffixText's width is
+	// deliberately not subtracted again here: availContent already had it
+	// carved out at the top of this function, so it's already accounted
+	// for (title + suffix + padding + hosts == availContent + suffixWidth,
+	// same identity the original elapsed-suffix code relied on).
 	padding := availContent - tview.TaggedStringWidth(title) - hostsWidth()
 	if padding < minRenderedGap {
 		padding = minRenderedGap
 	}
 
+	if selected {
+		// No neutral/uncolored cells anywhere: the gray title background
+		// extends right up to one space before the first hostname (that
+		// last space, and every hostname's own leading space thereafter,
+		// belongs to that hostname's own color block instead) - so hosts
+		// are concatenated directly, not joined with a separate plain " ".
+		greyPadding := padding - 1
+		if greyPadding < 0 {
+			greyPadding = 0
+		}
+		var b strings.Builder
+		b.WriteString(taskIndent)
+		b.WriteString("[" + pureBlack + ":lightgray:b]")
+		b.WriteString(title)
+		b.WriteString(suffix)
+		b.WriteString(strings.Repeat(" ", greyPadding))
+		b.WriteString("[-:-:-]")
+		// Host[0]'s own leading space stays solid-colored (transitioning
+		// from the title's grey isn't attempted here - the user's ask was
+		// specifically about the space between adjacent hostnames). Every
+		// later host's leading space is replaced by a halfBlock transition
+		// cell blending the previous host's color into this one's, instead
+		// of just restating this host's own color again.
+		var prevTag string
+		for i, h := range allHosts {
+			o, done := task.Hosts[h]
+			tag := grayTag
+			if done {
+				tag = colorTag(o)
+			}
+			name := tview.Escape(string(hostRunes[i]))
+			if i == 0 {
+				fmt.Fprintf(&b, "[%s:%s:b] %s[-:-:-]", pureBlack, tag, name)
+			} else {
+				b.WriteString(hostTransition(prevTag, tag))
+				fmt.Fprintf(&b, "[%s:%s:b]%s[-:-:-]", pureBlack, tag, name)
+			}
+			prevTag = tag
+		}
+		return b.String()
+	}
+
+	// Plain foreground-colored text on a plain " " separator - tried the
+	// same halfBlock transition used in the selected branch above here too,
+	// but confirmed (by looking at it) that it doesn't read well against
+	// unselected hostnames' plain foreground-only coloring - reverted.
+	styledTitle := "[silver::-]" + title + suffix + "[-::-]"
 	hostSegments := make([]string, len(allHosts))
 	for i, h := range allHosts {
 		o, done := task.Hosts[h]
@@ -615,14 +791,19 @@ func taskLabel(task *taskNode, allHosts []string, avail int, activeElapsed *time
 		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(string(hostRunes[i])))
 	}
 
-	return taskIndent + title + elapsed + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
+	return taskIndent + styledTitle + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
 }
 
 // hostLabel builds one host row's text, colored uniformly by its single
 // outcome. No width-based truncation/alignment applies here - that rule is
-// TASK-row-specific per TUI.md.
-func hostLabel(task *taskNode, host string) string {
+// TASK-row-specific per TUI.md. selected mirrors taskLabel's own parameter -
+// black bold text on the outcome color as a background, instead of the
+// outcome color as a foreground.
+func hostLabel(task *taskNode, host string, selected bool) string {
 	o := task.Hosts[host]
+	if selected {
+		return fmt.Sprintf("[%s:%s:b]%s: %s[-:-:-]", pureBlack, colorTag(o), tview.Escape(host), o)
+	}
 	return fmt.Sprintf("[%s]%s: %s[-]", colorTag(o), tview.Escape(host), o)
 }
 

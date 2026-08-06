@@ -38,9 +38,12 @@ type taskNode struct {
 	Name string
 	// StartedAt is from the starting event's own _timestamp
 	// (rawEvent.Timestamp()), not our wall-clock time.Now() at the moment
-	// we process it - "how long has Ansible itself been running this
-	// task." Zero if that timestamp was missing/malformed; tui.go must
-	// never render an elapsed suffix computed against a zero StartedAt.
+	// we process it - "when did Ansible itself start this task." Zero if
+	// that timestamp was missing/malformed. Currently unused by any
+	// renderer (tui.go shows a spinner rather than an elapsed readout for
+	// the active task) - kept because Ansible provides it for free and a
+	// future summary/history view (see Findings.md) would want it; remove
+	// if that never materializes.
 	StartedAt time.Time
 	HostOrder []string
 	Hosts     map[string]outcome
@@ -201,14 +204,15 @@ func (s *playbookState) recordHost(host string, o outcome, raw json.RawMessage) 
 }
 
 // CurrentTask returns the task currently receiving events, or nil before
-// the first task of the run has started. Exposed read-only for tui.go's
-// active-task elapsed timer; Apply/recordHost remain the only code that
-// ever assigns currentTask. Per the linear-strategy assumption already
-// documented above, this stays pointing at the most recently started task
-// even after all its hosts have reported - there's no separate "this task
-// is now done" signal - so a caller-side elapsed timer keeps advancing on
-// that task until either the next task starts or the run finishes.
-// Pre-existing approximation, not something this accessor introduces.
+// the first task of the run has started. Exposed read-only for tui.go,
+// which uses it to mark the active task's row with a spinner; Apply/
+// recordHost remain the only code that ever assigns currentTask. Per the
+// linear-strategy assumption already documented above, this stays pointing
+// at the most recently started task even after all its hosts have
+// reported - there's no separate "this task is now done" signal - so a
+// caller-side "active" indicator keeps showing on that task until either
+// the next task starts or the run finishes. Pre-existing approximation,
+// not something this accessor introduces.
 func (s *playbookState) CurrentTask() *taskNode {
 	return s.currentTask
 }
