@@ -148,7 +148,22 @@ func (s *playbookState) Apply(ev rawEvent) {
 		}
 		s.currentPlay = nil
 
-	case "v2_playbook_on_task_start":
+	// v2_playbook_on_task_start and v2_playbook_on_handler_task_start are
+	// two entirely distinct event names (confirmed empirically, not
+	// documented upstream) - fired for a regular task and a
+	// notify:-triggered handler respectively, but otherwise carrying the
+	// identical task{name,path,...} shape. Handling only the former (as
+	// this used to) meant a handler never got its own taskNode or
+	// advanced currentTask at all: its later v2_runner_on_* events still
+	// fired and still went through recordHost below, silently
+	// attributing the handler's own result onto whatever task genuinely
+	// started last - a real bug report, not a hypothetical, that could
+	// corrupt an already-completed (and already-displayed) task's own
+	// Raw/Hosts entries with a same-named host's handler result recorded
+	// afterward. Treating both events identically - own taskNode, own
+	// row, own currentTask - is what makes a handler run visible in the
+	// tree at all instead of silently overwriting something else's data.
+	case "v2_playbook_on_task_start", "v2_playbook_on_handler_task_start":
 		if s.currentPlay == nil {
 			s.currentPlay = &playNode{Name: s.pendingPlayName}
 			s.Plays = append(s.Plays, s.currentPlay)
