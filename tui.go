@@ -21,7 +21,7 @@ const spinnerInterval = 200 * time.Millisecond
 var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
 // spinnerAt returns the spinner frame for a given elapsed duration - shared
-// by the top bar's own heartbeat and taskLabel's active-task suffix so both
+// by the top bar's own heartbeat and taskLabel's active-task prefix so both
 // tick the same frame at the same instant when driven from the same elapsed
 // value (see rebuild).
 func spinnerAt(elapsed time.Duration) rune {
@@ -82,14 +82,23 @@ type statusDividerRowID struct{}
 // doesn't speak for (genuine failures, or a non-ExitError -1) - no extra
 // row at all for those, preserving today's behavior. hadUnreachable mirrors
 // main.go's benignHostUnreachable check: exit 4 (ansible-core's own
-// overloaded HOST_UNREACHABLE/PARSER_ERROR value) reads as success here
-// too, once Tangsible has independently observed a real unreachable host
-// this run.
+// overloaded HOST_UNREACHABLE/PARSER_ERROR value) doesn't make main.go treat
+// this as a hard tool error once Tangsible has independently observed a real
+// unreachable host this run - but that's a distinct decision from what this
+// function shows. A run where the only reachable-or-not evidence is "some
+// host(s) never responded" is not the same as one where everything actually
+// ran clean, and rendering both as identical green "completed successfully"
+// text was actively misleading (confirmed live: a single-host playbook whose
+// one host is unreachable on its very first task exits 4 with
+// hadUnreachable=true and nothing else ever having run) - so this case gets
+// its own yellow, distinctly-not-"successfully" message instead.
 func statusRowText(code int, hadUnreachable bool) string {
 	benignHostUnreachable := code == 4 && hadUnreachable
 	switch {
-	case code == 0 || benignHostUnreachable:
+	case code == 0:
 		return "[green]Playbook completed successfully[-]"
+	case benignHostUnreachable:
+		return "[yellow]Playbook completed - one or more hosts were unreachable[-]"
 	case code == ansibleUserInterruptedExitCode:
 		return "[red]Playbook stopped, press q again to quit tangsible.[-]"
 	default:
@@ -104,7 +113,7 @@ func statusRowText(code int, hadUnreachable bool) string {
 //
 // width is the list's current available width (see rebuild), used to
 // right-align each TASK row's counts segment (see taskLabel). activeTask
-// (nil once the run has finished) gets a spinner suffix on its row instead
+// (nil once the run has finished) gets a spinner prefix on its row instead
 // of an elapsed-time readout - frame is the shared spinner frame for this
 // rebuild pass (see spinnerAt), computed once and passed in rather than
 // each row picking its own, so every active indicator in the UI ticks in
@@ -877,15 +886,16 @@ func hostTransition(leftTag, rightTag string) string {
 // not a bug - unchanged from the old taskLabel.
 //
 // active marks the currently-executing task (see flattenRows); when true,
-// frame (this rebuild's shared spinner frame - see spinnerAt) renders as a
-// fixed-cost " <frame>" suffix right after the title, reserved from
-// availContent up front, before any of the shrink math below runs - it is
-// never itself a shrink target, unlike the title or hostnames. When active
-// is false, frame is ignored and two blank spaces render in its place
-// instead - the same fixed width is reserved either way specifically so
-// every row's hostnames shrink identically regardless of which task, if
-// any, happens to be active; letting only the active row reserve it made
-// that one row's hostnames truncate slightly more than the others'.
+// frame (this rebuild's shared spinner frame - see spinnerAt) renders in
+// place of the row's leading indent (taskIndent) instead of as a trailing
+// suffix after the title - moved there so the space it needs comes out of
+// the already-existing indent instead of being carved out of availContent
+// on top of it, leaving hostnames that much more room on the right. When
+// active is false, taskIndent's own plain spaces render there instead -
+// the same fixed width either way, so every row's hostnames still shrink
+// identically regardless of which task, if any, happens to be active;
+// letting only the active row's prefix differ in width would make that
+// one row's hostnames truncate slightly more than the others'.
 //
 // selected marks this as the row currently under the cursor (see rebuild's
 // selected-row patch, and NewLiveTUI's SetSelectedStyle comment for why
@@ -899,19 +909,20 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 		availContent = 0
 	}
 
-	// Fixed 2-cell width regardless of active: previously only the active
-	// task's row reserved this, so its hostnames shrunk slightly more
-	// aggressively than every other row's - reserving the same width
-	// unconditionally (rendering blank spaces where the spinner would go,
-	// on every other row) keeps every row's hostname layout identical.
-	suffixText := "  "
+	// rawPrefix fills the row's leading taskIndent-width slot: the spinner
+	// frame plus one space for the active task, or taskIndent's own plain
+	// spaces otherwise - always exactly len(taskIndent) wide either way,
+	// so (unlike the old trailing-suffix version) no separate width needs
+	// reserving from availContent for this at all.
+	rawPrefix := taskIndent
 	if active {
-		suffixText = " " + string(frame)
+		rawPrefix = string(frame) + " "
 	}
-	availContent -= len([]rune(suffixText))
-	if availContent < 0 {
-		availContent = 0
-	}
+	// tview.Escape's own guaranteed-correct handling of "[...]"-shaped text
+	// applies here too (list rows parse tags, unlike the top bar) - harmless
+	// no-op on taskIndent's plain spaces or the spinner rune, neither of
+	// which is ever "["-shaped.
+	prefix := tview.Escape(rawPrefix)
 
 	nameRunes := []rune(task.Name)
 	nameWidth := len(nameRunes)
@@ -1005,11 +1016,6 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 	// slicing above can never cut into an escape sequence Escape() would
 	// otherwise have produced.
 	title := tview.Escape(rawTitle)
-	// tview.Escape's own guaranteed-correct handling of "[...]"-shaped text
-	// applies here too (list rows parse tags, unlike the top bar) - harmless
-	// no-op on suffixText's plain spaces/spinner rune, neither of which is
-	// ever "["-shaped.
-	suffix := tview.Escape(suffixText)
 
 	// Normally a foreground-only tag (background left untouched, so it
 	// shows whatever the row's base background already is), regular
@@ -1027,19 +1033,15 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 	// RGB, immune to that remapping.
 	if !haveHosts {
 		if selected {
-			return taskIndent + "[" + pureBlack + ":lightgray:b]" + title + suffix + "[-:-:-]"
+			return prefix + "[" + pureBlack + ":lightgray:b]" + title + "[-:-:-]"
 		}
-		return taskIndent + "[silver::-]" + title + suffix + "[-::-]"
+		return prefix + "[silver::-]" + title + "[-::-]"
 	}
 
 	// The actual rendered gap is whatever's really left over once title and
 	// (possibly-shrunk) hosts are sized - right-aligning the host list to
 	// the row's far edge, same "variable padding, floored low" shape as the
-	// old counts-based taskLabel's own padding math. suffixText's width is
-	// deliberately not subtracted again here: availContent already had it
-	// carved out at the top of this function, so it's already accounted
-	// for (title + suffix + padding + hosts == availContent + suffixWidth,
-	// same identity the original elapsed-suffix code relied on).
+	// old counts-based taskLabel's own padding math.
 	padding := availContent - tview.TaggedStringWidth(title) - hostsWidth()
 	if padding < minRenderedGap {
 		padding = minRenderedGap
@@ -1056,10 +1058,9 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 			greyPadding = 0
 		}
 		var b strings.Builder
-		b.WriteString(taskIndent)
+		b.WriteString(prefix)
 		b.WriteString("[" + pureBlack + ":lightgray:b]")
 		b.WriteString(title)
-		b.WriteString(suffix)
 		b.WriteString(strings.Repeat(" ", greyPadding))
 		b.WriteString("[-:-:-]")
 		// Host[0]'s own leading space stays solid-colored (transitioning
@@ -1091,7 +1092,7 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 	// same halfBlock transition used in the selected branch above here too,
 	// but confirmed (by looking at it) that it doesn't read well against
 	// unselected hostnames' plain foreground-only coloring - reverted.
-	styledTitle := "[silver::-]" + title + suffix + "[-::-]"
+	styledTitle := "[silver::-]" + title + "[-::-]"
 	hostSegments := make([]string, len(allHosts))
 	for i, h := range allHosts {
 		o, done := task.Hosts[h]
@@ -1102,7 +1103,7 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(string(hostRunes[i])))
 	}
 
-	return taskIndent + styledTitle + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
+	return prefix + styledTitle + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
 }
 
 // hostLabel builds one host row's text, colored uniformly by its single
@@ -1113,12 +1114,12 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 func hostLabel(task *taskNode, host string, selected bool) string {
 	o := task.Hosts[host]
 	// detail is the extra parenthesized bit appended after the outcome
-	// word - what it is depends on the outcome. Only OK/Changed and
-	// Skipped have one defined so far; every other outcome renders exactly
-	// as before.
+	// word - what it is depends on the outcome. Only OK/Changed/Failed and
+	// Skipped have one defined so far; Unreachable renders exactly as
+	// before.
 	var detail string
 	switch o {
-	case outcomeOK, outcomeChanged:
+	case outcomeOK, outcomeChanged, outcomeFailed:
 		detail = outputSummary(task.Raw[host])
 	case outcomeSkipped:
 		detail = skipDetail(task.Raw[host])
@@ -1180,10 +1181,11 @@ func primaryOutputField(decoded map[string]interface{}) (label, text string) {
 }
 
 // outputSummary returns the parenthesized detail hostLabel appends after
-// "OK"/"Changed" - the single line of output verbatim if primaryOutputField's
-// chosen text is exactly one line, or its line count otherwise. "" (nothing
-// appended) if there's no output text at all, e.g. modules like
-// copy/template that only report changed, with no msg/stdout of their own.
+// "OK"/"Changed"/"Failed" - the single line of output verbatim if
+// primaryOutputField's chosen text is exactly one line, or its line count
+// otherwise. "" (nothing appended) if there's no output text at all, e.g.
+// modules like copy/template that only report changed, with no msg/stdout
+// of their own.
 func outputSummary(raw json.RawMessage) string {
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
