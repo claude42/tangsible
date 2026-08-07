@@ -79,9 +79,15 @@ type statusRowID struct{}
 type statusDividerRowID struct{}
 
 // statusRowText returns the inline status line to append below the last
-// task row once the run has finished, or "" for any code this deliberately
-// doesn't speak for (genuine failures, or a non-ExitError -1) - no extra
-// row at all for those, preserving today's behavior. hadUnreachable mirrors
+// task row once the run has finished - every case gets one, including a
+// genuine failure (red "Playbook failed"). This used to fall through to
+// "" for anything other than success/benign-unreachable/user-interrupted,
+// on the reasoning that a genuine failure is already visible from the red
+// host rows themselves - but a real run (one host, one task, that task
+// failed, nothing else executed) showed no closing line at all, which
+// reads as "did this even finish?" rather than a clear verdict; every
+// other terminal case already gets an explicit line, so failure should
+// too, red like the row(s) that caused it. hadUnreachable mirrors
 // main.go's benignHostUnreachable check: exit 4 (ansible-core's own
 // overloaded HOST_UNREACHABLE/PARSER_ERROR value) doesn't make main.go treat
 // this as a hard tool error once Tangsible has independently observed a real
@@ -103,7 +109,7 @@ func statusRowText(code int, hadUnreachable bool) string {
 	case code == ansibleUserInterruptedExitCode:
 		return "[red]Playbook stopped, press q again to quit tangsible.[-]"
 	default:
-		return ""
+		return fmt.Sprintf("[red]Playbook failed (exit code %d)[-]", code)
 	}
 }
 
@@ -195,6 +201,44 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// different things on each page). A plain locally-owned bool, not a
 	// pages.GetFrontPage() query, since this function owns both places that
 	// ever switch pages.
+
+	// revealExpandedTask, called right after a task row's Enter/Space/click
+	// toggle (or the Right-arrow handler, see handleRight below) just
+	// expanded it, scrolls the list down - if needed, and only as far as
+	// it can - so the newly revealed host rows are actually visible,
+	// rather than landing below the bottom of the screen with no visible
+	// change (the cursor stays on the task row itself throughout, so
+	// List.Draw()'s own "keep the current item visible" clamp - see the
+	// mouse-wheel panning mechanism further down - is otherwise perfectly
+	// happy leaving the viewport exactly where it was). Only ever scrolls
+	// further down from wherever the view already was, never up. If the
+	// whole block (the task row plus all its hosts) doesn't fit in the
+	// viewport at all, this simply reveals as much of the tail as fits -
+	// that same Draw() clamp is what stops this from ever scrolling the
+	// task row itself out of view, so nothing further is needed here to
+	// stay safe.
+	revealExpandedTask := func(t *taskNode) {
+		_, _, _, height := list.GetInnerRect()
+		if height <= 0 {
+			return
+		}
+		taskIndex := -1
+		for i, r := range currentRows {
+			if r.id == t {
+				taskIndex = i
+				break
+			}
+		}
+		if taskIndex == -1 {
+			return
+		}
+		blockEnd := taskIndex + len(t.HostOrder) // last newly-revealed row's index
+		desired := blockEnd - height + 1
+		current, horizontal := list.GetOffset()
+		if desired > current {
+			list.SetOffset(desired, horizontal)
+		}
+	}
 
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
@@ -372,6 +416,9 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 				selected = func() {
 					r.selected()
 					rebuild()
+					if t, ok := r.id.(*taskNode); ok && expanded[t] {
+						revealExpandedTask(t)
+					}
 				}
 			}
 			list.AddItem(r.text, "", 0, selected)
@@ -456,6 +503,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		if t, ok := currentRows[idx].id.(*taskNode); ok && !expanded[t] {
 			expanded[t] = true
 			rebuild()
+			revealExpandedTask(t)
 		}
 		// Already-expanded task, a host row, or a play row: no-op - see
 		// Keyboard-shortcuts.md's "Right on an already-expanded element"
