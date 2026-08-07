@@ -40,12 +40,24 @@ func exitCodeOf(err error) int {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s <playbook.yml> [ansible-playbook args...]\n", os.Args[0])
-		os.Exit(2)
+	// The playbook is normally os.Args[1], but doesn't have to be -
+	// splitPlaybookArgs treats a missing or flag-shaped first argument as
+	// "none given positionally" and resolvePlaybook takes over (see
+	// resolve.go for the full TANGSIBLE_PLAYBOOK/.tangsible/
+	// $XDG_CONFIG_HOME/site.yml cascade).
+	playbook, rest, explicit := splitPlaybookArgs(os.Args[1:])
+	if !explicit {
+		var source string
+		playbook, source = resolvePlaybook()
+		if playbook == "" {
+			fmt.Fprintf(os.Stderr, "usage: %s [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
+			os.Exit(2)
+		}
+		fmt.Fprintf(os.Stderr, "tangsible: no playbook given - using %q (%s)\n", playbook, source)
 	}
 
-	cmd := exec.Command("ansible-playbook", os.Args[1:]...)
+	cmd := exec.Command("ansible-playbook", append([]string{playbook}, rest...)...)
 	cmd.Env = append(os.Environ(),
 		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
 		// Pin compact (single-line) JSON so our line-based scanner can't be
@@ -108,12 +120,12 @@ func main() {
 	// own YAML files is expected to be well under the noise floor of an
 	// interactive ansible run at this project's stated ~10-host target
 	// scale, so this isn't worth backgrounding.
-	sourceIndex := buildTaskSourceIndex(os.Args[1])
+	sourceIndex := buildTaskSourceIndex(playbook)
 
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
-	app, applyLive := NewLiveTUI(state, filepath.Base(os.Args[1]), cmd.Process, &processDone, &quitting, &exitCode, sourceIndex)
+	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), cmd.Process, &processDone, &quitting, &exitCode, sourceIndex)
 
 	apply := func(item streamItem) []string {
 		var diagnostics []string
