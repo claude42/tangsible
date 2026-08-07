@@ -6,24 +6,47 @@
 * j / k            - move cursor up / down (stop autoscrolling if necessary)
 * Page up / down   - move cursor one page up / down
 * Ctrl-F / Ctrl-B  - move cursor one page up / down
-* Home / End       - move cursor to top / end of the list
-* Ctrl-A / Ctrl-E  - move cursor to top / end of the list
-* G                - move cursor to end of list (but don't resume autoscrolling!)
+* Home / End       - move cursor to top / end of the list (does NOT resume
+                     autoscrolling - see F below)
+* Ctrl-A / Ctrl-E  - same as Home / End
+* G                - move cursor to end of list (same as End - does not
+                     resume autoscrolling)
 * n / p            - move to previous / next task, expand the task if
                      necessary, if cursor was on a specific host on the
-                     current task, position cursor on same host in the new task
-* Cursor right     - expand tree telement
-* Cursor left      - collapse tree element
-* Enter / Space    - toggle tree element
-* E / C            - expand / collaps all tree elements
+                     current task, position cursor on same host in the new
+                     task (falls back to the task's own row if that host
+                     hasn't reported a result for it yet). From a play row,
+                     next/prev targets that play's own first task, or the
+                     previous play's last task
+* Cursor right     - expand tree element (no-op if already expanded, or on
+                     a host row / play row)
+* Cursor left      - collapse tree element; on a host row, collapses its
+                     parent task instead and moves the cursor there; no-op
+                     on a play row
+* Enter / Space    - toggle tree element; on a host row (nothing to
+                     toggle), opens its command output instead
+* E / C            - expand / collapse all tree elements. If collapsing
+                     removes the row the cursor was on (a host row whose
+                     task just collapsed), the cursor moves to that task's
+                     own row
 * q / Ctrl-C       - quit
-* F                - move cursor to end of list and resume autoscrolling
+* F                - move cursor to end of list and resume autoscrolling -
+                     the only shortcut that resumes it
 
-* Mouse wheel      - move cursor up / down (stop autoscrolling if necessary)
-* Trackpad gestures- move cursor up / down (stop autoscrolling if necessary)
-* Single click on tree element - move cursor to this element
-* Double click on tree element - expand element or show command output if
-                                 applicable
+* Mouse wheel      - move cursor up / down (stop autoscrolling if
+                     necessary). Implemented as moving the cursor itself,
+                     one row per tick, rather than panning the view
+                     directly: the underlying list widget always keeps the
+                     cursor visible, so moving the cursor is what makes it
+                     possible to scroll past where the cursor happens to be
+* Trackpad gestures- same as mouse wheel
+* Single click on tree element - select AND activate it (same as
+                     Enter/Space) - expands/collapses a task, or opens a
+                     host's command output
+* Double click on tree element - not implemented separately from single
+                     click - since a single click already activates on
+                     first press (including opening a host's output),
+                     there's nothing left for a double click to add
 
 ## When command output is shown
 
@@ -40,10 +63,9 @@
 
 When the user has navigated inside the command output view (with Cursor left
 / right or n / p) and then exits the view, the cursor position in the
-treeview should be updated accordingly. I.e. when I close the command output
-view, the cursor in the tree view should be on the current task / current
-host that had been displayed in the command output view. Make sure that the
-treeview is expanded so that the element with the cursor is visible.
+treeview is updated accordingly: the cursor lands on the task / host that
+had been displayed in the command output view, and the treeview is expanded
+so that row is visible.
 
-* Mouse wheel      - move cursor up / down
-* Trackpad gestures- move cursor up / down
+* Mouse wheel      - scroll up / down
+* Trackpad gestures- scroll up / down
