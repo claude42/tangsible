@@ -36,6 +36,13 @@ func (o outcome) String() string {
 
 type taskNode struct {
 	Name string
+	// Path is the task's own source location ("<absolute file>:<line>"),
+	// straight from the starting event's own task.path - used by
+	// tui.go's output drill-down view to look up the task's raw source
+	// text via source.go's taskSourceIndex. Empty if the event didn't
+	// carry one (shouldn't happen for a real run, but not trusted
+	// blindly - same caveat as this file's other event-derived fields).
+	Path string
 	// StartedAt is from the starting event's own _timestamp
 	// (rawEvent.Timestamp()), not our wall-clock time.Now() at the moment
 	// we process it - "when did Ansible itself start this task." Zero if
@@ -152,6 +159,7 @@ func (s *playbookState) Apply(ev rawEvent) {
 		if ev.Task != nil {
 			s.currentTask = &taskNode{
 				Name:      ev.Task.Name,
+				Path:      ev.Task.Path,
 				StartedAt: ev.Timestamp(),
 				Hosts:     map[string]outcome{},
 				Raw:       map[string]json.RawMessage{},

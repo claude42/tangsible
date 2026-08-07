@@ -103,10 +103,17 @@ func main() {
 		return
 	}
 
+	// Built synchronously, after the pre-flight gate above, so a bad
+	// playbook path/parse error doesn't pay for it - parsing a project's
+	// own YAML files is expected to be well under the noise floor of an
+	// interactive ansible run at this project's stated ~10-host target
+	// scale, so this isn't worth backgrounding.
+	sourceIndex := buildTaskSourceIndex(os.Args[1])
+
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
-	app, applyLive := NewLiveTUI(state, filepath.Base(os.Args[1]), cmd.Process, &processDone, &quitting, &exitCode)
+	app, applyLive := NewLiveTUI(state, filepath.Base(os.Args[1]), cmd.Process, &processDone, &quitting, &exitCode, sourceIndex)
 
 	apply := func(item streamItem) []string {
 		var diagnostics []string

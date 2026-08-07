@@ -43,6 +43,11 @@ type playRef struct {
 
 type taskRef struct {
 	Name string `json:"name"`
+	// Path is the task's own source location, "<absolute file>:<line>",
+	// exactly as Ansible reports it on every event - used by tui.go's
+	// output drill-down view to look up the task's raw source text via
+	// source.go's taskSourceIndex.
+	Path string `json:"path"`
 }
 
 // hostResult is the handful of classification fields Apply needs to decide

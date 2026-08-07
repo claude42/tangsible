@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -169,7 +170,12 @@ func playRowText(play *playNode, selected bool) string {
 // receiving the interrupt it used to get for free — see Purpose.md's
 // Ctrl-C decision). processDone/quitting are shared with the caller:
 // this function only reads processDone and only writes quitting.
-func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, processDone, quitting *atomic.Bool, exitCode *atomic.Int32) (app *tview.Application, applyLive func(rawEvent)) {
+//
+// sourceIndex (source.go) backs the output drill-down view's TASK:
+// section (see formatHostOutput) - a lookup miss (any task whose path
+// wasn't found while building the index) just means no TASK: section for
+// that entry, never an error.
+func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -208,13 +214,14 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	// Output drill-down page: a single, reused TextView (never recreated
 	// per drill-down), updated via SetText each time a host row is
-	// selected. styleTags stays off (tview's default) so raw command
-	// output can go straight into SetText with no tview.Escape() and no
-	// risk of it being misparsed as color tags.
+	// selected. Dynamic colors are on so formatHostOutput can color its
+	// section labels/status line/TASK: highlighting - every piece of
+	// dynamic content it writes (task source, stdout/stderr/msg, the full
+	// JSON result) is individually tview.Escape()'d before going in, so a
+	// literal "[" in real command output or YAML (e.g. "tags: [a, b]")
+	// can never be misread as a color tag.
 	outputView := tview.NewTextView()
-	outputView.SetDynamicColors(false) // explicit, though already the
-	// default - self-documents that "no tag parsing" is deliberate here,
-	// not an oversight, given raw command output goes straight into it.
+	outputView.SetDynamicColors(true)
 
 	outputTopBar := tview.NewTextView()
 	outputTopBar.SetTextStyle(barStyle)
@@ -240,7 +247,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	showOutput := func(task *taskNode, host string) {
 		outputTask, outputHost = task, host
 		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
-		outputView.SetText(formatHostOutput(task, host))
+		outputView.SetText(formatHostOutput(task, host, sourceIndex))
 		// SetText does not reset scroll position (lineOffset/trackEnd) -
 		// without this, reopening a different host's output right after
 		// scrolling through a previous one would open already scrolled to
@@ -1224,51 +1231,148 @@ func skipDetail(raw json.RawMessage) string {
 	return fmt.Sprintf(" (%s)", reason)
 }
 
+// sectionLabel renders one of formatHostOutput's section headers in its
+// own color, bold - a distinct color per section (deliberately outside the
+// outcome palette in colorTag, so a reader never confuses "this section is
+// STDERR" with "this host's outcome is Failed") makes the view scannable
+// at a glance rather than a wall of uniform text. label is a fixed literal
+// from formatHostOutput itself, never external content, so it needs no
+// escaping.
+// yamlKeyLine matches a line's "key:" shape: optional leading indentation
+// and a "- " list marker (both preserved verbatim, uncolored - group 1),
+// a plain-scalar key (group 2, letters/digits/underscore/dot/hyphen -
+// covers ordinary task fields like "name"/"when" as well as FQCN module
+// names like "ansible.builtin.debug"), the colon itself (group 3), and
+// whatever follows - either more content after a space, or nothing, for a
+// key whose value starts on the next line (group 4). Deliberately not a
+// real YAML parser - a line that doesn't match this shape (a continuation
+// of a multi-line scalar, or a plain "- item" list entry with no key)
+// just renders unstyled; good enough for the "key: value" and "- key:
+// value" shapes every real task definition checked against this project
+// uses.
+var yamlKeyLine = regexp.MustCompile(`^(\s*(?:-\s+)?)([A-Za-z0-9_.-]+)(:)(\s.*|)$`)
+
+// colorizeYAML renders raw YAML task source (see source.go) with a light,
+// line-based highlight: each line's "key:" portion, if it has one, is
+// colored, so structure is scannable at a glance without a real
+// tokenizer. Every dynamic piece is escaped separately (not the line as a
+// whole before coloring) so a literal "[" in the source itself - e.g.
+// "tags: [foo, bar]", which this project's own test fixtures actually
+// contain - can never be misread as a color tag.
+func colorizeYAML(raw string) string {
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		m := yamlKeyLine.FindStringSubmatch(line)
+		if m == nil {
+			lines[i] = tview.Escape(line)
+			continue
+		}
+		lines[i] = tview.Escape(m[1]) + "[orange::b]" + tview.Escape(m[2]+m[3]) + "[-::-]" + tview.Escape(m[4])
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sectionLabel(color, label string) string {
+	return fmt.Sprintf("[%s::b]%s[-::-]\n[%s]%s[-]\n", color, label, color, strings.Repeat("=", len([]rune(label))))
+}
+
+// taskSourceLocation formats task.Path ("<absolute file>:<line>", see
+// events.go/aggregate.go) as "[<file>, line <n>]" for display right below
+// the Task section's own YAML - "" if path doesn't have that shape
+// (shouldn't happen for a real event, but not trusted blindly).
+func taskSourceLocation(path string) string {
+	idx := strings.LastIndex(path, ":")
+	if idx == -1 {
+		return ""
+	}
+	file, lineStr := path[:idx], path[idx+1:]
+	if file == "" || lineStr == "" {
+		return ""
+	}
+	return fmt.Sprintf("[%s, line %s]", file, lineStr)
+}
+
 // formatHostOutput renders task.Raw[host] for the output drill-down view.
 // It decodes into a generic map (not a fixed struct) since different
 // Ansible modules return wildly different result shapes; msg/stdout/stderr
-// are pulled out as labeled, human-readable sections (real newlines, no
-// escaping needed - the output TextView keeps style tags off) since those
-// are by far the most commonly wanted fields for the common
-// command/shell/script case, followed unconditionally by the complete
-// result as pretty-printed JSON, which is what makes this work for any
-// module type without having to special-case each one.
-func formatHostOutput(task *taskNode, host string) string {
+// are pulled out as labeled, human-readable sections, followed
+// unconditionally by the complete result as pretty-printed JSON, which is
+// what makes this work for any module type without having to special-case
+// each one. The output TextView has dynamic colors on (see NewLiveTUI), so
+// every piece of dynamic/external content here - task source, stdout/
+// stderr/msg, the full JSON, even the raw bytes on a decode failure - is
+// individually tview.Escape()'d before being written, so a literal "[" in
+// any of it (e.g. "tags: [a, b]", a JSON array) can never be misread as a
+// color tag; only this function's own fixed label/status text is trusted
+// unescaped.
+//
+// Leads with a colored status line (colorTag(o), the same outcome palette
+// the tree itself uses) so the host's outcome for this task is visible
+// without reading anything else first.
+//
+// sourceIndex backs the TASK: section - task.Path's own raw YAML source
+// (source.go), shown ahead of everything else so the task definition and
+// its result are visible together without switching views, and lightly
+// highlighted line-by-line (colorizeYAML) rather than as flat text. A
+// lookup miss (task.Path empty, or just not found - an unusual file
+// layout, or a task genuinely generated at runtime) omits the section
+// entirely rather than showing an error; this is best-effort by design.
+func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) string {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		// Shouldn't happen in normal operation - every host recorded via
 		// recordHost always has some raw payload - but a live jsonl stream
 		// from an external process isn't something to trust blindly, so
 		// degrade gracefully rather than showing a blank screen.
-		return fmt.Sprintf("(no output recorded for %s)", host)
+		return fmt.Sprintf("(no output recorded for %s)", tview.Escape(host))
 	}
 
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		// Not a JSON object - shouldn't happen for any real module
 		// result, but show the raw bytes rather than nothing.
-		return string(raw)
+		return tview.Escape(string(raw))
 	}
 
 	var b strings.Builder
-	writeSection := func(label, key string) {
+	o := task.Hosts[host]
+	fmt.Fprintf(&b, "[%s::b]● %s[-::-]\n\n", colorTag(o), tview.Escape(o.String()))
+
+	if source, ok := sourceIndex[task.Path]; ok && source != "" {
+		b.WriteString(sectionLabel("orange", "Task"))
+		b.WriteString(colorizeYAML(source))
+		b.WriteString("\n")
+		if loc := taskSourceLocation(task.Path); loc != "" {
+			fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
+		}
+		b.WriteString("\n")
+	}
+	writeSection := func(color, label, key string) {
 		s, ok := decoded[key].(string)
 		if !ok || s == "" {
 			return
 		}
-		fmt.Fprintf(&b, "%s:\n%s\n\n", label, s)
+		b.WriteString(sectionLabel(color, label))
+		b.WriteString(tview.Escape(s))
+		b.WriteString("\n\n")
 	}
-	// Only one of MSG/STDOUT is shown, not both - see primaryOutputField.
-	if label, text := primaryOutputField(decoded); text != "" {
-		fmt.Fprintf(&b, "%s:\n%s\n\n", label, text)
+	// Only one of MSG/STDOUT is shown, not both - see primaryOutputField;
+	// always labeled "Output" here regardless of which field it came
+	// from, since that distinction is an internal selection detail, not
+	// something worth surfacing in the section header.
+	if _, text := primaryOutputField(decoded); text != "" {
+		b.WriteString(sectionLabel("aqua", "Output"))
+		b.WriteString(tview.Escape(text))
+		b.WriteString("\n\n")
 	}
-	writeSection("STDERR", "stderr")
+	writeSection("red", "Errors", "stderr")
 
 	pretty, err := json.MarshalIndent(decoded, "", "  ")
+	b.WriteString(sectionLabel("gray", "Details"))
 	if err != nil {
-		fmt.Fprintf(&b, "FULL RESULT: (failed to format: %v)\n%s", err, string(raw))
+		fmt.Fprintf(&b, "(failed to format: %s)\n%s", tview.Escape(err.Error()), tview.Escape(string(raw)))
 	} else {
-		fmt.Fprintf(&b, "FULL RESULT:\n%s", pretty)
+		b.WriteString(tview.Escape(string(pretty)))
 	}
 
 	return b.String()
