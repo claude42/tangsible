@@ -173,12 +173,13 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	var currentID any
 	var rebuilding bool
 	following := true     // auto-follow the newest row until the user navigates away
-	var jumpingToEnd bool  // true only while our own End/G handler drives SetCurrentItem
+	var jumpingToEnd bool  // true only while our own 'F' handler drives SetCurrentItem
 	var viewingOutput bool // true while the host-output page is frontmost; see
-	// SetInputCapture below - suppresses the list's own End/'G' handling so
-	// it doesn't swallow the output TextView's native End/'G' scrolling. A
-	// plain locally-owned bool, not a pages.GetFrontPage() query, since this
-	// function owns both places that ever switch pages.
+	// SetInputCapture below - selects between the main tree's and the output
+	// view's own page-specific key bindings (Left/Right and n/p mean
+	// different things on each page). A plain locally-owned bool, not a
+	// pages.GetFrontPage() query, since this function owns both places that
+	// ever switch pages.
 
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
@@ -209,7 +210,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	outputTopBar := tview.NewTextView()
 	outputTopBar.SetTextStyle(barStyle)
 
-	outputBottomBar := tview.NewTextView().SetText(" ↑/↓ or j/k/h/l scroll  g/home top  G/end bottom  esc/enter: back ")
+	outputBottomBar := tview.NewTextView().SetText(" ↑/↓ or j/k/h/l scroll  g/home top  G/end bottom  ←/→: prev/next host  n/p: prev/next task  esc/enter: back ")
 	outputBottomBar.SetTextStyle(barStyle)
 
 	outputFlex := tview.NewFlex().
@@ -220,7 +221,15 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	pages := tview.NewPages()
 
+	// outputTask/outputHost track which (task, host) pair the output page
+	// is currently showing, so navigateOutputTask (below) knows where
+	// "current" is without threading it through as extra state on every
+	// keypress.
+	var outputTask *taskNode
+	var outputHost string
+
 	showOutput := func(task *taskNode, host string) {
+		outputTask, outputHost = task, host
 		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
 		outputView.SetText(formatHostOutput(task, host))
 		// SetText does not reset scroll position (lineOffset/trackEnd) -
@@ -232,13 +241,32 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		pages.SwitchToPage("output")
 	}
 
-	outputView.SetDoneFunc(func(tcell.Key) {
-		// Fires on Escape, Enter, Tab, or Backtab (TextView's fixed set of
-		// "done" keys). Tab/Backtab also backing out is a harmless side
-		// effect, not a real concern.
-		viewingOutput = false
-		pages.SwitchToPage("main")
-	})
+	// navigateOutputTask moves the output page to the previous/next task
+	// (delta -1/+1) that recorded a result for outputHost, in run order -
+	// see tasksForHost. A no-op at either end (no wraparound, matching
+	// list.SetWrapAround(false)'s convention elsewhere) and before any
+	// output has been shown yet (outputTask still nil).
+	navigateOutputTask := func(delta int) {
+		if outputTask == nil {
+			return
+		}
+		tasks := tasksForHost(state, outputHost)
+		idx := -1
+		for i, t := range tasks {
+			if t == outputTask {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 {
+			return
+		}
+		newIdx := idx + delta
+		if newIdx < 0 || newIdx >= len(tasks) {
+			return
+		}
+		showOutput(tasks[newIdx], outputHost)
+	}
 
 	var rebuild func()
 	rebuild = func() {
@@ -335,6 +363,184 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		list.SetCurrentItem(selectedIndex)
 	}
 
+	outputView.SetDoneFunc(func(tcell.Key) {
+		// Fires on Escape, Enter, Tab, or Backtab (TextView's fixed set of
+		// "done" keys). Tab/Backtab also backing out is a harmless side
+		// effect, not a real concern.
+		viewingOutput = false
+		if outputTask != nil {
+			// Leave the tree's cursor on whatever (task, host) the output
+			// page was last showing - which may have moved via
+			// navigateOutputTask/navigateOutputHost since the page was
+			// opened - expanding its task if it isn't already, so the row
+			// is actually visible rather than just logically "selected".
+			expanded[outputTask] = true
+			currentID = hostRowID{outputTask, outputHost}
+			following = false
+			rebuild()
+		}
+		pages.SwitchToPage("main")
+	})
+
+	// navigateOutputHost moves the output page to the previous/next host
+	// (delta -1/+1) within outputTask's own HostOrder - the same order the
+	// expanded tree rows for that task already use. A no-op at either end
+	// (no wraparound) and before any output has been shown yet.
+	navigateOutputHost := func(delta int) {
+		if outputTask == nil {
+			return
+		}
+		hosts := outputTask.HostOrder
+		idx := -1
+		for i, h := range hosts {
+			if h == outputHost {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 {
+			return
+		}
+		newIdx := idx + delta
+		if newIdx < 0 || newIdx >= len(hosts) {
+			return
+		}
+		showOutput(outputTask, hosts[newIdx])
+	}
+
+	// expandAll/collapseAll back the main tree's E/C shortcuts.
+	// collapseAll's cursor-fallback: if the cursor was on a host row, that
+	// row is about to disappear - snap currentID to its enclosing task
+	// (still visible, now collapsed) rather than letting rebuild() fall
+	// back to index 0.
+	expandAll := func() {
+		for _, t := range allTasks(state) {
+			expanded[t] = true
+		}
+		rebuild()
+	}
+	collapseAll := func() {
+		if hid, ok := currentID.(hostRowID); ok {
+			currentID = hid.task
+		}
+		expanded = map[*taskNode]bool{}
+		rebuild()
+	}
+
+	// handleRight/handleLeft back the main tree's cursor-Right/cursor-Left
+	// expand/collapse shortcuts - they act on whichever row is currently
+	// under the cursor (currentRows[list.GetCurrentItem()]), not on
+	// currentID, since the cursor's actual on-screen position is what the
+	// user means by "this element".
+	handleRight := func() {
+		idx := list.GetCurrentItem()
+		if idx < 0 || idx >= len(currentRows) {
+			return
+		}
+		if t, ok := currentRows[idx].id.(*taskNode); ok && !expanded[t] {
+			expanded[t] = true
+			rebuild()
+		}
+		// Already-expanded task, a host row, or a play row: no-op - see
+		// Keyboard-shortcuts.md's "Right on an already-expanded element"
+		// decision.
+	}
+	handleLeft := func() {
+		idx := list.GetCurrentItem()
+		if idx < 0 || idx >= len(currentRows) {
+			return
+		}
+		switch id := currentRows[idx].id.(type) {
+		case *taskNode:
+			if expanded[id] {
+				expanded[id] = false
+				rebuild()
+			}
+		case hostRowID:
+			// Collapsing the parent task removes this row - move the
+			// cursor up to the task row that's left behind, per
+			// Keyboard-shortcuts.md.
+			expanded[id.task] = false
+			currentID = id.task
+			following = false
+			rebuild()
+		}
+		// Play row: no-op, plays aren't collapsible.
+	}
+
+	// navigateMainTask moves the cursor to the previous/next task (delta
+	// -1/+1) in run order (see allTasks), expanding it if necessary. If the
+	// cursor was on a specific host of the current task, the same host is
+	// preserved on the destination task when that task has already
+	// recorded a result for it; otherwise the cursor lands on the
+	// destination task's own row. From a play row, "next" is that play's
+	// own first task and "prev" is the previous play's last task (a no-op
+	// for the very first play) - per Keyboard-shortcuts.md.
+	navigateMainTask := func(delta int) {
+		idx := list.GetCurrentItem()
+		if idx < 0 || idx >= len(currentRows) {
+			return
+		}
+
+		var target *taskNode
+		var host string
+		haveHost := false
+
+		switch id := currentRows[idx].id.(type) {
+		case *playNode:
+			playIdx := -1
+			for i, p := range state.Plays {
+				if p == id {
+					playIdx = i
+					break
+				}
+			}
+			if playIdx == -1 {
+				return
+			}
+			if delta > 0 {
+				target = id.Tasks[0]
+			} else if playIdx > 0 {
+				prevPlay := state.Plays[playIdx-1]
+				target = prevPlay.Tasks[len(prevPlay.Tasks)-1]
+			}
+		case *taskNode:
+			tasks := allTasks(state)
+			for i, t := range tasks {
+				if t == id {
+					if newIdx := i + delta; newIdx >= 0 && newIdx < len(tasks) {
+						target = tasks[newIdx]
+					}
+					break
+				}
+			}
+		case hostRowID:
+			tasks := allTasks(state)
+			for i, t := range tasks {
+				if t == id.task {
+					if newIdx := i + delta; newIdx >= 0 && newIdx < len(tasks) {
+						target = tasks[newIdx]
+						host = id.host
+						haveHost = true
+					}
+					break
+				}
+			}
+		}
+
+		if target == nil {
+			return
+		}
+		expanded[target] = true
+		if _, ok := target.Hosts[host]; haveHost && ok {
+			currentID = hostRowID{target, host}
+		} else {
+			currentID = target
+		}
+		following = false
+		rebuild()
+	}
+
 	list.SetChangedFunc(func(index int, _ string, _ string, _ rune) {
 		if rebuilding {
 			// List.Clear()+AddItem() fires spurious "changed" events while
@@ -373,7 +579,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	state.OnTaskAdded = func(*playNode, *taskNode) { rebuild() }
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
-	bottomBar := tview.NewTextView().SetText(" ↑/↓ navigate  home/end/G: top/bottom  enter: expand/view output  q: quit ")
+	bottomBar := tview.NewTextView().SetText(" ↑/↓/j/k navigate  ←/→: expand/collapse  n/p: prev/next task  home/end/G: top/bottom  F: resume follow  E/C: expand/collapse all  enter/space: toggle  q: quit ")
 	bottomBar.SetTextStyle(barStyle)
 
 	flex := tview.NewFlex().
@@ -429,9 +635,59 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			return nil
 		}
 
-		isJumpToEnd := event.Key() == tcell.KeyEnd ||
-			(event.Key() == tcell.KeyRune && event.Rune() == 'G')
-		if isJumpToEnd && !viewingOutput {
+		// vim/emacs navigation aliases, translated to the native key tview
+		// itself already understands and handled identically by both List
+		// (main tree) and TextView (output view) - confirmed against
+		// tview's own source rather than reimplementing this logic here.
+		// Returning a *different* event than the one passed in makes
+		// Application forward the synthesized event to whichever primitive
+		// is currently focused, as if the user had typed that key - see
+		// tview's application.go. This is also what makes plain 'G'/Ctrl-E
+		// ride the exact same path plain End already does: ordinary
+		// navigation, deliberately with no special "resume autoscroll"
+		// side effect (that's F's job alone, below).
+		switch {
+		case event.Key() == tcell.KeyRune && event.Rune() == 'j':
+			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyRune && event.Rune() == 'k':
+			return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyCtrlF:
+			return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyCtrlB:
+			return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyCtrlA:
+			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyCtrlE:
+			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyRune && event.Rune() == 'G':
+			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
+		}
+
+		if viewingOutput {
+			switch {
+			case event.Key() == tcell.KeyLeft:
+				navigateOutputHost(-1)
+				return nil
+			case event.Key() == tcell.KeyRight:
+				navigateOutputHost(1)
+				return nil
+			case event.Key() == tcell.KeyRune && event.Rune() == 'p':
+				navigateOutputTask(-1)
+				return nil
+			case event.Key() == tcell.KeyRune && event.Rune() == 'n':
+				navigateOutputTask(1)
+				return nil
+			}
+			return event
+		}
+
+		switch {
+		case event.Key() == tcell.KeyRune && event.Rune() == 'F':
+			// The only way to resume autoscroll (see the translation block
+			// above: End/Ctrl-E/G are deliberately plain navigation now).
+			// jumpingToEnd guards against SetCurrentItem's own resulting
+			// "changed" event immediately flipping following back off -
+			// same two-step dance End/G used to need for this exact reason.
 			following = true
 			jumpingToEnd = true
 			if list.GetItemCount() > 0 {
@@ -439,11 +695,25 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			}
 			jumpingToEnd = false
 			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'E':
+			expandAll()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'C':
+			collapseAll()
+			return nil
+		case event.Key() == tcell.KeyRight:
+			handleRight()
+			return nil
+		case event.Key() == tcell.KeyLeft:
+			handleLeft()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'n':
+			navigateMainTask(1)
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'p':
+			navigateMainTask(-1)
+			return nil
 		}
-		// While viewingOutput, End/'G' fall through unmodified so the output
-		// TextView's own native End/'G' scroll-to-bottom handling gets them
-		// instead - rebuild() keeps updating the hidden list regardless of
-		// which page is frontmost, so nothing about the list's state is lost.
 
 		return event
 	})
@@ -801,10 +1071,113 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 // outcome color as a foreground.
 func hostLabel(task *taskNode, host string, selected bool) string {
 	o := task.Hosts[host]
-	if selected {
-		return fmt.Sprintf("[%s:%s:b]%s: %s[-:-:-]", pureBlack, colorTag(o), tview.Escape(host), o)
+	// detail is the extra parenthesized bit appended after the outcome
+	// word - what it is depends on the outcome. Only OK and Skipped have
+	// one defined so far; every other outcome renders exactly as before.
+	var detail string
+	switch o {
+	case outcomeOK:
+		detail = outputSummary(task.Raw[host])
+	case outcomeSkipped:
+		detail = skipDetail(task.Raw[host])
 	}
-	return fmt.Sprintf("[%s]%s: %s[-]", colorTag(o), tview.Escape(host), o)
+	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(detail))
+	if selected {
+		return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", pureBlack, colorTag(o), line)
+	}
+	return fmt.Sprintf("[%s]%s[-]", colorTag(o), line)
+}
+
+// allTasks returns every task across every play, in run order (play order,
+// then task order within each play) - the host-agnostic sibling of
+// tasksForHost below, backing the main tree's n/p task-hop and E (expand
+// all) shortcuts.
+func allTasks(state *playbookState) []*taskNode {
+	var tasks []*taskNode
+	for _, play := range state.Plays {
+		tasks = append(tasks, play.Tasks...)
+	}
+	return tasks
+}
+
+// tasksForHost returns, in run order (play order, then task order within
+// each play), every task that has recorded a result for host - used by the
+// output drill-down view's prev/next-task navigation (see NewLiveTUI's
+// navigateOutputTask) to step through one host's results across tasks,
+// skipping tasks that host wasn't part of.
+func tasksForHost(state *playbookState, host string) []*taskNode {
+	var tasks []*taskNode
+	for _, play := range state.Plays {
+		for _, t := range play.Tasks {
+			if _, ok := t.Hosts[host]; ok {
+				tasks = append(tasks, t)
+			}
+		}
+	}
+	return tasks
+}
+
+// primaryOutputField picks a single field to represent a host's textual
+// output, preferring "stdout" (the actual command output, for
+// command/shell-style modules) over the more generic "msg" field - on a
+// command/shell task with a non-zero return code, msg is often just a
+// fixed status string ("non-zero return code") alongside the real output
+// already sitting in stdout. Falls back to msg for modules that only set
+// that field (most non-command modules, e.g. debug/fail/assert). Shared by
+// formatHostOutput (the full drill-down view) and outputSummary (the
+// collapsed treeview OK line) so both agree on what "the output" means for
+// a given result.
+func primaryOutputField(decoded map[string]interface{}) (label, text string) {
+	if stdout, ok := decoded["stdout"].(string); ok && stdout != "" {
+		return "STDOUT", stdout
+	}
+	if msg, ok := decoded["msg"].(string); ok && msg != "" {
+		return "MSG", msg
+	}
+	return "", ""
+}
+
+// outputSummary returns the parenthesized detail hostLabel appends after
+// "OK" - the single line of output verbatim if primaryOutputField's chosen
+// text is exactly one line, or its line count otherwise. "" (nothing
+// appended) if there's no output text at all, e.g. modules like
+// copy/template that only report changed, with no msg/stdout of their own.
+func outputSummary(raw json.RawMessage) string {
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return ""
+	}
+	_, text := primaryOutputField(decoded)
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) == 1 {
+		return fmt.Sprintf(" (%s)", lines[0])
+	}
+	return fmt.Sprintf(" (%d lines of output)", len(lines))
+}
+
+// skipDetail returns the parenthesized "(skip_reason: false_condition)"
+// detail hostLabel appends after "Skipped", pulled straight from the
+// task's own recorded result for that host - "" if skip_reason wasn't
+// present (shouldn't happen for a real v2_runner_on_skipped event, but
+// this is live external jsonl, not trusted blindly - same caveat as
+// formatHostOutput's own decode below).
+func skipDetail(raw json.RawMessage) string {
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return ""
+	}
+	reason, _ := decoded["skip_reason"].(string)
+	if reason == "" {
+		return ""
+	}
+	if cond, ok := decoded["false_condition"].(string); ok && cond != "" {
+		return fmt.Sprintf(" (%s: %s)", reason, cond)
+	}
+	return fmt.Sprintf(" (%s)", reason)
 }
 
 // formatHostOutput renders task.Raw[host] for the output drill-down view.
@@ -841,8 +1214,10 @@ func formatHostOutput(task *taskNode, host string) string {
 		}
 		fmt.Fprintf(&b, "%s:\n%s\n\n", label, s)
 	}
-	writeSection("MSG", "msg")
-	writeSection("STDOUT", "stdout")
+	// Only one of MSG/STDOUT is shown, not both - see primaryOutputField.
+	if label, text := primaryOutputField(decoded); text != "" {
+		fmt.Fprintf(&b, "%s:\n%s\n\n", label, text)
+	}
 	writeSection("STDERR", "stderr")
 
 	pretty, err := json.MarshalIndent(decoded, "", "  ")
