@@ -591,7 +591,14 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
 
-	app = tview.NewApplication().SetRoot(pages, true)
+	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
+	// Everything else falls out of tview's own defaults once mouse events
+	// are actually turned on (previously never enabled): List's/TextView's
+	// built-in mouse wheel handling already just pans the viewport without
+	// touching selection, and List's built-in click handling already fires
+	// a row's Selected() callback on the first click - identical to Enter -
+	// so a host row's output already opens on a single click, and no
+	// custom double-click wiring is needed on top of that.
 
 	// Top-bar heartbeat ticker - the first self-driven (not event- or
 	// input-triggered) source of QueueUpdateDraw calls in this codebase.
@@ -716,6 +723,40 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		}
 
 		return event
+	})
+
+	// List.MouseHandler's own wheel handling only pans its internal
+	// itemOffset - it never touches currentItem. That collides with
+	// List.Draw()'s own "keep the current item visible" clamp, which is
+	// unconditional on every redraw with no way to disable it (checked
+	// directly against list.go): with follow on, the next heartbeat tick
+	// pins currentItem back to the last row and the very next redraw snaps
+	// itemOffset right back with it; even with follow off, panning far
+	// enough that currentItem would leave the window gets clamped straight
+	// back. Rather than fighting that clamp, drive it: consume the wheel
+	// event ourselves and move currentItem by one row per tick instead of
+	// touching itemOffset at all. Draw()'s own clamp then pans the
+	// viewport as a side effect of the selection moving - the only way to
+	// pan past the old cursor-visibility limit, since List's default wheel
+	// handling never moves the one thing Draw() actually watches. This
+	// rides the exact same SetCurrentItem path arrow keys already use, so
+	// follow disengages for free via the existing SetChangedFunc handler -
+	// no separate following=false needed here.
+	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if viewingOutput {
+			return event, action // TextView's own wheel handling has no
+			// such clamp - there's no "selected line" to keep visible -
+			// so the output view already pans freely without any help.
+		}
+		switch action {
+		case tview.MouseScrollUp:
+			list.SetCurrentItem(list.GetCurrentItem() - 1)
+			return nil, action
+		case tview.MouseScrollDown:
+			list.SetCurrentItem(list.GetCurrentItem() + 1)
+			return nil, action
+		}
+		return event, action
 	})
 
 	applyLive = func(ev rawEvent) {
@@ -1072,11 +1113,12 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 func hostLabel(task *taskNode, host string, selected bool) string {
 	o := task.Hosts[host]
 	// detail is the extra parenthesized bit appended after the outcome
-	// word - what it is depends on the outcome. Only OK and Skipped have
-	// one defined so far; every other outcome renders exactly as before.
+	// word - what it is depends on the outcome. Only OK/Changed and
+	// Skipped have one defined so far; every other outcome renders exactly
+	// as before.
 	var detail string
 	switch o {
-	case outcomeOK:
+	case outcomeOK, outcomeChanged:
 		detail = outputSummary(task.Raw[host])
 	case outcomeSkipped:
 		detail = skipDetail(task.Raw[host])
@@ -1138,8 +1180,8 @@ func primaryOutputField(decoded map[string]interface{}) (label, text string) {
 }
 
 // outputSummary returns the parenthesized detail hostLabel appends after
-// "OK" - the single line of output verbatim if primaryOutputField's chosen
-// text is exactly one line, or its line count otherwise. "" (nothing
+// "OK"/"Changed" - the single line of output verbatim if primaryOutputField's
+// chosen text is exactly one line, or its line count otherwise. "" (nothing
 // appended) if there's no output text at all, e.g. modules like
 // copy/template that only report changed, with no msg/stdout of their own.
 func outputSummary(raw json.RawMessage) string {
