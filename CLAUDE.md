@@ -11,9 +11,9 @@ The TUI (built with `tview`) is live: it comes up immediately and updates increm
 ## Commands
 
 ```
-go build ./...                                    # build
-go vet ./...                                       # lint
-go run . <playbook.yml> [ansible-playbook args...] # run
+go build ./...                                      # build
+go vet ./...                                         # lint
+go run . [<playbook.yml>] [ansible-playbook args...] # run
 ```
 
 Try it against the bundled fixtures, e.g.:
@@ -24,9 +24,26 @@ go run . testdata/multihost.yml -i testdata/multihost-inventory.ini
 
 No tests exist yet; once added, run with `go test ./...` (`go test -run <Name> ./...` for a single test).
 
+The playbook argument is optional (`resolve.go`) — if omitted (no leading
+non-flag argument), it's resolved in order from `$TANGSIBLE_PLAYBOOK`,
+`./.tangsible`, `$XDG_CONFIG_HOME/tangsible/config.toml` (falling back to
+`~/.config/tangsible/config.toml` per the XDG Base Directory Spec when
+that variable's unset), then `./site.yml` if present; a usage error
+otherwise. Both config files share one minimal TOML shape:
+```toml
+[general]
+default_playbook = "myplaybook.yml"
+```
+
 Running it requires `ansible-playbook` and the `ansible.posix` collection (`ansible-galaxy collection install ansible.posix`) to be installed locally.
 
 ## Architecture
+
+**Playbook resolution (`resolve.go`, `main.go`).** `splitPlaybookArgs(os.Args[1:])` decides whether a playbook was given positionally at all: Tangsible's calling convention has always put the playbook first with everything after it passed straight through to `ansible-playbook`, so the only way to make that leading argument optional without disturbing any invocation that already works is to check its *shape* — empty or starting with `-` means no playbook was given (the whole slice becomes passthrough args instead), anything else is the playbook, exactly as before this existed.
+
+When not given explicitly, `resolvePlaybook()` tries, in order: `$TANGSIBLE_PLAYBOOK`; `.tangsible` in the cwd; `$XDG_CONFIG_HOME/tangsible/config.toml` (via `configHome()`, which implements the XDG Base Directory Spec's own fallback rule — `$XDG_CONFIG_HOME` if set and non-empty, else `$HOME/.config`, `os.UserHomeDir()` — rather than hardcoding `~/.config`); `./site.yml` if it exists. `readDefaultPlaybook` backs the two TOML sources (`playbookConfig`, a single `[general].default_playbook` key deliberately — the user's own spec for this format explicitly expects it to grow later) — a missing file returns `""` silently (the common case for 3 of the 4 sources isn't worth a warning), but an existing, unparseable one prints a one-line warning to stderr before falling through, so a broken config never fails invisibly. Whatever string is ultimately found (env var value, TOML value, or the literal `"site.yml"`) is passed straight through with no path joining of Tangsible's own — `ansible-playbook` (and `buildTaskSourceIndex`, see Task source lookup below) resolve a relative path against Tangsible's own cwd on their own, identically to how an explicit command-line argument always has been handled.
+
+`main.go` prints a one-line resolution note to stderr (which source won) whenever the playbook wasn't given explicitly — safe to print directly rather than queue like other diagnostics, since this all happens before the TUI is ever constructed. Two call sites elsewhere in `main.go` that used to read `os.Args[1]` directly — `filepath.Base(...)` for the TUI's `playbookName`, and `buildTaskSourceIndex(...)` — now read the resolved `playbook` variable instead; missing either would silently show the wrong name in the top bar or break task-source lookup whenever the playbook came from anywhere other than the command line.
 
 **Data source.** The app never talks to Ansible's Python API and never implements a custom callback plugin (deliberately — see Purpose.md's Platform section for the rationale). Instead it shells out to `ansible-playbook` as a subprocess with `ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl` and `ANSIBLE_JSON_INDENT=0` set in its environment. That callback writes one JSON object per line to stdout as each event happens, which is what makes live consumption possible — the built-in `json` callback was considered and rejected because it buffers everything and only writes a single blob after the run completes. Pinning `ANSIBLE_JSON_INDENT=0` guards against a user's `ansible.cfg` overriding the default and breaking the one-event-per-line assumption the line-based scanner depends on.
 
