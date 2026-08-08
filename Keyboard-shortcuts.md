@@ -33,12 +33,8 @@
 * F                - move cursor to end of list and resume autoscrolling -
                      the only shortcut that resumes it
 
-* Mouse wheel      - move cursor up / down (stop autoscrolling if
-                     necessary). Implemented as moving the cursor itself,
-                     one row per tick, rather than panning the view
-                     directly: the underlying list widget always keeps the
-                     cursor visible, so moving the cursor is what makes it
-                     possible to scroll past where the cursor happens to be
+* Mouse wheel      - pan contents up / down (stop autoscrolling if
+                     necessary).
 * Trackpad gestures- same as mouse wheel
 * Single click on tree element - select AND activate it (same as
                      Enter/Space) - expands/collapses a task, or opens a

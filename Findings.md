@@ -3,24 +3,15 @@
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
 
+* Sometimes a host gets green first and only later turns yellow. That doesn't
+  sound right. First OK, then changed?!
 * A summary page (comparable to what ansible-playbook does) would be nice
 
 * Hide cursor when autoscrolling is active
 
-* Skip PLAY / TASK prefixes, render them in different colors instead
-
-* Need some kind of indicator that more command output is available
-
 * Need concept on how / when to display stderr output
 
 * All lines are currently selectable
-
-* Move from Command output to next command output with pg up/down, cursor
-  left / right
-
-* Visual improvements
-  * colors
-  * title bar
 
 * Plays with no tasks are not displayed
 
@@ -43,3 +34,6 @@ immediately implemented.
 * Interactive prompts (passwords)
 
 * Visualize loops
+
+* When everything is expanded while playbook is still running, show new
+  entries also expanded.

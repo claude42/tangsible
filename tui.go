@@ -113,6 +113,41 @@ func statusRowText(code int, hadUnreachable bool) string {
 	}
 }
 
+// genuineFailure reports whether code represents an actual failure - not
+// success, not the benign "some host(s) were unreachable" case (see
+// main.go's benignHostUnreachable), and not a user-requested interrupt.
+// Structurally the same condition as statusRowText's own default case
+// above, pulled out separately so rebuild's one-time post-freeze cursor
+// placement (see below) can't silently drift out of agreement with it
+// about what counts as "actually failed."
+func genuineFailure(code int, hadUnreachable bool) bool {
+	benignHostUnreachable := code == 4 && hadUnreachable
+	return code != 0 && !benignHostUnreachable && code != ansibleUserInterruptedExitCode
+}
+
+// lastFailedTaskAndHost finds the most recent task (in tree order) that
+// recorded a Failed or Unreachable host, and that host's own name - the
+// first such host recorded on that task, per HostOrder - or (nil, "") if
+// none is found (a genuine failure for some other reason, e.g. an
+// unparsable exit code, with no Failed/Unreachable host ever recorded).
+// Used once, right as a run freezes into a genuine failure (see rebuild),
+// to put the cursor exactly where a user drilling into "what failed"
+// would want it, without needing to navigate there themselves.
+func lastFailedTaskAndHost(state *playbookState) (*taskNode, string) {
+	for pi := len(state.Plays) - 1; pi >= 0; pi-- {
+		tasks := state.Plays[pi].Tasks
+		for ti := len(tasks) - 1; ti >= 0; ti-- {
+			t := tasks[ti]
+			for _, h := range t.HostOrder {
+				if o := t.Hosts[h]; o == outcomeFailed || o == outcomeUnreachable {
+					return t, h
+				}
+			}
+		}
+	}
+	return nil, ""
+}
+
 // flattenRows walks state's play/task/host tree into an ordered row list,
 // respecting which tasks are currently expanded. Rebuilt fresh on every
 // event - cheap at this project's target scale (~10 hosts, Purpose.md), and
@@ -195,6 +230,19 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	var rebuilding bool
 	following := true     // auto-follow the newest row until the user navigates away
 	var jumpingToEnd bool  // true only while our own 'F' handler drives SetCurrentItem
+	var failureCursorPlaced bool // latches true the first time rebuild()
+	// observes the run frozen - guards the one-time "jump to the failed
+	// host" placement below so it fires exactly once on the
+	// running-to-frozen transition, never re-forcing the cursor back
+	// there if the user has since navigated elsewhere.
+	var frozenElapsed time.Duration
+	var haveFrozenElapsed bool // latches true the first time rebuild()
+	// observes the run frozen, capturing that instant's elapsed time for
+	// every later rebuild to reuse. Without this, a rebuild triggered long
+	// after the run finished - by cursor navigation (SetChangedFunc below)
+	// or anything else that isn't the heartbeat ticker, which does stop
+	// once frozen - would recompute now.Sub(startedAt) fresh and make the
+	// top bar's elapsed time keep climbing after the run is actually done.
 	var viewingOutput bool // true while the host-output page is frontmost; see
 	// SetInputCapture below - selects between the main tree's and the output
 	// view's own page-specific key bindings (Left/Right and n/p mean
@@ -339,7 +387,33 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		// drifting per-row/per-call time.Now() reads.
 		frozen := processDone.Load()
 		elapsed := now.Sub(startedAt)
+		if frozen {
+			if !haveFrozenElapsed {
+				frozenElapsed = elapsed
+				haveFrozenElapsed = true
+			}
+			elapsed = frozenElapsed
+		}
 		topBar.SetText(topBarText(playbookName, elapsed, frozen))
+
+		// One-time, right on the running-to-frozen transition: for a
+		// genuine failure (see genuineFailure - shared with statusRowText
+		// below so the two can't disagree on what counts as one), jump
+		// straight to the host that actually failed, expanding its task,
+		// so a single Enter shows the drill-down with no navigation
+		// needed. Must happen before flattenRows runs below, since it
+		// reads expanded to decide which host rows to include - setting
+		// it after would miss the newly-expanded row in this same pass.
+		if frozen && !failureCursorPlaced {
+			failureCursorPlaced = true
+			if genuineFailure(int(exitCode.Load()), state.HadUnreachable) {
+				if t, h := lastFailedTaskAndHost(state); t != nil {
+					expanded[t] = true
+					currentID = hostRowID{t, h}
+					following = false
+				}
+			}
+		}
 
 		_, _, width, _ := list.GetInnerRect()
 		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
@@ -374,14 +448,31 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		// Determine which row the cursor belongs on *before* AddItem, not
 		// after - see the patch step right below, which needs to know this
 		// to re-render that one row's text. following pins to the newest
-		// row; otherwise restore by currentID's identity (row order shifts
-		// as things are appended, so a raw index can't be trusted across
-		// rebuilds), defaulting to 0 if that id no longer exists (shouldn't
-		// happen - nothing is ever removed - but not indexing out of range
-		// if it somehow did).
+		// *real* row; otherwise restore by currentID's identity (row order
+		// shifts as things are appended, so a raw index can't be trusted
+		// across rebuilds), defaulting to 0 if that id no longer exists
+		// (shouldn't happen - nothing is ever removed - but not indexing
+		// out of range if it somehow did).
 		selectedIndex := 0
 		if following {
+			// Skip back past the trailing status/divider rows (see
+			// statusRowText) - they have no selected-row rendering
+			// variant (see the switch below), so following would
+			// otherwise land the cursor on a row that looks identical
+			// whether selected or not: from the user's perspective, the
+			// cursor simply vanishes once a run finishes. Landing on the
+			// last real row instead keeps the existing, visible
+			// highlight - this now always applies, since statusRowText
+			// stopped ever returning "" for a finished run.
 			selectedIndex = len(currentRows) - 1
+			for selectedIndex > 0 {
+				_, isDivider := currentRows[selectedIndex].id.(statusDividerRowID)
+				_, isStatus := currentRows[selectedIndex].id.(statusRowID)
+				if !isDivider && !isStatus {
+					break
+				}
+				selectedIndex--
+			}
 		} else {
 			for i, r := range currentRows {
 				if r.id == currentID {
@@ -789,23 +880,24 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		return event
 	})
 
-	// List.MouseHandler's own wheel handling only pans its internal
-	// itemOffset - it never touches currentItem. That collides with
-	// List.Draw()'s own "keep the current item visible" clamp, which is
-	// unconditional on every redraw with no way to disable it (checked
-	// directly against list.go): with follow on, the next heartbeat tick
-	// pins currentItem back to the last row and the very next redraw snaps
-	// itemOffset right back with it; even with follow off, panning far
-	// enough that currentItem would leave the window gets clamped straight
-	// back. Rather than fighting that clamp, drive it: consume the wheel
-	// event ourselves and move currentItem by one row per tick instead of
-	// touching itemOffset at all. Draw()'s own clamp then pans the
-	// viewport as a side effect of the selection moving - the only way to
-	// pan past the old cursor-visibility limit, since List's default wheel
-	// handling never moves the one thing Draw() actually watches. This
-	// rides the exact same SetCurrentItem path arrow keys already use, so
-	// follow disengages for free via the existing SetChangedFunc handler -
-	// no separate following=false needed here.
+	// Mouse wheel/trackpad plainly pans the view - it does NOT move the
+	// cursor (see Keyboard-shortcuts.md). An earlier version drove
+	// list.SetCurrentItem() from the wheel instead, to get more scroll
+	// range out of List.Draw()'s unconditional "keep the current item
+	// visible" clamp (checked directly against list.go - there's no flag
+	// to disable it). That traded away more than intended: (1) it moved
+	// the cursor on every tick, which is not what a wheel/trackpad should
+	// do; and (2) SetCurrentItem(index) wraps a negative index around to
+	// len(items)+index (list.go, unconditionally - independent of
+	// list.SetWrapAround(false), which only governs the arrow-key
+	// InputHandler), so scrolling up from the very first row silently
+	// wrapped the cursor to the last row instead of stopping. Reverted per
+	// explicit request: only List's own default wheel handling now runs
+	// (plain itemOffset panning, already correctly bounded in both
+	// directions with no wraparound - see list.go's MouseHandler), and the
+	// resulting reduced scroll range - panning can't move the viewport
+	// past wherever the cursor itself currently is - is an accepted
+	// tradeoff, not a bug.
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 		if viewingOutput {
 			return event, action // TextView's own wheel handling has no
@@ -813,12 +905,13 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			// so the output view already pans freely without any help.
 		}
 		switch action {
-		case tview.MouseScrollUp:
-			list.SetCurrentItem(list.GetCurrentItem() - 1)
-			return nil, action
-		case tview.MouseScrollDown:
-			list.SetCurrentItem(list.GetCurrentItem() + 1)
-			return nil, action
+		case tview.MouseScrollUp, tview.MouseScrollDown:
+			// List's default handling (left to run below) never fires
+			// SetChangedFunc, since it never touches currentItem - so
+			// disengaging autoscroll on a genuine pan has to happen here
+			// explicitly instead of falling out of that callback the way
+			// keyboard navigation gets it for free.
+			following = false
 		}
 		return event, action
 	})
