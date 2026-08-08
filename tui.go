@@ -42,16 +42,19 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // spinner frame and total elapsed time since the TUI itself started (our
 // own time.Now(), NOT any event's _timestamp - "has our program been
 // alive/responsive," a different question from any one task's own
-// duration). Once frozen, the spinner is dropped entirely (simplicity over
-// cuteness) rather than stuck on an arbitrary frame or swapped for a
-// checkmark. No tview.Escape() needed here - unlike the list, this
-// TextView never enables dynamic color tags.
-func topBarText(playbookName string, elapsed time.Duration, frozen bool) string {
+// duration) - plus the currently active filter (see Filters.md's "title
+// bar shows the currently selected filter" requirement; shown
+// unconditionally, including "All", rather than only when a filter is
+// actually narrowing anything). Once frozen, the spinner is dropped
+// entirely (simplicity over cuteness) rather than stuck on an arbitrary
+// frame or swapped for a checkmark. No tview.Escape() needed here - unlike
+// the list, this TextView never enables dynamic color tags.
+func topBarText(playbookName string, elapsed time.Duration, frozen bool, filter filterMode) string {
 	mm, ss := minutesSeconds(elapsed)
 	if frozen {
-		return fmt.Sprintf(" %s  %02d:%02d ", playbookName, mm, ss)
+		return fmt.Sprintf(" %s  %02d:%02d  Filter: %s ", playbookName, mm, ss, filter.label())
 	}
-	return fmt.Sprintf(" %s  %c %02d:%02d ", playbookName, spinnerAt(elapsed), mm, ss)
+	return fmt.Sprintf(" %s  %c %02d:%02d  Filter: %s ", playbookName, spinnerAt(elapsed), mm, ss, filter.label())
 }
 
 // row is one flattened, currently-visible line in the list: a play, a task,
@@ -148,10 +151,73 @@ func lastFailedTaskAndHost(state *playbookState) (*taskNode, string) {
 	return nil, ""
 }
 
+// filterMode is the main tree's currently active row filter (Filters.md).
+// The zero value, filterAll, is the default - no filtering at all.
+type filterMode int
+
+const (
+	filterAll filterMode = iota
+	filterChanged
+	filterFailed
+	// filterSearch (matching a search term against a task's title/source/
+	// output - Filters.md's "Contents"/M filter) is deliberately not
+	// implemented yet - a second step, since it needs to search per-host
+	// output too, not just a task's own static fields.
+)
+
+// label is filter's own display name, used by the top bar and the filter
+// dialog.
+func (f filterMode) label() string {
+	switch f {
+	case filterChanged:
+		return "Changed"
+	case filterFailed:
+		return "Failed"
+	default:
+		return "All"
+	}
+}
+
+// taskHasAnyOutcome reports whether any of t's hosts currently have one of
+// the given outcomes.
+func taskHasAnyOutcome(t *taskNode, outcomes ...outcome) bool {
+	for _, o := range t.Hosts {
+		for _, want := range outcomes {
+			if o == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// taskVisible reports whether t should get a row under filter - see
+// Filters.md's Acceptance criteria. A task's status for filtering purposes
+// is host-level: it matches "Changed"/"Failed" if *at least one* of its
+// hosts has that outcome (a task can have hosts in different states), and
+// when it matches, flattenRows below shows all of its hosts - not just the
+// matching ones. Unreachable hosts count as a failure for this purpose too -
+// same bucket lastFailedTaskAndHost already treats it as for the
+// auto-jump-on-failure feature.
+// isActive means t is the run's current in-progress task (see
+// playbookState.CurrentTask) - always shown regardless of filter, since it
+// may simply not have recorded any host outcome yet.
+func taskVisible(t *taskNode, filter filterMode, isActive bool) bool {
+	if isActive || filter == filterAll {
+		return true
+	}
+	failed := taskHasAnyOutcome(t, outcomeFailed, outcomeUnreachable)
+	if filter == filterFailed {
+		return failed
+	}
+	return failed || taskHasAnyOutcome(t, outcomeChanged) // filterChanged
+}
+
 // flattenRows walks state's play/task/host tree into an ordered row list,
-// respecting which tasks are currently expanded. Rebuilt fresh on every
-// event - cheap at this project's target scale (~10 hosts, Purpose.md), and
-// avoids needing to incrementally patch a tree structure by hand.
+// respecting which tasks are currently expanded and (per filter) currently
+// visible at all. Rebuilt fresh on every event - cheap at this project's
+// target scale (~10 hosts, Purpose.md), and avoids needing to incrementally
+// patch a tree structure by hand.
 //
 // width is the list's current available width (see rebuild), used to
 // right-align each TASK row's counts segment (see taskLabel). activeTask
@@ -161,13 +227,16 @@ func lastFailedTaskAndHost(state *playbookState) (*taskNode, string) {
 // each row picking its own, so every active indicator in the UI ticks in
 // lockstep. showOutput is called when a host row is selected (Enter), to
 // display that host's full result for that task.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, frame rune, showOutput func(task *taskNode, host string)) []row {
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, frame rune, filter filterMode, showOutput func(task *taskNode, host string)) []row {
 	var rows []row
 	for _, play := range state.Plays {
-		rows = append(rows, row{text: playRowText(play, false), id: play})
+		var playRows []row
 		for _, task := range play.Tasks {
 			t := task
-			rows = append(rows, row{
+			if !taskVisible(t, filter, t == activeTask) {
+				continue
+			}
+			playRows = append(playRows, row{
 				text:     taskLabel(t, state.AllHosts, width, t == activeTask, frame, false),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
@@ -175,7 +244,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, a
 			if expanded[t] {
 				for _, host := range t.HostOrder {
 					h := host
-					rows = append(rows, row{
+					playRows = append(playRows, row{
 						text:     "    " + hostLabel(t, h, false),
 						id:       hostRowID{t, h},
 						selected: func() { showOutput(t, h) },
@@ -183,6 +252,14 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, a
 				}
 			}
 		}
+		if len(playRows) == 0 {
+			// Same rule as a play with no executed tasks at all (see
+			// playbookState's own doc comment) - a play with no *visible*
+			// tasks after filtering doesn't get a row either.
+			continue
+		}
+		rows = append(rows, row{text: playRowText(play, false), id: play})
+		rows = append(rows, playRows...)
 	}
 	return rows
 }
@@ -199,6 +276,45 @@ func playRowText(play *playNode, selected bool) string {
 		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, name)
 	}
 	return fmt.Sprintf("[white::b]%s[-::-]", name)
+}
+
+// centeredModal wraps p in nested Flexes so it renders as a fixed-size box
+// centered within whatever space its container gives it, instead of
+// filling all of it - the standard tview pattern for a page that overlays
+// only part of the screen (see tview's own Pages wiki example). Used for
+// the filter dialog (see NewLiveTUI).
+func centeredModal(p tview.Primitive, width, height int) tview.Primitive {
+	return tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(nil, 0, 1, false).
+			AddItem(p, height, 1, true).
+			AddItem(nil, 0, 1, false), width, 1, true).
+		AddItem(nil, 0, 1, false)
+}
+
+// filterDialogText renders the filter dialog's body - a static headline,
+// the three implemented filters (A/C/F) each with a small marker next to
+// whichever one is currently active, and a dimmed placeholder line for the
+// not-yet-implemented search filter (Filters.md's "Contents"/M step). No
+// tview.Escape() needed - every piece of text here is a fixed literal, never
+// external content (same reasoning as formatHostOutput's own fixed labels).
+func filterDialogText(active filterMode) string {
+	mark := func(mode filterMode) string {
+		if mode == active {
+			return "[aqua]*[-]"
+		}
+		return " "
+	}
+	return fmt.Sprintf(
+		" [::b]Select filter[::-]\n\n"+
+			" %s A - Show all\n"+
+			" %s C - Show changed (includes failed)\n"+
+			" %s F - Show only failed tasks\n"+
+			"   [gray]M - Match search string (coming soon)[-]\n\n"+
+			" [gray]Esc to cancel[-]",
+		mark(filterAll), mark(filterChanged), mark(filterFailed),
+	)
 }
 
 // NewLiveTUI builds an initially-empty list UI and wires it to state's
@@ -253,6 +369,24 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// different things on each page). A plain locally-owned bool, not a
 	// pages.GetFrontPage() query, since this function owns both places that
 	// ever switch pages.
+	currentFilter := filterAll // see Filters.md; the dialog below is the only writer
+	var filterDialogOpen bool  // true while the filter-selection dialog is
+	// frontmost - fully modal (see SetInputCapture/SetMouseCapture below):
+	// every key except Esc/a/c/f is swallowed, and all mouse input is
+	// blocked outright, while it's open.
+
+	// activeTaskNow returns the run's current in-progress task, or nil once
+	// the run has finished - the same "frozen means no active task" rule
+	// rebuild() applies to its own activeTask local, pulled out so
+	// navigateMainTask/navigateOutputTask/applyFilter (all outside rebuild)
+	// can compute the identical thing when deciding what a filter should
+	// keep visible (see taskVisible's isActive parameter).
+	activeTaskNow := func() *taskNode {
+		if processDone.Load() {
+			return nil
+		}
+		return state.CurrentTask()
+	}
 
 	// revealExpandedTask, called right after a task row's Enter/Space/click
 	// toggle (or the Right-arrow handler, see handleRight below) just
@@ -291,7 +425,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
-	topBar := tview.NewTextView().SetText(topBarText(playbookName, 0, false))
+	topBar := tview.NewTextView().SetText(topBarText(playbookName, 0, false, currentFilter))
 	topBar.SetTextStyle(barStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
@@ -331,6 +465,21 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	pages := tview.NewPages()
 
+	// Filter dialog primitive: a small, modal overlay on top of the main
+	// page (see Filters.md's Dialog section) rather than a full page swap
+	// like "output" below - tview's Pages supports this natively via
+	// ShowPage/HidePage instead of SwitchToPage, which leave other pages'
+	// visibility alone (confirmed against pages.go) rather than hiding
+	// them, so "main" keeps being drawn underneath. centeredModal wraps it
+	// in nested Flexes to get a fixed-size, screen-centered box instead of
+	// filling the whole available area - the standard tview pattern for a
+	// partial-screen overlay page. Not added to pages yet - see the
+	// pages.AddPage calls further down, which must add it *last* so it's
+	// drawn on top of "main"/"output" (Pages draws visible pages back to
+	// front, in the order they were added - confirmed against pages.go).
+	filterDialog := tview.NewTextView().SetDynamicColors(true)
+	filterDialog.SetBorder(true).SetTitle(" Filter ")
+
 	// outputTask/outputHost track which (task, host) pair the output page
 	// is currently showing, so navigateOutputTask (below) knows where
 	// "current" is without threading it through as extra state on every
@@ -352,15 +501,17 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	}
 
 	// navigateOutputTask moves the output page to the previous/next task
-	// (delta -1/+1) that recorded a result for outputHost, in run order -
-	// see tasksForHost. A no-op at either end (no wraparound, matching the
-	// main tree's own no-wraparound convention elsewhere) and before any
-	// output has been shown yet (outputTask still nil).
+	// (delta -1/+1) that recorded a result for outputHost, in run order,
+	// among currently-visible tasks only (see visibleTasksForHost) - per
+	// Filters.md, tasks the active filter is hiding are skipped here too. A
+	// no-op at either end (no wraparound, matching the main tree's own
+	// no-wraparound convention elsewhere) and before any output has been
+	// shown yet (outputTask still nil).
 	navigateOutputTask := func(delta int) {
 		if outputTask == nil {
 			return
 		}
-		tasks := tasksForHost(state, outputHost)
+		tasks := visibleTasksForHost(state, outputHost, currentFilter, activeTaskNow())
 		idx := -1
 		for i, t := range tasks {
 			if t == outputTask {
@@ -396,7 +547,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			}
 			elapsed = frozenElapsed
 		}
-		topBar.SetText(topBarText(playbookName, elapsed, frozen))
+		topBar.SetText(topBarText(playbookName, elapsed, frozen, currentFilter))
 
 		// One-time, right on the running-to-frozen transition: for a
 		// genuine failure (see genuineFailure - shared with statusRowText
@@ -427,12 +578,9 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			width = 20
 		}
 
-		var activeTask *taskNode
-		if !frozen {
-			activeTask = state.CurrentTask()
-		}
+		activeTask := activeTaskNow()
 
-		currentRows = flattenRows(state, expanded, width, activeTask, spinnerAt(elapsed), showOutput)
+		currentRows = flattenRows(state, expanded, width, activeTask, spinnerAt(elapsed), currentFilter, showOutput)
 		if frozen {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
 				currentRows = append(currentRows,
@@ -626,57 +774,62 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	}
 
 	// navigateMainTask moves the cursor to the previous/next task (delta
-	// -1/+1) in run order (see allTasks), expanding it if necessary. If the
-	// cursor was on a specific host of the current task, the same host is
-	// preserved on the destination task when that task has already
-	// recorded a result for it; otherwise the cursor lands on the
-	// destination task's own row. From a play row, "next" is that play's
-	// own first task and "prev" is the previous play's last task (a no-op
-	// for the very first play) - per Keyboard-shortcuts.md.
+	// -1/+1) in run order, among currently-visible tasks only (see
+	// visibleTasks - never targets a task the active filter is hiding,
+	// since flattenRows wouldn't have given it a row to land on), expanding
+	// it if necessary. If the cursor was on a specific host of the current
+	// task, the same host is preserved on the destination task when that
+	// task has already recorded a result for it; otherwise the cursor lands
+	// on the destination task's own row. From a play row, "next" is that
+	// play's own first visible task; "prev" is whichever visible task comes
+	// immediately before that in the visible sequence - which, since
+	// visibleTasks skips hidden tasks (and, transitively, plays with none
+	// visible) entirely, naturally lands on the previous *visible* play's
+	// last visible task without needing to search play-by-play - per
+	// Keyboard-shortcuts.md.
 	navigateMainTask := func(delta int) {
 		idx := list.GetCurrentItem()
 		if idx < 0 || idx >= len(currentRows) {
 			return
 		}
 
+		vis := visibleTasks(state, currentFilter, activeTaskNow())
 		var target *taskNode
 		var host string
 		haveHost := false
 
 		switch id := currentRows[idx].id.(type) {
 		case *playNode:
-			playIdx := -1
-			for i, p := range state.Plays {
-				if p == id {
-					playIdx = i
+			first := firstVisibleTask(id, taskSet(vis))
+			if first == nil {
+				return
+			}
+			pos := -1
+			for i, t := range vis {
+				if t == first {
+					pos = i
 					break
 				}
 			}
-			if playIdx == -1 {
-				return
-			}
 			if delta > 0 {
-				target = id.Tasks[0]
-			} else if playIdx > 0 {
-				prevPlay := state.Plays[playIdx-1]
-				target = prevPlay.Tasks[len(prevPlay.Tasks)-1]
+				target = first
+			} else if pos > 0 {
+				target = vis[pos-1]
 			}
 		case *taskNode:
-			tasks := allTasks(state)
-			for i, t := range tasks {
+			for i, t := range vis {
 				if t == id {
-					if newIdx := i + delta; newIdx >= 0 && newIdx < len(tasks) {
-						target = tasks[newIdx]
+					if newIdx := i + delta; newIdx >= 0 && newIdx < len(vis) {
+						target = vis[newIdx]
 					}
 					break
 				}
 			}
 		case hostRowID:
-			tasks := allTasks(state)
-			for i, t := range tasks {
+			for i, t := range vis {
 				if t == id.task {
-					if newIdx := i + delta; newIdx >= 0 && newIdx < len(tasks) {
-						target = tasks[newIdx]
+					if newIdx := i + delta; newIdx >= 0 && newIdx < len(vis) {
+						target = vis[newIdx]
 						host = id.host
 						haveHost = true
 					}
@@ -695,6 +848,68 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			currentID = target
 		}
 		following = false
+		rebuild()
+	}
+
+	// openFilterDialog/closeFilterDialog/applyFilter back the '/' shortcut
+	// and the filter dialog itself (Filters.md). The dialog is fully modal
+	// (see SetInputCapture/SetMouseCapture below) so these are the only
+	// places filterDialogOpen/currentFilter ever change.
+	openFilterDialog := func() {
+		filterDialogOpen = true
+		filterDialog.SetText(filterDialogText(currentFilter))
+		pages.ShowPage("filter")
+	}
+	closeFilterDialog := func() {
+		filterDialogOpen = false
+		pages.HidePage("filter")
+	}
+	// applyFilter switches to newFilter (a no-op switch still closes the
+	// dialog, matching "when the user presses A, C, F the respective
+	// filter shall be activated and the window shall be closed again").
+	//
+	// If the cursor is currently pinned to a specific row (following ==
+	// false - if it's true, rebuild() already re-resolves the selection to
+	// the newest *visible* row every time, so there's nothing to fix up),
+	// and that row's task won't survive the new filter, this moves
+	// currentID to the nearest still-visible task first (see
+	// nearestVisibleTask) - Filters.md's "cursor moves to the nearest
+	// still-visible ancestor" requirement. A task is always the right
+	// granularity to land on here: per Filters.md, a filter can only ever
+	// hide a whole task (and, transitively, a whole play with none left) at
+	// once, never an individual host row on its own - unlike collapsing a
+	// task, which removes host rows one task at a time while the task's own
+	// row stays put, a filter switch never leaves a "row still there, just
+	// fall back to it" case to fall back to.
+	applyFilter := func(newFilter filterMode) {
+		if newFilter != currentFilter && !following {
+			activeTask := activeTaskNow()
+			var anchor *taskNode
+			switch id := currentID.(type) {
+			case *taskNode:
+				anchor = id
+			case hostRowID:
+				anchor = id.task
+			case *playNode:
+				stillVisible := false
+				for _, t := range id.Tasks {
+					if taskVisible(t, newFilter, t == activeTask) {
+						stillVisible = true
+						break
+					}
+				}
+				if !stillVisible && len(id.Tasks) > 0 {
+					anchor = id.Tasks[0]
+				}
+			}
+			if anchor != nil && !taskVisible(anchor, newFilter, anchor == activeTask) {
+				if nt := nearestVisibleTask(allTasks(state), anchor, visibleTasks(state, newFilter, activeTask)); nt != nil {
+					currentID = nt
+				}
+			}
+		}
+		currentFilter = newFilter
+		closeFilterDialog()
 		rebuild()
 	}
 
@@ -735,7 +950,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	state.OnTaskAdded = func(*playNode, *taskNode) { rebuild() }
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
-	bottomBar := tview.NewTextView().SetText(" ↑/↓/j/k navigate  ←/→: expand/collapse  n/p: prev/next task  home/end/G: top/bottom  F: resume follow  E/C: expand/collapse all  enter/space: toggle  q: quit ")
+	bottomBar := tview.NewTextView().SetText(" ↑/↓/j/k navigate  ←/→: expand/collapse  n/p: prev/next task  home/end/G: top/bottom  F: resume follow  E/C: expand/collapse all  enter/space: toggle  /: filter  q: quit ")
 	bottomBar.SetTextStyle(barStyle)
 
 	flex := tview.NewFlex().
@@ -746,6 +961,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
+	pages.AddPage("filter", centeredModal(filterDialog, 46, 11), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
 	// Everything else falls out of tview's own defaults once mouse events
@@ -794,6 +1010,25 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 				app.Stop()
 			} else {
 				_ = proc.Signal(os.Interrupt) // best-effort; child may race-exit
+			}
+			return nil
+		}
+
+		// The filter dialog is fully modal (Filters.md): while it's open,
+		// every key except Esc and the three implemented filter shortcuts
+		// is swallowed outright - checked before the vim-alias translation
+		// block and the viewingOutput branch below, so it takes priority
+		// over both regardless of which page is otherwise frontmost.
+		if filterDialogOpen {
+			switch {
+			case event.Key() == tcell.KeyEscape:
+				closeFilterDialog()
+			case event.Key() == tcell.KeyRune && event.Rune() == 'a':
+				applyFilter(filterAll)
+			case event.Key() == tcell.KeyRune && event.Rune() == 'c':
+				applyFilter(filterChanged)
+			case event.Key() == tcell.KeyRune && event.Rune() == 'f':
+				applyFilter(filterFailed)
 			}
 			return nil
 		}
@@ -876,6 +1111,12 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		case event.Key() == tcell.KeyRune && event.Rune() == 'p':
 			navigateMainTask(-1)
 			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == '/':
+			// Main-tree-only, deliberately: opening the filter dialog while
+			// the output drill-down view is frontmost isn't supported (the
+			// viewingOutput branch above already returned by this point).
+			openFilterDialog()
+			return nil
 		}
 
 		return event
@@ -899,6 +1140,16 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// own default wheel handling, left to run below) has no range limit -
 	// unlike tview.List, it's not bounded by the cursor's own position.
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if filterDialogOpen {
+			// Fully modal (Filters.md): the dialog itself is keyboard-only,
+			// so the simplest way to stop a click reaching the treeview
+			// underneath - including one outside the dialog's own small
+			// centered box, which its own MouseHandler would just ignore
+			// rather than block - is to swallow all mouse input outright
+			// while it's open, rather than teach the dialog page itself to
+			// consume clicks it doesn't actually care about.
+			return nil, action
+		}
 		if viewingOutput {
 			return event, action // TextView's own wheel handling has no
 			// such clamp - there's no "selected line" to keep visible -
@@ -1306,6 +1557,98 @@ func tasksForHost(state *playbookState, host string) []*taskNode {
 		}
 	}
 	return tasks
+}
+
+// visibleTasks is allTasks' filtered sibling - every task that gets a row
+// under filter (see taskVisible), in the same run order. Used by
+// navigateMainTask (n/p) and the filter-switch cursor fallback so neither
+// ever targets a task flattenRows wouldn't actually have rendered a row
+// for.
+func visibleTasks(state *playbookState, filter filterMode, activeTask *taskNode) []*taskNode {
+	var tasks []*taskNode
+	for _, t := range allTasks(state) {
+		if taskVisible(t, filter, t == activeTask) {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks
+}
+
+// visibleTasksForHost is tasksForHost's filtered sibling, for the output
+// drill-down view's prev/next-task navigation (see navigateOutputTask).
+func visibleTasksForHost(state *playbookState, host string, filter filterMode, activeTask *taskNode) []*taskNode {
+	var tasks []*taskNode
+	for _, t := range tasksForHost(state, host) {
+		if taskVisible(t, filter, t == activeTask) {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks
+}
+
+// taskSet turns a task slice into a membership set - shared by
+// nearestVisibleTask and navigateMainTask's play-row case below, both of
+// which need repeated "is this task currently visible" checks against the
+// same visibleTasks() result.
+func taskSet(tasks []*taskNode) map[*taskNode]bool {
+	set := make(map[*taskNode]bool, len(tasks))
+	for _, t := range tasks {
+		set[t] = true
+	}
+	return set
+}
+
+// firstVisibleTask returns play's own first task that's currently visible
+// (per the visible set, built from visibleTasks), or nil if it has none -
+// used by navigateMainTask's play-row case so "next" from a play row never
+// targets a task the active filter is hiding. Never actually returns nil in
+// practice: flattenRows only ever gives a play a row at all when it has at
+// least one visible task, and navigateMainTask only reaches this for a play
+// the cursor is currently sitting on.
+func firstVisibleTask(play *playNode, visible map[*taskNode]bool) *taskNode {
+	for _, t := range play.Tasks {
+		if visible[t] {
+			return t
+		}
+	}
+	return nil
+}
+
+// nearestVisibleTask finds, within visible (a filtered, order-preserving
+// subset of all), the task closest to anchor's original position: the next
+// visible task at or after it in run order, or failing that, the last
+// visible task before it. Returns nil if visible is empty. Used when
+// switching filters removes the row the cursor was pinned to (see
+// NewLiveTUI's applyFilter) - "removed" always means a whole task (and, per
+// Filters.md, all of its still-shown hosts) disappearing at once, never an
+// individual host row on its own, so a task is always the right granularity
+// to land on.
+func nearestVisibleTask(all []*taskNode, anchor *taskNode, visible []*taskNode) *taskNode {
+	if len(visible) == 0 {
+		return nil
+	}
+	visibleSet := taskSet(visible)
+	anchorIdx := -1
+	for i, t := range all {
+		if t == anchor {
+			anchorIdx = i
+			break
+		}
+	}
+	if anchorIdx == -1 {
+		return visible[0]
+	}
+	for i := anchorIdx; i < len(all); i++ {
+		if visibleSet[all[i]] {
+			return all[i]
+		}
+	}
+	for i := anchorIdx - 1; i >= 0; i-- {
+		if visibleSet[all[i]] {
+			return all[i]
+		}
+	}
+	return visible[0] // unreachable given visible is non-empty and a subset of all
 }
 
 // primaryOutputField picks a single field to represent a host's textual

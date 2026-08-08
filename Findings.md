@@ -15,6 +15,10 @@ immediately implemented.
 
 * Plays with no tasks are not displayed
 
+* TODO: treeview doesn't fully adapt to window resizeing anymore
+
+* Search in drill down window
+
 # Further Feature ideas
 
 * Filter
