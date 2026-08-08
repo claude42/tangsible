@@ -221,15 +221,19 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
 
-	list := tview.NewList().ShowSecondaryText(false)
-	list.SetWrapAround(false)
+	list := newTreeList() // see treelist.go - a purpose-built replacement
+	// for tview.List, needed so mouse-wheel panning can move the viewport
+	// independently of the cursor (tview.List's own Draw() forces the two
+	// to stay in lockstep, with no way to disable it). No wraparound and
+	// no secondary-text/shortcut support built in - this app never used
+	// those.
 
 	expanded := map[*taskNode]bool{}
 	var currentRows []row
 	var currentID any
 	var rebuilding bool
-	following := true     // auto-follow the newest row until the user navigates away
-	var jumpingToEnd bool  // true only while our own 'F' handler drives SetCurrentItem
+	following := true            // auto-follow the newest row until the user navigates away
+	var jumpingToEnd bool        // true only while our own 'F' handler drives SetCurrentItem
 	var failureCursorPlaced bool // latches true the first time rebuild()
 	// observes the run frozen - guards the one-time "jump to the failed
 	// host" placement below so it fires exactly once on the
@@ -255,16 +259,14 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// expanded it, scrolls the list down - if needed, and only as far as
 	// it can - so the newly revealed host rows are actually visible,
 	// rather than landing below the bottom of the screen with no visible
-	// change (the cursor stays on the task row itself throughout, so
-	// List.Draw()'s own "keep the current item visible" clamp - see the
-	// mouse-wheel panning mechanism further down - is otherwise perfectly
-	// happy leaving the viewport exactly where it was). Only ever scrolls
-	// further down from wherever the view already was, never up. If the
-	// whole block (the task row plus all its hosts) doesn't fit in the
-	// viewport at all, this simply reveals as much of the tail as fits -
-	// that same Draw() clamp is what stops this from ever scrolling the
-	// task row itself out of view, so nothing further is needed here to
-	// stay safe.
+	// change. The cursor stays on the task row itself throughout, so
+	// treeList's own ensureVisible (see treelist.go - it only runs when
+	// SetCurrentItem's index actually changes) never fires here on its
+	// own; this is the sole mechanism that scrolls to reveal a task's
+	// newly-expanded children. Only ever scrolls further down from
+	// wherever the view already was, never up. If the whole block (the
+	// task row plus all its hosts) doesn't fit in the viewport at all,
+	// this simply reveals as much of the tail as fits.
 	revealExpandedTask := func(t *taskNode) {
 		_, _, _, height := list.GetInnerRect()
 		if height <= 0 {
@@ -282,9 +284,8 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		}
 		blockEnd := taskIndex + len(t.HostOrder) // last newly-revealed row's index
 		desired := blockEnd - height + 1
-		current, horizontal := list.GetOffset()
-		if desired > current {
-			list.SetOffset(desired, horizontal)
+		if desired > list.GetOffset() {
+			list.SetOffset(desired)
 		}
 	}
 
@@ -298,11 +299,12 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// playRowText/taskLabel/hostLabel's selected parameter) can't be
 	// expressed as a single style applied uniformly to a row's whole text -
 	// different runs of the same row need different foreground/background
-	// combinations. So List's own automatic per-row highlighting is turned
-	// into a no-op (matching mainTextStyle's own colors exactly) and
-	// rebuild() instead re-renders whichever one row is currently selected
-	// with its own selected=true variant before ever calling AddItem.
-	list.SetSelectedStyle(tcell.StyleDefault.Foreground(tview.Styles.PrimaryTextColor).Background(tview.Styles.PrimitiveBackgroundColor))
+	// combinations. treeList (treelist.go) has no built-in per-row
+	// highlighting to neutralize in the first place (unlike tview.List, it
+	// just prints whatever text each row was given) - rebuild() re-renders
+	// whichever one row is currently selected with its own selected=true
+	// variant before ever calling AddItem, and that's the entire
+	// highlighting mechanism.
 
 	// Output drill-down page: a single, reused TextView (never recreated
 	// per drill-down), updated via SetText each time a host row is
@@ -351,8 +353,8 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	// navigateOutputTask moves the output page to the previous/next task
 	// (delta -1/+1) that recorded a result for outputHost, in run order -
-	// see tasksForHost. A no-op at either end (no wraparound, matching
-	// list.SetWrapAround(false)'s convention elsewhere) and before any
+	// see tasksForHost. A no-op at either end (no wraparound, matching the
+	// main tree's own no-wraparound convention elsewhere) and before any
 	// output has been shown yet (outputTask still nil).
 	navigateOutputTask := func(delta int) {
 		if outputTask == nil {
@@ -512,7 +514,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 					}
 				}
 			}
-			list.AddItem(r.text, "", 0, selected)
+			list.AddItem(r.text, selected)
 		}
 		list.SetCurrentItem(selectedIndex)
 	}
@@ -696,20 +698,19 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		rebuild()
 	}
 
-	list.SetChangedFunc(func(index int, _ string, _ string, _ rune) {
+	list.SetChangedFunc(func(index int) {
 		if rebuilding {
-			// List.Clear()+AddItem() fires spurious "changed" events while
-			// rebuild() is repopulating (e.g. as soon as the first item
-			// lands back in the now-empty list) - ignore those, rebuild()
-			// restores the real selection itself once done. This guard is
-			// also what makes the rebuild() call below safe against
-			// reentering itself: SetCurrentItem (tview's list.go) fires
-			// "changed" BEFORE updating its own currentItem, so if this
-			// handler's own rebuild() (via its closing SetCurrentItem call)
-			// cascaded back into this same handler with rebuilding still
-			// false, it would recurse without ever terminating. Since
+			// treeList.Clear() resets currentItem to -1, and the first
+			// AddItem() afterward sets it straight to 0 (treelist.go) - so
+			// rebuild()'s own trailing SetCurrentItem(selectedIndex) call
+			// almost always looks like a genuine change from treeList's own
+			// point of view (0 -> whatever the real selection is) and fires
+			// this callback, even though nothing the user did caused it.
+			// rebuild() restores the real selection itself once done, so
+			// these need to be ignored - this guard is also what stops that
+			// same SetCurrentItem call from recursing into rebuild() again:
 			// rebuild() sets rebuilding true for its entire body - Clear(),
-			// every AddItem(), and its own final SetCurrentItem() - any
+			// every AddItem(), and its own final SetCurrentItem() - so any
 			// "changed" event that cascades from within it lands here while
 			// rebuilding is still true and is correctly ignored instead.
 			return
@@ -883,21 +884,20 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// Mouse wheel/trackpad plainly pans the view - it does NOT move the
 	// cursor (see Keyboard-shortcuts.md). An earlier version drove
 	// list.SetCurrentItem() from the wheel instead, to get more scroll
-	// range out of List.Draw()'s unconditional "keep the current item
-	// visible" clamp (checked directly against list.go - there's no flag
-	// to disable it). That traded away more than intended: (1) it moved
-	// the cursor on every tick, which is not what a wheel/trackpad should
-	// do; and (2) SetCurrentItem(index) wraps a negative index around to
-	// len(items)+index (list.go, unconditionally - independent of
-	// list.SetWrapAround(false), which only governs the arrow-key
-	// InputHandler), so scrolling up from the very first row silently
-	// wrapped the cursor to the last row instead of stopping. Reverted per
-	// explicit request: only List's own default wheel handling now runs
-	// (plain itemOffset panning, already correctly bounded in both
-	// directions with no wraparound - see list.go's MouseHandler), and the
-	// resulting reduced scroll range - panning can't move the viewport
-	// past wherever the cursor itself currently is - is an accepted
-	// tradeoff, not a bug.
+	// range out of tview.List.Draw()'s unconditional "keep the current
+	// item visible" clamp (checked directly against tview's list.go -
+	// there was no flag to disable it). That traded away more than
+	// intended: (1) it moved the cursor on every tick, which is not what a
+	// wheel/trackpad should do; and (2) tview.List.SetCurrentItem(index)
+	// wraps a negative index around to len(items)+index unconditionally -
+	// independent of SetWrapAround(false), which only ever governed the
+	// arrow-key InputHandler - so scrolling up from the very first row
+	// silently wrapped the cursor to the last row instead of stopping.
+	// Reverted per explicit request, and fixed properly rather than just
+	// reverted: list is now treeList (treelist.go), a purpose-built
+	// widget with no such clamp at all, so plain itemOffset panning (its
+	// own default wheel handling, left to run below) has no range limit -
+	// unlike tview.List, it's not bounded by the cursor's own position.
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 		if viewingOutput {
 			return event, action // TextView's own wheel handling has no
@@ -906,7 +906,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		}
 		switch action {
 		case tview.MouseScrollUp, tview.MouseScrollDown:
-			// List's default handling (left to run below) never fires
+			// treeList's default handling (left to run below) never fires
 			// SetChangedFunc, since it never touches currentItem - so
 			// disengaging autoscroll on a genuine pan has to happen here
 			// explicitly instead of falling out of that callback the way
