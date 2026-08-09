@@ -22,7 +22,7 @@ go run . testdata/outcomes.yml -i localhost,
 go run . testdata/multihost.yml -i testdata/multihost-inventory.ini
 ```
 
-No tests exist yet; once added, run with `go test ./...` (`go test -run <Name> ./...` for a single test).
+No tests exist yet — see `TESTING.md` for the planned, phased approach; once added, run with `go test ./...` (`go test -run <Name> ./...` for a single test).
 
 The playbook argument is optional (`resolve.go`) — if omitted (no leading
 non-flag argument), it's resolved in order from `$TANGSIBLE_PLAYBOOK`,
