@@ -1,4 +1,4 @@
-module tangsible
+module code.aw.net/claude/tangsible
 
 go 1.24.4
 

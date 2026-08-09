@@ -54,7 +54,7 @@ side, not spread across your scrollback.
 ## Install
 
 ```
-git clone https://codeberg.org/claude42/tangsible.git
+git clone https://code.aw.net/claude/tangsible
 cd tangsible
 go build ./...
 ```
@@ -194,8 +194,22 @@ This is a v1, aimed at the common interactive case rather than full
   by the next one (including a re-run's), and there's no way to page back
   through past runs' results. (`.tangsible` does remember past invocation
   *arguments* — see Configuration — but not their outcomes.)
-- No interactive prompts yet (`--ask-become-pass`, vault passwords,
-  `pause` tasks).
+- `--ask-become-pass`/`--ask-vault-pass` already work, with no special
+  handling needed — Ansible's own password prompt opens `/dev/tty`
+  directly rather than going through Tangsible's own stdin/stdout, and it
+  happens before Tangsible's TUI ever touches the terminal, so the two
+  never contend for it.
+- Interactive input *after* the TUI is already up doesn't work, though —
+  a bare `pause:` task (no `seconds:`/`minutes:`) doesn't hang, but it
+  also doesn't actually pause — Ansible detects stdin isn't interactive
+  and skips waiting immediately, completing the task with a warning
+  (`Not waiting for response to prompt as stdin is not interactive`,
+  visible if you drill into that task's own output) rather than
+  blocking. A timed `pause: seconds: N`/`minutes: N` is unaffected — it's
+  a pure sleep, no input involved. The same likely applies to a
+  `vars_prompt` on any play after the first (untested) — unlike
+  `--ask-become-pass`/`--ask-vault-pass`, which are always asked once,
+  up front, before anything else happens.
 - Built and tested around the scale of a typical dev inventory (roughly
   10 hosts), not a fleet-management tool.
 - Only a limited slice of `ansible-playbook`'s CLI surface is
