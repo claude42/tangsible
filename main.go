@@ -70,6 +70,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tangsible: no playbook given - using %q (%s)\n", playbook, source)
 	}
 
+	// Recorded unconditionally, before ansible-playbook is even started -
+	// same "an invocation is an invocation" semantics as shell history,
+	// independent of whether the run itself goes on to succeed, fail, or
+	// never gets past ansible-playbook's own pre-flight checks. Non-fatal:
+	// losing the ability to pre-fill a future rerun dialog is never worth
+	// aborting the run the user actually asked for.
+	if err := appendInvocation(tangsibleFilePath, playbook, argsToHistoryString(rest)); err != nil {
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
+	}
+
 	cmd := exec.Command("ansible-playbook", append([]string{playbook}, rest...)...)
 	cmd.Env = append(os.Environ(),
 		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",

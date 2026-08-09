@@ -17,6 +17,11 @@ import (
 // inherently per-project), but the type is shared with the global config
 // file too rather than forking it into two shapes, since an empty History
 // there is harmless.
+// tangsibleFilePath is the project-local config/history file's path -
+// shared between resolvePlaybook's read and main's history.go writes, so
+// there's exactly one literal for it.
+const tangsibleFilePath = ".tangsible"
+
 type playbookConfig struct {
 	General struct {
 		DefaultPlaybook string `toml:"default_playbook"`
@@ -127,7 +132,7 @@ func resolvePlaybook() (path, source string) {
 	if v := os.Getenv("TANGSIBLE_PLAYBOOK"); v != "" {
 		return v, "TANGSIBLE_PLAYBOOK"
 	}
-	if v := readDefaultPlaybook(".tangsible"); v != "" {
+	if v := readDefaultPlaybook(tangsibleFilePath); v != "" {
 		return v, "./.tangsible"
 	}
 	if home := configHome(); home != "" {
