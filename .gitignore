@@ -18,6 +18,10 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# The built binary (module name, produced by `go build`/`go build ./...`
+# in the repo root)
+/tangsible
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
