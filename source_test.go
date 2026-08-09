@@ -26,9 +26,12 @@ func TestBuildTaskSourceIndex(t *testing.T) {
 
 	index := buildTaskSourceIndex(path)
 
+	// 5 tasks plus the play itself (indexed the same way since source.go's
+	// change to also cover plays, not just tasks - see recordNode).
 	wantNames := []string{"ok task", "changed task", "skipped task", "failed task", "after failure"}
-	if len(index) != len(wantNames) {
-		t.Fatalf("got %d indexed tasks, want %d (index: %v)", len(index), len(wantNames), index)
+	wantTotal := len(wantNames) + 1
+	if len(index) != wantTotal {
+		t.Fatalf("got %d indexed entries, want %d (index: %v)", len(index), wantTotal, index)
 	}
 	for _, name := range wantNames {
 		found := false
@@ -41,6 +44,47 @@ func TestBuildTaskSourceIndex(t *testing.T) {
 		if !found {
 			t.Errorf("no indexed task source contains %q", "name: "+name)
 		}
+	}
+
+	playFound := false
+	for _, source := range index {
+		if strings.Contains(source, "hosts: localhost") {
+			playFound = true
+			break
+		}
+	}
+	if !playFound {
+		t.Error("no indexed source contains the play's own \"hosts: localhost\"")
+	}
+}
+
+// TestBuildTaskSourceIndex_PlaysAreIndexedByTheirOwnStartLine confirms the
+// play's own entry is keyed correctly (its own start line, not shifted by
+// or colliding with its tasks') and contains the play's full block,
+// verbatim - not just a "hosts:" line, the whole thing through its last
+// task, matching Task definition's own "whole node verbatim" treatment.
+func TestBuildTaskSourceIndex_PlaysAreIndexedByTheirOwnStartLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pb.yml")
+	content := "- hosts: localhost\n  gather_facts: false\n  tasks:\n    - name: a task\n      debug:\n        msg: hi\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	index := buildTaskSourceIndex(path)
+
+	playKey := path + ":1"
+	playSource, ok := index[playKey]
+	if !ok {
+		t.Fatalf("no entry for %q; index: %v", playKey, index)
+	}
+	if !strings.Contains(playSource, "hosts: localhost") || !strings.Contains(playSource, "a task") {
+		t.Errorf("play source = %q, want it to contain both the play's own hosts: and its task", playSource)
+	}
+
+	taskKey := path + ":4"
+	if _, ok := index[taskKey]; !ok {
+		t.Errorf("no entry for the task at %q - play indexing must not have displaced it; index: %v", taskKey, index)
 	}
 }
 

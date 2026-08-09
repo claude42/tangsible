@@ -9,10 +9,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// taskSourceIndex maps a task's Ansible-reported path ("<absolute
-// file>:<line>", exactly matching rawEvent's task.path field) to that
-// task's raw YAML source text, verbatim from the file - not reformatted or
-// re-serialized, so the user's own formatting/comments are preserved.
+// taskSourceIndex maps a task's or a play's Ansible-reported path
+// ("<absolute file>:<line>", exactly matching rawEvent's task.path/
+// play.path fields) to its own raw YAML source text, verbatim from the
+// file - not reformatted or re-serialized, so the user's own formatting/
+// comments are preserved. One shared map for both: a play's own start
+// line never collides with any of its tasks' start lines (a play always
+// precedes its own tasks in the same file), so there's no ambiguity in
+// keying them together.
 type taskSourceIndex map[string]string
 
 // blockTaskListKeys/playTaskListKeys name the mapping keys whose value is
@@ -23,10 +27,12 @@ var playTaskListKeys = map[string]bool{"tasks": true, "pre_tasks": true, "post_t
 
 // buildTaskSourceIndex discovers every .yml/.yaml file under playbookPath's
 // own directory tree (the playbook itself, plus any roles/** alongside it)
-// and indexes every task found in each by its own source location. Never
-// fails outward - unreadable directories/files or YAML parse errors just
-// mean less coverage, not a crash; a lookup miss at display time simply
-// means no TASK: section for that entry (see tui.go's formatHostOutput).
+// and indexes every task - and, for an actual playbook file, every play
+// too - found in each by its own source location. Never fails outward -
+// unreadable directories/files or YAML parse errors just mean less
+// coverage, not a crash; a lookup miss at display time simply means no
+// Task definition/Play definition section for that entry (see tui.go's
+// formatHostOutput).
 //
 // Deliberately does not trace the playbook's own roles:/import_tasks/
 // include_tasks references to figure out which files to parse - instead,
@@ -118,6 +124,11 @@ func indexFile(path string, index taskSourceIndex) {
 			if i+1 < len(root.Content) {
 				playEnd = root.Content[i+1].Line
 			}
+			// The play itself, verbatim - same treatment as a task, and
+			// indexed into the same map (see recordNode) - what backs the
+			// output drill-down view's "Play definition" section
+			// (tui.go), alongside its own tasks indexed right after.
+			recordNode(path, play, lines, playEnd-1, index)
 			walkMappingForTaskLists(path, play, playTaskListKeys, lines, playEnd, index)
 		}
 		return
@@ -178,18 +189,22 @@ func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index
 		if i+1 < len(seq.Content) {
 			itemEnd = seq.Content[i+1].Line
 		}
-		recordTask(path, item, lines, itemEnd-1, index)
+		recordNode(path, item, lines, itemEnd-1, index)
 		walkMappingForTaskLists(path, item, blockTaskListKeys, lines, itemEnd, index)
 	}
 }
 
-// recordTask indexes one task-list item's raw source text, from its own
-// start line through endLine (inclusive), trimmed of trailing blank lines.
-// Indexes every mapping item unconditionally - including a block: wrapper
-// itself, alongside its nested tasks - which is harmless: Ansible's own
-// task.path never points at a block wrapper in practice, so that entry
-// simply never gets looked up.
-func recordTask(path string, item *yaml.Node, lines []string, endLine int, index taskSourceIndex) {
+// recordNode indexes one mapping node's raw source text - a task-list item
+// or a whole play (see indexFile's isPlaybook branch) - from its own start
+// line through endLine (inclusive), trimmed of trailing blank lines. Not
+// task-specific despite the task-list callers: it just indexes whatever
+// mapping node it's given by that node's own start line, which is exactly
+// what a play needs too. Indexes every mapping item unconditionally when
+// called from indexTaskList - including a block: wrapper itself, alongside
+// its nested tasks - which is harmless: Ansible's own task.path never
+// points at a block wrapper in practice, so that entry simply never gets
+// looked up.
+func recordNode(path string, item *yaml.Node, lines []string, endLine int, index taskSourceIndex) {
 	if item.Kind != yaml.MappingNode {
 		return
 	}

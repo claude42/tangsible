@@ -1,0 +1,67 @@
+Task
+====
+
+Name: Bootstrap everything
+Role: bootstrap
+Host: hades
+Status: Unreachable
+
+
+Output
+======
+
+Task failed: Failed to connect to the host via ssh: root@artha: Permission denied (publickey).
+
+
+Error
+=====
+
+Some error message if there is one.
+
+
+Task definition
+===============
+
+- name: Bootstrap everything
+  ansible.builtin.raw: >-
+    echo "nameserver XXXXXXXXXXXXXXXXXXXX" >> /etc/resolv.conf &&
+    apt-get update &&
+    apt-get install -y python3 sudo &&
+    ( id {{ user_name }} || useradd -m -b {{ parent_dir }} -r -s /bin/bash -G sudo {{ user_name }} ) &&
+    mkdir -m 0700 -p {{ ssh_dir }} &&
+    echo "ssh-ed25519 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXX@XXXXXX" > {{ authorized_keys_path }} &&
+    echo "ssh-ed25519 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXX@XXXXXX" >> {{ authorized_keys_path }} &&
+    chown -R {{ user_name }}:{{ user_name }} {{ ssh_dir }} &&
+    chmod 600 {{ authorized_keys_path }} &&
+    echo '{{ user_name }} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{{ user_name }} &&
+    chmod 440 /etc/sudoers.d/{{ user_name }} &&
+    rm -f /root/.ssh/authorized_keys
+[./roles/bootstrap/tasks/main.yml, line 10]
+
+
+Play definition
+===============
+
+- name: Bootstrap
+  hosts: hetzner,alphavps
+  become: false
+  remote_user: root
+  gather_facts: false
+  ignore_unreachable: true
+  roles:
+    - role: bootstrap
+      tags: bootstrap
+[./site.yml, line 1]
+
+
+Detailed results
+================
+
+{
+  "_ansible_no_log": false,
+  "action": "ansible.builtin.raw",
+  "changed": false,
+  "exception": "(traceback unavailable)",
+  "msg": "Task failed: Failed to connect to the host via ssh: root@artha: Permission denied (publickey).",
+  "unreachable": true
+}

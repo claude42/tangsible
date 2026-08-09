@@ -2176,8 +2176,11 @@ func colorizeYAML(raw string) string {
 	return strings.Join(lines, "\n")
 }
 
+// sectionLabel's own trailing blank line (after the "====" underline,
+// before any content) matches design-docs/drilldown.txt's spacing - every
+// section there has one blank line between its underline and its content.
 func sectionLabel(color, label string) string {
-	return fmt.Sprintf("[%s::b]%s[-::-]\n[%s]%s[-]\n", color, label, color, strings.Repeat("=", len([]rune(label))))
+	return fmt.Sprintf("[%s::b]%s[-::-]\n[%s]%s[-]\n\n", color, label, color, strings.Repeat("=", len([]rune(label))))
 }
 
 // taskSourceLocation formats task.Path ("<absolute file>:<line>", see
@@ -2196,31 +2199,69 @@ func taskSourceLocation(path string) string {
 	return fmt.Sprintf("[%s, line %s]", file, lineStr)
 }
 
-// formatHostOutput renders task.Raw[host] for the output drill-down view.
-// It decodes into a generic map (not a fixed struct) since different
-// Ansible modules return wildly different result shapes; msg/stdout/stderr
-// are pulled out as labeled, human-readable sections, followed
-// unconditionally by the complete result as pretty-printed JSON, which is
-// what makes this work for any module type without having to special-case
-// each one. The output TextView has dynamic colors on (see NewLiveTUI), so
-// every piece of dynamic/external content here - task source, stdout/
-// stderr/msg, the full JSON, even the raw bytes on a decode failure - is
-// individually tview.Escape()'d before being written, so a literal "[" in
-// any of it (e.g. "tags: [a, b]", a JSON array) can never be misread as a
-// color tag; only this function's own fixed label/status text is trusted
+// rolePathPattern matches the standard Ansible role directory layout
+// ("roles/<name>/tasks/..." or "roles/<name>/handlers/...") within a
+// task's own source path. A heuristic, not derived from any event field -
+// confirmed empirically that a role-sourced task's own v2_playbook_on_
+// task_start event carries no distinct "role" field at all, only the
+// convention of prefixing the task's display name as "<role> : <task
+// name>" (which this deliberately doesn't parse instead - a path-based
+// match is more robust than relying on a cosmetic display-name
+// convention). Same "good enough for the standard convention, not chased
+// further" style as this file's other derived-but-unlabeled info, e.g.
+// colorizeYAML's yamlKeyLine.
+var rolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers)/`)
+
+// roleFromPath returns the role name a task's own path was sourced from,
+// or "" if it doesn't match the standard roles/<name>/tasks|handlers/
+// layout at all (a play-level task, or a role laid out unconventionally).
+// Matched directly against the full "<file>:<line>" path with no need to
+// strip the ":<line>" suffix first - the pattern only looks for a "/"
+// immediately after "tasks"/"handlers", which the trailing ":<line>"
+// (appearing only after the filename that follows) never interferes with.
+func roleFromPath(path string) string {
+	m := rolePathPattern.FindStringSubmatch(path)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// formatHostOutput renders task.Raw[host] for the output drill-down view,
+// per the layout in design-docs/drilldown.txt: a Task summary block
+// (Name/Role/Host/Status), Output, Error, Task definition (the task's own
+// YAML source), Play definition (the parent play's own YAML source), and
+// Detailed results (the full JSON) - in that order. It decodes into a
+// generic map (not a fixed struct) since different Ansible modules return
+// wildly different result shapes; msg/stdout/stderr are pulled out as
+// labeled, human-readable sections, followed unconditionally by the
+// complete result as pretty-printed JSON, which is what makes this work
+// for any module type without having to special-case each one. The output
+// TextView has dynamic colors on (see NewLiveTUI), so every piece of
+// dynamic/external content here - task/play source, stdout/stderr/msg,
+// the full JSON, even the raw bytes on a decode failure - is individually
+// tview.Escape()'d before being written, so a literal "[" in any of it
+// (e.g. "tags: [a, b]", a JSON array) can never be misread as a color
+// tag; only this function's own fixed label/status text is trusted
 // unescaped.
 //
-// Leads with a colored status line (colorTag(o), the same outcome palette
-// the tree itself uses) so the host's outcome for this task is visible
-// without reading anything else first.
+// The Task summary block replaces what used to be a separate leading
+// colored bullet line - Status is now that block's own colored field
+// (colorTag(o), the same outcome palette the tree itself uses) instead,
+// so the host's outcome for this task is still visible without reading
+// anything else first. Role is derived from task.Path via roleFromPath -
+// a heuristic, not something any event reports directly - and the line
+// is omitted entirely when it's not role-sourced, matching this
+// function's general "omit rather than show a placeholder" convention
+// (Output/Error/Task definition/Play definition all do the same for a
+// miss or empty value).
 //
-// sourceIndex backs the TASK: section - task.Path's own raw YAML source
-// (source.go), shown ahead of everything else so the task definition and
-// its result are visible together without switching views, and lightly
-// highlighted line-by-line (colorizeYAML) rather than as flat text. A
-// lookup miss (task.Path empty, or just not found - an unusual file
-// layout, or a task genuinely generated at runtime) omits the section
-// entirely rather than showing an error; this is best-effort by design.
+// sourceIndex backs both Task definition (task.Path) and Play definition
+// (task.Play.Path) - source.go indexes plays the same way it indexes
+// tasks, into the same map. Both are best-effort: a lookup miss (an empty
+// path, or just not found - an unusual file layout, or a task/play
+// genuinely generated at runtime) omits that section entirely rather than
+// showing an error.
 func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) string {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
@@ -2240,39 +2281,62 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) 
 
 	var b strings.Builder
 	o := task.Hosts[host]
-	fmt.Fprintf(&b, "[%s::b]● %s[-::-]\n\n", colorTag(o), tview.Escape(o.String()))
 
-	if source, ok := sourceIndex[task.Path]; ok && source != "" {
-		b.WriteString(sectionLabel("orange", "Task"))
-		b.WriteString(colorizeYAML(source))
-		b.WriteString("\n")
-		if loc := taskSourceLocation(task.Path); loc != "" {
-			fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
-		}
-		b.WriteString("\n")
+	// Task summary block - placeholder color ("silver"), like Play
+	// definition's below: section colors are still to be revisited.
+	b.WriteString(sectionLabel("silver", "Task"))
+	fmt.Fprintf(&b, "Name: %s\n", tview.Escape(task.Name))
+	if role := roleFromPath(task.Path); role != "" {
+		fmt.Fprintf(&b, "Role: %s\n", tview.Escape(role))
 	}
-	writeSection := func(color, label, key string) {
-		s, ok := decoded[key].(string)
-		if !ok || s == "" {
+	fmt.Fprintf(&b, "Host: %s\n", tview.Escape(host))
+	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n\n\n", colorTag(o), tview.Escape(o.String()))
+
+	// writeTextSection renders one label+plain-text section (Output/
+	// Error) - omitted entirely when text is empty. The trailing "\n\n\n"
+	// closes text's own last line and adds two blank lines before
+	// whatever comes next, matching sectionLabel's own one-blank-line-
+	// after-the-underline spacing to produce drilldown.txt's two-blank-
+	// line gap between sections.
+	writeTextSection := func(color, label, text string) {
+		if text == "" {
 			return
 		}
 		b.WriteString(sectionLabel(color, label))
-		b.WriteString(tview.Escape(s))
-		b.WriteString("\n\n")
+		b.WriteString(tview.Escape(text))
+		b.WriteString("\n\n\n")
 	}
 	// Only one of MSG/STDOUT is shown, not both - see primaryOutputField;
 	// always labeled "Output" here regardless of which field it came
 	// from, since that distinction is an internal selection detail, not
 	// something worth surfacing in the section header.
-	if _, text := primaryOutputField(decoded); text != "" {
-		b.WriteString(sectionLabel("aqua", "Output"))
-		b.WriteString(tview.Escape(text))
+	_, outputText := primaryOutputField(decoded)
+	writeTextSection("aqua", "Output", outputText)
+	stderr, _ := decoded["stderr"].(string)
+	writeTextSection("red", "Error", stderr)
+
+	// writeSourceSection renders one label+YAML-source section (Task
+	// definition/Play definition) - omitted entirely on a lookup miss.
+	writeSourceSection := func(color, label, path string) {
+		source, ok := sourceIndex[path]
+		if !ok || source == "" {
+			return
+		}
+		b.WriteString(sectionLabel(color, label))
+		b.WriteString(colorizeYAML(source))
+		b.WriteString("\n")
+		if loc := taskSourceLocation(path); loc != "" {
+			fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
+		}
 		b.WriteString("\n\n")
 	}
-	writeSection("red", "Errors", "stderr")
+	writeSourceSection("orange", "Task definition", task.Path)
+	if task.Play != nil {
+		writeSourceSection("purple", "Play definition", task.Play.Path)
+	}
 
 	pretty, err := json.MarshalIndent(decoded, "", "  ")
-	b.WriteString(sectionLabel("gray", "Details"))
+	b.WriteString(sectionLabel("gray", "Detailed results"))
 	if err != nil {
 		fmt.Fprintf(&b, "(failed to format: %s)\n%s", tview.Escape(err.Error()), tview.Escape(string(raw)))
 	} else {
