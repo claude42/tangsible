@@ -366,13 +366,14 @@ func centeredModal(p tview.Primitive, width, height int) tview.Primitive {
 		AddItem(nil, 0, 1, false)
 }
 
-// filterDialogText renders the filter dialog's static body - a headline
-// and the four filters, each with a small marker next to whichever one is
-// currently active (the search box itself, below this text in the dialog's
-// own layout - see NewLiveTUI - shows the search term, not this text). No
-// tview.Escape() needed - every piece of text here is a fixed literal,
-// never external content (same reasoning as formatHostOutput's own fixed
-// labels).
+// filterDialogText renders the filter dialog's body - a headline and the
+// three filters this dialog itself offers (All/Changed/Failed - the search
+// filter is a separate dialog, see NewLiveTUI's searchDialog), each with a
+// small marker next to whichever one is currently active. No marker shown
+// at all if a search filter is currently active instead - none of these
+// three apply then. No tview.Escape() needed - every piece of text here is
+// a fixed literal, never external content (same reasoning as
+// formatHostOutput's own fixed labels).
 func filterDialogText(active filterQuery) string {
 	mark := func(mode filterMode) string {
 		if mode == active.mode {
@@ -384,10 +385,9 @@ func filterDialogText(active filterQuery) string {
 		" [::b]Select filter[::-]\n\n"+
 			" %s A - Show all\n"+
 			" %s C - Show changed (includes failed)\n"+
-			" %s F - Show only failed tasks\n"+
-			" %s M - Match search string (below)\n\n"+
-			" [gray]Esc to cancel[-]",
-		mark(filterAll), mark(filterChanged), mark(filterFailed), mark(filterSearch),
+			" %s F - Show only failed tasks\n\n"+
+			" [gray]Esc/q to cancel[-]",
+		mark(filterAll), mark(filterChanged), mark(filterFailed),
 	)
 }
 
@@ -444,18 +444,21 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// pages.GetFrontPage() query, since this function owns both places that
 	// ever switch pages.
 	currentFilter := filterQuery{mode: filterAll} // see Filters.md; the
-	// dialog below is the only writer.
-	var filterDialogOpen bool // true while the filter-selection dialog is
-	// frontmost - fully modal (see SetInputCapture/SetMouseCapture below):
-	// every key except Esc/a/c/f/m is swallowed, and all mouse input is
-	// blocked outright, while it's open.
-	var filterSearchTyping bool // true once 'm' has moved the cursor into
-	// the search text box (see startFilterSearchInput below) - narrower
-	// than filterDialogOpen: while this is also true, SetInputCapture lets
-	// every key except Ctrl-C through untouched instead of swallowing it,
-	// so normal characters (including ones that double as shortcuts
-	// elsewhere, like 'q') actually get typed into the box rather than
-	// triggering something else.
+	// two dialogs below are the only writers.
+	//
+	// The filter (a/c/f) and search (/) dialogs are two separate modals,
+	// not one combined one (reworked from an earlier single-dialog design
+	// after live use showed the combined version made it too easy to hit
+	// the wrong key). Each gets its own "is this one open" bool rather
+	// than a single shared enum, since the two are modal in genuinely
+	// different ways: filterDialogOpen (menu mode - a/c/f/Esc/q are the
+	// only keys that do anything, everything else is swallowed) vs
+	// searchDialogOpen (text-entry mode - every key except Ctrl-C passes
+	// straight through to the search box's own editing, including 'q' and
+	// 'a'/'c'/'f', since a real search term might contain any of those
+	// letters). See SetInputCapture below for exactly how each is modal.
+	var filterDialogOpen bool
+	var searchDialogOpen bool
 
 	// activeTaskNow returns the run's current in-progress task, or nil once
 	// the run has finished - the same "frozen means no active task" rule
@@ -547,35 +550,41 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	pages := tview.NewPages()
 
-	// Filter dialog: a small, modal overlay on top of the main page (see
-	// Filters.md's Dialog section) rather than a full page swap like
+	// Filter and search dialogs: two small, modal overlays on top of the
+	// main page (see Filters.md's Dialog section - split into two separate
+	// dialogs after live use of a single combined one showed it was too
+	// easy to hit the wrong key) rather than a full page swap like
 	// "output" below - tview's Pages supports this natively via
 	// ShowPage/HidePage instead of SwitchToPage, which leave other pages'
 	// visibility alone (confirmed against pages.go) rather than hiding
-	// them, so "main" keeps being drawn underneath. centeredModal wraps it
-	// in nested Flexes to get a fixed-size, screen-centered box instead of
-	// filling the whole available area - the standard tview pattern for a
-	// partial-screen overlay page. Not added to pages yet - see the
-	// pages.AddPage calls further down, which must add it *last* so it's
-	// drawn on top of "main"/"output" (Pages draws visible pages back to
-	// front, in the order they were added - confirmed against pages.go).
+	// them, so "main" keeps being drawn underneath. centeredModal wraps
+	// each in nested Flexes to get a fixed-size, screen-centered box
+	// instead of filling the whole available area - the standard tview
+	// pattern for a partial-screen overlay page. Neither is added to pages
+	// yet - see the pages.AddPage calls further down, which must add them
+	// *last* so they draw on top of "main"/"output" (Pages draws visible
+	// pages back to front, in the order they were added - confirmed
+	// against pages.go).
 	//
-	// Two widgets stacked in their own Flex, not just one TextView: static
-	// instructions (filterDialogText) on top, and a real tview.InputField
-	// below it for the search filter's text box (Filters.md's "Next to (or
-	// below) the Match search string shall be a text box") - a TextView
-	// can display text but can't accept edits, and the search filter needs
-	// genuine text entry. The box is always part of the layout (visible
-	// from the moment the dialog opens) but starts unfocused; pressing 'm'
-	// is what moves the cursor into it (see startFilterSearchInput below) -
-	// per Filters.md, just opening the dialog must not put you straight
-	// into typing.
+	// filterDialog is a plain TextView - a static a/c/f menu, no text
+	// entry at all.
 	filterDialog := tview.NewTextView().SetDynamicColors(true)
-	filterSearchInput := tview.NewInputField().SetLabel("Search: ")
-	filterDialogFlex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(filterDialog, 0, 1, false).
-		AddItem(filterSearchInput, 1, 0, true)
-	filterDialogFlex.SetBorder(true).SetTitle(" Filter ")
+	filterDialog.SetBorder(true).SetTitle(" Filter ")
+
+	// searchDialog is a headline TextView plus a real tview.InputField for
+	// the search box - a TextView can display text but can't accept
+	// edits, and the search filter needs genuine text entry. Unlike the
+	// old combined dialog's search box, this one gets focus the moment the
+	// dialog opens (openSearchDialog below) rather than needing a separate
+	// activation keypress first - there's nothing else in this dialog to
+	// browse first, so there's no "menu mode" to be in before typing.
+	searchHeadline := tview.NewTextView().SetDynamicColors(true).
+		SetText(" [::b]Search[::-]\n\n [gray]Enter to apply, Esc to cancel[-]")
+	searchInput := tview.NewInputField().SetLabel("Search: ")
+	searchDialogFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(searchHeadline, 0, 1, false).
+		AddItem(searchInput, 1, 0, true)
+	searchDialogFlex.SetBorder(true).SetTitle(" Search ")
 
 	// outputTask/outputHost track which (task, host) pair the output page
 	// is currently showing, so navigateOutputTask (below) knows where
@@ -961,49 +970,51 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		rebuild()
 	}
 
-	// openFilterDialog/closeFilterDialog/startFilterSearchInput/applyFilter
-	// back the '/' shortcut and the filter dialog itself (Filters.md). The
-	// dialog is fully modal (see SetInputCapture/SetMouseCapture below) so
-	// these are the only places filterDialogOpen/filterSearchTyping/
+	// openFilterDialog/openSearchDialog/closeDialogs/applyFilter back the
+	// 'f'/'/' shortcuts and the two dialogs themselves (Filters.md). Both
+	// dialogs are fully modal (see SetInputCapture/SetMouseCapture below)
+	// so these are the only places filterDialogOpen/searchDialogOpen/
 	// currentFilter ever change.
 	openFilterDialog := func() {
 		filterDialogOpen = true
 		filterDialog.SetText(filterDialogText(currentFilter))
-		// Pre-fill the search box with the previous term as soon as the
-		// dialog opens, not only once 'm' is pressed - Filters.md is
-		// explicit that reopening the dialog while the search filter is
-		// already active should show it right away.
-		if currentFilter.mode == filterSearch {
-			filterSearchInput.SetText(currentFilter.search)
-		} else {
-			filterSearchInput.SetText("")
-		}
 		pages.ShowPage("filter")
 	}
-	closeFilterDialog := func() {
+	// openSearchDialog pre-fills the box with the previous term whenever
+	// one is already active (Filters.md's explicit "reopening the dialog
+	// while the search filter is already active should show it right
+	// away") and, unlike the old combined dialog, moves keyboard focus
+	// into it immediately - there's no menu to browse first in a
+	// search-only dialog, so there's nothing to wait for before typing.
+	openSearchDialog := func() {
+		searchDialogOpen = true
+		if currentFilter.mode == filterSearch {
+			searchInput.SetText(currentFilter.search)
+		} else {
+			searchInput.SetText("")
+		}
+		pages.ShowPage("search")
+		app.SetFocus(searchInput)
+	}
+	// closeDialogs closes whichever of the two dialogs is currently open
+	// (harmless no-op on the one that wasn't) with no filter/search
+	// change - shared by both dialogs' own Esc/q handling below and by
+	// applyFilter, so there's exactly one place that resets this state
+	// and refocuses the main tree.
+	closeDialogs := func() {
 		filterDialogOpen = false
-		filterSearchTyping = false
+		searchDialogOpen = false
 		pages.HidePage("filter")
-		app.SetFocus(list) // undo startFilterSearchInput's SetFocus below,
-		// if it ran - harmless no-op if it never did (list already has
-		// focus in that case).
+		pages.HidePage("search")
+		app.SetFocus(list) // undo openSearchDialog's SetFocus above, if it
+		// ran - harmless no-op if it never did (list already has focus in
+		// that case).
 	}
-	// startFilterSearchInput moves real keyboard focus into the search
-	// text box (Filters.md: "When M is pressed, cursor shall be in the
-	// text box") - the box's own text was already set by openFilterDialog
-	// above. From this point until filterSearchInput's own SetDoneFunc
-	// fires (Enter/Esc/Tab/Backtab), SetInputCapture lets keys through
-	// untouched instead of swallowing them (see filterSearchTyping) so the
-	// box can be edited normally.
-	startFilterSearchInput := func() {
-		filterSearchTyping = true
-		app.SetFocus(filterSearchInput)
-	}
-	// applyFilter switches to newFilter (a no-op switch still closes the
-	// dialog, matching "when the user presses A, C, F the respective
-	// filter shall be activated and the window shall be closed again" -
-	// M's own Enter-to-apply, wired up on filterSearchInput's SetDoneFunc
-	// below, funnels through here too).
+	// applyFilter switches to newFilter (a no-op switch still closes
+	// whichever dialog is open, matching "when the user presses a/c/f the
+	// respective filter shall be activated and the window shall be closed
+	// again" - the search dialog's own Enter-to-apply, wired up on
+	// searchInput's SetDoneFunc below, funnels through here too).
 	//
 	// If the cursor is currently pinned to a specific row (following ==
 	// false - if it's true, rebuild() already re-resolves the selection to
@@ -1046,23 +1057,26 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			}
 		}
 		currentFilter = newFilter
-		closeFilterDialog()
+		closeDialogs()
 		rebuild()
 	}
 
-	// filterSearchInput.SetDoneFunc fires on Enter/Esc/Tab/Backtab -
-	// InputField's own fixed set of "done" keys (confirmed against
-	// inputfield.go), reached because filterSearchTyping tells
-	// SetInputCapture above to let these through untouched rather than
-	// swallowing them like every other dialog key. Only Enter actually
-	// applies the typed term; Esc/Tab/Backtab all just cancel back out -
-	// there's nothing else in this dialog to Tab to, and Filters.md only
-	// ever specifies Esc for "close with no change" anyway.
-	filterSearchInput.SetDoneFunc(func(key tcell.Key) {
+	// searchInput.SetDoneFunc fires on Enter/Esc/Tab/Backtab - InputField's
+	// own fixed set of "done" keys (confirmed against inputfield.go),
+	// reached because searchDialogOpen tells SetInputCapture below to let
+	// these through untouched rather than intercepting them like the
+	// filter dialog's own keys. Only Enter actually applies the typed
+	// term; Esc/Tab/Backtab all just cancel back out - there's nothing
+	// else in this dialog to Tab to, and Filters.md only ever specifies
+	// Esc for "close with no change" anyway. 'q' deliberately does *not*
+	// appear here - unlike the filter dialog's plain menu, this box must
+	// accept 'q' as ordinary typed text (a search term can contain the
+	// letter q), so it's never treated as a shortcut while typing.
+	searchInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
-			applyFilter(filterQuery{mode: filterSearch, search: filterSearchInput.GetText()})
+			applyFilter(filterQuery{mode: filterSearch, search: searchInput.GetText()})
 		} else {
-			closeFilterDialog()
+			closeDialogs()
 		}
 	})
 
@@ -1114,7 +1128,8 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
-	pages.AddPage("filter", centeredModal(filterDialogFlex, 46, 12), true, false)
+	pages.AddPage("filter", centeredModal(filterDialog, 46, 9), true, false)
+	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 7), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
 	// Everything else falls out of tview's own defaults once mouse events
@@ -1155,23 +1170,19 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	}()
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// While the user is typing into the filter dialog's search box,
-		// every key must reach InputField's own editing logic completely
-		// untouched - including letters that double as global shortcuts
-		// elsewhere (typing "request" must not quit the app just because
-		// it contains a 'q', and must not get intercepted as a page
-		// shortcut either). Checked first, before even the isQuit check
-		// below, so nothing else in this function ever sees these events.
-		// Ctrl-C is the one deliberate exception: Purpose.md's "behaves
-		// like running ansible-playbook directly" guarantee is
-		// unconditional, even here - so it still falls through.
-		if filterSearchTyping && event.Key() != tcell.KeyCtrlC {
-			return event
-		}
-
-		isQuit := event.Key() == tcell.KeyCtrlC ||
-			(!filterSearchTyping && event.Key() == tcell.KeyRune && event.Rune() == 'q')
-		if isQuit {
+		// Ctrl-C's meaning never changes based on what's open - per
+		// Purpose.md's "behaves like running ansible-playbook directly"
+		// guarantee, it always aborts/quits, unconditionally. If either
+		// dialog happens to be open, it also closes that dialog first
+		// (with no filter/search change) - the one exception to both
+		// dialogs' own "q closes without aborting" rule below, since
+		// Ctrl-C is unambiguous about wanting to abort too. Checked first,
+		// before anything else in this function, so it can never be
+		// swallowed or reinterpreted by dialog- or page-specific logic
+		// below (most importantly, by searchDialogOpen's own "let
+		// everything through" pass-through just below this).
+		if event.Key() == tcell.KeyCtrlC {
+			closeDialogs() // harmless no-op if neither dialog is open
 			if processDone.Load() {
 				quitting.Store(true) // before Stop() - see main.go's race note
 				app.Stop()
@@ -1181,24 +1192,49 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			return nil
 		}
 
-		// The filter dialog is fully modal (Filters.md): while it's open
-		// but not yet in text-entry mode (filterSearchTyping, handled
-		// above), every key except Esc and the four filter shortcuts is
-		// swallowed outright - checked before the vim-alias translation
-		// block and the viewingOutput branch below, so it takes priority
-		// over both regardless of which page is otherwise frontmost.
+		// While the search dialog's box has focus, every other key must
+		// reach InputField's own editing logic completely untouched -
+		// including 'q' itself (a real search term can contain the letter
+		// q, e.g. "request") and letters that double as shortcuts
+		// elsewhere ('a'/'c'/'f'). There's deliberately no "q closes this
+		// one too" here, unlike the filter dialog below: this dialog is
+		// nothing but a text box, so unlike a menu where q is never a
+		// valid choice, typing q here is always meaningful input, never a
+		// mistake to rescue the user from.
+		if searchDialogOpen {
+			return event
+		}
+
+		// The filter dialog is a plain modal menu (Filters.md), no text
+		// entry at all: every key except Esc/q and the three filter
+		// shortcuts is swallowed outright - checked before the isQuit
+		// check below (so q closes the dialog here instead of quitting -
+		// per explicit request, pressing q was too often just a
+		// reflex to close something, not a real intent to quit) and
+		// before the vim-alias translation block and the viewingOutput
+		// branch further down, so it takes priority over all of them
+		// regardless of which page is otherwise frontmost.
 		if filterDialogOpen {
 			switch {
-			case event.Key() == tcell.KeyEscape:
-				closeFilterDialog()
+			case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyRune && event.Rune() == 'q':
+				closeDialogs()
 			case event.Key() == tcell.KeyRune && event.Rune() == 'a':
 				applyFilter(filterQuery{mode: filterAll})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'c':
 				applyFilter(filterQuery{mode: filterChanged})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'f':
 				applyFilter(filterQuery{mode: filterFailed})
-			case event.Key() == tcell.KeyRune && event.Rune() == 'm':
-				startFilterSearchInput()
+			}
+			return nil
+		}
+
+		isQuit := event.Key() == tcell.KeyRune && event.Rune() == 'q'
+		if isQuit {
+			if processDone.Load() {
+				quitting.Store(true) // before Stop() - see main.go's race note
+				app.Stop()
+			} else {
+				_ = proc.Signal(os.Interrupt) // best-effort; child may race-exit
 			}
 			return nil
 		}
@@ -1281,11 +1317,15 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		case event.Key() == tcell.KeyRune && event.Rune() == 'p':
 			navigateMainTask(-1)
 			return nil
-		case event.Key() == tcell.KeyRune && event.Rune() == '/':
-			// Main-tree-only, deliberately: opening the filter dialog while
-			// the output drill-down view is frontmost isn't supported (the
-			// viewingOutput branch above already returned by this point).
+		case event.Key() == tcell.KeyRune && event.Rune() == 'f':
+			// Main-tree-only, deliberately, same as '/' below: opening
+			// either dialog while the output drill-down view is frontmost
+			// isn't supported (the viewingOutput branch above already
+			// returned by this point).
 			openFilterDialog()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == '/':
+			openSearchDialog()
 			return nil
 		}
 
@@ -1310,14 +1350,15 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// own default wheel handling, left to run below) has no range limit -
 	// unlike tview.List, it's not bounded by the cursor's own position.
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
-		if filterDialogOpen {
-			// Fully modal (Filters.md): the dialog itself is keyboard-only,
-			// so the simplest way to stop a click reaching the treeview
-			// underneath - including one outside the dialog's own small
-			// centered box, which its own MouseHandler would just ignore
-			// rather than block - is to swallow all mouse input outright
-			// while it's open, rather than teach the dialog page itself to
-			// consume clicks it doesn't actually care about.
+		if filterDialogOpen || searchDialogOpen {
+			// Fully modal (Filters.md): neither dialog needs mouse
+			// interaction (both are keyboard-only), so the simplest way to
+			// stop a click reaching the treeview underneath - including
+			// one outside the dialog's own small centered box, which its
+			// own MouseHandler would just ignore rather than block - is to
+			// swallow all mouse input outright while either is open,
+			// rather than teach the dialog pages themselves to consume
+			// clicks they don't actually care about.
 			return nil, action
 		}
 		if viewingOutput {
