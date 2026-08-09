@@ -395,18 +395,32 @@ func filterDialogText(active filterQuery) string {
 // hooks so it grows as events arrive. It does not block — the caller must
 // call app.Run() and feed events through applyLive.
 //
-// proc is ansible-playbook's process, used so Ctrl-C/q can forward SIGINT
-// to it while it's still running (tcell's raw mode disables the OS's own
-// Ctrl-C-to-SIGINT delivery, so without this the child would stop
-// receiving the interrupt it used to get for free — see Purpose.md's
-// Ctrl-C decision). processDone/quitting are shared with the caller:
-// this function only reads processDone and only writes quitting.
+// procH holds ansible-playbook's current process, used so Ctrl-C/q can
+// forward SIGINT to it while it's still running (tcell's raw mode disables
+// the OS's own Ctrl-C-to-SIGINT delivery, so without this the child would
+// stop receiving the interrupt it used to get for free — see Purpose.md's
+// Ctrl-C decision). A mutable holder rather than a plain *os.Process -
+// unlike everything else this function reads at construction time and
+// never again - because a rerun (Rerun.md, see requestRerun below) points
+// it at a freshly spawned child mid-session; SetInputCapture always reads
+// whichever process is current via procH.Load(). processDone/quitting are
+// shared with the caller: this function only reads processDone and only
+// writes quitting.
+//
+// requestRerun is called from the 'r' key handler below, once a run has
+// finished, to start a new generation - main.go's implementation resets
+// processDone/exitCode/state and spawns a fresh ansible-playbook
+// invocation; this function's own job is only to reset its own view state
+// (expanded/currentID/following/the freeze latches) and restart the
+// heartbeat ticker to match. See requestRerun's own doc comment in main.go
+// for why it currently always reruns with the original invocation's exact
+// args - Phase B's interim behavior, ahead of Rerun.md's full dialog.
 //
 // sourceIndex (source.go) backs the output drill-down view's TASK:
 // section (see formatHostOutput) - a lookup miss (any task whose path
 // wasn't found while building the index) just means no TASK: section for
 // that entry, never an error.
-func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, requestRerun func()) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -1142,32 +1156,44 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	// Top-bar heartbeat ticker - the first self-driven (not event- or
 	// input-triggered) source of QueueUpdateDraw calls in this codebase.
-	// Placed after `app` is assigned: the go statement's happens-before
-	// edge (Go memory model) guarantees this goroutine sees that
-	// assignment - if this were moved earlier in the function, reading
-	// `app` here would be a genuine data race, not just a latency
-	// curiosity, even though the first tick is spinnerInterval away.
-	go func() {
-		ticker := time.NewTicker(spinnerInterval)
-		defer ticker.Stop()
-		for range ticker.C {
-			if quitting.Load() {
-				return // mirrors main.go's streamEvents guard: tview's
-				// update queue is a fixed 100-slot buffer nothing drains
-				// once the app has stopped, so a goroutine blocked inside
-				// QueueUpdateDraw past that point hangs forever. Unlike
-				// streamEvents, nothing in main.go waits on this
-				// goroutine, so such a hang wouldn't itself block process
-				// exit - but there's no reason to rely on that.
+	// Pulled out into a named closure, rather than a bare inline goroutine,
+	// specifically so the 'r' key handler below can call it again to
+	// resume ticking for a rerun (Rerun.md) - the ticker that started
+	// alongside the first invocation permanently returns once it observes
+	// processDone true (see its own comment below), so a later generation
+	// needs a fresh one.
+	startHeartbeat := func() {
+		go func() {
+			ticker := time.NewTicker(spinnerInterval)
+			defer ticker.Stop()
+			for range ticker.C {
+				if quitting.Load() {
+					return // mirrors main.go's streamEvents guard: tview's
+					// update queue is a fixed 100-slot buffer nothing drains
+					// once the app has stopped, so a goroutine blocked inside
+					// QueueUpdateDraw past that point hangs forever. Unlike
+					// streamEvents, nothing in main.go waits on this
+					// goroutine, so such a hang wouldn't itself block process
+					// exit - but there's no reason to rely on that.
+				}
+				done := processDone.Load()
+				app.QueueUpdateDraw(rebuild)
+				if done {
+					return // one frozen frame pushed above; stop ticking
+					// rather than redrawing a static screen forever - until
+					// startHeartbeat is called again for a later rerun.
+				}
 			}
-			done := processDone.Load()
-			app.QueueUpdateDraw(rebuild)
-			if done {
-				return // one frozen frame pushed above; stop ticking
-				// rather than redrawing a static screen forever.
-			}
-		}
-	}()
+		}()
+	}
+	// Placed after `app` is assigned: the go statement inside
+	// startHeartbeat's closure body has a happens-before edge (Go memory
+	// model) with this very call, which itself runs after `app` was
+	// assigned - if startHeartbeat were defined or first called any
+	// earlier, reading `app` from the ticker goroutine would be a genuine
+	// data race, not just a latency curiosity, even though the first tick
+	// is spinnerInterval away.
+	startHeartbeat()
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		// Ctrl-C's meaning never changes based on what's open - per
@@ -1187,7 +1213,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 				quitting.Store(true) // before Stop() - see main.go's race note
 				app.Stop()
 			} else {
-				_ = proc.Signal(os.Interrupt) // best-effort; child may race-exit
+				_ = procH.Load().Signal(os.Interrupt) // best-effort; child may race-exit
 			}
 			return nil
 		}
@@ -1234,7 +1260,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 				quitting.Store(true) // before Stop() - see main.go's race note
 				app.Stop()
 			} else {
-				_ = proc.Signal(os.Interrupt) // best-effort; child may race-exit
+				_ = procH.Load().Signal(os.Interrupt) // best-effort; child may race-exit
 			}
 			return nil
 		}
@@ -1304,6 +1330,33 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			return nil
 		case event.Key() == tcell.KeyRune && event.Rune() == 'C':
 			collapseAll()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'r':
+			// Rerun.md: only once a run has actually finished - a no-op
+			// while ansible-playbook is still going, same "processDone
+			// gates it" convention as the failure auto-jump above. Phase
+			// B's interim behavior: immediately starts a new generation
+			// with the exact same args as this process's own invocation -
+			// no dialog yet (see requestRerun's doc comment in main.go);
+			// Rerun.md's interactive dialog (editable task/tags/hosts)
+			// will replace this direct call with one that opens it first.
+			if !processDone.Load() {
+				return nil
+			}
+			requestRerun() // resets processDone/exitCode/state
+			// synchronously (see main.go) - by the time this returns,
+			// rebuild() below already sees a running, empty generation.
+			expanded = map[*taskNode]bool{}
+			currentID = nil
+			following = true
+			failureCursorPlaced = false
+			haveFrozenElapsed = false
+			frozenElapsed = 0
+			startedAt = time.Now()
+			rebuild() // clear the previous run's rows immediately, rather
+			// than leaving them on screen until the new generation's first
+			// event arrives.
+			startHeartbeat()
 			return nil
 		case event.Key() == tcell.KeyRight:
 			handleRight()

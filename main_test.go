@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestProcHandle(t *testing.T) {
+	var h procHandle
+	if got := h.Load(); got != nil {
+		t.Errorf("Load() on a fresh procHandle = %v, want nil", got)
+	}
+
+	cmd := exec.Command("sh", "-c", "sleep 0")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start test process: %v", err)
+	}
+	defer cmd.Wait()
+
+	h.Store(cmd.Process)
+	if got := h.Load(); got != cmd.Process {
+		t.Errorf("Load() = %v, want %v", got, cmd.Process)
+	}
+}
+
 func TestExitCodeOf(t *testing.T) {
 	t.Run("nil error means a clean exit", func(t *testing.T) {
 		if got := exitCodeOf(nil); got != 0 {

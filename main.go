@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -37,6 +38,74 @@ func exitCodeOf(err error) int {
 		return exitErr.ExitCode()
 	}
 	return -1
+}
+
+// procHandle holds the *os.Process that Ctrl-C/q should signal to interrupt
+// a running invocation (tui.go's SetInputCapture). Mutable - unlike a plain
+// *os.Process passed once at startup - so a rerun (Rerun.md) can point it
+// at a freshly spawned child without tui.go needing to know a restart ever
+// happened. Store is called from whichever goroutine just spawned a new
+// generation (see spawnGeneration); Load from SetInputCapture, on tview's
+// own event-loop goroutine - atomic.Pointer makes that safe with no
+// separate lock. Never observed nil once spawnGeneration has run at least
+// once: the very first call happens before the TUI (and so before
+// SetInputCapture) exists at all, and every later one only replaces an
+// already-non-nil value.
+type procHandle struct {
+	p atomic.Pointer[os.Process]
+}
+
+func (h *procHandle) Store(p *os.Process) { h.p.Store(p) }
+func (h *procHandle) Load() *os.Process   { return h.p.Load() }
+
+// generationOutcome is one ansible-playbook invocation's result. main
+// accumulates one per generation - the first invocation, plus every rerun
+// since (Rerun.md) - so every generation's stderr/diagnostics still get
+// printed once Tangsible finally exits, not just the last one, even though
+// only the LAST generation's exit code decides Tangsible's own exit status.
+type generationOutcome struct {
+	exitCode    int
+	waitErr     error
+	childStderr []string
+	diagnostics []string
+}
+
+// spawnGeneration starts one ansible-playbook invocation for playbook+args,
+// wiring up its stdout/stderr exactly as every generation needs (see
+// scanEvents/streamStderr) and pointing procH at the new child so Ctrl-C/q
+// forwarding targets it. Shared by the first invocation and every rerun
+// since - the only thing that differs between them is what main does with
+// the first item off the returned channel (see main's pre-flight gate,
+// which only ever applies to the first invocation - a rerun's own
+// pre-flight failure has nowhere to hide the already-visible TUI from, so
+// it just renders as a failed generation like any other, no gate needed).
+func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, err error) {
+	cmd = exec.Command("ansible-playbook", append([]string{playbook}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
+		// Pin compact (single-line) JSON so our line-based scanner can't be
+		// broken by a user's ansible.cfg overriding this to pretty-print.
+		"ANSIBLE_JSON_INDENT=0",
+	)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to attach stdout: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to attach stderr: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to start ansible-playbook: %w", err)
+	}
+	procH.Store(cmd.Process)
+
+	stdoutCh = scanEvents(stdout)
+	lines := make(chan []string, 1)
+	go func() { lines <- streamStderr(stderr) }()
+
+	return cmd, stdoutCh, lines, nil
 }
 
 func main() {
@@ -80,33 +149,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
 	}
 
-	cmd := exec.Command("ansible-playbook", append([]string{playbook}, rest...)...)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
-		// Pin compact (single-line) JSON so our line-based scanner can't be
-		// broken by a user's ansible.cfg overriding this to pretty-print.
-		"ANSIBLE_JSON_INDENT=0",
-	)
-
-	stdout, err := cmd.StdoutPipe()
+	var procH procHandle
+	cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, &procH)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "failed to attach stdout:", err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "failed to attach stderr:", err)
-		os.Exit(1)
-	}
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "failed to start ansible-playbook:", err)
-		os.Exit(1)
-	}
-
-	stdoutCh := scanEvents(stdout)
-
-	stderrLines := make(chan []string, 1)
-	go func() { stderrLines <- streamStderr(stderr) }()
 
 	// The gate: ansible-playbook writes zero bytes to stdout for a
 	// pre-flight failure (bad playbook path, a parse error, a missing
@@ -142,14 +190,20 @@ func main() {
 	// playbook path/parse error doesn't pay for it - parsing a project's
 	// own YAML files is expected to be well under the noise floor of an
 	// interactive ansible run at this project's stated ~10-host target
-	// scale, so this isn't worth backgrounding.
+	// scale, so this isn't worth backgrounding. Unaffected by a rerun -
+	// still the same playbook (Rerun.md's interactive re-run never changes
+	// it), so there's no need to rebuild this per generation.
 	sourceIndex := buildTaskSourceIndex(playbook)
 
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
-	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), cmd.Process, &processDone, &quitting, &exitCode, sourceIndex)
 
+	var outcomesMu sync.Mutex
+	var outcomes []generationOutcome // one appended per generation - see
+	// generationOutcome; read back only after app.Run() returns below.
+
+	var applyLive func(rawEvent)
 	apply := func(item streamItem) []string {
 		var diagnostics []string
 		if item.diag != "" {
@@ -161,15 +215,17 @@ func main() {
 		return diagnostics
 	}
 
-	type runResult struct {
-		waitErr     error
-		exitCode    int
-		childStderr []string
-		diagnostics []string
-	}
-	resultCh := make(chan runResult, 1)
-	go func() {
-		diagnostics := apply(first)
+	// runGeneration drains one generation's stdout to completion - from
+	// whatever's already been peeked off it (peeked, gen-1's pre-flight
+	// gate only), through channel close - waits for its process, and
+	// records its outcome. Shared by the first invocation below and every
+	// rerun since (see requestRerun), so there's exactly one place that
+	// knows how a generation finishes.
+	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, peeked ...streamItem) {
+		var diagnostics []string
+		for _, item := range peeked {
+			diagnostics = append(diagnostics, apply(item)...)
+		}
 		for item := range stdoutCh {
 			diagnostics = append(diagnostics, apply(item)...)
 		}
@@ -181,63 +237,106 @@ func main() {
 		// true, and Go's atomics are sequentially consistent as a whole
 		// program (not just per-variable), so this ordering is what makes
 		// that store visible there.
-		resultCh <- runResult{waitErr: waitErr, exitCode: code, childStderr: childStderr, diagnostics: diagnostics}
+		outcomesMu.Lock()
+		outcomes = append(outcomes, generationOutcome{exitCode: code, waitErr: waitErr, childStderr: childStderr, diagnostics: diagnostics})
+		outcomesMu.Unlock()
 		processDone.Store(true)
-	}()
+	}
+
+	// requestRerun is tui.go's hook for starting a new generation mid-
+	// session (Rerun.md) - passed into NewLiveTUI below, called from its
+	// 'r' key handler once a run has finished. Always reruns with the
+	// exact playbook+args this process itself was invoked with - Phase B's
+	// interim behavior, ahead of Rerun.md's own interactive dialog (task/
+	// tags/hosts editing), which will replace this with a version that
+	// takes the edited args instead of always closing over the originals.
+	requestRerun := func() {
+		// Reset synchronously, on whatever goroutine calls this (tview's
+		// event-loop goroutine, from the 'r' key handler) - by the time
+		// this returns, a QueueUpdateDraw-driven rebuild() already sees a
+		// running, empty generation, matching the view-state reset tui.go
+		// does right alongside calling this.
+		state.Reset()
+		exitCode.Store(0)
+		processDone.Store(false)
+
+		go func() {
+			cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, &procH)
+			if err != nil {
+				// Rare (ansible-playbook vanished, pipes failed, ...) and,
+				// unlike the same failure on the very first invocation,
+				// not fatal to the whole program - the TUI already exists
+				// and the user is mid-session. Recorded as this one
+				// generation's own failed outcome instead; genuineFailure
+				// below renders it the same as any other failed run.
+				exitCode.Store(-1)
+				outcomesMu.Lock()
+				outcomes = append(outcomes, generationOutcome{exitCode: -1, waitErr: err, diagnostics: []string{err.Error()}})
+				outcomesMu.Unlock()
+				processDone.Store(true)
+				return
+			}
+			runGeneration(cmd, stdoutCh, stderrLines)
+		}()
+	}
+
+	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, requestRerun)
+
+	go runGeneration(cmd, stdoutCh, stderrLines, first)
 
 	runErr := app.Run()
 	quitting.Store(true) // defensive: also stop the streamer if Run() ever
 	// returns for a reason other than our own Stop()
 
-	result := <-resultCh
+	outcomesMu.Lock()
+	all := outcomes
+	outcomesMu.Unlock()
 
-	// benignHostUnreachable: ansible-playbook's exit code 4 is itself
-	// ambiguous - ansible-core's own ExitCode enum assigns 4 to both
-	// HOST_UNREACHABLE and PARSER_ERROR (a static-include syntax error),
-	// with its own "FIXME: conflicts" comment acknowledging this. We only
-	// treat 4 as benign when Tangsible independently observed concrete
-	// evidence explaining it that way: a real v2_runner_on_unreachable
-	// event during this run (state.HadUnreachable, aggregate.go). A static
-	// import/role's syntax error is resolved entirely at parse time, before
-	// any task in any play begins - so HadUnreachable can only become true
-	// after the playbook has already finished parsing without error,
-	// structurally ruling out that fatal cause whenever it's set.
-	//
-	// Read here with no synchronization, deliberately: every write to
-	// state.HadUnreachable happens inside a state.Apply call, and every
-	// state.Apply call - regardless of which goroutine enqueued it via
-	// QueueUpdate/QueueUpdateDraw - executes on whichever goroutine is
-	// running app.Run()'s event loop. Since app.Run() above is called
-	// directly by this goroutine (not spawned with `go`), that goroutine is
-	// this one - so every state.Apply call already happened-before this
-	// line in straightforward program order, the same as any other
-	// sequential self-read. Unlike processDone/quitting/exitCode below
-	// (genuinely written by the separate orchestrator goroutine), no atomic
-	// is needed.
-	//
-	// Deliberately gated on exitCode == 4 specifically, not a general
-	// "anything ever went unreachable" override: e.g. exit 6 (a real host
-	// failure alongside an unreachable one) still reports as today.
-	benignHostUnreachable := result.exitCode == 4 && state.HadUnreachable
-
-	// A 99 exit means the user asked us (via q/Ctrl-C) to interrupt the run
-	// - not a failure. Suppress the two lines that would otherwise read
-	// like an error report for something the user deliberately did.
-	if result.exitCode != ansibleUserInterruptedExitCode {
-		for _, l := range result.childStderr {
-			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+	// A 99 exit means the user asked us (via q/Ctrl-C) to interrupt that
+	// generation's run - not a failure. Suppress the stderr lines that
+	// would otherwise read like an error report for something the user
+	// deliberately did; every generation's diagnostics still print
+	// unconditionally. Printed in generation order, oldest first, so a
+	// mid-session rerun doesn't erase what an earlier generation reported -
+	// that generation's own tree view is long gone by the time Tangsible
+	// finally exits (Rerun.md's re-run forgets the previous run's results),
+	// so this is the only remaining record of it.
+	for _, o := range all {
+		if o.exitCode != ansibleUserInterruptedExitCode {
+			for _, l := range o.childStderr {
+				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+			}
 		}
-	}
-	for _, l := range result.diagnostics {
-		fmt.Println(l)
+		for _, l := range o.diagnostics {
+			fmt.Println(l)
+		}
 	}
 
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", runErr)
 		os.Exit(1)
 	}
-	if result.waitErr != nil && result.exitCode != ansibleUserInterruptedExitCode && !benignHostUnreachable {
-		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", result.waitErr)
+	if len(all) == 0 {
+		// Shouldn't happen via our own app.Stop() path - that's only ever
+		// called once processDone is observed true, which itself only
+		// happens right after a generation's outcome is recorded - but
+		// guard against tview returning from Run() early for some other
+		// reason instead of indexing into an empty slice below.
+		return
+	}
+
+	// final is the LAST generation's outcome - only it decides Tangsible's
+	// own exit status; state.HadUnreachable likewise reflects only the
+	// current (== last) generation, since requestRerun's state.Reset()
+	// clears it at the start of every generation but the first. See
+	// tui.go's genuineFailure for exactly what counts as a real failure
+	// here (as opposed to a benign "some host(s) unreachable" run or a
+	// user-requested interrupt) - the same logic tui.go's own status row
+	// already renders, reused here rather than reimplemented so the two
+	// can't silently drift apart on what "failed" means.
+	final := all[len(all)-1]
+	if genuineFailure(final.exitCode, state.HadUnreachable) {
+		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", final.waitErr)
 		os.Exit(1)
 	}
 	// A user-interrupted run (exit 99) or a benign "some host(s) were

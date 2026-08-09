@@ -211,3 +211,41 @@ func TestCurrentTask_StaysActiveUntilNextTaskStarts(t *testing.T) {
 		t.Fatalf("CurrentTask() = %v, want task B once it starts", got)
 	}
 }
+
+func TestReset_ClearsRunDataButNotHooks(t *testing.T) {
+	s := &playbookState{}
+	var hookFired bool
+	s.OnTaskAdded = func(*playNode, *taskNode) { hookFired = true }
+
+	s.Apply(playStartEvent("my play"))
+	s.Apply(taskStartEvent("task A", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_unreachable", "web1", json.RawMessage(`{}`)))
+
+	s.Reset()
+
+	if len(s.Plays) != 0 {
+		t.Errorf("Plays = %v, want empty after Reset", s.Plays)
+	}
+	if len(s.AllHosts) != 0 {
+		t.Errorf("AllHosts = %v, want empty after Reset", s.AllHosts)
+	}
+	if s.HadUnreachable {
+		t.Error("HadUnreachable = true after Reset, want false")
+	}
+	if got := s.CurrentTask(); got != nil {
+		t.Errorf("CurrentTask() = %v after Reset, want nil", got)
+	}
+
+	// A fresh Apply sequence after Reset must behave exactly like it did on
+	// a brand new &playbookState{} - including still firing the
+	// previously-wired hook, which Reset must not have cleared.
+	hookFired = false
+	s.Apply(playStartEvent("second play"))
+	s.Apply(taskStartEvent("task B", "/pb.yml:9"))
+	if !hookFired {
+		t.Error("OnTaskAdded hook did not fire after Reset - Reset must not clear it")
+	}
+	if len(s.Plays) != 1 || s.Plays[0].Name != "second play" {
+		t.Errorf("Plays after post-Reset Apply = %v, want a single \"second play\"", s.Plays)
+	}
+}

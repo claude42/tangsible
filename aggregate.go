@@ -140,6 +140,22 @@ type playbookState struct {
 	OnHostRecorded func(task *taskNode, host string)
 }
 
+// Reset clears every field Apply/recordHost populate during a run, back to
+// the same zero state a fresh &playbookState{} starts in - used when
+// starting a rerun (Rerun.md) so the next Apply sequence builds a brand new
+// tree instead of appending onto the previous run's. The OnPlayAdded/
+// OnTaskAdded/OnHostRecorded hooks are deliberately left untouched: they're
+// wired once by tui.go and need to keep firing for the new run's events
+// exactly as they did for the run before it.
+func (s *playbookState) Reset() {
+	s.Plays = nil
+	s.AllHosts = nil
+	s.HadUnreachable = false
+	s.pendingPlayName = ""
+	s.currentPlay = nil
+	s.currentTask = nil
+}
+
 func (s *playbookState) Apply(ev rawEvent) {
 	switch ev.Event {
 	case "v2_playbook_on_play_start":
