@@ -243,25 +243,48 @@ func main() {
 		processDone.Store(true)
 	}
 
+	// originalArgs is this process's own invocation, split into its
+	// Tags/Hosts (used to pre-fill the re-run dialog's fields the first
+	// time it's opened - Rerun.md's "if tags were already specified in the
+	// previous run... pre-filled") and Rest - everything else (inventory,
+	// extra-vars, verbosity, ...), which every rerun since carries forward
+	// unedited, since the dialog only ever exposes Task/Tags/Hosts.
+	originalArgs := parsePassthroughArgs(rest)
+
 	// requestRerun is tui.go's hook for starting a new generation mid-
-	// session (Rerun.md) - passed into NewLiveTUI below, called from its
-	// 'r' key handler once a run has finished. Always reruns with the
-	// exact playbook+args this process itself was invoked with - Phase B's
-	// interim behavior, ahead of Rerun.md's own interactive dialog (task/
-	// tags/hosts editing), which will replace this with a version that
-	// takes the edited args instead of always closing over the originals.
-	requestRerun := func() {
+	// session (Rerun.md) - passed into NewLiveTUI below, called once the
+	// re-run dialog is confirmed. startAtTask, if non-empty, is prepended
+	// as --start-at-task; tags/hosts replace the original invocation's own
+	// (originalArgs.Rest is always carried forward unedited alongside
+	// them).
+	requestRerun := func(startAtTask, tags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
-		// event-loop goroutine, from the 'r' key handler) - by the time
-		// this returns, a QueueUpdateDraw-driven rebuild() already sees a
-		// running, empty generation, matching the view-state reset tui.go
-		// does right alongside calling this.
+		// event-loop goroutine, from the re-run dialog's Enter handler) -
+		// by the time this returns, a QueueUpdateDraw-driven rebuild()
+		// already sees a running, empty generation, matching the
+		// view-state reset tui.go does right alongside calling this.
 		state.Reset()
 		exitCode.Store(0)
 		processDone.Store(false)
 
+		newArgs := parsedPassthroughArgs{Tags: tags, Hosts: hosts, Rest: originalArgs.Rest}.Reassemble()
+		if startAtTask != "" {
+			newArgs = append([]string{"--start-at-task", startAtTask}, newArgs...)
+		}
+
+		// Recorded the same way the original invocation was at the top of
+		// main - but its own error, unlike that one, can't be printed
+		// here: the TUI's alternate screen is already active by now
+		// (unlike the top-level call, which always runs before it exists),
+		// and printing directly to the terminal while it's up would
+		// corrupt the display. Silently dropped instead - non-fatal, same
+		// reasoning as the top-level call: losing the ability to pre-fill
+		// a *future* rerun is never worth disrupting the one the user just
+		// asked for.
+		_ = appendInvocation(tangsibleFilePath, playbook, argsToHistoryString(newArgs))
+
 		go func() {
-			cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, &procH)
+			cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, newArgs, &procH)
 			if err != nil {
 				// Rare (ansible-playbook vanished, pipes failed, ...) and,
 				// unlike the same failure on the very first invocation,
@@ -280,7 +303,7 @@ func main() {
 		}()
 	}
 
-	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, requestRerun)
+	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, originalArgs.Tags, originalArgs.Hosts, requestRerun)
 
 	go runGeneration(cmd, stdoutCh, stderrLines, first)
 

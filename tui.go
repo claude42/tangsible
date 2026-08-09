@@ -407,20 +407,30 @@ func filterDialogText(active filterQuery) string {
 // shared with the caller: this function only reads processDone and only
 // writes quitting.
 //
-// requestRerun is called from the 'r' key handler below, once a run has
-// finished, to start a new generation - main.go's implementation resets
-// processDone/exitCode/state and spawns a fresh ansible-playbook
-// invocation; this function's own job is only to reset its own view state
-// (expanded/currentID/following/the freeze latches) and restart the
-// heartbeat ticker to match. See requestRerun's own doc comment in main.go
-// for why it currently always reruns with the original invocation's exact
-// args - Phase B's interim behavior, ahead of Rerun.md's full dialog.
+// initialTags/initialHosts pre-fill the re-run dialog's own Tags/Hosts
+// fields the first time it's opened (and every time after, until the user
+// edits them - the dialog's own fields, once opened, keep whatever the
+// user last left in them across repeated 'r' presses) - the --tags/--limit
+// values this process was itself invoked with, parsed out by main.go via
+// parsePassthroughArgs (Rerun.md's "if tags were already specified in the
+// previous run... pre-filled").
+//
+// requestRerun is called once the re-run dialog is confirmed (Enter), to
+// start a new generation with the dialog's own fields: startAtTask (empty
+// for a whole-playbook re-run, otherwise the task name to pass as
+// --start-at-task - see openRerunDialog below for how it's pre-filled) and
+// the edited tags/hosts. main.go's implementation resets
+// processDone/exitCode/state, records the new invocation into .tangsible's
+// history, and spawns a fresh ansible-playbook invocation; this function's
+// own job is only to reset its own view state (expanded/currentID/
+// following/the freeze latches) and restart the heartbeat ticker to match
+// - see submitRerun below.
 //
 // sourceIndex (source.go) backs the output drill-down view's TASK:
 // section (see formatHostOutput) - a lookup miss (any task whose path
 // wasn't found while building the index) just means no TASK: section for
 // that entry, never an error.
-func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, requestRerun func()) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, initialTags, initialHosts string, requestRerun func(startAtTask, tags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -473,6 +483,12 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// letters). See SetInputCapture below for exactly how each is modal.
 	var filterDialogOpen bool
 	var searchDialogOpen bool
+	var rerunDialogOpen bool // see openRerunDialog/submitRerun below (Rerun.md) -
+	// modal the same way searchDialogOpen is (every key but Ctrl-C/Enter/Esc
+	// passes straight through to whichever form item has focus), not the
+	// filter dialog's swallow-everything-but-a-few-keys menu style: this
+	// dialog is text-entry-first, and any of its fields might legitimately
+	// contain the letter 'q' or any other shortcut letter.
 
 	// activeTaskNow returns the run's current in-progress task, or nil once
 	// the run has finished - the same "frozen means no active task" rule
@@ -599,6 +615,41 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		AddItem(searchHeadline, 0, 1, false).
 		AddItem(searchInput, 1, 0, true)
 	searchDialogFlex.SetBorder(true).SetTitle(" Search ")
+
+	// rerunDialog (Rerun.md) - a real tview.Form, unlike the two dialogs
+	// above: it's the first multi-field input this app needs, and Form
+	// gives Tab/Backtab focus-cycling between them for free rather than
+	// hand-rolling it the way treeList replaced tview.List for the main
+	// tree (that replacement was needed because List's own behavior fell
+	// short of what the tree needed; here Form's default behavior already
+	// matches). Items are built directly (not via Form's AddInputField
+	// convenience method) so openRerunDialog/submitRerun below can keep
+	// direct references to them.
+	//
+	// No checkbox gating taskField, despite that being the original design
+	// (a "Start at task" checkbox enabling/disabling it via SetDisabled,
+	// pre-filled from the cursor's current task either way): live testing
+	// surfaced a genuine tview quirk that made it actively worse than
+	// simpler alternatives - InputField.SetDisabled unconditionally calls
+	// its own finished(-1), which - once any real Tab/Enter has happened
+	// anywhere in the form's lifetime - replays that same navigation key
+	// (confirmed against inputfield.go/form.go: Form's shared handler's
+	// default case does exactly this for a negative key). So toggling the
+	// checkbox silently advanced focus by one, *in addition to* whatever
+	// Tab the user pressed right after - text reproducibly landed one
+	// field over from where it was typed. Rather than fight that, this
+	// falls back to the plainer design agreed as the explicit fallback:
+	// one freeform Task field, never pre-filled from the cursor, empty
+	// means "whole playbook" - exactly like Tags/Hosts, no special-casing.
+	taskField := tview.NewInputField().SetLabel("Task: ")
+	tagsField := tview.NewInputField().SetLabel("Tags: ")
+	hostsField := tview.NewInputField().SetLabel("Hosts: ")
+
+	rerunForm := tview.NewForm().
+		AddFormItem(taskField).
+		AddFormItem(tagsField).
+		AddFormItem(hostsField)
+	rerunForm.SetBorder(true).SetTitle(" Re-run (enter: run, esc: cancel) ")
 
 	// outputTask/outputHost track which (task, host) pair the output page
 	// is currently showing, so navigateOutputTask (below) knows where
@@ -1010,19 +1061,47 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		pages.ShowPage("search")
 		app.SetFocus(searchInput)
 	}
-	// closeDialogs closes whichever of the two dialogs is currently open
-	// (harmless no-op on the one that wasn't) with no filter/search
-	// change - shared by both dialogs' own Esc/q handling below and by
-	// applyFilter, so there's exactly one place that resets this state
-	// and refocuses the main tree.
+	// closeDialogs closes whichever of the three dialogs is currently open
+	// (harmless no-op on the other two) with no filter/search/rerun change
+	// - shared by all three dialogs' own Esc/q/Ctrl-C handling below, by
+	// applyFilter, and by submitRerun, so there's exactly one place that
+	// resets this state and refocuses the main tree.
 	closeDialogs := func() {
 		filterDialogOpen = false
 		searchDialogOpen = false
+		rerunDialogOpen = false
 		pages.HidePage("filter")
 		pages.HidePage("search")
-		app.SetFocus(list) // undo openSearchDialog's SetFocus above, if it
-		// ran - harmless no-op if it never did (list already has focus in
-		// that case).
+		pages.HidePage("rerun")
+		app.SetFocus(list) // undo openSearchDialog's/openRerunDialog's
+		// SetFocus above, if either ran - harmless no-op if neither did
+		// (list already has focus in that case).
+	}
+	// openRerunDialog (Rerun.md's 'r' key - see SetInputCapture below,
+	// gated there on processDone since re-running only makes sense once a
+	// run has finished). Task is deliberately never pre-filled (see
+	// rerunForm's own doc comment for why the original cursor-based
+	// pre-fill design was dropped) - like Tags/Hosts, it just keeps
+	// whatever was last typed into it, empty on the very first open of the
+	// session. Tags/Hosts specifically are pre-filled from initialTags/
+	// initialHosts (this process's own invocation) only the first time
+	// each is opened while still empty - once the user has typed anything
+	// into either, later opens leave it alone.
+	openRerunDialog := func() {
+		rerunDialogOpen = true
+
+		if tagsField.GetText() == "" {
+			tagsField.SetText(initialTags)
+		}
+		if hostsField.GetText() == "" {
+			hostsField.SetText(initialHosts)
+		}
+
+		rerunForm.SetFocus(0) // always start on the Task field, not
+		// wherever focus happened to be left inside the form the last time
+		// it closed.
+		pages.ShowPage("rerun")
+		app.SetFocus(rerunForm)
 	}
 	// applyFilter switches to newFilter (a no-op switch still closes
 	// whichever dialog is open, matching "when the user presses a/c/f the
@@ -1131,7 +1210,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	state.OnTaskAdded = func(*playNode, *taskNode) { rebuild() }
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
-	bottomBar := tview.NewTextView().SetText(" ↑/↓/j/k navigate  ←/→: expand/collapse  n/p: prev/next task  home/end/G: top/bottom  F: resume follow  E/C: expand/collapse all  enter/space: toggle  /: filter  q: quit ")
+	bottomBar := tview.NewTextView().SetText(" ↑/↓/j/k navigate  ←/→: expand/collapse  n/p: prev/next task  home/end/G: top/bottom  F: resume follow  E/C: expand/collapse all  enter/space: toggle  /: filter  r: re-run  q: quit ")
 	bottomBar.SetTextStyle(barStyle)
 
 	flex := tview.NewFlex().
@@ -1144,6 +1223,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	pages.AddPage("output", outputFlex, true, false)
 	pages.AddPage("filter", centeredModal(filterDialog, 46, 9), true, false)
 	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 7), true, false)
+	pages.AddPage("rerun", centeredModal(rerunForm, 56, 11), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
 	// Everything else falls out of tview's own defaults once mouse events
@@ -1195,6 +1275,39 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// is spinnerInterval away.
 	startHeartbeat()
 
+	// submitRerun (Enter while rerunDialogOpen - see SetInputCapture below)
+	// reads the form's own current values, closes the dialog, and starts a
+	// new generation the same way Phase B's direct requestRerun() call
+	// used to - resetting this function's own view state and restarting
+	// the heartbeat ticker - except now driven by the dialog's fields
+	// instead of always repeating the original invocation verbatim.
+	// Defined here rather than up with openRerunDialog/closeDialogs: it
+	// closes over startHeartbeat, which - like this closure itself -
+	// can't exist before `app` is assigned above.
+	submitRerun := func() {
+		startAtTask := strings.TrimSpace(taskField.GetText()) // empty means
+		// "whole playbook" - see rerunForm's own doc comment.
+		tags := strings.TrimSpace(tagsField.GetText())
+		hosts := strings.TrimSpace(hostsField.GetText())
+		closeDialogs()
+
+		requestRerun(startAtTask, tags, hosts) // resets
+		// processDone/exitCode/state synchronously (see main.go) - by the
+		// time this returns, rebuild() below already sees a running, empty
+		// generation.
+		expanded = map[*taskNode]bool{}
+		currentID = nil
+		following = true
+		failureCursorPlaced = false
+		haveFrozenElapsed = false
+		frozenElapsed = 0
+		startedAt = time.Now()
+		rebuild() // clear the previous run's rows immediately, rather than
+		// leaving them on screen until the new generation's first event
+		// arrives.
+		startHeartbeat()
+	}
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		// Ctrl-C's meaning never changes based on what's open - per
 		// Purpose.md's "behaves like running ansible-playbook directly"
@@ -1229,6 +1342,34 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		// mistake to rescue the user from.
 		if searchDialogOpen {
 			return event
+		}
+
+		// The re-run dialog (Rerun.md) is a real form, not a plain text
+		// box like the search dialog above - but the same reasoning
+		// applies to letting most keys through untouched (any field might
+		// legitimately contain 'q' or any other shortcut letter, and
+		// Tab/Backtab need to reach Form's own native focus-cycling). The
+		// two exceptions are handled centrally here rather than via each
+		// item's own SetDoneFunc: Escape, because Form's own default
+		// Escape behavior (reset focus to the first item, unless a cancel
+		// func is set) isn't what's wanted - Esc should close the dialog
+		// outright, per Rerun.md. Enter, because tview.Form treats Enter
+		// identically to Tab on a FormItem - just advances focus,
+		// confirmed against form.go's own Focus() - never submits on its
+		// own, so submission has to be driven from here regardless of
+		// which field currently has focus, exactly matching "Re-run shall
+		// be initiated by pressing return" for the whole dialog, not just
+		// one field.
+		if rerunDialogOpen {
+			switch event.Key() {
+			case tcell.KeyEnter:
+				submitRerun()
+			case tcell.KeyEscape:
+				closeDialogs()
+			default:
+				return event
+			}
+			return nil
 		}
 
 		// The filter dialog is a plain modal menu (Filters.md), no text
@@ -1334,29 +1475,11 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		case event.Key() == tcell.KeyRune && event.Rune() == 'r':
 			// Rerun.md: only once a run has actually finished - a no-op
 			// while ansible-playbook is still going, same "processDone
-			// gates it" convention as the failure auto-jump above. Phase
-			// B's interim behavior: immediately starts a new generation
-			// with the exact same args as this process's own invocation -
-			// no dialog yet (see requestRerun's doc comment in main.go);
-			// Rerun.md's interactive dialog (editable task/tags/hosts)
-			// will replace this direct call with one that opens it first.
+			// gates it" convention as the failure auto-jump above.
 			if !processDone.Load() {
 				return nil
 			}
-			requestRerun() // resets processDone/exitCode/state
-			// synchronously (see main.go) - by the time this returns,
-			// rebuild() below already sees a running, empty generation.
-			expanded = map[*taskNode]bool{}
-			currentID = nil
-			following = true
-			failureCursorPlaced = false
-			haveFrozenElapsed = false
-			frozenElapsed = 0
-			startedAt = time.Now()
-			rebuild() // clear the previous run's rows immediately, rather
-			// than leaving them on screen until the new generation's first
-			// event arrives.
-			startHeartbeat()
+			openRerunDialog()
 			return nil
 		case event.Key() == tcell.KeyRight:
 			handleRight()
@@ -1403,9 +1526,13 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// own default wheel handling, left to run below) has no range limit -
 	// unlike tview.List, it's not bounded by the cursor's own position.
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
-		if filterDialogOpen || searchDialogOpen {
-			// Fully modal (Filters.md): neither dialog needs mouse
-			// interaction (both are keyboard-only), so the simplest way to
+		if filterDialogOpen || searchDialogOpen || rerunDialogOpen {
+			// Fully modal (Filters.md; the re-run dialog follows the same
+			// rule even though tview.Form has its own native mouse
+			// handling - kept keyboard-only, like the other two, rather
+			// than reasoning through whether Pages forwards mouse events
+			// to more than just the frontmost visible page): none of the
+			// three dialogs need mouse interaction, so the simplest way to
 			// stop a click reaching the treeview underneath - including
 			// one outside the dialog's own small centered box, which its
 			// own MouseHandler would just ignore rather than block - is to
