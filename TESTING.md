@@ -290,13 +290,15 @@ skip the one part that isn't actually hard. Effort: an afternoon.
 
 ## The hard-to-test tier
 
-Don't try to force these into `go test` right now:
+Not truly *untestable* - see the tmux note below, which corrects an
+earlier version of this section - but still not worth forcing into the
+default `go test ./...` suite:
 
 * **`tui.go`'s `NewLiveTUI`** - the function that constructs every actual
   widget and wires up key bindings. It's composition, not logic; the logic
   it calls out to is already covered by Phase 3. Unit-testing the wiring
   itself would mean simulating a whole `tview.Application` for very little
-  payoff.
+  payoff, for most of it.
 * **`treelist.go`'s `Draw`/`InputHandler`/`MouseHandler`** - same category
   (see Phase 7 above for the part of this file that *is* worth testing).
 * **`main.go`'s `main()` itself** - would need a real refactor (e.g. an
@@ -305,16 +307,37 @@ Don't try to force these into `go test` right now:
 * **`tcell.SimulationScreen`** - confirmed present in this project's
   already-vendored tcell (v2.8.1), and it would let you script real
   key/mouse input against a full `tview.Application` and assert on
-  rendered screen contents. Genuinely useful, but a stretch goal: nothing
-  in the codebase wires `app.SetScreen()` today, and writing useful tests
-  with it has its own learning curve (screen geometry, draw timing, event
-  injection order). Reach for it later, only if you find yourself
-  repeatedly hand-verifying the same interactive scenario and want to stop
-  doing that by hand.
-* **Manual testing stays right for the visual/interactive layer.** Running
-  `go run .` against the `testdata/*.yml` fixtures is exactly the right
-  tool for "does this look correct on screen," and this plan isn't meant
-  to replace it - only to back up the logic underneath it.
+  rendered screen contents *in-process*, no subprocess involved. Genuinely
+  useful, but still a stretch goal: nothing in the codebase wires
+  `app.SetScreen()` today, and writing useful tests with it has its own
+  learning curve (screen geometry, draw timing, event injection order).
+* **tmux, on the other hand, is already proven, not a stretch goal** -
+  discovered doing exactly this: driving the real compiled binary inside a
+  real pty (`tmux new-session -d`, `tmux send-keys`, `tmux capture-pane -p`)
+  is what actually caught a real bug during Rerun's development (the
+  `SetDisabled` focus-skip quirk documented in `tui.go`/`CLAUDE.md`) - no
+  pure-function unit test could have seen it, since it lived entirely in
+  the interaction between `tview.Form`'s internal focus state and real
+  keypresses. `e2e_rerun_test.go` (build tag `e2e`, so it's excluded from
+  plain `go test ./...` - run explicitly with `go test -tags e2e ./...`)
+  has a small number of smoke tests built this way, targeting exactly that
+  class of regression - real bugs only visible through the actual
+  keystroke → focus → render pipeline. Deliberately kept separate and
+  small, not a wholesale replacement for manual verification or for the
+  fast unit-test suite above: it needs `tmux` and `ansible-playbook`
+  installed (a real dependency-surface increase over "stdlib only"),
+  spawns real processes and a real terminal (slow next to an in-process
+  function call), and needs careful poll-until-condition waits rather than
+  fixed sleeps to avoid flaking - closer to a small test harness than a
+  table-driven test. Reach for it for the same kind of thing that
+  justified it in the first place: an interactive flow where the risk is
+  specifically in the wiring/rendering/focus behavior itself, not in logic
+  a unit test could isolate more cheaply.
+* **Manual testing (`go run .`, or tmux for anything scripted/repeated)
+  stays right for the visual/interactive layer generally.** This plan
+  isn't meant to replace it for everything - only to back up the logic
+  underneath it, plus now a small, deliberately-scoped set of the
+  highest-risk interactive seams.
 
 ## Coverage: a flashlight, not a gate
 

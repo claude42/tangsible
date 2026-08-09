@@ -210,6 +210,16 @@ reference:
 ```
 go build ./...   # build
 go vet ./...     # lint
+go test ./...    # unit tests
+```
+
+A small set of end-to-end smoke tests also exists (`e2e_rerun_test.go`),
+driving the real binary inside a real `tmux` pane — excluded from the
+above by default (build tag `e2e`), since they need `tmux` and
+`ansible-playbook` installed and are slower than the rest of the suite:
+
+```
+go test -tags e2e ./...
 ```
 
 ## License

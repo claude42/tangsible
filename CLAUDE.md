@@ -16,9 +16,8 @@ go vet ./...                                             # lint
 go run . run [<playbook.yml>] [ansible-playbook args...] # run
 ```
 
-The leading `run` verb is mandatory (`resolve.go`'s `parseVerb`) — see
-Rerun.md for the `rerun` verb this was introduced alongside (not yet
-implemented; `main.go` exits with a message if it's used).
+The leading verb is mandatory (`resolve.go`'s `parseVerb`) — `run` as
+above, or `rerun` (see the Rerun section below for the full feature).
 
 Try it against the bundled fixtures, e.g.:
 ```
@@ -26,7 +25,7 @@ go run . run testdata/outcomes.yml -i localhost,
 go run . run testdata/multihost.yml -i testdata/multihost-inventory.ini
 ```
 
-No tests exist yet — see `TESTING.md` for the planned, phased approach; once added, run with `go test ./...` (`go test -run <Name> ./...` for a single test).
+`go test ./...` runs the unit test suite (`go test -run <Name> ./...` for a single test) — see `TESTING.md` for the phased plan behind it. `go test -tags e2e ./...` additionally runs a small set of tmux-driven end-to-end smoke tests (`e2e_rerun_test.go`), excluded from the plain invocation above since they need `tmux`/`ansible-playbook` installed and are slower — see `TESTING.md`'s "hard-to-test tier" for why they exist.
 
 The playbook argument is optional (`resolve.go`) — if omitted (no leading
 non-flag argument), it's resolved in order from `$TANGSIBLE_PLAYBOOK`,
