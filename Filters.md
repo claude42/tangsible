@@ -68,13 +68,22 @@ filter for
 * A task is considered failed if it failed for at least one host (same
   host-level rule for "changed" - see Acceptance criteria above)
 
-## Open question (deferred to the "Contents"/M step)
+## Contents/M filter - implementation notes
 
-Once the search filter (M) exists, a task with a failed host could
-theoretically not match it, which would conflict with the existing
-auto-jump-to-failed-host behavior on a genuine failure. Leaning towards
-"filter wins, skip the auto-jump" when we get there - simpler to implement
-(just gate the existing jump on the target still matching the active
-filter) and doesn't make the filter's own promise ambiguous. Doesn't apply
-to the A/C/F filters in this first step, since a failed task always matches
-both "Changed" and "Failed" by definition.
+Matches against three things, case-insensitively, plain substring (no
+regex): the task's own title; its source as written in the playbook (the
+same YAML tangsible's own output drill-down already shows under `TASK:`);
+and any host's Output (the same single field - stdout, or msg as a
+fallback - the drill-down view and the collapsed OK/Changed line both
+already call "the output"). Same host-level "at least one host" rule as
+Changed/Failed. An empty search term behaves like "All" (matches
+everything) rather than hiding everything, so clearing the box and hitting
+Enter by accident doesn't look broken.
+
+The interaction with the auto-jump-to-failed-host behavior (previously an
+open question here) is resolved: implemented as "filter wins, skip the
+auto-jump" - if the failed task the auto-jump would land on doesn't match
+the currently active filter, the jump is skipped and the cursor is left
+wherever normal autoscroll/navigation would otherwise put it. This can
+only actually happen with the search filter active - a failed task always
+matches "Changed" and "Failed" by definition, so A/C/F never trigger it.

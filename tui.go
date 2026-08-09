@@ -49,7 +49,7 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // entirely (simplicity over cuteness) rather than stuck on an arbitrary
 // frame or swapped for a checkmark. No tview.Escape() needed here - unlike
 // the list, this TextView never enables dynamic color tags.
-func topBarText(playbookName string, elapsed time.Duration, frozen bool, filter filterMode) string {
+func topBarText(playbookName string, elapsed time.Duration, frozen bool, filter filterQuery) string {
 	mm, ss := minutesSeconds(elapsed)
 	if frozen {
 		return fmt.Sprintf(" %s  %02d:%02d  Filter: %s ", playbookName, mm, ss, filter.label())
@@ -151,28 +151,44 @@ func lastFailedTaskAndHost(state *playbookState) (*taskNode, string) {
 	return nil, ""
 }
 
-// filterMode is the main tree's currently active row filter (Filters.md).
-// The zero value, filterAll, is the default - no filtering at all.
+// filterMode is one of the main tree's row filter kinds (Filters.md). The
+// zero value, filterAll, is the default - no filtering at all.
 type filterMode int
 
 const (
 	filterAll filterMode = iota
 	filterChanged
 	filterFailed
-	// filterSearch (matching a search term against a task's title/source/
-	// output - Filters.md's "Contents"/M filter) is deliberately not
-	// implemented yet - a second step, since it needs to search per-host
-	// output too, not just a task's own static fields.
+	filterSearch // Filters.md's "Contents"/M filter - see filterQuery.search
 )
 
-// label is filter's own display name, used by the top bar and the filter
+// filterQuery is the main tree's complete currently active filter: the
+// kind, plus the search term filterSearch matches against (meaningless for
+// the other three kinds). Kept as one comparable value (both fields are,
+// so switching filters can be detected with a plain !=) rather than
+// threading mode and search as two separate parameters through every
+// function that needs "the current filter" - flattenRows, visibleTasks,
+// visibleTasksForHost, taskVisible, applyFilter - since the two always
+// travel together. sourceIndex (needed by taskVisible's filterSearch case
+// to look up a task's source text) is deliberately NOT part of this type:
+// it's a map, which isn't comparable, so it's threaded as its own
+// parameter everywhere instead - the same parameter NewLiveTUI itself
+// already receives and passes to formatHostOutput.
+type filterQuery struct {
+	mode   filterMode
+	search string
+}
+
+// label is q's own display name, used by the top bar and the filter
 // dialog.
-func (f filterMode) label() string {
-	switch f {
+func (q filterQuery) label() string {
+	switch q.mode {
 	case filterChanged:
 		return "Changed"
 	case filterFailed:
 		return "Failed"
+	case filterSearch:
+		return fmt.Sprintf("Search: %q", q.search)
 	default:
 		return "All"
 	}
@@ -191,26 +207,82 @@ func taskHasAnyOutcome(t *taskNode, outcomes ...outcome) bool {
 	return false
 }
 
-// taskVisible reports whether t should get a row under filter - see
-// Filters.md's Acceptance criteria. A task's status for filtering purposes
-// is host-level: it matches "Changed"/"Failed" if *at least one* of its
-// hosts has that outcome (a task can have hosts in different states), and
-// when it matches, flattenRows below shows all of its hosts - not just the
-// matching ones. Unreachable hosts count as a failure for this purpose too -
-// same bucket lastFailedTaskAndHost already treats it as for the
-// auto-jump-on-failure feature.
-// isActive means t is the run's current in-progress task (see
-// playbookState.CurrentTask) - always shown regardless of filter, since it
-// may simply not have recorded any host outcome yet.
-func taskVisible(t *taskNode, filter filterMode, isActive bool) bool {
-	if isActive || filter == filterAll {
+// taskOutputText returns primaryOutputField's text for host's result on
+// task, or "" if there's none (no result recorded yet, undecodable, or the
+// module simply didn't report stdout/msg) - shared support for the search
+// filter's "Output" criterion below, reusing exactly the same decode-then-
+// primaryOutputField path outputSummary/formatHostOutput already use, so
+// "the output" means the same thing everywhere in this app.
+func taskOutputText(t *taskNode, host string) string {
+	raw, ok := t.Raw[host]
+	if !ok {
+		return ""
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return ""
+	}
+	_, text := primaryOutputField(decoded)
+	return text
+}
+
+// taskMatchesSearch reports whether t matches the "Contents" search filter
+// (Filters.md's "Contents"/M filter): term found in the task's own title,
+// its source ("ansible command" - the same TASK: section source text
+// formatHostOutput shows, from sourceIndex/source.go), or any host's
+// Output (taskOutputText above - the same field the drill-down view and
+// the collapsed OK/Changed line both already call "the output"). An empty
+// term matches everything (same as filterAll) rather than hiding
+// everything - a safer default than making an accidental blank search
+// (pressing Enter on an empty text box) look like "nothing matches, is
+// this broken?". Case-insensitive substring match, nothing fancier (no
+// regex/fuzzy matching) - matches this project's existing "documented
+// heuristic, not chased further" style elsewhere (taskLabel's truncation,
+// primaryOutputField's own stdout-vs-msg choice).
+func taskMatchesSearch(t *taskNode, term string, sourceIndex taskSourceIndex) bool {
+	if term == "" {
+		return true
+	}
+	term = strings.ToLower(term)
+	if strings.Contains(strings.ToLower(t.Name), term) {
+		return true
+	}
+	if source, ok := sourceIndex[t.Path]; ok && strings.Contains(strings.ToLower(source), term) {
+		return true
+	}
+	for host := range t.Hosts {
+		if strings.Contains(strings.ToLower(taskOutputText(t, host)), term) {
+			return true
+		}
+	}
+	return false
+}
+
+// taskVisible reports whether t should get a row under q - see Filters.md's
+// Acceptance criteria. A task's status for filtering purposes is
+// host-level: it matches "Changed"/"Failed" if *at least one* of its hosts
+// has that outcome (a task can have hosts in different states), and when
+// it matches, flattenRows below shows all of its hosts - not just the
+// matching ones. Unreachable hosts count as a failure for this purpose too
+// - same bucket lastFailedTaskAndHost already treats it as for the
+// auto-jump-on-failure feature. isActive means t is the run's current
+// in-progress task (see playbookState.CurrentTask) - always shown
+// regardless of filter, since it may simply not have recorded any host
+// outcome yet (and, for filterSearch specifically, wouldn't have any
+// output to search yet either).
+func taskVisible(t *taskNode, q filterQuery, sourceIndex taskSourceIndex, isActive bool) bool {
+	if isActive || q.mode == filterAll {
 		return true
 	}
 	failed := taskHasAnyOutcome(t, outcomeFailed, outcomeUnreachable)
-	if filter == filterFailed {
+	switch q.mode {
+	case filterFailed:
 		return failed
+	case filterSearch:
+		return taskMatchesSearch(t, q.search, sourceIndex)
+	default: // filterChanged
+		return failed || taskHasAnyOutcome(t, outcomeChanged)
 	}
-	return failed || taskHasAnyOutcome(t, outcomeChanged) // filterChanged
 }
 
 // flattenRows walks state's play/task/host tree into an ordered row list,
@@ -226,14 +298,15 @@ func taskVisible(t *taskNode, filter filterMode, isActive bool) bool {
 // rebuild pass (see spinnerAt), computed once and passed in rather than
 // each row picking its own, so every active indicator in the UI ticks in
 // lockstep. showOutput is called when a host row is selected (Enter), to
-// display that host's full result for that task.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, frame rune, filter filterMode, showOutput func(task *taskNode, host string)) []row {
+// display that host's full result for that task. sourceIndex is only read
+// by taskVisible's filterSearch case, to search a task's own source text.
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string)) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		var playRows []row
 		for _, task := range play.Tasks {
 			t := task
-			if !taskVisible(t, filter, t == activeTask) {
+			if !taskVisible(t, filter, sourceIndex, t == activeTask) {
 				continue
 			}
 			playRows = append(playRows, row{
@@ -293,15 +366,16 @@ func centeredModal(p tview.Primitive, width, height int) tview.Primitive {
 		AddItem(nil, 0, 1, false)
 }
 
-// filterDialogText renders the filter dialog's body - a static headline,
-// the three implemented filters (A/C/F) each with a small marker next to
-// whichever one is currently active, and a dimmed placeholder line for the
-// not-yet-implemented search filter (Filters.md's "Contents"/M step). No
-// tview.Escape() needed - every piece of text here is a fixed literal, never
-// external content (same reasoning as formatHostOutput's own fixed labels).
-func filterDialogText(active filterMode) string {
+// filterDialogText renders the filter dialog's static body - a headline
+// and the four filters, each with a small marker next to whichever one is
+// currently active (the search box itself, below this text in the dialog's
+// own layout - see NewLiveTUI - shows the search term, not this text). No
+// tview.Escape() needed - every piece of text here is a fixed literal,
+// never external content (same reasoning as formatHostOutput's own fixed
+// labels).
+func filterDialogText(active filterQuery) string {
 	mark := func(mode filterMode) string {
-		if mode == active {
+		if mode == active.mode {
 			return "[aqua]*[-]"
 		}
 		return " "
@@ -311,9 +385,9 @@ func filterDialogText(active filterMode) string {
 			" %s A - Show all\n"+
 			" %s C - Show changed (includes failed)\n"+
 			" %s F - Show only failed tasks\n"+
-			"   [gray]M - Match search string (coming soon)[-]\n\n"+
+			" %s M - Match search string (below)\n\n"+
 			" [gray]Esc to cancel[-]",
-		mark(filterAll), mark(filterChanged), mark(filterFailed),
+		mark(filterAll), mark(filterChanged), mark(filterFailed), mark(filterSearch),
 	)
 }
 
@@ -369,11 +443,19 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// different things on each page). A plain locally-owned bool, not a
 	// pages.GetFrontPage() query, since this function owns both places that
 	// ever switch pages.
-	currentFilter := filterAll // see Filters.md; the dialog below is the only writer
-	var filterDialogOpen bool  // true while the filter-selection dialog is
+	currentFilter := filterQuery{mode: filterAll} // see Filters.md; the
+	// dialog below is the only writer.
+	var filterDialogOpen bool // true while the filter-selection dialog is
 	// frontmost - fully modal (see SetInputCapture/SetMouseCapture below):
-	// every key except Esc/a/c/f is swallowed, and all mouse input is
+	// every key except Esc/a/c/f/m is swallowed, and all mouse input is
 	// blocked outright, while it's open.
+	var filterSearchTyping bool // true once 'm' has moved the cursor into
+	// the search text box (see startFilterSearchInput below) - narrower
+	// than filterDialogOpen: while this is also true, SetInputCapture lets
+	// every key except Ctrl-C through untouched instead of swallowing it,
+	// so normal characters (including ones that double as shortcuts
+	// elsewhere, like 'q') actually get typed into the box rather than
+	// triggering something else.
 
 	// activeTaskNow returns the run's current in-progress task, or nil once
 	// the run has finished - the same "frozen means no active task" rule
@@ -465,9 +547,9 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	pages := tview.NewPages()
 
-	// Filter dialog primitive: a small, modal overlay on top of the main
-	// page (see Filters.md's Dialog section) rather than a full page swap
-	// like "output" below - tview's Pages supports this natively via
+	// Filter dialog: a small, modal overlay on top of the main page (see
+	// Filters.md's Dialog section) rather than a full page swap like
+	// "output" below - tview's Pages supports this natively via
 	// ShowPage/HidePage instead of SwitchToPage, which leave other pages'
 	// visibility alone (confirmed against pages.go) rather than hiding
 	// them, so "main" keeps being drawn underneath. centeredModal wraps it
@@ -477,8 +559,23 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// pages.AddPage calls further down, which must add it *last* so it's
 	// drawn on top of "main"/"output" (Pages draws visible pages back to
 	// front, in the order they were added - confirmed against pages.go).
+	//
+	// Two widgets stacked in their own Flex, not just one TextView: static
+	// instructions (filterDialogText) on top, and a real tview.InputField
+	// below it for the search filter's text box (Filters.md's "Next to (or
+	// below) the Match search string shall be a text box") - a TextView
+	// can display text but can't accept edits, and the search filter needs
+	// genuine text entry. The box is always part of the layout (visible
+	// from the moment the dialog opens) but starts unfocused; pressing 'm'
+	// is what moves the cursor into it (see startFilterSearchInput below) -
+	// per Filters.md, just opening the dialog must not put you straight
+	// into typing.
 	filterDialog := tview.NewTextView().SetDynamicColors(true)
-	filterDialog.SetBorder(true).SetTitle(" Filter ")
+	filterSearchInput := tview.NewInputField().SetLabel("Search: ")
+	filterDialogFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(filterDialog, 0, 1, false).
+		AddItem(filterSearchInput, 1, 0, true)
+	filterDialogFlex.SetBorder(true).SetTitle(" Filter ")
 
 	// outputTask/outputHost track which (task, host) pair the output page
 	// is currently showing, so navigateOutputTask (below) knows where
@@ -511,7 +608,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		if outputTask == nil {
 			return
 		}
-		tasks := visibleTasksForHost(state, outputHost, currentFilter, activeTaskNow())
+		tasks := visibleTasksForHost(state, outputHost, currentFilter, sourceIndex, activeTaskNow())
 		idx := -1
 		for i, t := range tasks {
 			if t == outputTask {
@@ -557,10 +654,23 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		// needed. Must happen before flattenRows runs below, since it
 		// reads expanded to decide which host rows to include - setting
 		// it after would miss the newly-expanded row in this same pass.
+		//
+		// Gated on the failed task still matching the currently active
+		// filter (Filters.md's own open question about this, resolved
+		// once the search filter existed to make it a real case: "filter
+		// wins, skip the auto-jump" - simpler than forcing a non-matching
+		// row into view, and doesn't quietly break the filter's own
+		// promise that only matching tasks are ever shown). isActive is
+		// unconditionally false here rather than activeTaskNow() - a frozen
+		// run has no in-progress task by definition, so there's no need to
+		// even call it. A/C/F can't actually trigger this: a failed task
+		// always matches "Changed" and "Failed" by definition, so only a
+		// search term that happens not to match the failure can skip the
+		// jump.
 		if frozen && !failureCursorPlaced {
 			failureCursorPlaced = true
 			if genuineFailure(int(exitCode.Load()), state.HadUnreachable) {
-				if t, h := lastFailedTaskAndHost(state); t != nil {
+				if t, h := lastFailedTaskAndHost(state); t != nil && taskVisible(t, currentFilter, sourceIndex, false) {
 					expanded[t] = true
 					currentID = hostRowID{t, h}
 					following = false
@@ -580,7 +690,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 		activeTask := activeTaskNow()
 
-		currentRows = flattenRows(state, expanded, width, activeTask, spinnerAt(elapsed), currentFilter, showOutput)
+		currentRows = flattenRows(state, expanded, width, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
 		if frozen {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
 				currentRows = append(currentRows,
@@ -793,7 +903,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			return
 		}
 
-		vis := visibleTasks(state, currentFilter, activeTaskNow())
+		vis := visibleTasks(state, currentFilter, sourceIndex, activeTaskNow())
 		var target *taskNode
 		var host string
 		haveHost := false
@@ -851,22 +961,49 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		rebuild()
 	}
 
-	// openFilterDialog/closeFilterDialog/applyFilter back the '/' shortcut
-	// and the filter dialog itself (Filters.md). The dialog is fully modal
-	// (see SetInputCapture/SetMouseCapture below) so these are the only
-	// places filterDialogOpen/currentFilter ever change.
+	// openFilterDialog/closeFilterDialog/startFilterSearchInput/applyFilter
+	// back the '/' shortcut and the filter dialog itself (Filters.md). The
+	// dialog is fully modal (see SetInputCapture/SetMouseCapture below) so
+	// these are the only places filterDialogOpen/filterSearchTyping/
+	// currentFilter ever change.
 	openFilterDialog := func() {
 		filterDialogOpen = true
 		filterDialog.SetText(filterDialogText(currentFilter))
+		// Pre-fill the search box with the previous term as soon as the
+		// dialog opens, not only once 'm' is pressed - Filters.md is
+		// explicit that reopening the dialog while the search filter is
+		// already active should show it right away.
+		if currentFilter.mode == filterSearch {
+			filterSearchInput.SetText(currentFilter.search)
+		} else {
+			filterSearchInput.SetText("")
+		}
 		pages.ShowPage("filter")
 	}
 	closeFilterDialog := func() {
 		filterDialogOpen = false
+		filterSearchTyping = false
 		pages.HidePage("filter")
+		app.SetFocus(list) // undo startFilterSearchInput's SetFocus below,
+		// if it ran - harmless no-op if it never did (list already has
+		// focus in that case).
+	}
+	// startFilterSearchInput moves real keyboard focus into the search
+	// text box (Filters.md: "When M is pressed, cursor shall be in the
+	// text box") - the box's own text was already set by openFilterDialog
+	// above. From this point until filterSearchInput's own SetDoneFunc
+	// fires (Enter/Esc/Tab/Backtab), SetInputCapture lets keys through
+	// untouched instead of swallowing them (see filterSearchTyping) so the
+	// box can be edited normally.
+	startFilterSearchInput := func() {
+		filterSearchTyping = true
+		app.SetFocus(filterSearchInput)
 	}
 	// applyFilter switches to newFilter (a no-op switch still closes the
 	// dialog, matching "when the user presses A, C, F the respective
-	// filter shall be activated and the window shall be closed again").
+	// filter shall be activated and the window shall be closed again" -
+	// M's own Enter-to-apply, wired up on filterSearchInput's SetDoneFunc
+	// below, funnels through here too).
 	//
 	// If the cursor is currently pinned to a specific row (following ==
 	// false - if it's true, rebuild() already re-resolves the selection to
@@ -881,7 +1018,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	// task, which removes host rows one task at a time while the task's own
 	// row stays put, a filter switch never leaves a "row still there, just
 	// fall back to it" case to fall back to.
-	applyFilter := func(newFilter filterMode) {
+	applyFilter := func(newFilter filterQuery) {
 		if newFilter != currentFilter && !following {
 			activeTask := activeTaskNow()
 			var anchor *taskNode
@@ -893,7 +1030,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			case *playNode:
 				stillVisible := false
 				for _, t := range id.Tasks {
-					if taskVisible(t, newFilter, t == activeTask) {
+					if taskVisible(t, newFilter, sourceIndex, t == activeTask) {
 						stillVisible = true
 						break
 					}
@@ -902,8 +1039,8 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 					anchor = id.Tasks[0]
 				}
 			}
-			if anchor != nil && !taskVisible(anchor, newFilter, anchor == activeTask) {
-				if nt := nearestVisibleTask(allTasks(state), anchor, visibleTasks(state, newFilter, activeTask)); nt != nil {
+			if anchor != nil && !taskVisible(anchor, newFilter, sourceIndex, anchor == activeTask) {
+				if nt := nearestVisibleTask(allTasks(state), anchor, visibleTasks(state, newFilter, sourceIndex, activeTask)); nt != nil {
 					currentID = nt
 				}
 			}
@@ -912,6 +1049,22 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 		closeFilterDialog()
 		rebuild()
 	}
+
+	// filterSearchInput.SetDoneFunc fires on Enter/Esc/Tab/Backtab -
+	// InputField's own fixed set of "done" keys (confirmed against
+	// inputfield.go), reached because filterSearchTyping tells
+	// SetInputCapture above to let these through untouched rather than
+	// swallowing them like every other dialog key. Only Enter actually
+	// applies the typed term; Esc/Tab/Backtab all just cancel back out -
+	// there's nothing else in this dialog to Tab to, and Filters.md only
+	// ever specifies Esc for "close with no change" anyway.
+	filterSearchInput.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			applyFilter(filterQuery{mode: filterSearch, search: filterSearchInput.GetText()})
+		} else {
+			closeFilterDialog()
+		}
+	})
 
 	list.SetChangedFunc(func(index int) {
 		if rebuilding {
@@ -961,7 +1114,7 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
-	pages.AddPage("filter", centeredModal(filterDialog, 46, 11), true, false)
+	pages.AddPage("filter", centeredModal(filterDialogFlex, 46, 12), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
 	// Everything else falls out of tview's own defaults once mouse events
@@ -1002,8 +1155,22 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 	}()
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		// While the user is typing into the filter dialog's search box,
+		// every key must reach InputField's own editing logic completely
+		// untouched - including letters that double as global shortcuts
+		// elsewhere (typing "request" must not quit the app just because
+		// it contains a 'q', and must not get intercepted as a page
+		// shortcut either). Checked first, before even the isQuit check
+		// below, so nothing else in this function ever sees these events.
+		// Ctrl-C is the one deliberate exception: Purpose.md's "behaves
+		// like running ansible-playbook directly" guarantee is
+		// unconditional, even here - so it still falls through.
+		if filterSearchTyping && event.Key() != tcell.KeyCtrlC {
+			return event
+		}
+
 		isQuit := event.Key() == tcell.KeyCtrlC ||
-			(event.Key() == tcell.KeyRune && event.Rune() == 'q')
+			(!filterSearchTyping && event.Key() == tcell.KeyRune && event.Rune() == 'q')
 		if isQuit {
 			if processDone.Load() {
 				quitting.Store(true) // before Stop() - see main.go's race note
@@ -1014,9 +1181,10 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			return nil
 		}
 
-		// The filter dialog is fully modal (Filters.md): while it's open,
-		// every key except Esc and the three implemented filter shortcuts
-		// is swallowed outright - checked before the vim-alias translation
+		// The filter dialog is fully modal (Filters.md): while it's open
+		// but not yet in text-entry mode (filterSearchTyping, handled
+		// above), every key except Esc and the four filter shortcuts is
+		// swallowed outright - checked before the vim-alias translation
 		// block and the viewingOutput branch below, so it takes priority
 		// over both regardless of which page is otherwise frontmost.
 		if filterDialogOpen {
@@ -1024,11 +1192,13 @@ func NewLiveTUI(state *playbookState, playbookName string, proc *os.Process, pro
 			case event.Key() == tcell.KeyEscape:
 				closeFilterDialog()
 			case event.Key() == tcell.KeyRune && event.Rune() == 'a':
-				applyFilter(filterAll)
+				applyFilter(filterQuery{mode: filterAll})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'c':
-				applyFilter(filterChanged)
+				applyFilter(filterQuery{mode: filterChanged})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'f':
-				applyFilter(filterFailed)
+				applyFilter(filterQuery{mode: filterFailed})
+			case event.Key() == tcell.KeyRune && event.Rune() == 'm':
+				startFilterSearchInput()
 			}
 			return nil
 		}
@@ -1564,10 +1734,10 @@ func tasksForHost(state *playbookState, host string) []*taskNode {
 // navigateMainTask (n/p) and the filter-switch cursor fallback so neither
 // ever targets a task flattenRows wouldn't actually have rendered a row
 // for.
-func visibleTasks(state *playbookState, filter filterMode, activeTask *taskNode) []*taskNode {
+func visibleTasks(state *playbookState, filter filterQuery, sourceIndex taskSourceIndex, activeTask *taskNode) []*taskNode {
 	var tasks []*taskNode
 	for _, t := range allTasks(state) {
-		if taskVisible(t, filter, t == activeTask) {
+		if taskVisible(t, filter, sourceIndex, t == activeTask) {
 			tasks = append(tasks, t)
 		}
 	}
@@ -1576,10 +1746,10 @@ func visibleTasks(state *playbookState, filter filterMode, activeTask *taskNode)
 
 // visibleTasksForHost is tasksForHost's filtered sibling, for the output
 // drill-down view's prev/next-task navigation (see navigateOutputTask).
-func visibleTasksForHost(state *playbookState, host string, filter filterMode, activeTask *taskNode) []*taskNode {
+func visibleTasksForHost(state *playbookState, host string, filter filterQuery, sourceIndex taskSourceIndex, activeTask *taskNode) []*taskNode {
 	var tasks []*taskNode
 	for _, t := range tasksForHost(state, host) {
-		if taskVisible(t, filter, t == activeTask) {
+		if taskVisible(t, filter, sourceIndex, t == activeTask) {
 			tasks = append(tasks, t)
 		}
 	}

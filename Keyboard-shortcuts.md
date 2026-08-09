@@ -56,11 +56,29 @@ immediately, same as everywhere else.
 * a - show all tasks (the default)
 * c - show only tasks with a changed or failed host
 * f - show only tasks with a failed (or unreachable) host
-* m - match search string - not implemented yet, greyed out in the dialog
+* m - move the cursor into the search text box below (see below)
 * Esc - close the dialog, no change to the active filter
 
 (The dialog itself displays these as A/C/F/M - shown upper case to stand
 out next to each option's description, but typed as lower case.)
+
+The search box is always visible in the dialog, but starts unfocused -
+pressing `m` is what moves the cursor into it. Once there, every other key
+(including q/j/k/etc.) types normally into the box instead of doing
+whatever it would do elsewhere - only Ctrl-C is still the global "quit/
+interrupt" it always is. Reopening the dialog while a search filter is
+already active shows the previous term in the box right away, though it
+still isn't focused until `m` is pressed again.
+
+* Enter (while typing) - apply the typed term as the search filter and
+                          close the dialog. Matches a task if the term
+                          appears (case-insensitively) in its title, its
+                          own source, or any host's output - same
+                          host-level "at least one host" rule as the
+                          changed/failed filters. An empty term behaves
+                          like "show all" rather than hiding everything.
+* Esc / Tab (while typing) - cancel back out, same as Esc from the menu:
+                          no change to the active filter
 
 Pressing A, C, or F immediately applies that filter and closes the dialog.
 The title bar always shows the currently active filter. If the row the
