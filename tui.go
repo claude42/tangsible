@@ -1418,6 +1418,16 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 			return nil
 		}
 
+		if viewingOutput && event.Key() == tcell.KeyRune && event.Rune() == 'q' {
+			// Same convention as the filter dialog's own q (Filters.md):
+			// closes/backs out rather than quitting. Translated into a
+			// synthetic Escape, the same mechanism the vim-alias
+			// translations below use, so outputView's own native
+			// SetDoneFunc handles it identically to a real Escape press -
+			// no separate close-and-restore-cursor logic to keep in sync.
+			return tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)
+		}
+
 		isQuit := event.Key() == tcell.KeyRune && event.Rune() == 'q'
 		if isQuit {
 			if processDone.Load() {
@@ -2135,6 +2145,67 @@ func skipDetail(raw json.RawMessage) string {
 	return fmt.Sprintf(" (%s)", reason)
 }
 
+// skipOutputText builds formatHostOutput's Output section text for a
+// Skipped host: "<skip_reason>: <false_condition>", or just <skip_reason>
+// alone when false_condition isn't a plain string (e.g. a literal
+// `when: false` serializes it as JSON false, not a string) - same
+// underlying fields, same "reason: condition" phrasing, and the same
+// string-or-fall-back caveat as skipDetail above (the tree row's own
+// rendering of this same data), just without skipDetail's own wrapping
+// parentheses, since this is the Output section's own standalone text,
+// not something appended after another word. Takes the already-decoded
+// result (unlike skipDetail, which decodes raw bytes itself -
+// formatHostOutput already has decoded in scope, so there's no reason to
+// decode twice).
+func skipOutputText(decoded map[string]interface{}) string {
+	reason, _ := decoded["skip_reason"].(string)
+	if reason == "" {
+		return ""
+	}
+	if cond, ok := decoded["false_condition"].(string); ok && cond != "" {
+		return fmt.Sprintf("%s: %s", reason, cond)
+	}
+	return reason
+}
+
+// loopItemLabels returns one display label per element of a looped task's
+// own "results" array (present only when the task used loop:/with_*,
+// confirmed empirically against a real loop's v2_runner_on_ok event -
+// absent entirely for a non-looped task, so a task without it simply gets
+// no Items section, per formatHostOutput's usual "omit rather than show
+// empty" convention). Each item's own "_ansible_item_label" is what
+// Ansible itself uses for display (e.g. "changed: [host] => (item=foo)")
+// - used directly when it's a plain string (the common case: looping over
+// a list of strings/numbers); for a loop over dicts/lists, that label is
+// itself the raw structure rather than a string, so it's rendered as
+// compact JSON instead, same "always show *something* readable" fallback
+// style as formatHostOutput's own decode-failure path.
+func loopItemLabels(decoded map[string]interface{}) []string {
+	results, ok := decoded["results"].([]interface{})
+	if !ok {
+		return nil
+	}
+	labels := make([]string, 0, len(results))
+	for _, r := range results {
+		item, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		label, ok := item["_ansible_item_label"]
+		if !ok {
+			label = item["item"]
+		}
+		if s, ok := label.(string); ok {
+			labels = append(labels, s)
+			continue
+		}
+		if b, err := json.Marshal(label); err == nil {
+			labels = append(labels, string(b))
+		}
+	}
+	return labels
+}
+
 // sectionLabel renders one of formatHostOutput's section headers in its
 // own color, bold - a distinct color per section (deliberately outside the
 // outcome palette in colorTag, so a reader never confuses "this section is
@@ -2229,9 +2300,11 @@ func roleFromPath(path string) string {
 
 // formatHostOutput renders task.Raw[host] for the output drill-down view,
 // per the layout in design-docs/drilldown.txt: a Task summary block
-// (Name/Role/Host/Status), Output, Error, Task definition (the task's own
-// YAML source), Play definition (the parent play's own YAML source), and
-// Detailed results (the full JSON) - in that order. It decodes into a
+// (Name/Role/Host/Status), Output, Items (a looped task's own per-item
+// labels, omitted for a non-looped task - see loopItemLabels), Error,
+// Task definition (the task's own YAML source), Play definition (the
+// parent play's own YAML source), and Detailed results (the full JSON) -
+// in that order. It decodes into a
 // generic map (not a fixed struct) since different Ansible modules return
 // wildly different result shapes; msg/stdout/stderr are pulled out as
 // labeled, human-readable sections, followed unconditionally by the
@@ -2286,6 +2359,9 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) 
 	// definition's below: section colors are still to be revisited.
 	b.WriteString(sectionLabel("silver", "Task"))
 	fmt.Fprintf(&b, "Name: %s\n", tview.Escape(task.Name))
+	if action, ok := decoded["action"].(string); ok && action != "" {
+		fmt.Fprintf(&b, "Action: %s\n", tview.Escape(action))
+	}
 	if role := roleFromPath(task.Path); role != "" {
 		fmt.Fprintf(&b, "Role: %s\n", tview.Escape(role))
 	}
@@ -2309,9 +2385,33 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) 
 	// Only one of MSG/STDOUT is shown, not both - see primaryOutputField;
 	// always labeled "Output" here regardless of which field it came
 	// from, since that distinction is an internal selection detail, not
-	// something worth surfacing in the section header.
-	_, outputText := primaryOutputField(decoded)
+	// something worth surfacing in the section header. Skipped is its own
+	// case: a skipped result's msg/stdout are rarely useful (often empty,
+	// or a generic message that doesn't say what condition skipped it) -
+	// skip_reason/false_condition (skipOutputText) is what's actually
+	// worth showing here instead.
+	var outputText string
+	if o == outcomeSkipped {
+		outputText = skipOutputText(decoded)
+	} else {
+		_, outputText = primaryOutputField(decoded)
+	}
 	writeTextSection("aqua", "Output", outputText)
+
+	// Items: only present for a looped task (loop:/with_*) - see
+	// loopItemLabels. Rendered as a plain "* label" bullet list, one per
+	// loop item, matching drilldown.txt's own mockup - no per-item
+	// status, just what was iterated over; the per-item OK/Changed/
+	// Failed detail already lives in "results" within Detailed results
+	// below for anyone who needs it.
+	if items := loopItemLabels(decoded); len(items) > 0 {
+		b.WriteString(sectionLabel("yellow", "Items"))
+		for _, item := range items {
+			fmt.Fprintf(&b, "* %s\n", tview.Escape(item))
+		}
+		b.WriteString("\n\n")
+	}
+
 	stderr, _ := decoded["stderr"].(string)
 	writeTextSection("red", "Error", stderr)
 

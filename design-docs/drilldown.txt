@@ -13,6 +13,14 @@ Output
 Task failed: Failed to connect to the host via ssh: root@artha: Permission denied (publickey).
 
 
+Items
+=====
+
+* foo
+* bar
+* baz
+
+
 Error
 =====
 
