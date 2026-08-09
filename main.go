@@ -40,17 +40,30 @@ func exitCodeOf(err error) int {
 }
 
 func main() {
-	// The playbook is normally os.Args[1], but doesn't have to be -
-	// splitPlaybookArgs treats a missing or flag-shaped first argument as
-	// "none given positionally" and resolvePlaybook takes over (see
-	// resolve.go for the full TANGSIBLE_PLAYBOOK/.tangsible/
-	// $XDG_CONFIG_HOME/site.yml cascade).
-	playbook, rest, explicit := splitPlaybookArgs(os.Args[1:])
+	v, args, ok := parseVerb(os.Args[1:])
+	if !ok {
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		os.Exit(2)
+	}
+	if v == verbRerun {
+		// Rerun.md's full "rerun" flow (loading .tangsible history and
+		// showing the pre-filled re-run dialog before anything runs) isn't
+		// implemented yet - only "run" is wired up so far.
+		fmt.Fprintln(os.Stderr, "tangsible: the \"rerun\" verb isn't implemented yet")
+		os.Exit(2)
+	}
+
+	// The playbook is normally args[0] (i.e. os.Args[2], after the verb),
+	// but doesn't have to be - splitPlaybookArgs treats a missing or
+	// flag-shaped first argument as "none given positionally" and
+	// resolvePlaybook takes over (see resolve.go for the full
+	// TANGSIBLE_PLAYBOOK/.tangsible/$XDG_CONFIG_HOME/site.yml cascade).
+	playbook, rest, explicit := splitPlaybookArgs(args)
 	if !explicit {
 		var source string
 		playbook, source = resolvePlaybook()
 		if playbook == "" {
-			fmt.Fprintf(os.Stderr, "usage: %s [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 			fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
 			os.Exit(2)
 		}

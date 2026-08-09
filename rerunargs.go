@@ -1,0 +1,182 @@
+package main
+
+import "strings"
+
+// parsedPassthroughArgs splits a tokenized ansible-playbook passthrough arg
+// list (the same shape splitPlaybookArgs already produces) into the two
+// values the re-run dialog needs to pre-fill - Tags and Hosts - plus
+// everything else, carried forward verbatim and in original order. Not a
+// general-purpose ansible-playbook CLI parser: only --tags/-t and
+// --limit/-l are recognized, in "--flag value" and "--flag=value" form;
+// an attached short form like "-tfoo" (no separator) isn't, and falls
+// through to Rest untouched. Good enough for this project's own
+// invocation patterns, not chased further - same "documented heuristic"
+// style as taskLabel's truncation or primaryOutputField's stdout-vs-msg
+// choice.
+type parsedPassthroughArgs struct {
+	Tags  string
+	Hosts string
+	Rest  []string
+}
+
+// parsePassthroughArgs parses args into a parsedPassthroughArgs. Multiple
+// --tags/-t (or --limit/-l) occurrences are all collected and comma-joined
+// into one Tags (or Hosts) value - this doesn't attempt to replicate
+// ansible-playbook's own per-flag merge-vs-override semantics, just gives
+// a single value to show and edit in one dialog field.
+func parsePassthroughArgs(args []string) parsedPassthroughArgs {
+	var tags, hosts []string
+	var rest []string
+
+	take := func(flag string, i int) (value string, consumed int, ok bool) {
+		a := args[i]
+		if a == flag {
+			if i+1 < len(args) {
+				return args[i+1], 2, true
+			}
+			return "", 0, false // dangling flag with no value - leave it in Rest untouched
+		}
+		if v, found := strings.CutPrefix(a, flag+"="); found {
+			return v, 1, true
+		}
+		return "", 0, false
+	}
+
+	for i := 0; i < len(args); {
+		matched := false
+		for _, m := range []struct {
+			flag string
+			dst  *[]string
+		}{
+			{"--tags", &tags}, {"-t", &tags},
+			{"--limit", &hosts}, {"-l", &hosts},
+		} {
+			if v, n, ok := take(m.flag, i); ok {
+				if v != "" {
+					*m.dst = append(*m.dst, v)
+				}
+				i += n
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			rest = append(rest, args[i])
+			i++
+		}
+	}
+
+	return parsedPassthroughArgs{
+		Tags:  strings.Join(tags, ","),
+		Hosts: strings.Join(hosts, ","),
+		Rest:  rest,
+	}
+}
+
+// Reassemble rebuilds a full passthrough arg list from p - the inverse of
+// parsePassthroughArgs, used once the re-run dialog's (possibly edited)
+// Tags/Hosts need combining back with Rest. Always emits the long-form
+// "--tags"/"--limit" flags regardless of which form the original
+// invocation used - round-tripping the exact original spelling isn't worth
+// tracking separately.
+func (p parsedPassthroughArgs) Reassemble() []string {
+	var out []string
+	if p.Tags != "" {
+		out = append(out, "--tags", p.Tags)
+	}
+	if p.Hosts != "" {
+		out = append(out, "--limit", p.Hosts)
+	}
+	out = append(out, p.Rest...)
+	return out
+}
+
+// argsToHistoryString joins args into the single space-separated string
+// stored in .tangsible's history - the same shape the user would type
+// after the playbook name on the command line. Any argument containing
+// whitespace, a quote character, a backslash, or that's empty is
+// double-quoted (with internal '"'/'\' backslash-escaped) so
+// historyStringToArgs can split it back out unambiguously; a plain token
+// round-trips as-is, unquoted.
+func argsToHistoryString(args []string) string {
+	parts := make([]string, len(args))
+	for i, a := range args {
+		parts[i] = quoteHistoryArg(a)
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteHistoryArg(s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t\"\\") {
+		return s
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		if r == '"' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// historyStringToArgs splits a string previously produced by
+// argsToHistoryString back into its original argument list: a minimal,
+// POSIX-ish tokenizer supporting single/double-quoted spans (with
+// backslash escaping only inside double quotes and unquoted text) - enough
+// to round-trip anything argsToHistoryString itself produces, not a
+// general shell parser (no variable expansion, no command substitution -
+// neither is meaningful for a stored, literal argument list).
+func historyStringToArgs(s string) []string {
+	var args []string
+	var cur strings.Builder
+	hasCur := false
+	inSingle, inDouble, escaped := false, false, false
+
+	flush := func() {
+		if hasCur {
+			args = append(args, cur.String())
+			cur.Reset()
+			hasCur = false
+		}
+	}
+
+	for _, r := range s {
+		switch {
+		case escaped:
+			cur.WriteRune(r)
+			escaped = false
+			hasCur = true
+		case inSingle:
+			if r == '\'' {
+				inSingle = false
+			} else {
+				cur.WriteRune(r)
+			}
+		case inDouble:
+			switch r {
+			case '"':
+				inDouble = false
+			case '\\':
+				escaped = true
+			default:
+				cur.WriteRune(r)
+			}
+		case r == '\'':
+			inSingle, hasCur = true, true
+		case r == '"':
+			inDouble, hasCur = true, true
+		case r == '\\':
+			escaped, hasCur = true, true
+		case r == ' ' || r == '\t':
+			flush()
+		default:
+			cur.WriteRune(r)
+			hasCur = true
+		}
+	}
+	flush()
+	return args
+}

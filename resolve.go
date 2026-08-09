@@ -10,16 +10,51 @@ import (
 )
 
 // playbookConfig is the shape of .tangsible and
-// $XDG_CONFIG_HOME/tangsible/config.toml - deliberately minimal (a single
-// key), since the user's own spec for this format explicitly expects it
-// to grow later.
+// $XDG_CONFIG_HOME/tangsible/config.toml. Originally deliberately minimal
+// (a single key), since the user's own spec for this format explicitly
+// expected it to grow later - History (see history.go) is that growth:
+// only .tangsible ever has it populated in practice (invocation history is
+// inherently per-project), but the type is shared with the global config
+// file too rather than forking it into two shapes, since an empty History
+// there is harmless.
 type playbookConfig struct {
 	General struct {
 		DefaultPlaybook string `toml:"default_playbook"`
 	} `toml:"general"`
+	History []playbookHistory `toml:"history"`
 }
 
-// splitPlaybookArgs splits args (os.Args[1:]) into the playbook path and
+// verb identifies which top-level command Tangsible was invoked with -
+// "run" (the direct successor of the original bare-playbook invocation) or
+// "rerun" (see Rerun.md). A verb is now mandatory: unlike the playbook
+// argument, there's no shape-based way to tell "no verb given" from "verb
+// given" (every verb looks like a plain word, same as a playbook path), and
+// more verbs are expected to follow Rerun.md's own rationale for
+// introducing this - so requiring one explicitly, as a breaking change, is
+// simpler than trying to keep guessing.
+type verb string
+
+const (
+	verbRun   verb = "run"
+	verbRerun verb = "rerun"
+)
+
+// parseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
+// with. ok is false if args is empty or its first element isn't a
+// recognized verb - the caller treats that as a usage error.
+func parseVerb(args []string) (v verb, rest []string, ok bool) {
+	if len(args) == 0 {
+		return "", nil, false
+	}
+	switch verb(args[0]) {
+	case verbRun, verbRerun:
+		return verb(args[0]), args[1:], true
+	default:
+		return "", nil, false
+	}
+}
+
+// splitPlaybookArgs splits args (everything after the verb) into the playbook path and
 // the remaining ansible-playbook passthrough args. Tangsible's calling
 // convention has always put the playbook first, with everything after it
 // passed straight through - so the only way to tell "no playbook given"
@@ -49,23 +84,31 @@ func configHome() string {
 	return filepath.Join(home, ".config")
 }
 
-// readDefaultPlaybook reads path as a playbookConfig TOML file and
-// returns its general.default_playbook value - "" if the file doesn't
-// exist (the common case for 3 of resolvePlaybook's 4 sources, not worth
-// a warning), can't be parsed (a warning is printed to stderr here, since
-// an existing-but-broken config shouldn't fail silently and invisibly -
-// safe to print directly, since this always runs before the TUI is ever
-// constructed), or simply doesn't set that key.
-func readDefaultPlaybook(path string) string {
-	if _, err := os.Stat(path); err != nil {
-		return ""
-	}
+// readTangsibleConfig reads path as a playbookConfig TOML file, returning
+// the zero value if the file doesn't exist (the common case for 3 of
+// resolvePlaybook's 4 sources, not worth a warning) or can't be parsed (a
+// warning is printed to stderr here, since an existing-but-broken config
+// shouldn't fail silently and invisibly - safe to print directly, since
+// this always runs before the TUI is ever constructed). Shared by
+// readDefaultPlaybook and history.go's appendInvocation/lastInvocation, so
+// there's exactly one place that knows how to read this file.
+func readTangsibleConfig(path string) playbookConfig {
 	var cfg playbookConfig
+	if _, err := os.Stat(path); err != nil {
+		return cfg
+	}
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't parse %s: %v\n", path, err)
-		return ""
+		return playbookConfig{}
 	}
-	return cfg.General.DefaultPlaybook
+	return cfg
+}
+
+// readDefaultPlaybook returns path's general.default_playbook value - ""
+// if the file doesn't exist, can't be parsed, or simply doesn't set that
+// key. See readTangsibleConfig for the shared read/warn behavior.
+func readDefaultPlaybook(path string) string {
+	return readTangsibleConfig(path).General.DefaultPlaybook
 }
 
 // resolvePlaybook determines which playbook to run when none was given

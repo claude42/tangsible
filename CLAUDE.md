@@ -11,15 +11,19 @@ The TUI (built with `tview`) is live: it comes up immediately and updates increm
 ## Commands
 
 ```
-go build ./...                                      # build
-go vet ./...                                         # lint
-go run . [<playbook.yml>] [ansible-playbook args...] # run
+go build ./...                                          # build
+go vet ./...                                             # lint
+go run . run [<playbook.yml>] [ansible-playbook args...] # run
 ```
+
+The leading `run` verb is mandatory (`resolve.go`'s `parseVerb`) — see
+Rerun.md for the `rerun` verb this was introduced alongside (not yet
+implemented; `main.go` exits with a message if it's used).
 
 Try it against the bundled fixtures, e.g.:
 ```
-go run . testdata/outcomes.yml -i localhost,
-go run . testdata/multihost.yml -i testdata/multihost-inventory.ini
+go run . run testdata/outcomes.yml -i localhost,
+go run . run testdata/multihost.yml -i testdata/multihost-inventory.ini
 ```
 
 No tests exist yet — see `TESTING.md` for the planned, phased approach; once added, run with `go test ./...` (`go test -run <Name> ./...` for a single test).

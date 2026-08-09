@@ -7,6 +7,55 @@ import (
 	"testing"
 )
 
+func TestParseVerb(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		wantVerb verb
+		wantRest []string
+		wantOK   bool
+	}{
+		{
+			name:     "run verb with a playbook and args",
+			args:     []string{"run", "site.yml", "-v"},
+			wantVerb: verbRun,
+			wantRest: []string{"site.yml", "-v"},
+			wantOK:   true,
+		},
+		{
+			name:     "rerun verb alone",
+			args:     []string{"rerun"},
+			wantVerb: verbRerun,
+			wantRest: nil,
+			wantOK:   true,
+		},
+		{
+			name:   "unrecognized verb",
+			args:   []string{"site.yml", "-v"},
+			wantOK: false,
+		},
+		{
+			name:   "no args at all",
+			args:   nil,
+			wantOK: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v, rest, ok := parseVerb(c.args)
+			if ok != c.wantOK {
+				t.Fatalf("parseVerb(%v) ok = %v, want %v", c.args, ok, c.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if v != c.wantVerb || !slices.Equal(rest, c.wantRest) {
+				t.Errorf("parseVerb(%v) = (%q, %v), want (%q, %v)", c.args, v, rest, c.wantVerb, c.wantRest)
+			}
+		})
+	}
+}
+
 func TestSplitPlaybookArgs(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -108,7 +157,7 @@ func TestReadDefaultPlaybook(t *testing.T) {
 func TestResolvePlaybook(t *testing.T) {
 	t.Run("TANGSIBLE_PLAYBOOK wins even when .tangsible also exists", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		writeTangsibleConfig(t, ".tangsible", "from-dot-tangsible.yml")
+		writeDefaultPlaybookConfig(t, ".tangsible", "from-dot-tangsible.yml")
 		t.Setenv("TANGSIBLE_PLAYBOOK", "from-env.yml")
 
 		path, source := resolvePlaybook()
@@ -120,7 +169,7 @@ func TestResolvePlaybook(t *testing.T) {
 	t.Run(".tangsible wins over site.yml when no env var is set", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		t.Setenv("TANGSIBLE_PLAYBOOK", "")
-		writeTangsibleConfig(t, ".tangsible", "from-dot-tangsible.yml")
+		writeDefaultPlaybookConfig(t, ".tangsible", "from-dot-tangsible.yml")
 		mustWriteFile(t, "site.yml", "")
 
 		path, source := resolvePlaybook()
@@ -155,7 +204,7 @@ func TestResolvePlaybook(t *testing.T) {
 	})
 }
 
-func writeTangsibleConfig(t *testing.T, path, defaultPlaybook string) {
+func writeDefaultPlaybookConfig(t *testing.T, path, defaultPlaybook string) {
 	t.Helper()
 	content := "[general]\ndefault_playbook = \"" + defaultPlaybook + "\"\n"
 	mustWriteFile(t, path, content)

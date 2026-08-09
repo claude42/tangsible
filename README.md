@@ -59,15 +59,16 @@ This produces a `tangsible` binary in the current directory.
 ## Usage
 
 ```
-tangsible [<playbook.yml>] [ansible-playbook args...]
+tangsible run [<playbook.yml>] [ansible-playbook args...]
 ```
 
+The `run` verb is mandatory (more verbs exist — see `rerun` in Rerun.md).
 Anything after the playbook is passed straight through to
 `ansible-playbook` — inventory, tags, limits, verbosity, whatever you'd
 normally pass. For example:
 
 ```
-tangsible site.yml -i inventory.ini --limit webservers -t deploy
+tangsible run site.yml -i inventory.ini --limit webservers -t deploy
 ```
 
 If you omit the playbook, Tangsible tries to figure out which one you
@@ -78,8 +79,8 @@ To try it out without a real inventory, the bundled fixtures under
 `testdata/` are safe to run locally:
 
 ```
-tangsible testdata/outcomes.yml -i localhost,
-tangsible testdata/multihost.yml -i testdata/multihost-inventory.ini
+tangsible run testdata/outcomes.yml -i localhost,
+tangsible run testdata/multihost.yml -i testdata/multihost-inventory.ini
 ```
 
 ## Keyboard shortcuts
