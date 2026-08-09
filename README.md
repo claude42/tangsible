@@ -33,6 +33,11 @@ side, not spread across your scrollback.
 - The playbook path is optional — resolved from an env var, a per-project
   config file, a global config file, or a conventional `site.yml`, in
   that order (see Configuration below).
+- **Re-run** a finished playbook without leaving the TUI — the whole thing
+  again, or starting from a specific task, with editable tags/hosts — or
+  jump straight into that same dialog from the command line with
+  `tangsible rerun`, pre-filled from what you last ran (see Re-running
+  below).
 
 ## Requirements
 
@@ -83,6 +88,32 @@ tangsible run testdata/outcomes.yml -i localhost,
 tangsible run testdata/multihost.yml -i testdata/multihost-inventory.ini
 ```
 
+## Re-running
+
+Once a run has finished (successfully, failed, or interrupted), press `r`
+to open a dialog offering to re-run it — the whole playbook again, or
+starting from a specific task (`--start-at-task`), with editable tags and
+hosts. Confirm with `Enter`; the tree clears and a new run starts without
+leaving Tangsible. See `Keyboard-shortcuts.md` for the full rundown of that
+dialog's own keys.
+
+The same dialog is also reachable straight from the command line:
+
+```
+tangsible rerun [<playbook.yml>] [ansible-playbook args...]
+```
+
+`tangsible rerun` with no arguments re-runs whichever playbook you last ran
+in this project, with the same tags/hosts, pre-filled into the dialog for
+one last look before confirming. Giving a playbook explicitly re-runs
+*that* playbook's own last invocation instead (or an empty dialog if it's
+never been run before); `-l`/`--tags` given on the `rerun` command line
+itself override whatever was recorded. Either way, nothing runs until you
+press `Enter` in the dialog — `rerun` never fires off a playbook silently.
+
+This relies on `.tangsible` remembering past invocations — see
+Configuration below.
+
 ## Keyboard shortcuts
 
 The essentials — see `Keyboard-shortcuts.md` for the complete reference
@@ -98,6 +129,7 @@ control, and more).
 | `←`/`→` | Collapse / expand a task |
 | `n` / `p` | Jump to the next / previous task |
 | `Home` / `End` | Jump to the first / last row |
+| `r` | Open the re-run dialog (once the run has finished) |
 | `q` / `Ctrl-C` | Interrupt the run, or quit once it's finished |
 
 **Drill-down view**
@@ -125,19 +157,43 @@ from, in order:
    `~/.config/tangsible/config.toml` if that variable isn't set)
 4. `./site.yml`, if present
 
-`.tangsible` and `config.toml` share the same minimal TOML format:
+`.tangsible` and `config.toml` share the same TOML format:
 
 ```toml
 [general]
 default_playbook = "myplaybook.yml"
 ```
 
+`.tangsible` additionally accumulates invocation history as you use
+`tangsible run`/`rerun` — this is what powers `rerun` and pre-fills the
+re-run dialog's Tags/Hosts fields. You don't need to (and shouldn't) write
+this part by hand:
+
+```toml
+[general]
+default_playbook = "myplaybook.yml"
+last_playbook = "myplaybook.yml"
+
+[[history]]
+playbook = "myplaybook.yml"
+invocations = ["", "-l webservers", "-l webservers --tags deploy"]
+```
+
+`invocations` keeps up to the last 20 entries per playbook, oldest first.
+Since it can end up recording real environment details (hostnames, tags,
+`-e` extra-vars), consider adding `.tangsible` to your project's
+`.gitignore` once it's grown past a bare `default_playbook` — the same way
+you wouldn't commit shell history.
+
 ## Current limitations
 
 This is a v1, aimed at the common interactive case rather than full
 `ansible-playbook` parity:
 
-- No run history — each run is its own session.
+- No browsable run history *within* the TUI — each run's tree is replaced
+  by the next one (including a re-run's), and there's no way to page back
+  through past runs' results. (`.tangsible` does remember past invocation
+  *arguments* — see Configuration — but not their outcomes.)
 - No interactive prompts yet (`--ask-become-pass`, vault passwords,
   `pause` tasks).
 - Built and tested around the scale of a typical dev inventory (roughly

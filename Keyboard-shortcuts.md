@@ -37,6 +37,10 @@
                      is shown.
 * /                - open the search dialog (see below). Not available
                      while the command output view is shown.
+* r                - open the re-run dialog (see below - Rerun.md). Only
+                     once the playbook has finished (successfully, failed,
+                     or interrupted) - a no-op while it's still running.
+                     Not available while the command output view is shown.
 
 * Mouse wheel      - pan contents up / down (stop autoscrolling if
                      necessary).
@@ -102,6 +106,42 @@ applied filter, the cursor moves to the nearest task that still is; n/p
 (main tree and command output view alike) and the play-row next/prev
 targets in the main tree view section above all skip over tasks the active
 filter is currently hiding.
+
+## Re-run dialog
+
+Opened with `r` from the main tree, only once the playbook has finished
+(see Rerun.md). A real form with three fields - Task, Tags, Hosts - rather
+than the filter dialog's plain menu or the search dialog's single text box.
+Mouse clicks are blocked entirely while it's open, same as the other two.
+
+* Tab / Backtab    - move to the next / previous field
+* (type freely)    - every key except Ctrl-C, Enter, and Esc is typed into
+                     whichever field has focus normally, including `q` and
+                     every other letter that's a shortcut elsewhere - same
+                     reasoning as the search dialog's own text box
+* Enter            - start the re-run and close the dialog, regardless of
+                     which field currently has focus (tview's own Enter
+                     behavior inside a form field just moves to the next
+                     field, not what's wanted here)
+* Esc              - cancel back out: no re-run started, nothing on screen
+                     changes
+* Ctrl-C           - cancel back out *and* quit/interrupt the playbook,
+                     same as Ctrl-C always does outside the dialog
+
+Task is empty by default and never pre-filled from the cursor's position in
+the tree - leaving it empty re-runs the whole playbook; typing a task name
+passes it as `--start-at-task`, so the re-run skips straight to it. Tags and
+Hosts pre-fill from whatever `--tags`/`--limit` this run itself was started
+with (once, the first time each field is opened while still empty) -
+editing them changes what the re-run uses. All three fields keep whatever
+was last typed into them across repeated `r` presses within the same
+session, the same way the search dialog's box remembers the last search
+term.
+
+Starting `tangsible` with the `rerun` verb instead of `run` (see the
+project README for the full command-line syntax) opens this same dialog
+immediately, before anything has run, pre-filled from `.tangsible`'s
+recorded history instead of the current session.
 
 ## When command output is shown
 
