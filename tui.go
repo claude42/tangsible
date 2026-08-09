@@ -430,7 +430,19 @@ func filterDialogText(active filterQuery) string {
 // section (see formatHostOutput) - a lookup miss (any task whose path
 // wasn't found while building the index) just means no TASK: section for
 // that entry, never an error.
-func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, initialTags, initialHosts string, requestRerun func(startAtTask, tags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
+//
+// startWithRerunDialog is true only for the "rerun" verb's own startup
+// (Rerun.md): no ansible-playbook invocation exists yet at all - not even
+// a first one in flight, unlike every other case this function handles -
+// so the re-run dialog opens immediately instead of waiting for 'r', and
+// processDone is expected to already be true when this is called (main.go
+// sets it before constructing the TUI): accurate ("no generation is
+// currently in flight"), and what safely unlocks the dialog-opening/
+// quit-outright behavior the rest of this function already has for a
+// frozen run - see everStarted below for the one place that distinction
+// actually matters once frozen means "genuinely nothing has run yet"
+// rather than "a run finished."
+func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, initialTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -446,8 +458,15 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	var currentRows []row
 	var currentID any
 	var rebuilding bool
-	following := true            // auto-follow the newest row until the user navigates away
-	var jumpingToEnd bool        // true only while our own 'F' handler drives SetCurrentItem
+	following := true // auto-follow the newest row until the user navigates away
+	var jumpingToEnd bool // true only while our own 'F' handler drives SetCurrentItem
+	everStarted := !startWithRerunDialog // false only for the "rerun"
+	// verb's startup dialog, until submitRerun's first-ever call flips it
+	// true - see rebuild()'s own use of it below: processDone starts true
+	// in that one case (see startWithRerunDialog's own doc comment above)
+	// even though nothing has actually run, which would otherwise make
+	// rebuild() render a "Playbook completed successfully" status row
+	// before anything ever happened.
 	var failureCursorPlaced bool // latches true the first time rebuild()
 	// observes the run frozen - guards the one-time "jump to the failed
 	// host" placement below so it fires exactly once on the
@@ -765,7 +784,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		activeTask := activeTaskNow()
 
 		currentRows = flattenRows(state, expanded, width, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
-		if frozen {
+		if frozen && everStarted {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
 				currentRows = append(currentRows,
 					row{text: "", id: statusDividerRowID{}},
@@ -1301,6 +1320,10 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		failureCursorPlaced = false
 		haveFrozenElapsed = false
 		frozenElapsed = 0
+		everStarted = true // only a real transition the very first time
+		// this fires for the "rerun" verb's startup dialog (see
+		// startWithRerunDialog) - a harmless no-op reassignment every time
+		// after that, since it's already true for every other case.
 		startedAt = time.Now()
 		rebuild() // clear the previous run's rows immediately, rather than
 		// leaving them on screen until the new generation's first event
@@ -1562,6 +1585,12 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		app.QueueUpdateDraw(func() {
 			state.Apply(ev)
 		})
+	}
+
+	if startWithRerunDialog {
+		openRerunDialog() // no 'r' keypress to wait for - this is the
+		// "rerun" verb's own startup (Rerun.md): nothing has run yet, so
+		// the dialog IS the first thing the user sees.
 	}
 
 	return app, applyLive

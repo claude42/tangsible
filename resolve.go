@@ -9,22 +9,32 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// playbookConfig is the shape of .tangsible and
-// $XDG_CONFIG_HOME/tangsible/config.toml. Originally deliberately minimal
-// (a single key), since the user's own spec for this format explicitly
-// expected it to grow later - History (see history.go) is that growth:
-// only .tangsible ever has it populated in practice (invocation history is
-// inherently per-project), but the type is shared with the global config
-// file too rather than forking it into two shapes, since an empty History
-// there is harmless.
 // tangsibleFilePath is the project-local config/history file's path -
 // shared between resolvePlaybook's read and main's history.go writes, so
 // there's exactly one literal for it.
 const tangsibleFilePath = ".tangsible"
 
+// playbookConfig is the shape of .tangsible and
+// $XDG_CONFIG_HOME/tangsible/config.toml. Originally deliberately minimal
+// (a single key), since the user's own spec for this format explicitly
+// expected it to grow later - History and LastPlaybook (see history.go)
+// are that growth: only .tangsible ever has either populated in practice
+// (invocation history is inherently per-project), but the type is shared
+// with the global config file too rather than forking it into two shapes,
+// since both are harmlessly empty there.
 type playbookConfig struct {
 	General struct {
 		DefaultPlaybook string `toml:"default_playbook"`
+		// LastPlaybook is the playbook path of the most recent invocation
+		// of *any* verb, updated by appendInvocation on every one - what
+		// "tangsible rerun" (no playbook given) resolves to (Rerun.md).
+		// Distinct from History's own per-playbook ordering: History
+		// preserves insertion order of *which playbooks have ever been
+		// seen*, not *when* each was last touched relative to the others,
+		// so it can't answer "which playbook was run most recently" on
+		// its own - this one field can, without restructuring History
+		// itself or adding per-invocation timestamps.
+		LastPlaybook string `toml:"last_playbook"`
 	} `toml:"general"`
 	History []playbookHistory `toml:"history"`
 }

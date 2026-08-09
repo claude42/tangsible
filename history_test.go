@@ -62,6 +62,13 @@ func TestAppendInvocationAndLastInvocation(t *testing.T) {
 	if _, ok := lastInvocation(cfg, "unknown.yml"); ok {
 		t.Error("lastInvocation(unknown.yml) ok = true, want false")
 	}
+	// other.yml was the most recent of the three appendInvocation calls
+	// above, regardless of it being a different playbook than the first
+	// two - LastPlaybook tracks invocation recency, not History's own
+	// per-playbook insertion order.
+	if got, ok := lastPlaybook(cfg); !ok || got != "other.yml" {
+		t.Errorf("lastPlaybook() = (%q, %v), want (\"other.yml\", true)", got, ok)
+	}
 }
 
 func TestAppendInvocationPreservesGeneralSection(t *testing.T) {

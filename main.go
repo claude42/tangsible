@@ -58,6 +58,19 @@ type procHandle struct {
 func (h *procHandle) Store(p *os.Process) { h.p.Store(p) }
 func (h *procHandle) Load() *os.Process   { return h.p.Load() }
 
+// pendingGeneration is the "run" verb's own first generation - already
+// spawned and past the pre-flight gate by the time the TUI exists, unlike
+// every rerun since (including, for the "rerun" verb, its very first one -
+// see requestRerun) which only ever starts once a re-run dialog is
+// confirmed. nil for the "rerun" verb: nothing has been spawned yet when
+// the TUI is constructed for it.
+type pendingGeneration struct {
+	cmd         *exec.Cmd
+	stdoutCh    <-chan streamItem
+	stderrLines <-chan []string
+	first       streamItem
+}
+
 // generationOutcome is one ansible-playbook invocation's result. main
 // accumulates one per generation - the first invocation, plus every rerun
 // since (Rerun.md) - so every generation's stderr/diagnostics still get
@@ -114,90 +127,147 @@ func main() {
 		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
 	}
-	if v == verbRerun {
-		// Rerun.md's full "rerun" flow (loading .tangsible history and
-		// showing the pre-filled re-run dialog before anything runs) isn't
-		// implemented yet - only "run" is wired up so far.
-		fmt.Fprintln(os.Stderr, "tangsible: the \"rerun\" verb isn't implemented yet")
-		os.Exit(2)
-	}
-
-	// The playbook is normally args[0] (i.e. os.Args[2], after the verb),
-	// but doesn't have to be - splitPlaybookArgs treats a missing or
-	// flag-shaped first argument as "none given positionally" and
-	// resolvePlaybook takes over (see resolve.go for the full
-	// TANGSIBLE_PLAYBOOK/.tangsible/$XDG_CONFIG_HOME/site.yml cascade).
-	playbook, rest, explicit := splitPlaybookArgs(args)
-	if !explicit {
-		var source string
-		playbook, source = resolvePlaybook()
-		if playbook == "" {
-			fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
-			fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
-			os.Exit(2)
-		}
-		fmt.Fprintf(os.Stderr, "tangsible: no playbook given - using %q (%s)\n", playbook, source)
-	}
-
-	// Recorded unconditionally, before ansible-playbook is even started -
-	// same "an invocation is an invocation" semantics as shell history,
-	// independent of whether the run itself goes on to succeed, fail, or
-	// never gets past ansible-playbook's own pre-flight checks. Non-fatal:
-	// losing the ability to pre-fill a future rerun dialog is never worth
-	// aborting the run the user actually asked for.
-	if err := appendInvocation(tangsibleFilePath, playbook, argsToHistoryString(rest)); err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
-	}
 
 	var procH procHandle
-	cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, &procH)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	var playbook string
+	// originalArgs is this session's baseline invocation, split into its
+	// Tags/Hosts (pre-fills the re-run dialog's fields the first time each
+	// is opened - Rerun.md's "if tags were already specified in the
+	// previous run... pre-filled") and Rest - everything else (inventory,
+	// extra-vars, verbosity, ...), which every rerun since carries forward
+	// unedited, since the dialog only ever exposes Task/Tags/Hosts. Set by
+	// whichever verb's branch below runs; read the same way by both.
+	var originalArgs parsedPassthroughArgs
+	// pending is non-nil only for "run" - see pendingGeneration's own doc
+	// comment.
+	var pending *pendingGeneration
 
-	// The gate: ansible-playbook writes zero bytes to stdout for a
-	// pre-flight failure (bad playbook path, a parse error, a missing
-	// inventory, ...) - those are reported entirely via stderr + a nonzero
-	// exit code, before any real event ever fires. v2_playbook_on_play_start
-	// fires unconditionally as the very first thing any real run does (even
-	// for a play with zero tasks - confirmed against ansible-core's
-	// TaskQueueManager.run()), so "did at least one line ever arrive on
-	// stdout" is a reliable, general signal that ansible-playbook is
-	// genuinely running - not a heuristic specific to this one failure mode.
-	// Peeking it here, before ever constructing the TUI, is what lets this
-	// branch skip showing it entirely rather than showing it empty and
-	// waiting for the user to quit before the error becomes visible.
-	first, ok := <-stdoutCh
-	if !ok {
-		// Nothing ever arrived: safe to call cmd.Wait() here because
-		// scanEvents's goroutine only closes its channel after its scan
-		// loop has already hit real EOF on stdout - exec.Cmd's "read the
-		// pipes fully before Wait()" contract is satisfied by construction.
-		childStderr := <-stderrLines
-		waitErr := cmd.Wait()
-		for _, l := range childStderr {
-			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+	switch v {
+	case verbRun:
+		// The playbook is normally args[0] (i.e. os.Args[2], after the
+		// verb), but doesn't have to be - splitPlaybookArgs treats a
+		// missing or flag-shaped first argument as "none given
+		// positionally" and resolvePlaybook takes over (see resolve.go for
+		// the full TANGSIBLE_PLAYBOOK/.tangsible/$XDG_CONFIG_HOME/site.yml
+		// cascade).
+		var rest []string
+		var explicit bool
+		playbook, rest, explicit = splitPlaybookArgs(args)
+		if !explicit {
+			var source string
+			playbook, source = resolvePlaybook()
+			if playbook == "" {
+				fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+				fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
+				os.Exit(2)
+			}
+			fmt.Fprintf(os.Stderr, "tangsible: no playbook given - using %q (%s)\n", playbook, source)
 		}
-		if waitErr != nil {
-			fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", waitErr)
+
+		// Recorded unconditionally, before ansible-playbook is even
+		// started - same "an invocation is an invocation" semantics as
+		// shell history, independent of whether the run itself goes on to
+		// succeed, fail, or never gets past ansible-playbook's own
+		// pre-flight checks. Non-fatal: losing the ability to pre-fill a
+		// future rerun dialog is never worth aborting the run the user
+		// actually asked for. Unlike "rerun" (see below), "run" always
+		// records immediately - there's no confirmation step to wait for,
+		// the invocation already happened by definition.
+		if err := appendInvocation(tangsibleFilePath, playbook, argsToHistoryString(rest)); err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
+		}
+		originalArgs = parsePassthroughArgs(rest)
+
+		cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, &procH)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		return
+
+		// The gate: ansible-playbook writes zero bytes to stdout for a
+		// pre-flight failure (bad playbook path, a parse error, a missing
+		// inventory, ...) - those are reported entirely via stderr + a
+		// nonzero exit code, before any real event ever fires.
+		// v2_playbook_on_play_start fires unconditionally as the very
+		// first thing any real run does (even for a play with zero tasks -
+		// confirmed against ansible-core's TaskQueueManager.run()), so
+		// "did at least one line ever arrive on stdout" is a reliable,
+		// general signal that ansible-playbook is genuinely running - not
+		// a heuristic specific to this one failure mode. Peeking it here,
+		// before ever constructing the TUI, is what lets this branch skip
+		// showing it entirely rather than showing it empty and waiting for
+		// the user to quit before the error becomes visible. "rerun" (see
+		// below) has no equivalent of this: its own TUI is already visible
+		// by the time anything is ever spawned, so a pre-flight failure
+		// has nowhere to hide from and nothing to skip.
+		first, ok := <-stdoutCh
+		if !ok {
+			// Nothing ever arrived: safe to call cmd.Wait() here because
+			// scanEvents's goroutine only closes its channel after its
+			// scan loop has already hit real EOF on stdout - exec.Cmd's
+			// "read the pipes fully before Wait()" contract is satisfied
+			// by construction.
+			childStderr := <-stderrLines
+			waitErr := cmd.Wait()
+			for _, l := range childStderr {
+				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+			}
+			if waitErr != nil {
+				fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", waitErr)
+				os.Exit(1)
+			}
+			return
+		}
+		pending = &pendingGeneration{cmd: cmd, stdoutCh: stdoutCh, stderrLines: stderrLines, first: first}
+
+	case verbRerun:
+		// No history/CLI-args resolution happens for "run" (its playbook
+		// argument is passed straight through, verbatim, same as always) -
+		// this is entirely new machinery, see rerunresolve.go. Read fresh
+		// rather than threaded through from anywhere else, since this is
+		// the only place in "rerun"'s own flow that needs it.
+		cfg := readTangsibleConfig(tangsibleFilePath)
+		res, resolved := resolveRerun(args, cfg)
+		if !resolved {
+			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, "no playbook given, and nothing has ever been run in this project to rerun")
+			os.Exit(2)
+		}
+		if _, _, explicit := splitPlaybookArgs(args); !explicit {
+			fmt.Fprintf(os.Stderr, "tangsible: no playbook given - re-running %q (last run in this project)\n", res.Playbook)
+		}
+		playbook = res.Playbook
+		originalArgs = parsedPassthroughArgs{Tags: res.Tags, Hosts: res.Hosts, Rest: res.Rest}
+		// pending stays nil: unlike "run", nothing is spawned yet - the
+		// re-run dialog opens immediately instead (NewLiveTUI's
+		// startWithRerunDialog below), and the very first generation only
+		// starts once the user confirms it, via the exact same
+		// requestRerun path every later re-run already goes through.
 	}
 
-	// Built synchronously, after the pre-flight gate above, so a bad
-	// playbook path/parse error doesn't pay for it - parsing a project's
-	// own YAML files is expected to be well under the noise floor of an
-	// interactive ansible run at this project's stated ~10-host target
-	// scale, so this isn't worth backgrounding. Unaffected by a rerun -
-	// still the same playbook (Rerun.md's interactive re-run never changes
-	// it), so there's no need to rebuild this per generation.
+	// Built synchronously - parsing a project's own YAML files is expected
+	// to be well under the noise floor of an interactive ansible run at
+	// this project's stated ~10-host target scale, so this isn't worth
+	// backgrounding. Unaffected by a rerun - still the same playbook
+	// (Rerun.md's interactive re-run never changes it), so there's no need
+	// to rebuild this per generation. For "run" this is deliberately after
+	// the pre-flight gate above, so a bad playbook path/parse error
+	// doesn't pay for it - "rerun" has no such gate to be after (see
+	// pending's own case above), so it's simply built before anything
+	// else instead.
 	sourceIndex := buildTaskSourceIndex(playbook)
 
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
+	if pending == nil {
+		// "rerun": no generation is in flight yet, or ever has been - true
+		// is what's accurate here, and what NewLiveTUI's
+		// startWithRerunDialog handling expects (see its own doc comment
+		// in tui.go for exactly what this does and doesn't unlock before
+		// anything has actually run).
+		processDone.Store(true)
+	}
 
 	var outcomesMu sync.Mutex
 	var outcomes []generationOutcome // one appended per generation - see
@@ -216,11 +286,11 @@ func main() {
 	}
 
 	// runGeneration drains one generation's stdout to completion - from
-	// whatever's already been peeked off it (peeked, gen-1's pre-flight
+	// whatever's already been peeked off it (peeked, "run"'s pre-flight
 	// gate only), through channel close - waits for its process, and
-	// records its outcome. Shared by the first invocation below and every
-	// rerun since (see requestRerun), so there's exactly one place that
-	// knows how a generation finishes.
+	// records its outcome. Shared by "run"'s own first invocation below
+	// and every rerun since, for both verbs (see requestRerun) - so
+	// there's exactly one place that knows how a generation finishes.
 	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, peeked ...streamItem) {
 		var diagnostics []string
 		for _, item := range peeked {
@@ -242,14 +312,6 @@ func main() {
 		outcomesMu.Unlock()
 		processDone.Store(true)
 	}
-
-	// originalArgs is this process's own invocation, split into its
-	// Tags/Hosts (used to pre-fill the re-run dialog's fields the first
-	// time it's opened - Rerun.md's "if tags were already specified in the
-	// previous run... pre-filled") and Rest - everything else (inventory,
-	// extra-vars, verbosity, ...), which every rerun since carries forward
-	// unedited, since the dialog only ever exposes Task/Tags/Hosts.
-	originalArgs := parsePassthroughArgs(rest)
 
 	// requestRerun is tui.go's hook for starting a new generation mid-
 	// session (Rerun.md) - passed into NewLiveTUI below, called once the
@@ -303,9 +365,11 @@ func main() {
 		}()
 	}
 
-	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, originalArgs.Tags, originalArgs.Hosts, requestRerun)
+	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, originalArgs.Tags, originalArgs.Hosts, pending == nil, requestRerun)
 
-	go runGeneration(cmd, stdoutCh, stderrLines, first)
+	if pending != nil {
+		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)
+	}
 
 	runErr := app.Run()
 	quitting.Store(true) // defensive: also stop the streamer if Run() ever

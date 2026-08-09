@@ -40,10 +40,13 @@ func writeTangsibleConfig(path string, cfg playbookConfig) error {
 // appendInvocation records one new invocation (argsString, as produced by
 // argsToHistoryString) under playbook's own [[history]] entry in path,
 // creating that entry if it doesn't exist yet, and capping it at
-// maxHistoryPerPlaybook (dropping the oldest once that's exceeded). Reads
-// the file fresh and writes the whole thing back - .tangsible isn't
-// expected to be edited concurrently by more than one tangsible process at
-// this project's target scale, so no locking is attempted.
+// maxHistoryPerPlaybook (dropping the oldest once that's exceeded). Also
+// updates General.LastPlaybook to playbook - every invocation of every
+// verb funnels through here, which is what makes this the single place
+// that keeps it current (see playbookConfig's own doc comment). Reads the
+// file fresh and writes the whole thing back - .tangsible isn't expected
+// to be edited concurrently by more than one tangsible process at this
+// project's target scale, so no locking is attempted.
 func appendInvocation(path, playbook, argsString string) error {
 	cfg := readTangsibleConfig(path)
 
@@ -61,8 +64,34 @@ func appendInvocation(path, playbook, argsString string) error {
 			Invocations: []string{argsString},
 		})
 	}
+	cfg.General.LastPlaybook = playbook
 
 	return writeTangsibleConfig(path, cfg)
+}
+
+// lastPlaybook returns cfg's General.LastPlaybook, and false if it's unset
+// (nothing has ever been invoked in this project since LastPlaybook was
+// introduced) - what "tangsible rerun" with no playbook given resolves to
+// (Rerun.md).
+//
+// Falls back to cfg.History's own single entry when LastPlaybook is unset
+// but there's exactly one playbook on record: a real gap this covers, not
+// a hypothetical - a .tangsible written entirely by a build that predates
+// LastPlaybook has [[history]] entries but no general.last_playbook at
+// all, and the common case there is a single-playbook project, where
+// "which playbook was last run" isn't actually ambiguous even without a
+// recorded answer - there's only one candidate. Two or more playbooks with
+// no LastPlaybook genuinely can't be disambiguated this way (History
+// preserves first-seen order, not recency - see playbookConfig's own doc
+// comment), so that case still falls through to "not ok."
+func lastPlaybook(cfg playbookConfig) (string, bool) {
+	if cfg.General.LastPlaybook != "" {
+		return cfg.General.LastPlaybook, true
+	}
+	if len(cfg.History) == 1 {
+		return cfg.History[0].Playbook, true
+	}
+	return "", false
 }
 
 // appendCapped appends next to existing, dropping from the front (oldest
