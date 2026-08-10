@@ -2211,7 +2211,7 @@ func primaryOutputField(decoded map[string]interface{}) (label, text string) {
 // "copy") - a task written with its fully-qualified name still reports the
 // FQCN in "action" (confirmed empirically: a task using
 // ansible.builtin.copy: reports action "ansible.builtin.copy", not
-// "copy"), so additionalOutputLine's module matching below needs this
+// "copy"), so additionalOutputLines' module matching below needs this
 // normalization to recognize both spellings of the same module.
 func moduleShortName(decoded map[string]interface{}) string {
 	action, _ := decoded["action"].(string)
@@ -2221,16 +2221,40 @@ func moduleShortName(decoded map[string]interface{}) string {
 	return action
 }
 
-// filenameField backs additionalOutputLine's copy/file/stat/template case:
-// design-docs/Drilldown, Task List.md's "Filename: <dest>" or
-// "Filename: <path>", "depending on which field exists in the results".
-// Checked top-level "dest" then "path" first (covers copy/template, which
-// always report "dest", and file, which reports "dest" or "path"
-// depending on the state: used - both confirmed empirically); stat is the
-// one exception among the four - confirmed empirically it reports neither
-// field at the top level, only nested under invocation.module_args (which
-// every module echoes back verbatim, unresolved further) - so that's
-// checked next, in the same dest-then-path order, before giving up.
+// joinedStringList formats a decoded JSON value that might be a single
+// string or a JSON array of strings (e.g. apt_repository's own
+// "sources_added", or a command task's "cmd") as one sep-joined string -
+// "" if v is neither shape, or an array with no string elements. Non-
+// string array elements are silently skipped rather than erroring, same
+// "don't trust live external jsonl blindly" caveat as this file's other
+// decoders.
+func joinedStringList(v interface{}, sep string) string {
+	switch vv := v.(type) {
+	case string:
+		return vv
+	case []interface{}:
+		parts := make([]string, 0, len(vv))
+		for _, e := range vv {
+			if s, ok := e.(string); ok && s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, sep)
+	}
+	return ""
+}
+
+// filenameField backs additionalOutputLines' copy/file/stat/template/
+// assemble/git case: design-docs/Drilldown, Task List.md's
+// "Filename: <dest>" or "Filename: <path>", "depending on which field
+// exists in the results". Checked top-level "dest" then "path" first
+// (covers copy/template/assemble, which always report "dest", and file,
+// which reports "dest" or "path" depending on the state: used - both
+// confirmed empirically); stat and git are the exceptions - confirmed
+// empirically neither reports "dest"/"path" at the top level, only nested
+// under invocation.module_args (which every module echoes back verbatim,
+// unresolved further) - so that's checked next, in the same
+// dest-then-path order, before giving up.
 func filenameField(decoded map[string]interface{}) string {
 	if v, ok := decoded["dest"].(string); ok && v != "" {
 		return v
@@ -2251,61 +2275,64 @@ func filenameField(decoded map[string]interface{}) string {
 	return ""
 }
 
-// commandField backs additionalOutputLine's command case: design-docs/
-// Drilldown, Task List.md's "Command: <cmd>". A command task's own "cmd"
-// field is a JSON array of the parsed argv tokens (confirmed empirically,
-// both for a plain _raw_params string and an explicit cmd: parameter) -
-// joined with spaces into one display string; handled as a plain string
-// too, just in case a future/different module shape reports it that way.
-func commandField(decoded map[string]interface{}) string {
-	switch v := decoded["cmd"].(type) {
-	case string:
-		return v
-	case []interface{}:
-		parts := make([]string, 0, len(v))
-		for _, e := range v {
-			if s, ok := e.(string); ok {
-				parts = append(parts, s)
-			}
-		}
-		return strings.Join(parts, " ")
-	}
-	return ""
-}
-
-// additionalOutputLine implements design-docs/Drilldown, Task List.md's
+// additionalOutputLines implements design-docs/Drilldown, Task List.md's
 // per-module special cases beyond debug (which already gets what it asks
 // for as a side effect of primaryOutputField's plain msg fallback - no
-// special-casing needed there): copy/file/stat/template get a
-// "Filename: <dest-or-path>" line, command gets a "Command: <cmd>" line.
-// "" for every other module - most tasks show no extra line at all, same
-// as before this existed. Shared by outputSummary (the host row's own
-// parenthetical) and formatHostOutput (the drill-down view's Output
-// section) so both agree on what this extra line says, the same sharing
-// relationship primaryOutputField already has with both.
-func additionalOutputLine(decoded map[string]interface{}) string {
+// special-casing needed there): copy/file/stat/template/assemble/git get
+// a "Filename: <dest-or-path>" line; command/shell get a "Command: <cmd>"
+// line (a command task's own "cmd" is a JSON array of parsed argv tokens,
+// a shell task's is a single raw string - confirmed empirically for both -
+// joinedStringList handles either shape); apt_repository gets a
+// "Filename: <sources_added>" line ("sources_added" is itself a list of
+// paths per ansible-core's own module docs, only ever populated when a
+// source was actually added); user gets both a "User: <name>" and, only
+// when present (generate_ssh_key: true), a "SSH public key: <...>" line.
+// nil for every other module, and for any of the above whose expected
+// field is missing/empty - most tasks show no extra line at all, same as
+// before this existed. Returns potentially more than one line (only ever
+// true for user) rather than one combined string, so callers can lay
+// multiple lines out differently: formatHostOutput's Output section wants
+// them one per line, outputSummary's parenthetical wants them
+// comma-joined into a single semicolon-separated part alongside the
+// primary output summary. Shared by both, the same sharing relationship
+// primaryOutputField already has with both.
+func additionalOutputLines(decoded map[string]interface{}) []string {
 	switch moduleShortName(decoded) {
-	case "copy", "file", "stat", "template":
+	case "copy", "file", "stat", "template", "assemble", "git":
 		if fn := filenameField(decoded); fn != "" {
-			return "Filename: " + fn
+			return []string{"Filename: " + fn}
 		}
-	case "command":
-		if cmd := commandField(decoded); cmd != "" {
-			return "Command: " + cmd
+	case "command", "shell":
+		if cmd := joinedStringList(decoded["cmd"], " "); cmd != "" {
+			return []string{"Command: " + cmd}
 		}
+	case "apt_repository":
+		if fn := joinedStringList(decoded["sources_added"], ", "); fn != "" {
+			return []string{"Filename: " + fn}
+		}
+	case "user":
+		var lines []string
+		if name, ok := decoded["name"].(string); ok && name != "" {
+			lines = append(lines, "User: "+name)
+		}
+		if key, ok := decoded["ssh_public_key"].(string); ok && key != "" {
+			lines = append(lines, "SSH public key: "+key)
+		}
+		return lines
 	}
-	return ""
+	return nil
 }
 
 // outputSummary returns the parenthesized detail hostLabel appends after
 // "OK"/"Changed"/"Failed" - the single line of output verbatim if
 // primaryOutputField's chosen text is exactly one line, or its line count
-// otherwise, plus additionalOutputLine's own extra line when one applies,
-// semicolon-joined when both are present. "" (nothing appended) if
-// neither yields anything, e.g. a module like template with nothing
-// changed and no filename fields set (shouldn't happen for a real
-// template result, but not trusted blindly - same caveat as
-// formatHostOutput's own decode below).
+// otherwise, plus additionalOutputLines' own extra line(s) - comma-joined
+// into one part - when any apply, semicolon-joined against the primary
+// summary when both are present. "" (nothing appended) if neither yields
+// anything, e.g. a module like template with nothing changed and no
+// filename fields set (shouldn't happen for a real template result, but
+// not trusted blindly - same caveat as formatHostOutput's own decode
+// below).
 func outputSummary(raw json.RawMessage) string {
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
@@ -2323,8 +2350,8 @@ func outputSummary(raw json.RawMessage) string {
 			parts = append(parts, fmt.Sprintf("%d lines of output", len(lines)))
 		}
 	}
-	if extra := additionalOutputLine(decoded); extra != "" {
-		parts = append(parts, extra)
+	if extra := additionalOutputLines(decoded); len(extra) > 0 {
+		parts = append(parts, strings.Join(extra, ", "))
 	}
 	if len(parts) == 0 {
 		return ""
@@ -2603,20 +2630,34 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) 
 		outputText = skipOutputText(decoded)
 	} else {
 		_, outputText = primaryOutputField(decoded)
-		// additionalOutputLine's own line (Filename:/Command:, see design-
-		// docs/Drilldown, Task List.md) is appended after whatever's
-		// already here, per its own "in addition to anything that might
-		// have gone to stdout already" wording - not shown for Skipped,
-		// which has its own, unrelated Output content above.
-		if extra := additionalOutputLine(decoded); extra != "" {
+		// additionalOutputLines' own line(s) (Filename:/Command:/User:/SSH
+		// public key:, see design-docs/Drilldown, Task List.md) are
+		// appended after whatever's already here, one per line, per its
+		// own "in addition to anything that might have gone to stdout
+		// already" wording - not shown for Skipped, which has its own,
+		// unrelated Output content above.
+		if extra := additionalOutputLines(decoded); len(extra) > 0 {
+			joined := strings.Join(extra, "\n")
 			if outputText != "" {
-				outputText += "\n" + extra
+				outputText += "\n" + joined
 			} else {
-				outputText = extra
+				outputText = joined
 			}
 		}
 	}
 	writeTextSection("aqua", "Output", outputText)
+
+	// Warnings: design-docs/Drilldown, Task List.md's general rule, not
+	// module-specific like everything else here - any result carrying a
+	// "warnings" field (a JSON array of strings, confirmed empirically -
+	// e.g. ansible's own discovered-interpreter notice) gets its contents
+	// shown here, one per line, regardless of outcome or module. Placed
+	// between Output and Error per that same doc, ahead of Items - which
+	// didn't exist yet when this rule was written and is module-specific
+	// besides.
+	if warnings := joinedStringList(decoded["warnings"], "\n"); warnings != "" {
+		writeTextSection("gold", "Warnings", warnings)
+	}
 
 	// Items: only present for a looped task (loop:/with_*) - see
 	// loopItemLabels. Rendered as a plain "* label" bullet list, one per
