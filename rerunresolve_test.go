@@ -16,14 +16,14 @@ func TestResolveRerun(t *testing.T) {
 	t.Run("no playbook given, resolves from LastPlaybook", func(t *testing.T) {
 		cfg := cfgWithHistory("site.yml", playbookHistory{
 			Playbook:    "site.yml",
-			Invocations: []string{"-l somehost --tags foo,bar"},
+			Invocations: []string{"-l somehost --tags foo,bar --skip-tags skip1,skip2"},
 		})
 		res, ok := resolveRerun(nil, cfg)
 		if !ok {
 			t.Fatal("resolveRerun() ok = false, want true")
 		}
-		if res.Playbook != "site.yml" || res.Tags != "foo,bar" || res.Hosts != "somehost" {
-			t.Errorf("resolveRerun() = %+v, want Playbook=site.yml Tags=foo,bar Hosts=somehost", res)
+		if res.Playbook != "site.yml" || res.Tags != "foo,bar" || res.SkipTags != "skip1,skip2" || res.Hosts != "somehost" {
+			t.Errorf("resolveRerun() = %+v, want Playbook=site.yml Tags=foo,bar SkipTags=skip1,skip2 Hosts=somehost", res)
 		}
 	})
 
@@ -56,14 +56,14 @@ func TestResolveRerun(t *testing.T) {
 		}
 	})
 
-	t.Run("CLI --tags/-l override history's own values", func(t *testing.T) {
+	t.Run("CLI --tags/--skip-tags/-l override history's own values", func(t *testing.T) {
 		cfg := cfgWithHistory("site.yml", playbookHistory{
 			Playbook:    "site.yml",
-			Invocations: []string{"-l fromhistory --tags fromhistory"},
+			Invocations: []string{"-l fromhistory --tags fromhistory --skip-tags fromhistory"},
 		})
-		res, ok := resolveRerun([]string{"-l", "clihost", "--tags", "clitag"}, cfg)
-		if !ok || res.Tags != "clitag" || res.Hosts != "clihost" {
-			t.Errorf("resolveRerun with CLI overrides = %+v, ok=%v, want Tags=clitag Hosts=clihost", res, ok)
+		res, ok := resolveRerun([]string{"-l", "clihost", "--tags", "clitag", "--skip-tags", "cliskip"}, cfg)
+		if !ok || res.Tags != "clitag" || res.SkipTags != "cliskip" || res.Hosts != "clihost" {
+			t.Errorf("resolveRerun with CLI overrides = %+v, ok=%v, want Tags=clitag SkipTags=cliskip Hosts=clihost", res, ok)
 		}
 	})
 

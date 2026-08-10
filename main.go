@@ -237,7 +237,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "tangsible: no playbook given - re-running %q (last run in this project)\n", res.Playbook)
 		}
 		playbook = res.Playbook
-		originalArgs = parsedPassthroughArgs{Tags: res.Tags, Hosts: res.Hosts, Rest: res.Rest}
+		originalArgs = parsedPassthroughArgs{Tags: res.Tags, SkipTags: res.SkipTags, Hosts: res.Hosts, Rest: res.Rest}
 		// pending stays nil: unlike "run", nothing is spawned yet - the
 		// re-run dialog opens immediately instead (NewLiveTUI's
 		// startWithRerunDialog below), and the very first generation only
@@ -327,7 +327,7 @@ func main() {
 	// as --start-at-task; tags/hosts replace the original invocation's own
 	// (originalArgs.Rest is always carried forward unedited alongside
 	// them).
-	requestRerun := func(startAtTask, tags, hosts string) {
+	requestRerun := func(startAtTask, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
 		// event-loop goroutine, from the re-run dialog's Enter handler) -
 		// by the time this returns, a QueueUpdateDraw-driven rebuild()
@@ -337,7 +337,7 @@ func main() {
 		exitCode.Store(0)
 		processDone.Store(false)
 
-		newArgs := parsedPassthroughArgs{Tags: tags, Hosts: hosts, Rest: originalArgs.Rest}.Reassemble()
+		newArgs := parsedPassthroughArgs{Tags: tags, SkipTags: skipTags, Hosts: hosts, Rest: originalArgs.Rest}.Reassemble()
 		if startAtTask != "" {
 			newArgs = append([]string{"--start-at-task", startAtTask}, newArgs...)
 		}
@@ -373,7 +373,7 @@ func main() {
 		}()
 	}
 
-	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.Hosts, pending == nil, requestRerun)
+	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)

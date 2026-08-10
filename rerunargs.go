@@ -3,29 +3,31 @@ package main
 import "strings"
 
 // parsedPassthroughArgs splits a tokenized ansible-playbook passthrough arg
-// list (the same shape splitPlaybookArgs already produces) into the two
-// values the re-run dialog needs to pre-fill - Tags and Hosts - plus
-// everything else, carried forward verbatim and in original order. Not a
-// general-purpose ansible-playbook CLI parser: only --tags/-t and
-// --limit/-l are recognized, in "--flag value" and "--flag=value" form;
-// an attached short form like "-tfoo" (no separator) isn't, and falls
-// through to Rest untouched. Good enough for this project's own
-// invocation patterns, not chased further - same "documented heuristic"
-// style as taskLabel's truncation or primaryOutputField's stdout-vs-msg
-// choice.
+// list (the same shape splitPlaybookArgs already produces) into the
+// values the re-run dialog needs to pre-fill - Tags, SkipTags, and Hosts -
+// plus everything else, carried forward verbatim and in original order.
+// Not a general-purpose ansible-playbook CLI parser: only --tags/-t,
+// --skip-tags, and --limit/-l are recognized, in "--flag value" and
+// "--flag=value" form; an attached short form like "-tfoo" (no separator)
+// isn't, and falls through to Rest untouched. Good enough for this
+// project's own invocation patterns, not chased further - same
+// "documented heuristic" style as taskLabel's truncation or
+// primaryOutputField's stdout-vs-msg choice.
 type parsedPassthroughArgs struct {
-	Tags  string
-	Hosts string
-	Rest  []string
+	Tags     string
+	SkipTags string
+	Hosts    string
+	Rest     []string
 }
 
 // parsePassthroughArgs parses args into a parsedPassthroughArgs. Multiple
-// --tags/-t (or --limit/-l) occurrences are all collected and comma-joined
-// into one Tags (or Hosts) value - this doesn't attempt to replicate
-// ansible-playbook's own per-flag merge-vs-override semantics, just gives
-// a single value to show and edit in one dialog field.
+// --tags/-t (or --skip-tags, or --limit/-l) occurrences are all collected
+// and comma-joined into one Tags (or SkipTags, or Hosts) value - this
+// doesn't attempt to replicate ansible-playbook's own per-flag
+// merge-vs-override semantics, just gives a single value to show and edit
+// in one dialog field.
 func parsePassthroughArgs(args []string) parsedPassthroughArgs {
-	var tags, hosts []string
+	var tags, skipTags, hosts []string
 	var rest []string
 
 	take := func(flag string, i int) (value string, consumed int, ok bool) {
@@ -49,6 +51,7 @@ func parsePassthroughArgs(args []string) parsedPassthroughArgs {
 			dst  *[]string
 		}{
 			{"--tags", &tags}, {"-t", &tags},
+			{"--skip-tags", &skipTags},
 			{"--limit", &hosts}, {"-l", &hosts},
 		} {
 			if v, n, ok := take(m.flag, i); ok {
@@ -67,22 +70,26 @@ func parsePassthroughArgs(args []string) parsedPassthroughArgs {
 	}
 
 	return parsedPassthroughArgs{
-		Tags:  strings.Join(tags, ","),
-		Hosts: strings.Join(hosts, ","),
-		Rest:  rest,
+		Tags:     strings.Join(tags, ","),
+		SkipTags: strings.Join(skipTags, ","),
+		Hosts:    strings.Join(hosts, ","),
+		Rest:     rest,
 	}
 }
 
 // Reassemble rebuilds a full passthrough arg list from p - the inverse of
 // parsePassthroughArgs, used once the re-run dialog's (possibly edited)
-// Tags/Hosts need combining back with Rest. Always emits the long-form
-// "--tags"/"--limit" flags regardless of which form the original
-// invocation used - round-tripping the exact original spelling isn't worth
-// tracking separately.
+// Tags/SkipTags/Hosts need combining back with Rest. Always emits the
+// long-form "--tags"/"--skip-tags"/"--limit" flags regardless of which
+// form the original invocation used - round-tripping the exact original
+// spelling isn't worth tracking separately.
 func (p parsedPassthroughArgs) Reassemble() []string {
 	var out []string
 	if p.Tags != "" {
 		out = append(out, "--tags", p.Tags)
+	}
+	if p.SkipTags != "" {
+		out = append(out, "--skip-tags", p.SkipTags)
 	}
 	if p.Hosts != "" {
 		out = append(out, "--limit", p.Hosts)

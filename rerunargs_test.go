@@ -7,11 +7,12 @@ import (
 
 func TestParsePassthroughArgs(t *testing.T) {
 	cases := []struct {
-		name      string
-		args      []string
-		wantTags  string
-		wantHosts string
-		wantRest  []string
+		name         string
+		args         []string
+		wantTags     string
+		wantSkipTags string
+		wantHosts    string
+		wantRest     []string
 	}{
 		{
 			name:     "no tags or hosts",
@@ -34,6 +35,16 @@ func TestParsePassthroughArgs(t *testing.T) {
 			wantTags: "foo",
 		},
 		{
+			name:         "--skip-tags space form",
+			args:         []string{"--skip-tags", "foo,bar"},
+			wantSkipTags: "foo,bar",
+		},
+		{
+			name:         "--skip-tags equals form",
+			args:         []string{"--skip-tags=foo,bar"},
+			wantSkipTags: "foo,bar",
+		},
+		{
 			name:      "--limit space form",
 			args:      []string{"--limit", "somehost"},
 			wantHosts: "somehost",
@@ -44,16 +55,22 @@ func TestParsePassthroughArgs(t *testing.T) {
 			wantHosts: "host1,host2",
 		},
 		{
-			name:      "combined and interspersed with rest",
-			args:      []string{"-i", "inv.ini", "--tags", "foo,bar", "-e", "x=1", "-l", "host1,host2"},
-			wantTags:  "foo,bar",
-			wantHosts: "host1,host2",
-			wantRest:  []string{"-i", "inv.ini", "-e", "x=1"},
+			name:         "combined and interspersed with rest",
+			args:         []string{"-i", "inv.ini", "--tags", "foo,bar", "-e", "x=1", "--skip-tags", "baz", "-l", "host1,host2"},
+			wantTags:     "foo,bar",
+			wantSkipTags: "baz",
+			wantHosts:    "host1,host2",
+			wantRest:     []string{"-i", "inv.ini", "-e", "x=1"},
 		},
 		{
 			name:     "repeated --tags occurrences are comma-joined",
 			args:     []string{"--tags", "foo", "--tags", "bar"},
 			wantTags: "foo,bar",
+		},
+		{
+			name:         "repeated --skip-tags occurrences are comma-joined",
+			args:         []string{"--skip-tags", "foo", "--skip-tags", "bar"},
+			wantSkipTags: "foo,bar",
 		},
 		{
 			name:     "dangling flag with no value falls through to Rest",
@@ -68,9 +85,9 @@ func TestParsePassthroughArgs(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := parsePassthroughArgs(c.args)
-			if got.Tags != c.wantTags || got.Hosts != c.wantHosts || !slices.Equal(got.Rest, c.wantRest) {
-				t.Errorf("parsePassthroughArgs(%v) = %+v, want Tags=%q Hosts=%q Rest=%v",
-					c.args, got, c.wantTags, c.wantHosts, c.wantRest)
+			if got.Tags != c.wantTags || got.SkipTags != c.wantSkipTags || got.Hosts != c.wantHosts || !slices.Equal(got.Rest, c.wantRest) {
+				t.Errorf("parsePassthroughArgs(%v) = %+v, want Tags=%q SkipTags=%q Hosts=%q Rest=%v",
+					c.args, got, c.wantTags, c.wantSkipTags, c.wantHosts, c.wantRest)
 			}
 		})
 	}
@@ -83,9 +100,9 @@ func TestParsedPassthroughArgsReassemble(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "tags, hosts and rest all present",
-			p:    parsedPassthroughArgs{Tags: "foo,bar", Hosts: "h1,h2", Rest: []string{"-i", "inv.ini"}},
-			want: []string{"--tags", "foo,bar", "--limit", "h1,h2", "-i", "inv.ini"},
+			name: "tags, skip tags, hosts and rest all present",
+			p:    parsedPassthroughArgs{Tags: "foo,bar", SkipTags: "baz", Hosts: "h1,h2", Rest: []string{"-i", "inv.ini"}},
+			want: []string{"--tags", "foo,bar", "--skip-tags", "baz", "--limit", "h1,h2", "-i", "inv.ini"},
 		},
 		{
 			name: "only rest",
@@ -108,7 +125,7 @@ func TestParsedPassthroughArgsReassemble(t *testing.T) {
 }
 
 func TestParsePassthroughArgsReassembleRoundTrip(t *testing.T) {
-	args := []string{"--tags", "foo,bar", "--limit", "host1,host2", "-i", "inv.ini", "-e", "x=1"}
+	args := []string{"--tags", "foo,bar", "--skip-tags", "baz", "--limit", "host1,host2", "-i", "inv.ini", "-e", "x=1"}
 	got := parsePassthroughArgs(args).Reassemble()
 	if !slices.Equal(got, args) {
 		t.Errorf("round trip = %v, want %v", got, args)

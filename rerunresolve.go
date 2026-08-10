@@ -2,12 +2,14 @@ package main
 
 // rerunResolution is what the "rerun" verb (Rerun.md) needs before it can
 // construct anything: which playbook to run, and what to pre-fill the
-// startup re-run dialog's Tags/Hosts fields with, plus the passthrough
-// args every generation carries forward unedited (the dialog's Task/Tags/
-// Hosts fields are the only ones it ever exposes for editing).
+// startup re-run dialog's Tags/Skip tags/Hosts fields with, plus the
+// passthrough args every generation carries forward unedited (the
+// dialog's Task/Tags/Skip tags/Hosts fields are the only ones it ever
+// exposes for editing).
 type rerunResolution struct {
 	Playbook string
 	Tags     string
+	SkipTags string
 	Hosts    string
 	Rest     []string
 }
@@ -27,9 +29,10 @@ type rerunResolution struct {
 // history rather than the command line.
 //
 // Precedence, per Rerun.md: an explicit playbook on the command line
-// always wins over cfg's LastPlaybook; --tags/-l given on the command line
-// always win over history's own remembered Tags/Hosts for that playbook;
-// any OTHER passthrough arg given on the command line (e.g. a custom -i)
+// always wins over cfg's LastPlaybook; --tags/--skip-tags/-l given on the
+// command line always win over history's own remembered Tags/SkipTags/
+// Hosts for that playbook; any OTHER passthrough arg given on the command
+// line (e.g. a custom -i)
 // replaces history's own remembered Rest outright, rather than merging
 // with it - "whatever you actually typed wins for its own category,
 // whatever you didn't type falls back to history." A playbook with no
@@ -58,6 +61,11 @@ func resolveRerun(args []string, cfg playbookConfig) (res rerunResolution, ok bo
 	res.Tags = histParsed.Tags
 	if cliParsed.Tags != "" {
 		res.Tags = cliParsed.Tags
+	}
+
+	res.SkipTags = histParsed.SkipTags
+	if cliParsed.SkipTags != "" {
+		res.SkipTags = cliParsed.SkipTags
 	}
 
 	res.Hosts = histParsed.Hosts

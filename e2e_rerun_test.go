@@ -207,14 +207,14 @@ func TestE2E_RerunDialog_TabCyclingLandsInCorrectField(t *testing.T) {
 	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
 
 	s.send("first")
-	s.waitForFieldValue("Task:", "first", 3*time.Second)
+	s.waitForFieldValue("Start with task:", "first", 3*time.Second)
 	s.send("Tab")
 	s.send("second")
-	got := s.waitForFieldValue("Tags:", "second", 3*time.Second)
+	got := s.waitForFieldValue("Limit tags to:", "second", 3*time.Second)
 
-	taskLine := lineContaining(got, "Task:")
-	tagsLine := lineContaining(got, "Tags:")
-	hostsLine := lineContaining(got, "Hosts:")
+	taskLine := lineContaining(got, "Start with task:")
+	tagsLine := lineContaining(got, "Limit tags to:")
+	hostsLine := lineContaining(got, "Limit hosts to:")
 
 	if !strings.Contains(taskLine, "first") {
 		t.Errorf("Task field = %q, want it to contain \"first\"", taskLine)
@@ -246,7 +246,7 @@ func TestE2E_RerunDialog_StartAtTaskSkipsEarlierTasks(t *testing.T) {
 	s.send("r")
 	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
 	s.send("changed task")
-	s.waitForFieldValue("Task:", "changed task", 3*time.Second)
+	s.waitForFieldValue("Start with task:", "changed task", 3*time.Second)
 	s.send("Enter")
 
 	// "Playbook completed successfully" is already on screen from the
@@ -295,7 +295,7 @@ func TestE2E_CLIRerun_ShowsDialogBeforeRunning(t *testing.T) {
 	if strings.Contains(got, "Playbook completed successfully") {
 		t.Errorf("status row rendered before any generation ever ran - everStarted gating regression:\n%s", got)
 	}
-	if hostsLine := lineContaining(got, "Hosts:"); !strings.Contains(hostsLine, "localhost") {
+	if hostsLine := lineContaining(got, "Limit hosts to:"); !strings.Contains(hostsLine, "localhost") {
 		t.Errorf("Hosts field = %q, want it pre-filled with \"localhost\" from .tangsible history", hostsLine)
 	}
 

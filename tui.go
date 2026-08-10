@@ -408,19 +408,19 @@ func filterDialogText(active filterQuery) string {
 // shared with the caller: this function only reads processDone and only
 // writes quitting.
 //
-// initialTags/initialHosts pre-fill the re-run dialog's own Tags/Hosts
-// fields the first time it's opened (and every time after, until the user
-// edits them - the dialog's own fields, once opened, keep whatever the
-// user last left in them across repeated 'r' presses) - the --tags/--limit
-// values this process was itself invoked with, parsed out by main.go via
-// parsePassthroughArgs (Rerun.md's "if tags were already specified in the
-// previous run... pre-filled").
+// initialTags/initialSkipTags/initialHosts pre-fill the re-run dialog's own
+// Tags/Skip tags/Hosts fields the first time it's opened (and every time
+// after, until the user edits them - the dialog's own fields, once opened,
+// keep whatever the user last left in them across repeated 'r' presses) -
+// the --tags/--skip-tags/--limit values this process was itself invoked
+// with, parsed out by main.go via parsePassthroughArgs (Rerun.md's "if
+// tags were already specified in the previous run... pre-filled").
 //
 // requestRerun is called once the re-run dialog is confirmed (Enter), to
 // start a new generation with the dialog's own fields: startAtTask (empty
 // for a whole-playbook re-run, otherwise the task name to pass as
 // --start-at-task - see openRerunDialog below for how it's pre-filled) and
-// the edited tags/hosts. main.go's implementation resets
+// the edited tags/skipTags/hosts. main.go's implementation resets
 // processDone/exitCode/state, records the new invocation into .tangsible's
 // history, and spawns a fresh ansible-playbook invocation; this function's
 // own job is only to reset its own view state (expanded/currentID/
@@ -451,7 +451,7 @@ func filterDialogText(active filterQuery) string {
 // frozen run - see everStarted below for the one place that distinction
 // actually matters once frozen means "genuinely nothing has run yet"
 // rather than "a run finished."
-func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -669,13 +669,15 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// falls back to the plainer design agreed as the explicit fallback:
 	// one freeform Task field, never pre-filled from the cursor, empty
 	// means "whole playbook" - exactly like Tags/Hosts, no special-casing.
-	taskField := tview.NewInputField().SetLabel("Task: ")
-	tagsField := tview.NewInputField().SetLabel("Tags: ")
-	hostsField := tview.NewInputField().SetLabel("Hosts: ")
+	taskField := tview.NewInputField().SetLabel("Start with task: ")
+	tagsField := tview.NewInputField().SetLabel("Limit tags to: ")
+	skipTagsField := tview.NewInputField().SetLabel("Skip tags: ")
+	hostsField := tview.NewInputField().SetLabel("Limit hosts to: ")
 
 	rerunForm := tview.NewForm().
 		AddFormItem(taskField).
 		AddFormItem(tagsField).
+		AddFormItem(skipTagsField).
 		AddFormItem(hostsField)
 	rerunForm.SetBorder(true).SetTitle(" Re-run (enter: run, esc: cancel) ")
 
@@ -1128,6 +1130,9 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		if tagsField.GetText() == "" {
 			tagsField.SetText(initialTags)
 		}
+		if skipTagsField.GetText() == "" {
+			skipTagsField.SetText(initialSkipTags)
+		}
 		if hostsField.GetText() == "" {
 			hostsField.SetText(initialHosts)
 		}
@@ -1331,10 +1336,11 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		startAtTask := strings.TrimSpace(taskField.GetText()) // empty means
 		// "whole playbook" - see rerunForm's own doc comment.
 		tags := strings.TrimSpace(tagsField.GetText())
+		skipTags := strings.TrimSpace(skipTagsField.GetText())
 		hosts := strings.TrimSpace(hostsField.GetText())
 		closeDialogs()
 
-		requestRerun(startAtTask, tags, hosts) // resets
+		requestRerun(startAtTask, tags, skipTags, hosts) // resets
 		// processDone/exitCode/state synchronously (see main.go) - by the
 		// time this returns, rebuild() below already sees a running, empty
 		// generation.
