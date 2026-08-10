@@ -35,8 +35,26 @@ type playbookConfig struct {
 		// its own - this one field can, without restructuring History
 		// itself or adding per-invocation timestamps.
 		LastPlaybook string `toml:"last_playbook"`
+		// DefaultTreeState governs whether a freshly-started run's very
+		// first task row starts expanded or collapsed - "expanded" or
+		// "collapsed" (case-insensitive, see defaultTreeExpanded), only
+		// ever read from .tangsible specifically (project-local), not the
+		// global config.toml - unlike DefaultPlaybook/LastPlaybook, this
+		// isn't part of any resolution cascade.
+		DefaultTreeState string `toml:"default_tree_state"`
 	} `toml:"general"`
 	History []playbookHistory `toml:"history"`
+}
+
+// defaultTreeExpanded reports whether cfg.General.DefaultTreeState says a
+// freshly-started run's first task should start expanded - true only for
+// "expanded" (case-insensitive); everything else, including an unset or
+// unrecognized value, means collapsed - the documented default, applied
+// silently rather than warning on a typo, consistent with this project's
+// general "swallow and fall back" convention for config values elsewhere
+// (readDefaultPlaybook, decodeHostResult).
+func defaultTreeExpanded(cfg playbookConfig) bool {
+	return strings.EqualFold(cfg.General.DefaultTreeState, "expanded")
 }
 
 // verb identifies which top-level command Tangsible was invoked with -

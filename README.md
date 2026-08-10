@@ -185,6 +185,22 @@ Since it can end up recording real environment details (hostnames, tags,
 `.gitignore` once it's grown past a bare `default_playbook` — the same way
 you wouldn't commit shell history.
 
+`.tangsible` (project-local only — not `config.toml`) also accepts
+`default_tree_state`, either `"expanded"` or `"collapsed"` (case-
+insensitive; defaults to `"collapsed"` if unset or unrecognized), which
+sets whether the very first task row of a run starts expanded or
+collapsed:
+
+```toml
+[general]
+default_tree_state = "expanded"
+```
+
+Every task added after the first inherits whatever expand/collapse state
+the task added right before it currently has — so pressing `E` mid-run
+doesn't just expand everything already on screen, it also makes every
+task added from then on start expanded too.
+
 ## Current limitations
 
 This is a v1, aimed at the common interactive case rather than full

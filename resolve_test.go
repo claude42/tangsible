@@ -216,3 +216,26 @@ func mustWriteFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestDefaultTreeExpanded(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"unset - defaults to collapsed", "", false},
+		{"expanded", "expanded", true},
+		{"mixed case still matches", "ExPaNdEd", true},
+		{"collapsed", "collapsed", false},
+		{"unrecognized value falls back to collapsed", "sideways", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var cfg playbookConfig
+			cfg.General.DefaultTreeState = c.value
+			if got := defaultTreeExpanded(cfg); got != c.want {
+				t.Errorf("defaultTreeExpanded(%q) = %v, want %v", c.value, got, c.want)
+			}
+		})
+	}
+}

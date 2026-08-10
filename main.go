@@ -257,6 +257,14 @@ func main() {
 	// else instead.
 	sourceIndex := buildTaskSourceIndex(playbook)
 
+	// Read fresh here rather than threading through the "rerun" branch's
+	// own cfg local (which is scoped to that switch case) - a second read
+	// of a small, local TOML file is cheap and consistent with how
+	// resolvePlaybook/readDefaultPlaybook already re-read it independently
+	// elsewhere, rather than passing one shared value through the whole
+	// program.
+	startExpanded := defaultTreeExpanded(readTangsibleConfig(tangsibleFilePath))
+
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
@@ -365,7 +373,7 @@ func main() {
 		}()
 	}
 
-	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, originalArgs.Tags, originalArgs.Hosts, pending == nil, requestRerun)
+	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.Hosts, pending == nil, requestRerun)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)

@@ -432,6 +432,14 @@ func filterDialogText(active filterQuery) string {
 // wasn't found while building the index) just means no TASK: section for
 // that entry, never an error.
 //
+// startExpanded governs the very first task row's own initial
+// expand/collapse state (`.tangsible`'s general.default_tree_state - see
+// defaultTreeExpanded, resolve.go), read once by main.go before
+// construction. Every task after the first inherits whatever the
+// previous task's current expand state is at the moment it's added - see
+// state.OnTaskAdded below - so this value only ever actually governs one
+// row per generation (the very first task added since the last Reset()).
+//
 // startWithRerunDialog is true only for the "rerun" verb's own startup
 // (Rerun.md): no ansible-playbook invocation exists yet at all - not even
 // a first one in flight, unlike every other case this function handles -
@@ -443,7 +451,7 @@ func filterDialogText(active filterQuery) string {
 // frozen run - see everStarted below for the one place that distinction
 // actually matters once frozen means "genuinely nothing has run yet"
 // rather than "a run finished."
-func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, initialTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -1234,7 +1242,15 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	})
 
 	state.OnPlayAdded = func(*playNode) { rebuild() }
-	state.OnTaskAdded = func(*playNode, *taskNode) { rebuild() }
+	// See inheritedExpandState's own doc comment for the decision itself -
+	// this is what makes 'E' (expandAll) "sticky" for a still-running
+	// playbook: every task added afterward inherits true from whichever
+	// task was added most recently, not just the ones already on screen
+	// when 'E' was pressed.
+	state.OnTaskAdded = func(_ *playNode, task *taskNode) {
+		expanded[task] = inheritedExpandState(allTasks(state), expanded, startExpanded)
+		rebuild()
+	}
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
 	bottomBar := tview.NewTextView().SetText(" ↑/↓/j/k navigate  ←/→: expand/collapse  n/p: prev/next task  home/end/G: top/bottom  F: resume follow  E/C: expand/collapse all  enter/space: toggle  /: filter  r: re-run  q: quit ")
@@ -2034,6 +2050,25 @@ func allTasks(state *playbookState) []*taskNode {
 		tasks = append(tasks, play.Tasks...)
 	}
 	return tasks
+}
+
+// inheritedExpandState is state.OnTaskAdded's own decision, pulled out as
+// a pure function so it's testable without constructing a whole
+// NewLiveTUI: a newly-added task inherits whatever expand state the task
+// added immediately before it currently has in expanded (present tense -
+// including any manual toggle since that task was added, not its state
+// "as of" when it was added), or startExpanded (from .tangsible's
+// general.default_tree_state) if task is the very first task of this
+// generation (fewer than 2 tasks exist yet in all). all is the full,
+// current allTasks(state) result, with task itself already the last
+// element (state.OnTaskAdded fires after task has already been appended
+// to its play, and that play to state.Plays) - the second-to-last is "the
+// task added right before it."
+func inheritedExpandState(all []*taskNode, expanded map[*taskNode]bool, startExpanded bool) bool {
+	if len(all) < 2 {
+		return startExpanded
+	}
+	return expanded[all[len(all)-2]]
 }
 
 // tasksForHost returns, in run order (play order, then task order within

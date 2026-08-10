@@ -28,7 +28,12 @@
 * E / C            - expand / collapse all tree elements. If collapsing
                      removes the row the cursor was on (a host row whose
                      task just collapsed), the cursor moves to that task's
-                     own row
+                     own row. While the playbook is still running, this is
+                     "sticky" - a task added afterward starts in whichever
+                     state (expanded/collapsed) the task added right
+                     before it currently has, so pressing E mid-run also
+                     makes every later task start expanded, not just the
+                     ones already visible at the time
 * q / Ctrl-C       - quit
 * F                - move cursor to end of list and resume autoscrolling -
                      the only shortcut that resumes it
