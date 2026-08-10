@@ -121,15 +121,101 @@ func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *ex
 	return cmd, stdoutCh, lines, nil
 }
 
+// startFirstGeneration spawns playbook+rest as this session's first
+// generation and runs the same pre-flight gate "run" has always had - a
+// bad playbook path, a parse error, a missing inventory, or (for
+// "tangsible role") a role ansible itself can't resolve either all fail
+// before any real event ever fires, writing zero bytes to stdout. showTUI
+// is false when nothing ever arrived and the run turned out to need no
+// TUI at all (a clean pre-flight failure already reported to stderr, or a
+// genuinely empty-but-successful run, e.g. --list-tasks) - the caller
+// should just return immediately in that case, exactly as "run" always
+// has. cleanup, if non-nil, is called before every os.Exit path this
+// function can take, and is expected to also be wired by the caller (via
+// defer) to run on its own eventual return - "run" passes nil (nothing to
+// clean up), "role" passes a func that removes its own stub playbook.
+func startFirstGeneration(playbook string, rest []string, procH *procHandle, cleanup func()) (pending *pendingGeneration, showTUI bool) {
+	if cleanup == nil {
+		cleanup = func() {}
+	}
+
+	cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, procH)
+	if err != nil {
+		cleanup()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	// v2_playbook_on_play_start fires unconditionally as the very first
+	// thing any real run does (even for a play with zero tasks - confirmed
+	// against ansible-core's TaskQueueManager.run()), so "did at least one
+	// line ever arrive on stdout" is a reliable, general signal that
+	// ansible-playbook is genuinely running - not a heuristic specific to
+	// one failure mode. Peeking it here, before ever constructing the TUI,
+	// is what lets the caller skip showing it entirely rather than showing
+	// it empty and waiting for the user to quit before the error becomes
+	// visible. "rerun" has no equivalent of this: its own TUI is already
+	// visible by the time anything is ever spawned, so a pre-flight
+	// failure has nowhere to hide from and nothing to skip.
+	first, ok := <-stdoutCh
+	if !ok {
+		// Nothing ever arrived: safe to call cmd.Wait() here because
+		// scanEvents's goroutine only closes its channel after its scan
+		// loop has already hit real EOF on stdout - exec.Cmd's "read the
+		// pipes fully before Wait()" contract is satisfied by
+		// construction.
+		cleanup()
+		childStderr := <-stderrLines
+		waitErr := cmd.Wait()
+		for _, l := range childStderr {
+			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+		}
+		if waitErr != nil {
+			fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", waitErr)
+			os.Exit(1)
+		}
+		return nil, false
+	}
+	return &pendingGeneration{cmd: cmd, stdoutCh: stdoutCh, stderrLines: stderrLines, first: first}, true
+}
+
 func main() {
 	v, args, ok := parseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
 	}
 
 	var procH procHandle
 	var playbook string
+	// roleDisplayName is set only for a role-based session ("tangsible
+	// role", or "tangsible rerun" resolving to one - design-docs/Tangsible
+	// role.md): the role's own name, used in place of playbook's (here,
+	// the generated stub's own meaningless filename) for the TUI's top bar
+	// and for recording history under role rather than playbook. Captured
+	// once, up front, and never changes for the rest of the process's
+	// lifetime - a session's role-ness never changes mid-session (a
+	// re-run reuses the same stub, see cleanup below, rather than ever
+	// regenerating one for a different role).
+	var roleDisplayName string
+	// cleanup, if non-nil, removes this session's generated role stub -
+	// nil for a plain playbook session, nothing to clean up. Deferred
+	// unconditionally below so every normal return path (including main's
+	// own implicit end) runs it; os.Exit skips deferred functions, so
+	// every os.Exit call below the point cleanup might be set instead
+	// goes through exitCleanly, which calls it explicitly first.
+	var cleanup func()
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+	exitCleanly := func(code int) {
+		if cleanup != nil {
+			cleanup()
+		}
+		os.Exit(code)
+	}
 	// originalArgs is this session's baseline invocation, split into its
 	// Tags/Hosts (pre-fills the re-run dialog's fields the first time each
 	// is opened - Rerun.md's "if tags were already specified in the
@@ -138,8 +224,8 @@ func main() {
 	// unedited, since the dialog only ever exposes Task/Tags/Hosts. Set by
 	// whichever verb's branch below runs; read the same way by both.
 	var originalArgs parsedPassthroughArgs
-	// pending is non-nil only for "run" - see pendingGeneration's own doc
-	// comment.
+	// pending is non-nil only for "run" and "role" - see pendingGeneration's
+	// own doc comment.
 	var pending *pendingGeneration
 
 	switch v {
@@ -173,52 +259,49 @@ func main() {
 		// actually asked for. Unlike "rerun" (see below), "run" always
 		// records immediately - there's no confirmation step to wait for,
 		// the invocation already happened by definition.
-		if err := appendInvocation(tangsibleFilePath, playbook, argsToHistoryString(rest)); err != nil {
+		if err := appendInvocation(tangsibleFilePath, playbook, "", argsToHistoryString(rest)); err != nil {
 			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
 		}
 		originalArgs = parsePassthroughArgs(rest)
 
-		cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, &procH)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		// The gate: ansible-playbook writes zero bytes to stdout for a
-		// pre-flight failure (bad playbook path, a parse error, a missing
-		// inventory, ...) - those are reported entirely via stderr + a
-		// nonzero exit code, before any real event ever fires.
-		// v2_playbook_on_play_start fires unconditionally as the very
-		// first thing any real run does (even for a play with zero tasks -
-		// confirmed against ansible-core's TaskQueueManager.run()), so
-		// "did at least one line ever arrive on stdout" is a reliable,
-		// general signal that ansible-playbook is genuinely running - not
-		// a heuristic specific to this one failure mode. Peeking it here,
-		// before ever constructing the TUI, is what lets this branch skip
-		// showing it entirely rather than showing it empty and waiting for
-		// the user to quit before the error becomes visible. "rerun" (see
-		// below) has no equivalent of this: its own TUI is already visible
-		// by the time anything is ever spawned, so a pre-flight failure
-		// has nowhere to hide from and nothing to skip.
-		first, ok := <-stdoutCh
-		if !ok {
-			// Nothing ever arrived: safe to call cmd.Wait() here because
-			// scanEvents's goroutine only closes its channel after its
-			// scan loop has already hit real EOF on stdout - exec.Cmd's
-			// "read the pipes fully before Wait()" contract is satisfied
-			// by construction.
-			childStderr := <-stderrLines
-			waitErr := cmd.Wait()
-			for _, l := range childStderr {
-				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
-			}
-			if waitErr != nil {
-				fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", waitErr)
-				os.Exit(1)
-			}
+		var showTUI bool
+		pending, showTUI = startFirstGeneration(playbook, rest, &procH, nil)
+		if !showTUI {
 			return
 		}
-		pending = &pendingGeneration{cmd: cmd, stdoutCh: stdoutCh, stderrLines: stderrLines, first: first}
+
+	case verbRole:
+		// The role name is always required, positionally - unlike "run"'s
+		// playbook, there's no config/env fallback cascade for it
+		// (design-docs/Tangsible role.md only ever specifies
+		// "tangsible role <role_name>"). splitPlaybookArgs's own
+		// shape-based rule (a missing or flag-shaped first argument means
+		// nothing was given) applies identically here - a role name can't
+		// start with '-' in practice either.
+		roleName, rest, explicit := splitPlaybookArgs(args)
+		if !explicit {
+			fmt.Fprintf(os.Stderr, "usage: %s role <role_name> [ansible-playbook args...]\n", os.Args[0])
+			os.Exit(2)
+		}
+
+		playbook, cleanup = startRoleSession(roleName)
+		roleDisplayName = roleName
+
+		// Recorded unconditionally, before ansible-playbook is even
+		// started - same "an invocation is an invocation" semantics "run"
+		// already has, and for the same reason: losing the ability to
+		// pre-fill a future rerun is never worth aborting the run the user
+		// actually asked for.
+		if err := appendInvocation(tangsibleFilePath, "", roleName, argsToHistoryString(rest)); err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
+		}
+		originalArgs = parsePassthroughArgs(rest)
+
+		var showTUI bool
+		pending, showTUI = startFirstGeneration(playbook, rest, &procH, cleanup)
+		if !showTUI {
+			return
+		}
 
 	case verbRerun:
 		// No history/CLI-args resolution happens for "run" (its playbook
@@ -230,16 +313,35 @@ func main() {
 		res, resolved := resolveRerun(args, cfg)
 		if !resolved {
 			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
-			fmt.Fprintln(os.Stderr, "no playbook given, and nothing has ever been run in this project to rerun")
+			fmt.Fprintln(os.Stderr, "no playbook or role given, and nothing has ever been run in this project to rerun")
 			os.Exit(2)
 		}
-		if _, _, explicit := splitPlaybookArgs(args); !explicit {
-			fmt.Fprintf(os.Stderr, "tangsible: no playbook given - re-running %q (last run in this project)\n", res.Playbook)
+		_, _, explicit := splitPlaybookArgs(args)
+		// res.Role set (rather than res.Playbook) means the most recent
+		// invocation in this project was "tangsible role", not
+		// "tangsible run" (design-docs/Tangsible role.md) - only possible
+		// when no playbook was given explicitly (see rerunResolution's own
+		// doc comment: an explicit positional argument to "rerun" always
+		// means a playbook, there's no "tangsible rerun <role>" form). A
+		// role rerun always starts from a brand new stub - the previous
+		// session's own was already deleted when that process exited -
+		// exactly like "tangsible role" itself, via the same
+		// startRoleSession helper.
+		if res.Role != "" {
+			if !explicit {
+				fmt.Fprintf(os.Stderr, "tangsible: no playbook given - re-running role %q (last run in this project)\n", res.Role)
+			}
+			playbook, cleanup = startRoleSession(res.Role)
+			roleDisplayName = res.Role
+		} else {
+			if !explicit {
+				fmt.Fprintf(os.Stderr, "tangsible: no playbook given - re-running %q (last run in this project)\n", res.Playbook)
+			}
+			playbook = res.Playbook
 		}
-		playbook = res.Playbook
 		originalArgs = parsedPassthroughArgs{Tags: res.Tags, SkipTags: res.SkipTags, Hosts: res.Hosts, Rest: res.Rest}
-		// pending stays nil: unlike "run", nothing is spawned yet - the
-		// re-run dialog opens immediately instead (NewLiveTUI's
+		// pending stays nil: unlike "run"/"role", nothing is spawned yet -
+		// the re-run dialog opens immediately instead (NewLiveTUI's
 		// startWithRerunDialog below), and the very first generation only
 		// starts once the user confirms it, via the exact same
 		// requestRerun path every later re-run already goes through.
@@ -350,8 +452,18 @@ func main() {
 		// corrupt the display. Silently dropped instead - non-fatal, same
 		// reasoning as the top-level call: losing the ability to pre-fill
 		// a *future* rerun is never worth disrupting the one the user just
-		// asked for.
-		_ = appendInvocation(tangsibleFilePath, playbook, argsToHistoryString(newArgs))
+		// asked for. roleDisplayName, captured once up front and constant
+		// for the rest of the process's lifetime, decides whether this
+		// generation (like every other one this session ever spawns) gets
+		// recorded under playbook or under role - a role session's
+		// playbook local holds its generated stub's own path, never
+		// meaningful to record or to rerun from directly (see
+		// startRoleSession).
+		if roleDisplayName != "" {
+			_ = appendInvocation(tangsibleFilePath, "", roleDisplayName, argsToHistoryString(newArgs))
+		} else {
+			_ = appendInvocation(tangsibleFilePath, playbook, "", argsToHistoryString(newArgs))
+		}
 
 		go func() {
 			cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, newArgs, &procH)
@@ -373,7 +485,16 @@ func main() {
 		}()
 	}
 
-	app, applyLive := NewLiveTUI(state, filepath.Base(playbook), &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun)
+	// displayName is what the TUI's top bar shows - normally the resolved
+	// playbook's own filename, but a role session's playbook local holds
+	// its generated stub's own (meaningless) filename instead, so the
+	// role's own name is shown there in that case - design-docs/Tangsible
+	// role.md's own "loose end".
+	displayName := filepath.Base(playbook)
+	if roleDisplayName != "" {
+		displayName = roleDisplayName
+	}
+	app, applyLive := NewLiveTUI(state, displayName, &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)
@@ -409,7 +530,7 @@ func main() {
 
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", runErr)
-		os.Exit(1)
+		exitCleanly(1)
 	}
 	if len(all) == 0 {
 		// Shouldn't happen via our own app.Stop() path - that's only ever
@@ -432,7 +553,7 @@ func main() {
 	final := all[len(all)-1]
 	if genuineFailure(final.exitCode, state.HadUnreachable) {
 		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", final.waitErr)
-		os.Exit(1)
+		exitCleanly(1)
 	}
 	// A user-interrupted run (exit 99) or a benign "some host(s) were
 	// unreachable" run (exit 4 with independently-observed evidence) falls

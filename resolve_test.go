@@ -30,6 +30,13 @@ func TestParseVerb(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name:     "role verb with a role name and args",
+			args:     []string{"role", "myrole", "-l", "somehost"},
+			wantVerb: verbRole,
+			wantRest: []string{"myrole", "-l", "somehost"},
+			wantOK:   true,
+		},
+		{
 			name:   "unrecognized verb",
 			args:   []string{"site.yml", "-v"},
 			wantOK: false,

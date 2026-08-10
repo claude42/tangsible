@@ -17,30 +17,41 @@ const tangsibleFilePath = ".tangsible"
 // playbookConfig is the shape of .tangsible and
 // $XDG_CONFIG_HOME/tangsible/config.toml. Originally deliberately minimal
 // (a single key), since the user's own spec for this format explicitly
-// expected it to grow later - History and LastPlaybook (see history.go)
-// are that growth: only .tangsible ever has either populated in practice
+// expected it to grow later - History and Last (see history.go) are that
+// growth: only .tangsible ever has either populated in practice
 // (invocation history is inherently per-project), but the type is shared
 // with the global config file too rather than forking it into two shapes,
 // since both are harmlessly empty there.
 type playbookConfig struct {
 	General struct {
 		DefaultPlaybook string `toml:"default_playbook"`
-		// LastPlaybook is the playbook path of the most recent invocation
-		// of *any* verb, updated by appendInvocation on every one - what
+		// Last is the playbook path or role name (see "tangsible role",
+		// design-docs/Tangsible role.md) of the most recent invocation of
+		// *any* verb, updated by appendInvocation on every one - what
 		// "tangsible rerun" (no playbook given) resolves to (Rerun.md).
-		// Distinct from History's own per-playbook ordering: History
-		// preserves insertion order of *which playbooks have ever been
-		// seen*, not *when* each was last touched relative to the others,
-		// so it can't answer "which playbook was run most recently" on
-		// its own - this one field can, without restructuring History
-		// itself or adding per-invocation timestamps.
-		LastPlaybook string `toml:"last_playbook"`
+		// One field for both, not two parallel ones: a playbook path and
+		// a role name are never really ambiguous in practice (a playbook
+		// almost always has a .yml/.yaml extension or a path separator; a
+		// role name is a bare identifier), and whichever of a
+		// playbookHistory entry's own Playbook/Role fields matches this
+		// value at lookup time (see lastTarget) says which kind it was -
+		// no separate flag needed. Distinct from History's own
+		// per-playbook/per-role ordering: History preserves insertion
+		// order of *which targets have ever been seen*, not *when* each
+		// was last touched relative to the others, so it can't answer
+		// "what ran most recently" on its own - this one field can,
+		// without restructuring History itself or adding per-invocation
+		// timestamps. Named Last, not LastPlaybook (its own original
+		// name, before "tangsible role" existed) - a breaking rename of
+		// .tangsible's own schema, same as this project has already done
+		// once before when introducing verb dispatch itself.
+		Last string `toml:"last"`
 		// DefaultTreeState governs whether a freshly-started run's very
 		// first task row starts expanded or collapsed - "expanded" or
 		// "collapsed" (case-insensitive, see defaultTreeExpanded), only
 		// ever read from .tangsible specifically (project-local), not the
-		// global config.toml - unlike DefaultPlaybook/LastPlaybook, this
-		// isn't part of any resolution cascade.
+		// global config.toml - unlike DefaultPlaybook/Last, this isn't
+		// part of any resolution cascade.
 		DefaultTreeState string `toml:"default_tree_state"`
 	} `toml:"general"`
 	History []playbookHistory `toml:"history"`
@@ -58,18 +69,20 @@ func defaultTreeExpanded(cfg playbookConfig) bool {
 }
 
 // verb identifies which top-level command Tangsible was invoked with -
-// "run" (the direct successor of the original bare-playbook invocation) or
-// "rerun" (see Rerun.md). A verb is now mandatory: unlike the playbook
-// argument, there's no shape-based way to tell "no verb given" from "verb
-// given" (every verb looks like a plain word, same as a playbook path), and
-// more verbs are expected to follow Rerun.md's own rationale for
-// introducing this - so requiring one explicitly, as a breaking change, is
-// simpler than trying to keep guessing.
+// "run" (the direct successor of the original bare-playbook invocation),
+// "rerun" (see Rerun.md), or "role" (see design-docs/Tangsible role.md). A
+// verb is now mandatory: unlike the playbook argument, there's no
+// shape-based way to tell "no verb given" from "verb given" (every verb
+// looks like a plain word, same as a playbook path), and more verbs were
+// expected to follow Rerun.md's own rationale for introducing this - so
+// requiring one explicitly, as a breaking change, is simpler than trying to
+// keep guessing.
 type verb string
 
 const (
 	verbRun   verb = "run"
 	verbRerun verb = "rerun"
+	verbRole  verb = "role"
 )
 
 // parseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
@@ -80,7 +93,7 @@ func parseVerb(args []string) (v verb, rest []string, ok bool) {
 		return "", nil, false
 	}
 	switch verb(args[0]) {
-	case verbRun, verbRerun:
+	case verbRun, verbRerun, verbRole:
 		return verb(args[0]), args[1:], true
 	default:
 		return "", nil, false

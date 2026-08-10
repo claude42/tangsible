@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-func cfgWithHistory(lastPlaybook string, entries ...playbookHistory) playbookConfig {
+func cfgWithHistory(last string, entries ...playbookHistory) playbookConfig {
 	var cfg playbookConfig
-	cfg.General.LastPlaybook = lastPlaybook
+	cfg.General.Last = last
 	cfg.History = entries
 	return cfg
 }
 
 func TestResolveRerun(t *testing.T) {
-	t.Run("no playbook given, resolves from LastPlaybook", func(t *testing.T) {
+	t.Run("no playbook given, resolves from General.Last", func(t *testing.T) {
 		cfg := cfgWithHistory("site.yml", playbookHistory{
 			Playbook:    "site.yml",
 			Invocations: []string{"-l somehost --tags foo,bar --skip-tags skip1,skip2"},
@@ -34,7 +34,7 @@ func TestResolveRerun(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit playbook wins over LastPlaybook", func(t *testing.T) {
+	t.Run("explicit playbook wins over General.Last", func(t *testing.T) {
 		cfg := cfgWithHistory("other.yml", playbookHistory{
 			Playbook:    "site.yml",
 			Invocations: []string{"-l somehost"},
@@ -100,41 +100,78 @@ func TestResolveRerun(t *testing.T) {
 			t.Errorf("res.Rest = %v, want history's own rest args carried forward", res.Rest)
 		}
 	})
+
+	t.Run("no playbook given, last invocation was a role - resolves to Role, not Playbook", func(t *testing.T) {
+		cfg := cfgWithHistory("myrole", playbookHistory{
+			Role:        "myrole",
+			Invocations: []string{"-l nirvana --tags foo"},
+		})
+		res, ok := resolveRerun(nil, cfg)
+		if !ok {
+			t.Fatal("resolveRerun() ok = false, want true")
+		}
+		if res.Role != "myrole" || res.Playbook != "" || res.Tags != "foo" || res.Hosts != "nirvana" {
+			t.Errorf("resolveRerun() = %+v, want Role=myrole Playbook=\"\" Tags=foo Hosts=nirvana", res)
+		}
+	})
+
+	t.Run("an explicit playbook positional always resolves to Playbook, never Role", func(t *testing.T) {
+		// Rerun.md/design-docs/Tangsible role.md scope decision: there's
+		// no "tangsible rerun <role>" form - a positional argument to
+		// rerun is always a playbook path, even if the last invocation on
+		// record happened to be a role.
+		cfg := cfgWithHistory("myrole", playbookHistory{
+			Role:        "myrole",
+			Invocations: []string{"-l nirvana"},
+		})
+		res, ok := resolveRerun([]string{"site.yml"}, cfg)
+		if !ok || res.Playbook != "site.yml" || res.Role != "" {
+			t.Errorf("resolveRerun([site.yml]) = %+v, ok=%v, want Playbook=site.yml Role=\"\"", res, ok)
+		}
+	})
 }
 
-func TestLastPlaybook(t *testing.T) {
+func TestLastTarget(t *testing.T) {
 	t.Run("unset", func(t *testing.T) {
-		if _, ok := lastPlaybook(playbookConfig{}); ok {
-			t.Error("lastPlaybook() ok = true, want false for a zero-value config")
+		if _, ok := lastTarget(playbookConfig{}); ok {
+			t.Error("lastTarget() ok = true, want false for a zero-value config")
 		}
 	})
-	t.Run("set", func(t *testing.T) {
-		cfg := cfgWithHistory("site.yml")
-		got, ok := lastPlaybook(cfg)
-		if !ok || got != "site.yml" {
-			t.Errorf("lastPlaybook() = (%q, %v), want (\"site.yml\", true)", got, ok)
+	t.Run("set to a playbook", func(t *testing.T) {
+		cfg := cfgWithHistory("site.yml", playbookHistory{Playbook: "site.yml"})
+		entry, ok := lastTarget(cfg)
+		if !ok || entry.Playbook != "site.yml" || entry.Role != "" {
+			t.Errorf("lastTarget() = (%+v, %v), want (Playbook=\"site.yml\" Role=\"\", true)", entry, ok)
 		}
 	})
-	t.Run("unset but exactly one playbook in history - falls back to it", func(t *testing.T) {
-		// Covers a .tangsible written entirely by a build predating
-		// LastPlaybook: [[history]] entries exist, general.last_playbook
-		// doesn't - real case, not hypothetical.
+	t.Run("set to a role", func(t *testing.T) {
+		cfg := cfgWithHistory("myrole", playbookHistory{Role: "myrole"})
+		entry, ok := lastTarget(cfg)
+		if !ok || entry.Role != "myrole" || entry.Playbook != "" {
+			t.Errorf("lastTarget() = (%+v, %v), want (Role=\"myrole\" Playbook=\"\", true)", entry, ok)
+		}
+	})
+	t.Run("unset but exactly one entry in history - falls back to it", func(t *testing.T) {
+		// Covers a .tangsible written entirely by a build predating this
+		// field (or its own predecessor, LastPlaybook): [[history]]
+		// entries exist, general.last doesn't - real case, not
+		// hypothetical.
 		var cfg playbookConfig
 		cfg.History = []playbookHistory{{Playbook: "site.yml", Invocations: []string{"--tags foo"}}}
-		got, ok := lastPlaybook(cfg)
-		if !ok || got != "site.yml" {
-			t.Errorf("lastPlaybook() = (%q, %v), want (\"site.yml\", true)", got, ok)
+		entry, ok := lastTarget(cfg)
+		if !ok || entry.Playbook != "site.yml" {
+			t.Errorf("lastTarget() = (%+v, %v), want (Playbook=\"site.yml\", true)", entry, ok)
 		}
 	})
-	t.Run("unset and two or more playbooks in history - still not ok", func(t *testing.T) {
+	t.Run("unset and two or more entries in history - still not ok", func(t *testing.T) {
 		// Genuinely ambiguous: History's order is first-seen, not recency.
 		var cfg playbookConfig
 		cfg.History = []playbookHistory{
 			{Playbook: "site.yml", Invocations: []string{"--tags foo"}},
-			{Playbook: "other.yml", Invocations: []string{"-l host"}},
+			{Role: "myrole", Invocations: []string{"-l host"}},
 		}
-		if _, ok := lastPlaybook(cfg); ok {
-			t.Error("lastPlaybook() ok = true, want false when multiple playbooks exist with no LastPlaybook to disambiguate")
+		if _, ok := lastTarget(cfg); ok {
+			t.Error("lastTarget() ok = true, want false when multiple entries exist with no General.Last to disambiguate")
 		}
 	})
 }

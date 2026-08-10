@@ -41,13 +41,13 @@ func TestAppendCapped(t *testing.T) {
 func TestAppendInvocationAndLastInvocation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible")
 
-	if err := appendInvocation(path, "site.yml", "-l somehost"); err != nil {
+	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
 		t.Fatalf("appendInvocation() first call: %v", err)
 	}
-	if err := appendInvocation(path, "site.yml", "--tags foo,bar"); err != nil {
+	if err := appendInvocation(path, "site.yml", "", "--tags foo,bar"); err != nil {
 		t.Fatalf("appendInvocation() second call: %v", err)
 	}
-	if err := appendInvocation(path, "other.yml", "-l otherhost"); err != nil {
+	if err := appendInvocation(path, "other.yml", "", "-l otherhost"); err != nil {
 		t.Fatalf("appendInvocation() for a second playbook: %v", err)
 	}
 
@@ -64,10 +64,10 @@ func TestAppendInvocationAndLastInvocation(t *testing.T) {
 	}
 	// other.yml was the most recent of the three appendInvocation calls
 	// above, regardless of it being a different playbook than the first
-	// two - LastPlaybook tracks invocation recency, not History's own
+	// two - General.Last tracks invocation recency, not History's own
 	// per-playbook insertion order.
-	if got, ok := lastPlaybook(cfg); !ok || got != "other.yml" {
-		t.Errorf("lastPlaybook() = (%q, %v), want (\"other.yml\", true)", got, ok)
+	if entry, ok := lastTarget(cfg); !ok || entry.Playbook != "other.yml" {
+		t.Errorf("lastTarget() = (%+v, %v), want (Playbook=\"other.yml\", true)", entry, ok)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestAppendInvocationPreservesGeneralSection(t *testing.T) {
 	path := filepath.Join(dir, ".tangsible")
 	mustWriteFile(t, path, "[general]\ndefault_playbook = \"site.yml\"\n")
 
-	if err := appendInvocation(path, "site.yml", ""); err != nil {
+	if err := appendInvocation(path, "site.yml", "", ""); err != nil {
 		t.Fatalf("appendInvocation(): %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestAppendInvocationCapsAtMaxHistoryPerPlaybook(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible")
 
 	for i := 0; i < maxHistoryPerPlaybook+5; i++ {
-		if err := appendInvocation(path, "site.yml", string(rune('a'+i%26))); err != nil {
+		if err := appendInvocation(path, "site.yml", "", string(rune('a'+i%26))); err != nil {
 			t.Fatalf("appendInvocation() call %d: %v", i, err)
 		}
 	}
@@ -111,6 +111,41 @@ func TestAppendInvocationCapsAtMaxHistoryPerPlaybook(t *testing.T) {
 	// oldest, in favor of the 5 later ones pushing it out.
 	if entry.Invocations[0] == "a" {
 		t.Error("oldest invocation was not dropped once the cap was exceeded")
+	}
+}
+
+func TestAppendInvocationForRoleAndLastTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible")
+
+	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+		t.Fatalf("appendInvocation() for a playbook: %v", err)
+	}
+	if err := appendInvocation(path, "", "myrole", "-l nirvana"); err != nil {
+		t.Fatalf("appendInvocation() for a role: %v", err)
+	}
+
+	cfg := readTangsibleConfig(path)
+
+	// myrole was the most recent of the two calls above - lastTarget
+	// should resolve to it, reporting it as a role (Role set, Playbook
+	// empty) rather than a playbook.
+	entry, ok := lastTarget(cfg)
+	if !ok || entry.Role != "myrole" || entry.Playbook != "" {
+		t.Errorf("lastTarget() = (%+v, %v), want (Role=\"myrole\" Playbook=\"\", true)", entry, ok)
+	}
+
+	// Recording a playbook invocation afterward moves General.Last back
+	// to it, without disturbing myrole's own history entry.
+	if err := appendInvocation(path, "site.yml", "", "--tags again"); err != nil {
+		t.Fatalf("appendInvocation() for the playbook again: %v", err)
+	}
+	cfg = readTangsibleConfig(path)
+	entry, ok = lastTarget(cfg)
+	if !ok || entry.Playbook != "site.yml" || entry.Role != "" {
+		t.Errorf("lastTarget() after re-running the playbook = (%+v, %v), want (Playbook=\"site.yml\" Role=\"\", true)", entry, ok)
+	}
+	if got, ok := lastInvocation(cfg, "site.yml"); !ok || got != "--tags again" {
+		t.Errorf("lastInvocation(site.yml) = (%q, %v), want (%q, true)", got, ok, "--tags again")
 	}
 }
 
