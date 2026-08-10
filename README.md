@@ -226,6 +226,22 @@ This is a v1, aimed at the common interactive case rather than full
   `vars_prompt` on any play after the first (untested) — unlike
   `--ask-become-pass`/`--ask-vault-pass`, which are always asked once,
   up front, before anything else happens.
+- **`strategy: free` shows nothing at all** — confirmed live, not just
+  suspected: with the `free` strategy, `ansible-playbook`'s jsonl callback
+  never emits a task-start event (each host progresses through the task
+  list independently, so there's no single "task starts now" moment
+  shared across hosts the way the default `linear` strategy has). Every
+  part of Tangsible's tree — the play row, every task row, every host
+  result — only ever gets created in response to that event, so under
+  `free` the tree stays completely empty for the whole run: no play, no
+  tasks, no hosts, just a ticking spinner and a final "Playbook completed
+  successfully" over a blank screen, even though the playbook genuinely
+  ran and finished correctly underneath. Not a rendering glitch — real
+  data that's silently never recorded. Supporting `free` properly would
+  need tracking "current task" per host rather than one shared task
+  across all of them, which touches the tree's own data model, not just
+  a display tweak — treated as a distinct, not-yet-planned effort rather
+  than an incremental fix.
 - Built and tested around the scale of a typical dev inventory (roughly
   10 hosts), not a fleet-management tool.
 - Only a limited slice of `ansible-playbook`'s CLI surface is
