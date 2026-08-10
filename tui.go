@@ -2206,12 +2206,106 @@ func primaryOutputField(decoded map[string]interface{}) (label, text string) {
 	return "", ""
 }
 
+// moduleShortName returns decoded["action"] with any collection prefix
+// stripped ("ansible.builtin.copy" and the plain "copy" both become
+// "copy") - a task written with its fully-qualified name still reports the
+// FQCN in "action" (confirmed empirically: a task using
+// ansible.builtin.copy: reports action "ansible.builtin.copy", not
+// "copy"), so additionalOutputLine's module matching below needs this
+// normalization to recognize both spellings of the same module.
+func moduleShortName(decoded map[string]interface{}) string {
+	action, _ := decoded["action"].(string)
+	if idx := strings.LastIndex(action, "."); idx != -1 {
+		return action[idx+1:]
+	}
+	return action
+}
+
+// filenameField backs additionalOutputLine's copy/file/stat/template case:
+// design-docs/Drilldown, Task List.md's "Filename: <dest>" or
+// "Filename: <path>", "depending on which field exists in the results".
+// Checked top-level "dest" then "path" first (covers copy/template, which
+// always report "dest", and file, which reports "dest" or "path"
+// depending on the state: used - both confirmed empirically); stat is the
+// one exception among the four - confirmed empirically it reports neither
+// field at the top level, only nested under invocation.module_args (which
+// every module echoes back verbatim, unresolved further) - so that's
+// checked next, in the same dest-then-path order, before giving up.
+func filenameField(decoded map[string]interface{}) string {
+	if v, ok := decoded["dest"].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := decoded["path"].(string); ok && v != "" {
+		return v
+	}
+	if inv, ok := decoded["invocation"].(map[string]interface{}); ok {
+		if args, ok := inv["module_args"].(map[string]interface{}); ok {
+			if v, ok := args["dest"].(string); ok && v != "" {
+				return v
+			}
+			if v, ok := args["path"].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+// commandField backs additionalOutputLine's command case: design-docs/
+// Drilldown, Task List.md's "Command: <cmd>". A command task's own "cmd"
+// field is a JSON array of the parsed argv tokens (confirmed empirically,
+// both for a plain _raw_params string and an explicit cmd: parameter) -
+// joined with spaces into one display string; handled as a plain string
+// too, just in case a future/different module shape reports it that way.
+func commandField(decoded map[string]interface{}) string {
+	switch v := decoded["cmd"].(type) {
+	case string:
+		return v
+	case []interface{}:
+		parts := make([]string, 0, len(v))
+		for _, e := range v {
+			if s, ok := e.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	return ""
+}
+
+// additionalOutputLine implements design-docs/Drilldown, Task List.md's
+// per-module special cases beyond debug (which already gets what it asks
+// for as a side effect of primaryOutputField's plain msg fallback - no
+// special-casing needed there): copy/file/stat/template get a
+// "Filename: <dest-or-path>" line, command gets a "Command: <cmd>" line.
+// "" for every other module - most tasks show no extra line at all, same
+// as before this existed. Shared by outputSummary (the host row's own
+// parenthetical) and formatHostOutput (the drill-down view's Output
+// section) so both agree on what this extra line says, the same sharing
+// relationship primaryOutputField already has with both.
+func additionalOutputLine(decoded map[string]interface{}) string {
+	switch moduleShortName(decoded) {
+	case "copy", "file", "stat", "template":
+		if fn := filenameField(decoded); fn != "" {
+			return "Filename: " + fn
+		}
+	case "command":
+		if cmd := commandField(decoded); cmd != "" {
+			return "Command: " + cmd
+		}
+	}
+	return ""
+}
+
 // outputSummary returns the parenthesized detail hostLabel appends after
 // "OK"/"Changed"/"Failed" - the single line of output verbatim if
 // primaryOutputField's chosen text is exactly one line, or its line count
-// otherwise. "" (nothing appended) if there's no output text at all, e.g.
-// modules like copy/template that only report changed, with no msg/stdout
-// of their own.
+// otherwise, plus additionalOutputLine's own extra line when one applies,
+// semicolon-joined when both are present. "" (nothing appended) if
+// neither yields anything, e.g. a module like template with nothing
+// changed and no filename fields set (shouldn't happen for a real
+// template result, but not trusted blindly - same caveat as
+// formatHostOutput's own decode below).
 func outputSummary(raw json.RawMessage) string {
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
@@ -2219,14 +2313,23 @@ func outputSummary(raw json.RawMessage) string {
 	}
 	_, text := primaryOutputField(decoded)
 	text = strings.TrimRight(text, "\n")
-	if text == "" {
+
+	var parts []string
+	if text != "" {
+		lines := strings.Split(text, "\n")
+		if len(lines) == 1 {
+			parts = append(parts, lines[0])
+		} else {
+			parts = append(parts, fmt.Sprintf("%d lines of output", len(lines)))
+		}
+	}
+	if extra := additionalOutputLine(decoded); extra != "" {
+		parts = append(parts, extra)
+	}
+	if len(parts) == 0 {
 		return ""
 	}
-	lines := strings.Split(text, "\n")
-	if len(lines) == 1 {
-		return fmt.Sprintf(" (%s)", lines[0])
-	}
-	return fmt.Sprintf(" (%d lines of output)", len(lines))
+	return fmt.Sprintf(" (%s)", strings.Join(parts, "; "))
 }
 
 // skipDetail returns the parenthesized "(skip_reason: false_condition)"
@@ -2500,6 +2603,18 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) 
 		outputText = skipOutputText(decoded)
 	} else {
 		_, outputText = primaryOutputField(decoded)
+		// additionalOutputLine's own line (Filename:/Command:, see design-
+		// docs/Drilldown, Task List.md) is appended after whatever's
+		// already here, per its own "in addition to anything that might
+		// have gone to stdout already" wording - not shown for Skipped,
+		// which has its own, unrelated Output content above.
+		if extra := additionalOutputLine(decoded); extra != "" {
+			if outputText != "" {
+				outputText += "\n" + extra
+			} else {
+				outputText = extra
+			}
+		}
 	}
 	writeTextSection("aqua", "Output", outputText)
 
