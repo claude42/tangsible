@@ -291,16 +291,17 @@ func taskVisible(t *taskNode, q filterQuery, sourceIndex taskSourceIndex, isActi
 // target scale (~10 hosts, Purpose.md), and avoids needing to incrementally
 // patch a tree structure by hand.
 //
-// width is the list's current available width (see rebuild), used to
-// right-align each TASK row's counts segment (see taskLabel). activeTask
-// (nil once the run has finished) gets a spinner prefix on its row instead
-// of an elapsed-time readout - frame is the shared spinner frame for this
-// rebuild pass (see spinnerAt), computed once and passed in rather than
-// each row picking its own, so every active indicator in the UI ticks in
-// lockstep. showOutput is called when a host row is selected (Enter), to
-// display that host's full result for that task. sourceIndex is only read
-// by taskVisible's filterSearch case, to search a task's own source text.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string)) []row {
+// width is the list's current available width (see rebuild), passed
+// through to taskLabel for its own no-hosts-yet fallback (see
+// computeHostColumnLayout/taskLabel). activeTask (nil once the run has
+// finished) gets a spinner prefix on its row instead of an elapsed-time
+// readout - frame is the shared spinner frame for this rebuild pass (see
+// spinnerAt), computed once and passed in rather than each row picking
+// its own, so every active indicator in the UI ticks in lockstep.
+// showOutput is called when a host row is selected (Enter), to display
+// that host's full result for that task. sourceIndex is only read by
+// taskVisible's filterSearch case, to search a task's own source text.
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, layout hostColumnLayout, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string)) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		var playRows []row
@@ -310,7 +311,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, a
 				continue
 			}
 			playRows = append(playRows, row{
-				text:     taskLabel(t, state.AllHosts, width, t == activeTask, frame, false),
+				text:     taskLabel(t, state.AllHosts, layout, width, t == activeTask, frame, false),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -783,7 +784,14 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 
 		activeTask := activeTaskNow()
 
-		currentRows = flattenRows(state, expanded, width, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
+		// Computed once per rebuild and reused for every row - both
+		// flattenRows' own per-row taskLabel calls and the standalone
+		// selected-row re-render just below - so the cursor row always
+		// aligns to the identical column every other row uses (see
+		// computeHostColumnLayout).
+		layout := computeHostColumnLayout(state, state.AllHosts, width)
+
+		currentRows = flattenRows(state, expanded, width, layout, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
 		if frozen && everStarted {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
 				currentRows = append(currentRows,
@@ -847,7 +855,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		case *playNode:
 			currentRows[selectedIndex].text = playRowText(id, true)
 		case *taskNode:
-			currentRows[selectedIndex].text = taskLabel(id, state.AllHosts, width, id == activeTask, spinnerAt(elapsed), true)
+			currentRows[selectedIndex].text = taskLabel(id, state.AllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true)
 		case hostRowID:
 			currentRows[selectedIndex].text = "    " + hostLabel(id.task, id.host, true)
 		}
@@ -1637,21 +1645,13 @@ const (
 	// host list once the host list has already been squeezed hard.
 	minTaskTitleName = 30
 
-	// titleHostGapFloor is the minimum acceptable breathing room between the
-	// title and the first host name, per TUI.md - used only to decide
-	// *whether* shrinking is needed and *how far* to shrink the title. The
-	// gap actually rendered (see taskLabel) is whatever's left over once
-	// title and hosts are sized, which is normally >= this - true
-	// right-alignment, matching TUI.md's own sketch, not a fixed 3 spaces.
+	// titleHostGapFloor is the minimum breathing room between the title
+	// column and the first host name, per TUI.md's third iteration - used
+	// both to decide whether the shared title column (see
+	// computeHostColumnLayout) needs shrinking, and as the exact gap
+	// rendered after the widest title (shorter titles get more, padded out
+	// to the same shared column - see taskLabel).
 	titleHostGapFloor = 3
-
-	// minRenderedGap is the hard floor on the space actually rendered
-	// between title and hosts. Only reached once the title (floored at 15
-	// chars) and every hostname (floored at 1 char each) still don't leave
-	// titleHostGapFloor of room - a pathologically narrow, accepted overflow
-	// case (same style as aggregate.go's noteHost comment and this file's
-	// width-staleness note below), not engineered away further.
-	minRenderedGap = 1
 
 	// halfBlock is U+258C LEFT HALF BLOCK - its filled ("ink") half renders
 	// in the cell's current foreground color, its unfilled half shows the
@@ -1682,49 +1682,173 @@ func hostTransition(leftTag, rightTag string) string {
 	return fmt.Sprintf("[%s:%s:-]%s[-:-:-]", leftTag, rightTag, halfBlock)
 }
 
+// hostColumnLayout is the layout every TASK row shares for one rebuild
+// (TUI.md's "Tree View - third iteration") - computed once by
+// computeHostColumnLayout and threaded into every taskLabel call (both
+// flattenRows' own per-row calls and rebuild()'s separate selected-row
+// re-render), so every row uses the identical values. TitleColWidth is
+// how wide the title "column" is - every row pads its own title with
+// spaces up to this width, or truncates down to it if its own title is
+// longer. HostDisplay is the (possibly globally-shrunk) display text for
+// each host in playbookState.AllHosts, same order - shared verbatim by
+// every row; only each row's per-host *color* varies (task.Hosts[host]),
+// never the text.
+type hostColumnLayout struct {
+	TitleColWidth int
+	HostDisplay   []string
+}
+
+// computeHostColumnLayout implements TUI.md's third-iteration algorithm:
+// hosts start at the same column on every row, regardless of that row's
+// own title length. Unlike the previous per-row-independent right-align,
+// this needs to look across every task the run has produced so far to
+// find the column width every row will share.
+//
+// TitleColWidth is normally the widest *natural* (untruncated) title width
+// across every task in state.Plays - not just currently visible ones,
+// deliberately: allTasks(state) is unconditional (ignores expand/collapse
+// and the active filter), so the column never shifts just because the
+// user expanded/collapsed something. Since state.Plays only ever grows
+// during a run (tasks are appended, never removed - see aggregate.go) and
+// resets to empty via Reset() on a rerun, recomputing this fresh from
+// state.Plays on every rebuild already gives a monotonically
+// non-decreasing column for free, with no separate tracked state needed -
+// exactly the "only ever grows" behavior the user asked for, so
+// expanding/collapsing a task never makes the tree jump.
+//
+// If the widest title, the full host list, and titleHostGapFloor's worth
+// of breathing room don't all fit within avail, the column shrinks first
+// (down to minTaskTitleName, same floor the old per-row algorithm used),
+// and only if that alone still isn't enough are hostnames shrunk next -
+// same "reduce the currently-longest hostname by one, repeat" loop the
+// old taskLabel used per-row, now run once here instead: since every row
+// shares the same column and the same avail width, every row's own
+// available host-list width is identical by construction, so per-row
+// shrinking would only ever produce the identical result anyway. Running
+// it once is what makes the truncated host text - not just the column's
+// start - line up column-by-column down every row for free, without
+// needing a second alignment mechanism.
+func computeHostColumnLayout(state *playbookState, allHosts []string, avail int) hostColumnLayout {
+	availContent := avail - len(taskIndent)
+	if availContent < 0 {
+		availContent = 0
+	}
+
+	desiredTitleWidth := 0
+	for _, t := range allTasks(state) {
+		if w := len([]rune(t.Name)); w > desiredTitleWidth {
+			desiredTitleWidth = w
+		}
+	}
+
+	hostRunes := make([][]rune, len(allHosts))
+	for i, h := range allHosts {
+		hostRunes[i] = []rune(h)
+	}
+	hostsWidth := func() int {
+		w := 0
+		for i, hr := range hostRunes {
+			w += len(hr)
+			if i > 0 {
+				w++ // fixed 1-space separator between adjacent host names -
+				// not itself a shrink target, same as before.
+			}
+		}
+		return w
+	}
+
+	if len(allHosts) == 0 {
+		// Nothing to align to yet (true run-wide, briefly, before the very
+		// first host of the entire run has reported anything at all) - the
+		// column has no meaning without hosts; taskLabel's own !haveHosts
+		// path ignores TitleColWidth entirely in this case, so its exact
+		// value here doesn't matter.
+		return hostColumnLayout{TitleColWidth: desiredTitleWidth}
+	}
+
+	fits := func(colWidth int) bool {
+		return colWidth+titleHostGapFloor+hostsWidth() <= availContent
+	}
+
+	titleColWidth := desiredTitleWidth
+	if !fits(titleColWidth) {
+		floor := desiredTitleWidth
+		if floor > minTaskTitleName {
+			floor = minTaskTitleName
+		}
+		target := availContent - titleHostGapFloor - hostsWidth()
+		if target < floor {
+			target = floor
+		}
+		titleColWidth = target
+		if titleColWidth < 0 {
+			titleColWidth = 0
+		}
+	}
+
+	for !fits(titleColWidth) {
+		longest := -1
+		for i, hr := range hostRunes {
+			if len(hr) > 1 && (longest == -1 || len(hr) > len(hostRunes[longest])) {
+				longest = i
+			}
+		}
+		if longest == -1 {
+			// Every hostname is already at its 1-character floor and it
+			// still doesn't fit even alongside a column floored at
+			// minTaskTitleName. Accept the overflow, same as before.
+			break
+		}
+		hostRunes[longest] = hostRunes[longest][:len(hostRunes[longest])-1]
+	}
+
+	hostDisplay := make([]string, len(hostRunes))
+	for i, hr := range hostRunes {
+		hostDisplay[i] = string(hr)
+	}
+	return hostColumnLayout{TitleColWidth: titleColWidth, HostDisplay: hostDisplay}
+}
+
 // taskLabel builds one TASK row's full text, including its leading indent.
-// Per TUI.md's "New ideas for the task lines", every host in allHosts (the
+// Per TUI.md's "Tree View - third iteration", every host in allHosts (the
 // run-wide, alphabetically-sorted set of hosts seen so far - see
-// playbookState.AllHosts) is shown right-aligned after the task title, each
+// playbookState.AllHosts) is shown left-aligned after the task title,
+// starting at the same column on every row (layout.TitleColWidth, shared
+// across every row for one rebuild - see computeHostColumnLayout), each
 // colored by its outcome for this specific task, or gray if this task
 // hasn't recorded a result for it yet. If allHosts is empty (nothing has
 // been discovered run-wide yet - always true right up until the first
 // result of the run lands, for whichever task that turns out to be), the
-// row is just the title, with no trailing gap or content.
+// row is just the title, with no trailing gap or content - the one case
+// where avail (not layout) still governs the title's own truncation,
+// since there's no shared column yet to align to.
 //
-// Fitting/shrinking happens entirely in plain, untagged rune space (raw task
-// name, raw host names) and only wraps the final, already-correctly-sized
-// pieces in color tags and tview.Escape() once, at the end - avoids repeated
-// tview.TaggedStringWidth calls inside what can otherwise be a
-// multi-iteration shrink loop, and mirrors the truncate-raw-then-escape
-// discipline the old counts-based taskLabel already used.
+// Fitting/truncation happens entirely in plain, untagged rune space (raw
+// task name, raw host names) and only wraps the final, already-correctly-
+// sized pieces in color tags and tview.Escape() once, at the end - avoids
+// repeated tview.TaggedStringWidth calls, and mirrors the
+// truncate-raw-then-escape discipline this function has always used.
 //
-// Per TUI.md: if title+gap+hosts doesn't fit, first the title's own name
-// text is shortened (down to minTaskTitleName, or its own natural length if
-// that's already shorter); if that alone isn't enough, hostnames are
-// gradually shortened next - always the currently-longest one, one
-// character at a time, down to a 1-character floor each. Truncation
-// collisions between hostnames are an accepted, known tradeoff (TUI.md) -
-// not solved here. Hostname truncation has no ellipsis marker (per TUI.md's
-// own example); title truncation keeps the old "…" convention, since
-// TUI.md says the title's rendering is otherwise unchanged ("as before").
-//
-// avail reflects the terminal size as of the last rebuild (see
-// flattenRows) - a bare resize with no new incoming event won't re-flow
-// existing rows until the next event triggers one. Accepted limitation,
-// not a bug - unchanged from the old taskLabel.
+// A row's own title is truncated (with "…", same convention as before)
+// only if its own natural width exceeds layout.TitleColWidth - this is
+// how a title that isn't itself the widest can still end up truncated,
+// if the shared column ended up narrower than that title (e.g. the
+// column was shrunk to fit avail - see computeHostColumnLayout). A
+// shorter title is padded with spaces up to TitleColWidth instead, plus
+// titleHostGapFloor more before the host list - deterministic, unlike the
+// old right-aligned version's "whatever's left over" padding. Hostname
+// truncation has no ellipsis marker (per TUI.md's own example) - already
+// applied uniformly to every row via layout.HostDisplay, never
+// recomputed here.
 //
 // active marks the currently-executing task (see flattenRows); when true,
 // frame (this rebuild's shared spinner frame - see spinnerAt) renders in
 // place of the row's leading indent (taskIndent) instead of as a trailing
-// suffix after the title - moved there so the space it needs comes out of
-// the already-existing indent instead of being carved out of availContent
-// on top of it, leaving hostnames that much more room on the right. When
-// active is false, taskIndent's own plain spaces render there instead -
-// the same fixed width either way, so every row's hostnames still shrink
-// identically regardless of which task, if any, happens to be active;
-// letting only the active row's prefix differ in width would make that
-// one row's hostnames truncate slightly more than the others'.
+// suffix after the title - the space it needs comes out of the
+// already-existing indent rather than the title column, so every row's
+// title column stays the same width regardless of which task, if any,
+// happens to be active. When active is false, taskIndent's own plain
+// spaces render there instead - the same fixed width either way.
 //
 // selected marks this as the row currently under the cursor (see rebuild's
 // selected-row patch, and NewLiveTUI's SetSelectedStyle comment for why
@@ -1732,17 +1856,12 @@ func hostTransition(leftTag, rightTag string) string {
 // black bold text on a light gray background, and each hostname gets black
 // bold text on its own outcome color as a background instead of a
 // foreground - the inverse of the normal rendering below.
-func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame rune, selected bool) string {
-	availContent := avail - len(taskIndent)
-	if availContent < 0 {
-		availContent = 0
-	}
-
+func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool) string {
 	// rawPrefix fills the row's leading taskIndent-width slot: the spinner
 	// frame plus one space for the active task, or taskIndent's own plain
 	// spaces otherwise - always exactly len(taskIndent) wide either way,
-	// so (unlike the old trailing-suffix version) no separate width needs
-	// reserving from availContent for this at all.
+	// so no separate width needs reserving from the title column for this
+	// at all.
 	rawPrefix := taskIndent
 	if active {
 		rawPrefix = string(frame) + " "
@@ -1754,97 +1873,7 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 	prefix := tview.Escape(rawPrefix)
 
 	nameRunes := []rune(task.Name)
-	nameWidth := len(nameRunes)
-
-	// Per-host raw display text, shrunk (if at all) as independent copies -
-	// never mutates allHosts or its strings.
-	hostRunes := make([][]rune, len(allHosts))
-	for i, h := range allHosts {
-		hostRunes[i] = []rune(h)
-	}
-	hostsWidth := func() int {
-		w := 0
-		for i, hr := range hostRunes {
-			w += len(hr)
-			if i > 0 {
-				w++ // fixed 1-space separator between adjacent host names -
-				// not itself a shrink target per TUI.md's algorithm, which
-				// only calls out the title and the hostnames themselves.
-			}
-		}
-		return w
-	}
-
 	haveHosts := len(allHosts) > 0
-
-	// fits reports whether the current nameWidth, plus a hypothetical
-	// titleHostGapFloor-sized gap, plus the current host list, would fit -
-	// i.e. "is there at least the minimum acceptable breathing room". Drives
-	// the shrink decisions below; the gap actually rendered (see padding,
-	// at the end) is computed separately, as whatever's really left over.
-	fits := func() bool {
-		need := nameWidth
-		if haveHosts {
-			need += titleHostGapFloor + hostsWidth()
-		}
-		return need <= availContent
-	}
-
-	truncatedName := false
-
-	if !fits() {
-		// Step 1 (TUI.md): shorten the title's own name text, down to
-		// minTaskTitleName (or its own natural length, if that's already
-		// shorter - the floor only ever shrinks, never pads).
-		floor := nameWidth
-		if floor > minTaskTitleName {
-			floor = minTaskTitleName
-		}
-		var need int
-		if haveHosts {
-			need += titleHostGapFloor + hostsWidth()
-		}
-		target := availContent - need
-		if target < floor {
-			target = floor
-		}
-		if target < nameWidth {
-			nameWidth = target
-			truncatedName = true
-		}
-	}
-
-	// Step 2 (TUI.md): if the title, even floored, still doesn't leave
-	// titleHostGapFloor of room before the full host list, gradually shrink
-	// hostnames - always the currently-longest, one character at a time,
-	// down to a 1-character floor each.
-	for !fits() {
-		longest := -1
-		for i, hr := range hostRunes {
-			if len(hr) > 1 && (longest == -1 || len(hr) > len(hostRunes[longest])) {
-				longest = i
-			}
-		}
-		if longest == -1 {
-			// Every hostname is already at its 1-character floor and it
-			// still doesn't fit even alongside a title floored at
-			// minTaskTitleName characters. Accept the overflow (see
-			// minRenderedGap).
-			break
-		}
-		hostRunes[longest] = hostRunes[longest][:len(hostRunes[longest])-1]
-	}
-
-	var rawTitle string
-	if truncatedName && nameWidth >= 1 {
-		rawTitle = string(nameRunes[:nameWidth-1]) + "…"
-	} else {
-		rawTitle = string(nameRunes[:nameWidth])
-	}
-	// Escape only now that the raw text is already correctly sized, so
-	// slicing above can never cut into an escape sequence Escape() would
-	// otherwise have produced.
-	title := tview.Escape(rawTitle)
 
 	// Normally a foreground-only tag (background left untouched, so it
 	// shows whatever the row's base background already is), regular
@@ -1861,20 +1890,55 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 	// red/maroon (colorTag) elsewhere in this file. A hex value is a fixed
 	// RGB, immune to that remapping.
 	if !haveHosts {
+		// No shared column exists yet (see computeHostColumnLayout) - fall
+		// back to fitting the title against the raw available width
+		// directly, same as this function always did before a column
+		// existed to align to.
+		availContent := avail - len(taskIndent)
+		if availContent < 0 {
+			availContent = 0
+		}
+		nameWidth := len(nameRunes)
+		truncated := false
+		if nameWidth > availContent {
+			nameWidth = availContent
+			truncated = true
+		}
+		var rawTitle string
+		if truncated && nameWidth >= 1 {
+			rawTitle = string(nameRunes[:nameWidth-1]) + "…"
+		} else {
+			rawTitle = string(nameRunes[:nameWidth])
+		}
+		title := tview.Escape(rawTitle)
 		if selected {
 			return prefix + "[" + pureBlack + ":lightgray:b]" + title + "[-:-:-]"
 		}
 		return prefix + "[silver::-]" + title + "[-::-]"
 	}
 
-	// The actual rendered gap is whatever's really left over once title and
-	// (possibly-shrunk) hosts are sized - right-aligning the host list to
-	// the row's far edge, same "variable padding, floored low" shape as the
-	// old counts-based taskLabel's own padding math.
-	padding := availContent - tview.TaggedStringWidth(title) - hostsWidth()
-	if padding < minRenderedGap {
-		padding = minRenderedGap
+	nameWidth := len(nameRunes)
+	truncatedName := nameWidth > layout.TitleColWidth
+	if truncatedName {
+		nameWidth = layout.TitleColWidth
 	}
+	var rawTitle string
+	if truncatedName && nameWidth >= 1 {
+		rawTitle = string(nameRunes[:nameWidth-1]) + "…"
+	} else {
+		rawTitle = string(nameRunes[:nameWidth])
+	}
+	// Escape only now that the raw text is already correctly sized, so
+	// slicing above can never cut into an escape sequence Escape() would
+	// otherwise have produced.
+	title := tview.Escape(rawTitle)
+
+	// Deterministic, unlike the old right-aligned version's "whatever's
+	// left over" padding: exactly enough spaces to reach TitleColWidth
+	// (0 for the row whose own title defines the column, since
+	// nameWidth == TitleColWidth there), plus titleHostGapFloor more -
+	// the minimum gap every row gets, per TUI.md.
+	padding := layout.TitleColWidth - nameWidth + titleHostGapFloor
 
 	if selected {
 		// No neutral/uncolored cells anywhere: the gray title background
@@ -1905,7 +1969,7 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 			if done {
 				tag = colorTag(o)
 			}
-			name := tview.Escape(string(hostRunes[i]))
+			name := tview.Escape(layout.HostDisplay[i])
 			if i == 0 {
 				fmt.Fprintf(&b, "[%s:%s:b] %s[-:-:-]", pureBlack, tag, name)
 			} else {
@@ -1929,7 +1993,7 @@ func taskLabel(task *taskNode, allHosts []string, avail int, active bool, frame 
 		if done {
 			tag = colorTag(o)
 		}
-		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(string(hostRunes[i])))
+		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(layout.HostDisplay[i]))
 	}
 
 	return prefix + styledTitle + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")

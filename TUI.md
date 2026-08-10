@@ -144,3 +144,82 @@ ________________________________________________________________________________
     part is only meant for a quick glance. The user can always open the task.
 * Visualization when the task is selected and opened should be the same as
   before
+
+
+
+## Tree View - third iteration
+
+* Task title is displayed left aligned, indented - same as before
+* Current task shows the busy spinner on the far left - same as before
+* If possible, all task title shall be rendered in full. If necessary, task
+  titles can be shorted to a minimum of 30 characters but not shorter - same
+  as before
+
+* NEW: Host names are rendered after the task title. Left aligned (not right
+  aligned as in previous versions).
+* If all host names fit -> everything's fine
+* If not, titles shall be shrinked to accomodate - same as before
+* NEW: Important: host names start at the same column no matter if the
+  respective task title is very short or long or has been cut short or not
+* The color of each host name indicates OK, Skipped, Changed, Fail,
+  Unreachable - same as before
+* The order of the hosts should be the same for each task (to make it easier
+  to scan visually). - same as before
+
+* If task name + all the host names (plus add'l 3 spaces between task name
+  and first host name) are longer than the line length, the following
+  algorithm applies - this whole point is the same as before
+  * First: shorten task title (minimum 15 characters). If everything fits now -> done
+  * Second: gradually shorten hostnames
+    * Take the longest host name (at the moment) and reduce by one
+    * If everything fits now -> done, otherwise repeat
+  * It is accepted that truncation of hostnames my lead to collisions. This
+    part is only meant for a quick glance. The user can always open the task.
+
+* The current task is visualized via an inverse cursor. But the cursor shall
+  only cover the task title but *not* the hostnames. They shall always be
+  rendered on black background
+
+Rough sketch 1
+
+```
+_setup.yml   01:42   Filter: All________________________________________________
+PLAY: First play
+PLAY: Some play
+  TASK: Some task                                      ab ar ch ha mo mu nir zen
+  TASK: Another task, longer title                     ab ar ch ha mo mu nir zen
+PLAY: Next play
+  TASK: Yet another task with an awkwardly long name   ab ar ch ha mo mu nir zen
+    hades:   OK
+    nirvana: Changed
+    mukti:   Skipped
+...
+...
+...
+
+
+________________________________________________________________________________
+ up/down navigate; enter: show info; q: exit
+```
+
+Rough sketch 2
+
+```
+_setup.yml   01:42   Filter: All________________________________________________
+PLAY: First play
+PLAY: Some play
+  TASK: Some task          abyss hades mukti
+  TASK: Another task,      abyss hades mukti
+PLAY: Next play
+  TASK: Yet another task   abyss hades mukti
+    hades:   OK
+    nirvana: Changed
+    mukti:   Skipped
+...
+...
+...
+
+
+________________________________________________________________________________
+ up/down navigate; enter: show info; q: exit
+```
