@@ -270,4 +270,4 @@ go test -tags e2e ./...
 
 ## License
 
-GPL-2.0 — see `LICENSE`.
+Apache-2.0 — see `LICENSE`.
