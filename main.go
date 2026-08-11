@@ -196,8 +196,17 @@ func startFirstGeneration(playbook string, rest []string, procH *procHandle, cle
 func main() {
 	v, args, ok := parseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|template> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
+	}
+
+	// "template" (design-docs/Tangsible template.md) is a standalone,
+	// single-view program - it shares none of run/rerun/role's own
+	// tree-building machinery below (procH, playbook resolution, the live
+	// jsonl pipeline, NewLiveTUI, ...), so it's split off here before any
+	// of that gets set up, rather than threaded through the switch below.
+	if v == verbTemplate {
+		os.Exit(runTemplateVerb(args))
 	}
 
 	var procH procHandle

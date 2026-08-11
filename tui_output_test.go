@@ -36,6 +36,11 @@ func TestRoleFromPath(t *testing.T) {
 			want: "myrole",
 		},
 		{
+			name: "role-sourced template, no trailing :line",
+			path: "/home/user/project/roles/myrole/templates/foo.conf.j2",
+			want: "myrole",
+		},
+		{
 			name: "play-level task, not role-sourced",
 			path: "/home/user/project/site.yml:8",
 			want: "",

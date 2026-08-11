@@ -2547,25 +2547,32 @@ func taskSourceLocation(path string) string {
 }
 
 // rolePathPattern matches the standard Ansible role directory layout
-// ("roles/<name>/tasks/..." or "roles/<name>/handlers/...") within a
-// task's own source path. A heuristic, not derived from any event field -
-// confirmed empirically that a role-sourced task's own v2_playbook_on_
-// task_start event carries no distinct "role" field at all, only the
-// convention of prefixing the task's display name as "<role> : <task
-// name>" (which this deliberately doesn't parse instead - a path-based
-// match is more robust than relying on a cosmetic display-name
-// convention). Same "good enough for the standard convention, not chased
-// further" style as this file's other derived-but-unlabeled info, e.g.
-// colorizeYAML's yamlKeyLine.
-var rolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers)/`)
+// ("roles/<name>/tasks/...", "roles/<name>/handlers/...", or
+// "roles/<name>/templates/...") within a task's or template's own source
+// path. A heuristic, not derived from any event field - confirmed
+// empirically that a role-sourced task's own v2_playbook_on_task_start
+// event carries no distinct "role" field at all, only the convention of
+// prefixing the task's display name as "<role> : <task name>" (which this
+// deliberately doesn't parse instead - a path-based match is more robust
+// than relying on a cosmetic display-name convention). Same "good enough
+// for the standard convention, not chased further" style as this file's
+// other derived-but-unlabeled info, e.g. colorizeYAML's yamlKeyLine.
+// templates was added alongside tasks/handlers for design-docs/Tangsible
+// template.md's own role-detection: a template path matching
+// roles/<name>/templates/... auto-detects the same way a task's own path
+// already does, reusing this single pattern/function rather than a
+// parallel one.
+var rolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers|templates)/`)
 
-// roleFromPath returns the role name a task's own path was sourced from,
-// or "" if it doesn't match the standard roles/<name>/tasks|handlers/
-// layout at all (a play-level task, or a role laid out unconventionally).
-// Matched directly against the full "<file>:<line>" path with no need to
-// strip the ":<line>" suffix first - the pattern only looks for a "/"
-// immediately after "tasks"/"handlers", which the trailing ":<line>"
-// (appearing only after the filename that follows) never interferes with.
+// roleFromPath returns the role name a task's or template's own path was
+// sourced from, or "" if it doesn't match the standard
+// roles/<name>/tasks|handlers|templates/ layout at all (a play-level task,
+// a template outside any role, or a role laid out unconventionally).
+// Matched directly against the full "<file>:<line>" path (or, for a
+// template, a plain path with no ":line" suffix at all) with no need to
+// strip anything first - the pattern only looks for a "/" immediately
+// after "tasks"/"handlers"/"templates", which a trailing ":<line>" (a
+// task's own path shape) never interferes with.
 func roleFromPath(path string) string {
 	m := rolePathPattern.FindStringSubmatch(path)
 	if m == nil {
