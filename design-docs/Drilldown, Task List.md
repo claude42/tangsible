@@ -31,5 +31,46 @@ Similar behavior as the actions above, but use
 Command: <cmd>
 
 
+# New
+
+## ansible.builtin.shell
+
+Similar behavior as ansible.builtin.command, but use
+
+Command: <cmd>
+
+## ansible.builtin.apt_repository
+
+Same as above, use
+
+Filename: <sources_added>
+
+## ansible.builtin.assemble, ansible.builtin.git
+
+Same behavior as e.g. ansible.builtin.copy.
+
+Filename: <dest>
+
+## ansible.builtin.user
+
+Print the following on the drilldown page
+
+User: <name>
+SSH public key: <ssh_public_key>
+
+In the host line add (User: <name>, SSH public key: <ssh_public_key>)
+
+## Warnings in general
+
+If the results contain a <warnings> field. Add another section to the
+drilldown page (between Output and Error) and print the contents of the
+warnigns field there.
+
+
+
+
+
+
+
 
 More to come but let's start with these to see how it looks

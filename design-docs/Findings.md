@@ -9,7 +9,7 @@ immediately implemented.
 
 * Hide cursor when autoscrolling is active
 
-* Need concept on how / when to display stderr output
+* Need concept on how / when to display global stderr output
 
 * All lines are currently selectable
 
@@ -19,25 +19,17 @@ immediately implemented.
 
 * Search in drill down window
 
-# Further Feature ideas
-
-* Filter
-  * All / OK / Skipped / Changed / Failed
-  * Full text
-
-* Re-run
-  * All, Selected tasks, failed tasks
-  * With different hosts
+* Summary line not visible - beyond the screen
 
 * Progress bar (by analyzing playbook)
 
-* View Play, Task
+* View Play
 
 * --step, --check, --diff
 
-* Interactive prompts (passwords)
-
-* Visualize loops
-
 * When everything is expanded while playbook is still running, show new
   entries also expanded.
+
+* Split pane
+
+* Edit files from drilldown view
