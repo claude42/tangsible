@@ -816,12 +816,14 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		layout := computeHostColumnLayout(state, state.AllHosts, width)
 
 		currentRows = flattenRows(state, expanded, width, layout, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
+		hasStatusRow := false
 		if frozen && everStarted {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
 				currentRows = append(currentRows,
 					row{text: "", id: statusDividerRowID{}},
 					row{text: text, id: statusRowID{}},
 				)
+				hasStatusRow = true
 			}
 		}
 
@@ -900,6 +902,31 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 			list.AddItem(r.text, selected)
 		}
 		list.SetCurrentItem(selectedIndex)
+
+		// Reveal the trailing status row(s) on the running-to-frozen
+		// transition, same bug class revealExpandedTask already exists
+		// for: following's own selectedIndex deliberately stays on the
+		// last *real* row (see above, past the status divider/text rows,
+		// which have no selected-row rendering), and that row was already
+		// this list's currentItem throughout the run (following kept it
+		// pinned to the newest row as it streamed in) - so
+		// SetCurrentItem's index doesn't actually change here, and
+		// treeList's own ensureVisible (only runs on a genuine index
+		// change) never fires. Reported live: once a run's output filled
+		// more than one screen, the final "Playbook completed..." line
+		// stayed just below the bottom edge until manually scrolled to.
+		// Gated on following - once the user has navigated away (or the
+		// failure-cursor auto-jump above has already turned it off),
+		// their own cursor placement wins and this must not fight it by
+		// yanking the view back down to the status row.
+		if following && hasStatusRow {
+			if _, _, _, height := list.GetInnerRect(); height > 0 {
+				desired := len(currentRows) - 1 - height + 1
+				if desired > list.GetOffset() {
+					list.SetOffset(desired)
+				}
+			}
+		}
 	}
 
 	outputView.SetDoneFunc(func(tcell.Key) {
