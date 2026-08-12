@@ -281,6 +281,55 @@ func TestE2E_RerunDialog_StartAtTaskSkipsEarlierTasks(t *testing.T) {
 	}
 }
 
+// TestE2E_RerunDialog_ClearedFieldStaysCleared is a direct regression guard
+// for a real bug reported live: the dialog's own pre-fill logic used to
+// re-derive "has this field ever been touched" from whether it was
+// currently empty (GetText() == "") - which can't distinguish "never
+// edited" from "the user deliberately cleared it," since an empty Hosts
+// field is itself a meaningful, intentional value (Reassemble's own "no
+// --limit, run for every host"). Clearing the field to rerun against every
+// host, then reopening the dialog, silently re-pre-filled the original
+// -l value right back in - exactly the case this test pins down.
+func TestE2E_RerunDialog_ClearedFieldStaysCleared(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	workDir := t.TempDir()
+	playbook := filepath.Join(repoRoot(t), "testdata", "multihost.yml")
+	inventory := filepath.Join(repoRoot(t), "testdata", "multihost-inventory.ini")
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s run %s -i %s -l host1", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.waitFor("Playbook completed successfully", 15*time.Second)
+
+	s.send("r")
+	got := s.waitForFieldValue("Limit hosts to:", "host1", 5*time.Second)
+	if !strings.Contains(lineContaining(got, "Limit hosts to:"), "host1") {
+		t.Fatalf("Hosts field on first open = %q, want it pre-filled with \"host1\" from -l", lineContaining(got, "Limit hosts to:"))
+	}
+
+	// Tab from Task -> Tags -> Skip tags -> Hosts, then clear it.
+	s.send("Tab", "Tab", "Tab", "C-u")
+	s.send("Enter")
+
+	// Both hosts' own rows must appear - confirms the clear actually took
+	// effect and this generation really ran unrestricted, not just that
+	// the field visually looked empty.
+	s.waitFor("host2", 15*time.Second)
+	got = s.waitFor("Playbook completed successfully", 15*time.Second)
+	if !strings.Contains(got, "host1") || !strings.Contains(got, "host2") {
+		t.Fatalf("expected the cleared Hosts field to run against every host, got:\n%s", got)
+	}
+
+	s.send("r")
+	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	got = s.capture()
+	hostsLine := lineContaining(got, "Limit hosts to:")
+	if strings.Contains(hostsLine, "host1") {
+		t.Errorf("Hosts field on second open = %q, want it to stay empty (as the user left it) rather than reverting to the original -l value", hostsLine)
+	}
+	s.send("Escape")
+}
+
 // TestE2E_CLIRerun_ShowsDialogBeforeRunning covers Phase D's own distinct
 // code path (no generation started until the dialog is confirmed,
 // everStarted gating the status row) with a real subprocess/file boundary

@@ -1155,6 +1155,20 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		// SetFocus above, if either ran - harmless no-op if neither did
 		// (list already has focus in that case).
 	}
+	// tagsPreFilled/skipTagsPreFilled/hostsPreFilled latch true the first
+	// time openRerunDialog ever pre-fills each field, independent of what
+	// the field then contains - deliberately not re-derived from
+	// GetText() == "" on every open (that was the original design, and a
+	// real bug caught live: clearing a field to "" is itself a
+	// meaningful, intentional edit - Reassemble treats an empty Hosts as
+	// "no --limit, all hosts" - but GetText() == "" can't tell that apart
+	// from "never touched," so the *next* open silently re-pre-filled
+	// over the user's own deliberate choice to clear it). A one-time
+	// latch has no such ambiguity: once a field has been pre-filled once,
+	// it is never touched by this function again, regardless of what the
+	// user does with it afterward, empty included.
+	var tagsPreFilled, skipTagsPreFilled, hostsPreFilled bool
+
 	// openRerunDialog (Rerun.md's 'r' key - see SetInputCapture below,
 	// gated there on processDone since re-running only makes sense once a
 	// run has finished). Task is deliberately never pre-filled (see
@@ -1162,20 +1176,24 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// pre-fill design was dropped) - like Tags/Hosts, it just keeps
 	// whatever was last typed into it, empty on the very first open of the
 	// session. Tags/Hosts specifically are pre-filled from initialTags/
-	// initialHosts (this process's own invocation) only the first time
-	// each is opened while still empty - once the user has typed anything
-	// into either, later opens leave it alone.
+	// initialHosts (this process's own invocation) only the very first
+	// time each is opened at all - see tagsPreFilled/skipTagsPreFilled/
+	// hostsPreFilled above - every open after that leaves the field alone,
+	// whatever it now contains.
 	openRerunDialog := func() {
 		rerunDialogOpen = true
 
-		if tagsField.GetText() == "" {
+		if !tagsPreFilled {
 			tagsField.SetText(initialTags)
+			tagsPreFilled = true
 		}
-		if skipTagsField.GetText() == "" {
+		if !skipTagsPreFilled {
 			skipTagsField.SetText(initialSkipTags)
+			skipTagsPreFilled = true
 		}
-		if hostsField.GetText() == "" {
+		if !hostsPreFilled {
 			hostsField.SetText(initialHosts)
+			hostsPreFilled = true
 		}
 
 		rerunForm.SetFocus(0) // always start on the Task field, not
