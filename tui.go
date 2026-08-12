@@ -465,7 +465,14 @@ func filterDialogText(active filterQuery) string {
 // frozen run - see everStarted below for the one place that distinction
 // actually matters once frozen means "genuinely nothing has run yet"
 // rather than "a run finished."
-func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string)) (app *tview.Application, applyLive func(rawEvent)) {
+// passthroughArgs is this session's own current-generation passthrough
+// args (main.go's originalArgs.Rest - importantly -i/-e, never
+// -l/--limit, which parsePassthroughArgs already extracts separately) -
+// threaded through only so showOutput's own resolveTaskValues calls (see
+// design-docs/Drilldown, Resolved Values.md) see the same
+// inventory/extra-vars context the real run did. Not used for anything
+// else in this function.
+func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -702,10 +709,60 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	var outputTask *taskNode
 	var outputHost string
 
+	// resolveKey identifies one (task, host) pair's own "Resolved"
+	// section cache entry (design-docs/Drilldown, Resolved Values.md).
+	type resolveKey struct {
+		task *taskNode
+		host string
+	}
+	// resolveCache holds every (task, host) pair's own resolvedRender for
+	// the lifetime of the current generation - cleared inside
+	// submitRerun's own view-state reset (the same place expanded/
+	// currentID/following etc. already get reset), so a stale render
+	// computed against a previous generation's own vars can never linger.
+	// Read/written only from this function's own event-loop goroutine
+	// (showOutput directly; the background goroutine below only ever
+	// touches it from inside app.QueueUpdateDraw), so - like everything
+	// else in this file - it needs no locking of its own.
+	resolveCache := map[resolveKey]resolvedRender{}
+
 	showOutput := func(task *taskNode, host string) {
 		outputTask, outputHost = task, host
 		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
-		outputView.SetText(formatHostOutput(task, host, sourceIndex))
+
+		// Kicked off the moment a drill-down opens (or navigates to a
+		// different host/task), not gated behind a keypress - per
+		// design-docs/Drilldown, Resolved Values.md. Runs on its own
+		// goroutine so opening the view is never blocked on a real
+		// ansible-playbook invocation; the "Resolved" section reads
+		// "Resolving..." (formatHostOutput's own Pending case) until it
+		// completes. The outputTask/outputHost/viewingOutput check right
+		// before updating the view guards against a stale result landing
+		// after the user has already navigated elsewhere - the cache
+		// itself is still updated regardless, so a later revisit is free.
+		key := resolveKey{task, host}
+		resolved, cached := resolveCache[key]
+		if !cached {
+			resolved = resolvedRender{Pending: true}
+			resolveCache[key] = resolved
+			go func() {
+				text, err := resolveTaskValues(task.Path, sourceIndex[task.Path], host, passthroughArgs)
+				result := resolvedRender{}
+				if err != nil {
+					result.Err = err.Error()
+				} else {
+					result.Text = text
+				}
+				app.QueueUpdateDraw(func() {
+					resolveCache[key] = result
+					if outputTask == task && outputHost == host && viewingOutput {
+						outputView.SetText(formatHostOutput(task, host, sourceIndex, result))
+					}
+				})
+			}()
+		}
+
+		outputView.SetText(formatHostOutput(task, host, sourceIndex, resolved))
 		// SetText does not reset scroll position (lineOffset/trackEnd) -
 		// without this, reopening a different host's output right after
 		// scrolling through a previous one would open already scrolled to
@@ -1409,6 +1466,9 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		failureCursorPlaced = false
 		haveFrozenElapsed = false
 		frozenElapsed = 0
+		resolveCache = map[resolveKey]resolvedRender{} // a new generation
+		// means new vars/facts - any cached "Resolved" render is for a
+		// previous generation's own values and must not linger.
 		everStarted = true // only a real transition the very first time
 		// this fires for the "rerun" verb's startup dialog (see
 		// startWithRerunDialog) - a harmless no-op reassignment every time
@@ -2672,6 +2732,23 @@ func roleFromPath(path string) string {
 	return m[1]
 }
 
+// resolvedRender is one (task, host) pair's own "Resolved" section state
+// (design-docs/Drilldown, Resolved Values.md) - Pending means the
+// background render (see NewLiveTUI's resolveCache) hasn't finished yet;
+// otherwise exactly one of Text (success - the task's own source with its
+// variables filled in) or Err (the resolve attempt's own failure message,
+// distinct from the real task's own Failed/Unreachable outcome) is set.
+// The zero value (Pending false, Text/Err both empty) means "never
+// requested" - formatHostOutput treats that identically to Pending, since
+// showOutput always requests a resolve the moment a drill-down opens, so
+// in practice the zero value is only ever seen for the single frame
+// before that request is even issued.
+type resolvedRender struct {
+	Pending bool
+	Text    string
+	Err     string
+}
+
 // formatHostOutput renders task.Raw[host] for the output drill-down view,
 // per the layout in design-docs/drilldown.txt: a Task summary block
 // (Name/Role/Host/Status), Output, Items (a looped task's own per-item
@@ -2709,7 +2786,14 @@ func roleFromPath(path string) string {
 // path, or just not found - an unusual file layout, or a task/play
 // genuinely generated at runtime) omits that section entirely rather than
 // showing an error.
-func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) string {
+//
+// resolved carries the "Resolved" section's own state (design-docs/
+// Drilldown, Resolved Values.md) - computed asynchronously by the caller
+// (showOutput, see NewLiveTUI), never by this function itself, since a
+// real ansible-playbook invocation is far too slow to run synchronously
+// from inside a pure render function. Placed right after Task definition
+// so raw and resolved source sit side by side for comparison.
+func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender) string {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		// Shouldn't happen in normal operation - every host recorded via
@@ -2831,6 +2915,22 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex) 
 		b.WriteString("\n\n")
 	}
 	writeSourceSection("orange", "Task definition", task.Path)
+
+	// Resolved: design-docs/Drilldown, Resolved Values.md - the same task
+	// definition just shown above, re-rendered with its variables filled
+	// in. Right after Task definition, deliberately, so raw and resolved
+	// sit side by side for comparison. Blue - outside both the outcome
+	// palette (green/yellow/teal/red/maroon) and every other section
+	// color already in use here, so it's never mistaken for either.
+	switch {
+	case resolved.Pending:
+		writeTextSection("blue", "Resolved", "Resolving...")
+	case resolved.Err != "":
+		writeTextSection("blue", "Resolved", "Could not resolve: "+resolved.Err)
+	default:
+		writeTextSection("blue", "Resolved", resolved.Text)
+	}
+
 	if task.Play != nil {
 		writeSourceSection("purple", "Play definition", task.Play.Path)
 	}

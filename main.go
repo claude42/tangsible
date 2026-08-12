@@ -517,7 +517,7 @@ func main() {
 	if roleDisplayName != "" {
 		displayName = roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun)
+	app, applyLive := NewLiveTUI(state, displayName, &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)
