@@ -2251,18 +2251,91 @@ func nearestVisibleTask(all []*taskNode, anchor *taskNode, visible []*taskNode) 
 // command/shell task with a non-zero return code, msg is often just a
 // fixed status string ("non-zero return code") alongside the real output
 // already sitting in stdout. Falls back to msg for modules that only set
-// that field (most non-command modules, e.g. debug/fail/assert). Shared by
-// formatHostOutput (the full drill-down view) and outputSummary (the
-// collapsed treeview OK line) so both agree on what "the output" means for
-// a given result.
+// that field (most non-command modules, e.g. debug/fail/assert) - msg
+// need not be a plain string (ansible.builtin.debug's own msg: parameter
+// can be given as a YAML list, confirmed empirically: `msg: [a, b]`
+// arrives as a JSON array, not a string), so debugValueText handles
+// whatever shape it turns out to be rather than a strict .(string)
+// assertion silently discarding anything else. Falls back further still,
+// for ansible.builtin.debug specifically, to debugVarValue - the var:
+// form of that module has no "msg" key at all, only a key named after
+// whatever variable/expression was given. Shared by formatHostOutput (the
+// full drill-down view) and outputSummary (the collapsed treeview OK
+// line) so both agree on what "the output" means for a given result.
 func primaryOutputField(decoded map[string]interface{}) (label, text string) {
 	if stdout, ok := decoded["stdout"].(string); ok && stdout != "" {
 		return "STDOUT", stdout
 	}
-	if msg, ok := decoded["msg"].(string); ok && msg != "" {
-		return "MSG", msg
+	if msg, ok := decoded["msg"]; ok {
+		if text := debugValueText(msg); text != "" {
+			return "MSG", text
+		}
+	}
+	if moduleShortName(decoded) == "debug" {
+		if text, ok := debugVarValue(decoded); ok {
+			return "MSG", text
+		}
 	}
 	return "", ""
+}
+
+// debugValueText renders a value from a debug task's own result (its
+// "msg", or its var:-named key via debugVarValue below) as display text:
+// a plain string as-is; a JSON array of strings newline-joined (matching
+// debug's own `msg: [a, b]` shape, reusing joinedStringList); anything
+// else (a dict, a list of non-strings, a number, a bool) as
+// pretty-printed JSON - always something readable rather than silently
+// nothing, same "always show *something*" fallback style as
+// formatHostOutput's own decode-failure path.
+func debugValueText(v interface{}) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	if joined := joinedStringList(v, "\n"); joined != "" {
+		return joined
+	}
+	pretty, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(pretty)
+}
+
+// debugStandardKeys are the fields an ansible.builtin.debug result always
+// or commonly carries that are never the var: value itself - used by
+// debugVarValue below to isolate the one remaining key that is.
+var debugStandardKeys = map[string]bool{
+	"changed": true, "failed": true, "skipped": true, "unreachable": true,
+	"action": true, "msg": true, "invocation": true, "warnings": true,
+	"deprecations": true, "exception": true, "results": true,
+	"item": true, "ansible_loop_var": true,
+}
+
+// debugVarValue implements ansible.builtin.debug's var: form: unlike msg:,
+// there's no fixed key to look up - the result's own key is named after
+// whatever variable or expression var: was given (confirmed empirically:
+// `var: some_list` reports a top-level "some_list" key; `var: outer.inner`
+// reports a literal "outer.inner" key), which this file has no way to
+// know in advance. debug's own documentation states var: and msg: are
+// mutually exclusive, so - after excluding debugStandardKeys and any
+// "_ansible_*" bookkeeping key - a debug result has either zero extra
+// keys (an msg: task, or nothing usable) or exactly one (the var: task's
+// own value, whatever it's named): ok is true only in that one
+// unambiguous case, never guessing among several candidates.
+func debugVarValue(decoded map[string]interface{}) (text string, ok bool) {
+	var found interface{}
+	count := 0
+	for k, v := range decoded {
+		if debugStandardKeys[k] || strings.HasPrefix(k, "_ansible_") {
+			continue
+		}
+		found = v
+		count++
+	}
+	if count != 1 {
+		return "", false
+	}
+	return debugValueText(found), true
 }
 
 // moduleShortName returns decoded["action"] with any collection prefix

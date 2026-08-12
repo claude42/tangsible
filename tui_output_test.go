@@ -16,6 +16,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -161,6 +162,107 @@ func TestLoopItemLabels(t *testing.T) {
 		got := loopItemLabels(map[string]interface{}{"results": []interface{}{}})
 		if len(got) != 0 {
 			t.Errorf("loopItemLabels() = %v, want empty", got)
+		}
+	})
+}
+
+func TestPrimaryOutputFieldDebugCases(t *testing.T) {
+	t.Run("debug msg: plain string", func(t *testing.T) {
+		decoded := map[string]interface{}{"action": "ansible.builtin.debug", "msg": "hello world"}
+		_, text := primaryOutputField(decoded)
+		if text != "hello world" {
+			t.Errorf("primaryOutputField() text = %q, want %q", text, "hello world")
+		}
+	})
+
+	t.Run("debug msg: a list of strings - not a plain string, must not be silently dropped", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"action": "ansible.builtin.debug",
+			"msg":    []interface{}{"line one", "line two"},
+		}
+		_, text := primaryOutputField(decoded)
+		if text != "line one\nline two" {
+			t.Errorf("primaryOutputField() text = %q, want %q", text, "line one\nline two")
+		}
+	})
+
+	t.Run("debug msg: a dict - falls back to pretty JSON, never empty", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"action": "ansible.builtin.debug",
+			"msg":    map[string]interface{}{"port": float64(8080)},
+		}
+		_, text := primaryOutputField(decoded)
+		if !strings.Contains(text, "8080") {
+			t.Errorf("primaryOutputField() text = %q, want it to contain 8080", text)
+		}
+	})
+
+	t.Run("debug var: form - no msg key at all, value under a var-named key", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"action":      "ansible.builtin.debug",
+			"changed":     false,
+			"outer.inner": "hi",
+		}
+		_, text := primaryOutputField(decoded)
+		if text != "hi" {
+			t.Errorf("primaryOutputField() text = %q, want %q", text, "hi")
+		}
+	})
+
+	t.Run("debug var: form with a non-string value - pretty JSON", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"action":    "ansible.builtin.debug",
+			"changed":   false,
+			"some_list": []interface{}{float64(1), float64(2), float64(3)},
+		}
+		_, text := primaryOutputField(decoded)
+		if !strings.Contains(text, "1") || !strings.Contains(text, "3") {
+			t.Errorf("primaryOutputField() text = %q, want it to contain the list's own values", text)
+		}
+	})
+
+	t.Run("debug with no msg and no extra key - nothing to show, not a crash", func(t *testing.T) {
+		decoded := map[string]interface{}{"action": "ansible.builtin.debug", "changed": false}
+		_, text := primaryOutputField(decoded)
+		if text != "" {
+			t.Errorf("primaryOutputField() text = %q, want empty", text)
+		}
+	})
+
+	t.Run("debug with two extra keys - ambiguous, deliberately not guessed", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"action": "ansible.builtin.debug",
+			"foo":    "a",
+			"bar":    "b",
+		}
+		_, text := primaryOutputField(decoded)
+		if text != "" {
+			t.Errorf("primaryOutputField() text = %q, want empty (ambiguous - two candidate keys)", text)
+		}
+	})
+
+	t.Run("a looped debug task's own results key is excluded, not mistaken for the var value", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"action": "ansible.builtin.debug",
+			"msg":    "All items completed",
+			"results": []interface{}{
+				map[string]interface{}{"item": "a"},
+			},
+		}
+		_, text := primaryOutputField(decoded)
+		if text != "All items completed" {
+			t.Errorf("primaryOutputField() text = %q, want %q", text, "All items completed")
+		}
+	})
+
+	t.Run("a non-debug module with an extra field never triggers the var: heuristic", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"action": "ansible.builtin.stat",
+			"stat":   map[string]interface{}{"exists": true},
+		}
+		_, text := primaryOutputField(decoded)
+		if text != "" {
+			t.Errorf("primaryOutputField() text = %q, want empty - the var: heuristic is debug-only", text)
 		}
 	})
 }
