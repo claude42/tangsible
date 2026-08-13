@@ -405,6 +405,11 @@ func inRect(x, y int, p tview.Primitive) bool {
 // three apply then. No tview.Escape() needed - every piece of text here is
 // a fixed literal, never external content (same reasoning as
 // formatHostOutput's own fixed labels).
+//
+// The old trailing "Esc/q to cancel" hint line is gone - replaced by a real
+// Cancel button in filterFlex (see NewLiveTUI) - Esc/q still work as
+// keyboard shortcuts too, but no longer need a text hint now that there's a
+// clickable affordance for the same action.
 func filterDialogText(active filterQuery) string {
 	mark := func(mode filterMode) string {
 		if mode == active.mode {
@@ -416,8 +421,7 @@ func filterDialogText(active filterQuery) string {
 		" [::b]Select filter[::-]\n\n"+
 			" %s A - Show all\n"+
 			" %s C - Show changed (includes failed)\n"+
-			" %s F - Show only failed tasks\n\n"+
-			" [gray]Esc/q to cancel[-]",
+			" %s F - Show only failed tasks",
 		mark(filterAll), mark(filterChanged), mark(filterFailed),
 	)
 }
@@ -664,9 +668,11 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// against pages.go).
 	//
 	// filterDialog is a plain TextView - a static a/c/f menu, no text
-	// entry at all.
+	// entry at all. No border/title of its own - those live on filterFlex
+	// instead (constructed further down, once closeDialogs exists for its
+	// own Cancel button to call), which wraps this TextView together with
+	// a real Cancel button below it.
 	filterDialog := tview.NewTextView().SetDynamicColors(true)
-	filterDialog.SetBorder(true).SetTitle(" Filter ")
 
 	// searchDialog is a headline TextView plus a real tview.InputField for
 	// the search box - a TextView can display text but can't accept
@@ -1367,6 +1373,45 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		}
 	})
 
+	// Mouse-only Search/Cancel buttons, added below the input field -
+	// design-docs/Tabbed UI.md's sibling mouse-support pass, closing the
+	// gap where this dialog's own InputField had no click-based way to
+	// apply/cancel (Enter/Esc already fully cover the keyboard path, so
+	// these exist purely for a mouse user). Deliberately plain
+	// tview.Buttons, not folded into a tview.Form the way rerunForm below
+	// is: searchInput already repurposes Enter/Esc/Tab/Backtab away from
+	// their native meaning via SetDoneFunc above, and Form.Focus()
+	// silently overwrites a FormItem's own SetFinishedFunc on every focus
+	// change to drive its own Tab-cycling - mixing the two would mean both
+	// callbacks firing off the same keypress (confirmed against
+	// inputfield.go's own "finish" closure, which calls done then finished
+	// unconditionally), risking Form's own internal re-focus undoing
+	// closeDialogs' app.SetFocus(list) right after it runs. Not worth the
+	// risk for two small buttons whose keyboard path already works fully -
+	// these are click-only, not Tab-reachable.
+	searchApplyButton := tview.NewButton("Search").SetSelectedFunc(func() {
+		applyFilter(filterQuery{mode: filterSearch, search: searchInput.GetText()})
+	})
+	searchCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeDialogs)
+	// A real tview.NewBox(), not a bare nil, for every spacer item below -
+	// discovered live (reported as content from behind the dialog "showing
+	// through" wherever a blank line/gap sits): a nil Flex item reserves
+	// space but draws nothing into it, and unlike a real child primitive
+	// (which fills its own cells via its own Draw()), nothing ever
+	// repaints that gap's cells on top of whatever this dialog's own
+	// containing Pages "search" page previously drew underneath. A plain
+	// Box has no visible content of its own, but its Draw() still runs and
+	// fills its own rect with the dialog's background - solid, not
+	// see-through.
+	searchDialogFlex.
+		AddItem(tview.NewBox(), 1, 0, false).
+		AddItem(tview.NewFlex().
+			AddItem(tview.NewBox(), 0, 1, false).
+			AddItem(searchApplyButton, 10, 0, false).
+			AddItem(tview.NewBox(), 2, 0, false).
+			AddItem(searchCancelButton, 10, 0, false).
+			AddItem(tview.NewBox(), 0, 1, false), 1, 0, false)
+
 	list.SetChangedFunc(func(index int) {
 		if rebuilding {
 			// treeList.Clear() resets currentItem to -1, and the first
@@ -1421,11 +1466,34 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		AddItem(list, 0, 1, true).
 		AddItem(bottomBar, 1, 0, false)
 
+	// filterFlex wraps filterDialog's own A/C/F menu together with a real,
+	// right-aligned Cancel button below it - built here rather than back
+	// where filterDialog itself was constructed, since it needs
+	// closeDialogs (defined above) for the button's own click handler.
+	// Esc/q still close the dialog too (SetInputCapture's own
+	// filterDialogOpen branch, unchanged) - the button is an added mouse
+	// affordance, not a replacement for those.
+	filterCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeDialogs)
+	// A real tview.NewBox() for every spacer item, not a bare nil - see
+	// searchDialogFlex's own button row above for why (a nil Flex item
+	// draws nothing, so nothing ever repaints its cells over whatever the
+	// main tree drew underneath there - a real Box's Draw() fills its own
+	// rect with the dialog's background even though it shows no content).
+	filterFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewBox(), 1, 0, false). // top margin
+		AddItem(filterDialog, 0, 1, false).
+		AddItem(tview.NewFlex().
+							AddItem(tview.NewBox(), 0, 1, false).
+							AddItem(filterCancelButton, 10, 0, false).
+							AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
+		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
+	filterFlex.SetBorder(true).SetTitle(" Filter ")
+
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
-	pages.AddPage("filter", centeredModal(filterDialog, 46, 9), true, false)
-	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 7), true, false)
-	pages.AddPage("rerun", centeredModal(rerunForm, 56, 11), true, false)
+	pages.AddPage("filter", centeredModal(filterFlex, 46, 10), true, false)
+	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 9), true, false)
+	pages.AddPage("rerun", centeredModal(rerunForm, 56, 13), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
 	// Everything else falls out of tview's own defaults once mouse events
@@ -1518,6 +1586,28 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		startHeartbeat()
 	}
 
+	// Re-run/Cancel buttons - unlike searchDialogFlex's own buttons above,
+	// rerunForm is already a real tview.Form (see its own doc comment), so
+	// AddButton gets native keyboard Tab-reachability and mouse click
+	// handling for free: Form.Focus() already cycles through f.items then
+	// f.buttons on Tab/Backtab (unchanged by this addition, just extended
+	// to include these two), and SetMouseCapture's existing rerunDialogOpen
+	// pass-through (any click inside rerunForm's own rect reaches Pages'
+	// native dispatch unchanged) already covers whatever rect Form ends up
+	// drawing the buttons in - no separate mouse wiring needed here. The
+	// one adjustment this requires is in SetInputCapture's own rerunDialogOpen
+	// branch below: Enter must defer to Form's native "trigger the focused
+	// button" behavior when a button has focus, rather than always calling
+	// submitRerun regardless of focus the way it does for the text fields.
+	// Cancel-left/Re-run-right, right-aligned against the form's own inner
+	// edge (SetButtonsAlign) - matches the template page's host dialog
+	// buttons and the general "affirmative action on the right" convention;
+	// AddButton's own call order determines both visual left-to-right order
+	// and Tab-cycling order (Form.Focus() walks f.buttons in the order
+	// they were added), so this one call controls both at once.
+	rerunForm.SetButtonsAlign(tview.AlignRight)
+	rerunForm.AddButton("Cancel", closeDialogs).AddButton("Re-run", submitRerun)
+
 	// closeOutput backs out of the output drill-down view, restoring the
 	// main tree's own cursor to whatever (task, host) it was last
 	// showing - which may have moved via navigateOutputTask/
@@ -1593,10 +1683,21 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		// own, so submission has to be driven from here regardless of
 		// which field currently has focus, exactly matching "Re-run shall
 		// be initiated by pressing return" for the whole dialog, not just
-		// one field.
+		// one field. The one exception to that "regardless of focus" rule:
+		// once Tab has moved focus onto the Re-run/Cancel buttons
+		// themselves (added alongside rerunForm's own construction above),
+		// Enter should trigger whichever button is actually focused rather
+		// than always forcing a submit - checked via GetFocusedItemIndex
+		// (form.go's own accessor for "does a button currently have
+		// focus"), letting the event through untouched so Button's native
+		// InputHandler (button.go: KeyEnter calls its own selected func)
+		// fires the correct one of the two.
 		if rerunDialogOpen {
 			switch event.Key() {
 			case tcell.KeyEnter:
+				if _, button := rerunForm.GetFocusedItemIndex(); button >= 0 {
+					return event
+				}
 				submitRerun()
 			case tcell.KeyEscape:
 				closeDialogs()
@@ -1805,40 +1906,50 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 			return nil, action
 		}
 		if filterDialogOpen {
-			// filterDialog is a plain TextView rendering the A/C/F menu as
-			// literal text (filterDialogText) - there's no real widget
-			// underneath to unlock, so unlike the two dialogs below, a
-			// click needs its own hit-test rather than a pass-through.
+			// filterDialog (the plain TextView rendering the A/C/F menu)
+			// has no click handling of its own for that text - there's no
+			// real widget underneath to unlock there, unlike the two
+			// dialogs below, so those three rows still need their own
+			// hit-test. filterFlex (see NewLiveTUI) wraps filterDialog
+			// together with a real Cancel button below it, though - a
+			// click on that button needs no hit-test of its own: letting
+			// it through reaches Pages' native dispatch and Button's own
+			// MouseHandler, exactly like searchDialogOpen/rerunDialogOpen's
+			// own buttons/fields below.
 			//
-			// Only a click landing outside the dialog's own box is
-			// unconditionally swallowed here (same reasoning as
-			// searchDialogOpen/rerunDialogOpen below - Pages tries every
-			// visible page, topmost first, so an unswallowed click outside
-			// the box would otherwise fall through to the page
-			// underneath). Everything else - Down/Up/Move inside the box -
-			// is deliberately let through unchanged rather than swallowed
-			// unconditionally the way an earlier version of this code did:
-			// tview's own fireMouseActions (application.go) synthesizes
-			// MouseLeftClick right after MouseLeftUp within the same
-			// physical click, threading the *same* event value through
-			// both calls - unconditionally returning a nil event from the
-			// MouseLeftUp call (as this used to) meant the click action
-			// was invoked with an already-nil event and could never fire
-			// at all, silently eating every click. Confirmed live: with
-			// the old unconditional swallow, clicking a menu row did
-			// nothing whatsoever, not even the wrong row.
+			// Only a click landing outside filterFlex's own box (not just
+			// filterDialog's - that would incorrectly swallow clicks on
+			// the Cancel button sitting below it) is unconditionally
+			// swallowed here (same reasoning as searchDialogOpen/
+			// rerunDialogOpen below - Pages tries every visible page,
+			// topmost first, so an unswallowed click outside the dialog
+			// would otherwise fall through to the page underneath).
+			// Everything else - Down/Up/Move inside the box, and a click on
+			// the Cancel button - is deliberately let through unchanged
+			// rather than swallowed unconditionally the way an earlier
+			// version of this code did: tview's own fireMouseActions
+			// (application.go) synthesizes MouseLeftClick right after
+			// MouseLeftUp within the same physical click, threading the
+			// *same* event value through both calls - unconditionally
+			// returning a nil event from the MouseLeftUp call (as this
+			// used to) meant the click action was invoked with an
+			// already-nil event and could never fire at all, silently
+			// eating every click. Confirmed live: with the old
+			// unconditional swallow, clicking a menu row did nothing
+			// whatsoever, not even the wrong row.
 			x, y := event.Position()
-			if !inRect(x, y, filterDialog) {
+			if !inRect(x, y, filterFlex) {
 				return nil, action
 			}
-			if action == tview.MouseLeftClick {
+			if action == tview.MouseLeftClick && inRect(x, y, filterDialog) {
 				// filterDialogText's own fixed layout: row 0 headline, row
-				// 1 blank, rows 2/3/4 = All/Changed/Failed, row 5 blank,
-				// row 6 the cancel hint - offset by one extra row here
-				// since filterDialog.SetBorder(true) means GetRect()'s own
-				// y is the border row, one above the first content row.
+				// 1 blank, rows 2/3/4 = All/Changed/Failed. filterDialog
+				// itself has no border of its own (that lives on
+				// filterFlex instead), so GetRect()'s own y is already the
+				// first content row - unlike the dialogs below, which are
+				// bordered themselves.
 				_, ry, _, _ := filterDialog.GetRect()
-				switch y - ry - 1 {
+				switch y - ry {
 				case 2:
 					applyFilter(filterQuery{mode: filterAll})
 				case 3:

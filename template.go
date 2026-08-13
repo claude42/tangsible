@@ -491,9 +491,17 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	// from the inventory is a natural later improvement, not required
 	// here).
 	hostInput := tview.NewInputField().SetLabel("Host: ")
-	hostFlex := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(hostInput, 1, 0, true)
+	// A real tview.NewBox() for every spacer item below, not a bare nil -
+	// see tui.go's NewLiveTUI (searchDialogFlex/filterFlex) for why: a nil
+	// Flex item draws nothing, so nothing ever repaints its cells over
+	// whatever this page's own content drew underneath there - a real
+	// Box's Draw() fills its own rect with the dialog's background even
+	// though it shows no content of its own.
+	hostFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewBox(), 1, 0, false). // top margin
+		AddItem(hostInput, 1, 0, true)
 	hostFlex.SetBorder(true).SetTitle(" Change host (enter: apply, esc: cancel) ")
-	pages.AddPage("host", centeredModal(hostFlex, 50, 3), true, false)
+	pages.AddPage("host", centeredModal(hostFlex, 50, 7), true, false)
 
 	hostDialogOpen := false
 	openHostDialog := func() {
@@ -507,17 +515,52 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		pages.HidePage("host")
 		app.SetFocus(tabs.Primitive())
 	}
+	// applyHostChange is the Enter/Apply-button shared body - switches to
+	// whatever's currently typed into hostInput (a no-op if it's empty or
+	// unchanged) and re-renders, but does not itself close the dialog:
+	// both callers below do that as their own last step.
+	applyHostChange := func() {
+		if v := strings.TrimSpace(hostInput.GetText()); v != "" && v != currentHost {
+			currentHost = v
+			setHeader()
+			renderedView.SetText("Rendering...")
+			go render()
+		}
+	}
 	hostInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
-			if v := strings.TrimSpace(hostInput.GetText()); v != "" && v != currentHost {
-				currentHost = v
-				setHeader()
-				renderedView.SetText("Rendering...")
-				go render()
-			}
+			applyHostChange()
 		}
 		closeHostDialog()
 	})
+
+	// Mouse-only Apply/Cancel buttons, same reasoning as the main app's own
+	// searchDialogFlex buttons (tui.go's NewLiveTUI): hostInput already
+	// repurposes Enter/Esc away from their native meaning via SetDoneFunc
+	// above, so this stays a plain Flex + tview.Button rather than a
+	// tview.Form, to avoid Form.Focus() silently overwriting the
+	// InputField's own SetFinishedFunc and double-firing on the same
+	// keypress. Click-only, not Tab-reachable - Enter/Esc already fully
+	// cover the keyboard path.
+	hostApplyButton := tview.NewButton("Apply").SetSelectedFunc(func() {
+		applyHostChange()
+		closeHostDialog()
+	})
+	hostCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeHostDialog)
+	// Cancel-left/Apply-right, right-aligned (a single flexible spacer on
+	// the left pushes both buttons flush against a small fixed right
+	// margin) - matches the main app's own rerun dialog buttons
+	// (tui.go's NewLiveTUI) and the general "affirmative action on the
+	// right" convention.
+	hostFlex.
+		AddItem(tview.NewBox(), 1, 0, false).
+		AddItem(tview.NewFlex().
+							AddItem(tview.NewBox(), 0, 1, false).
+							AddItem(hostCancelButton, 10, 0, false).
+							AddItem(tview.NewBox(), 2, 0, false).
+							AddItem(hostApplyButton, 9, 0, false).
+							AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
+		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if hostDialogOpen {
