@@ -381,6 +381,22 @@ func centeredModal(p tview.Primitive, width, height int) tview.Primitive {
 		AddItem(nil, 0, 1, false)
 }
 
+// inRect reports whether (x, y) falls within p's own last-drawn rect - the
+// padding Flex items centeredModal wraps a dialog's content in don't touch
+// that content's own rect, so this is exactly "is (x, y) inside the
+// visible dialog box" for anything built via centeredModal. Used at the
+// SetMouseCapture level (both here and in template.go) to let a click
+// through to a dialog's own native mouse handling when it lands inside the
+// dialog, while still swallowing anything outside it - see NewLiveTUI's
+// SetMouseCapture for why swallowing the outside click matters (confirmed
+// against tview's own Pages.MouseHandler: it tries every visible page,
+// topmost first, so an unswallowed click outside the dialog's own box
+// would otherwise fall through to the page underneath).
+func inRect(x, y int, p tview.Primitive) bool {
+	rx, ry, rw, rh := p.GetRect()
+	return x >= rx && x < rx+rw && y >= ry && y < ry+rh
+}
+
 // filterDialogText renders the filter dialog's body - a headline and the
 // three filters this dialog itself offers (All/Changed/Failed - the search
 // filter is a separate dialog, see NewLiveTUI's searchDialog), each with a
@@ -488,8 +504,8 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	var currentRows []row
 	var currentID any
 	var rebuilding bool
-	following := true // auto-follow the newest row until the user navigates away
-	var jumpingToEnd bool // true only while our own 'F' handler drives SetCurrentItem
+	following := true                    // auto-follow the newest row until the user navigates away
+	var jumpingToEnd bool                // true only while our own 'F' handler drives SetCurrentItem
 	everStarted := !startWithRerunDialog // false only for the "rerun"
 	// verb's startup dialog, until submitRerun's first-ever call flips it
 	// true - see rebuild()'s own use of it below: processDone starts true
@@ -1774,22 +1790,99 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// own default wheel handling, left to run below) has no range limit -
 	// unlike tview.List, it's not bounded by the cursor's own position.
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
-		if filterDialogOpen || searchDialogOpen || rerunDialogOpen {
-			// Fully modal (Filters.md; the re-run dialog follows the same
-			// rule even though tview.Form has its own native mouse
-			// handling - kept keyboard-only, like the other two, rather
-			// than reasoning through whether Pages forwards mouse events
-			// to more than just the frontmost visible page): none of the
-			// three dialogs need mouse interaction, so the simplest way to
-			// stop a click reaching the treeview underneath - including
-			// one outside the dialog's own small centered box, which its
-			// own MouseHandler would just ignore rather than block - is to
-			// swallow all mouse input outright while either is open,
-			// rather than teach the dialog pages themselves to consume
-			// clicks they don't actually care about.
+		if event == nil {
+			// tview's own fireMouseActions (application.go) fires several
+			// actions per physical mouse event (move, then down/up/click)
+			// against this same callback, threading the event/action pair
+			// from one call's return value into the next call's arguments
+			// within that batch - so once any earlier call in the same
+			// batch returns a nil event (e.g. a MouseMove that happened to
+			// land on a swallowed bar below), every later call in that
+			// same batch is invoked with event == nil too. Hit live as a
+			// real crash (event.Position() on a nil event) before this
+			// guard existed - every branch below assumes a non-nil event,
+			// so bail out immediately rather than touch it.
+			return nil, action
+		}
+		if filterDialogOpen {
+			// filterDialog is a plain TextView rendering the A/C/F menu as
+			// literal text (filterDialogText) - there's no real widget
+			// underneath to unlock, so unlike the two dialogs below, a
+			// click needs its own hit-test rather than a pass-through.
+			//
+			// Only a click landing outside the dialog's own box is
+			// unconditionally swallowed here (same reasoning as
+			// searchDialogOpen/rerunDialogOpen below - Pages tries every
+			// visible page, topmost first, so an unswallowed click outside
+			// the box would otherwise fall through to the page
+			// underneath). Everything else - Down/Up/Move inside the box -
+			// is deliberately let through unchanged rather than swallowed
+			// unconditionally the way an earlier version of this code did:
+			// tview's own fireMouseActions (application.go) synthesizes
+			// MouseLeftClick right after MouseLeftUp within the same
+			// physical click, threading the *same* event value through
+			// both calls - unconditionally returning a nil event from the
+			// MouseLeftUp call (as this used to) meant the click action
+			// was invoked with an already-nil event and could never fire
+			// at all, silently eating every click. Confirmed live: with
+			// the old unconditional swallow, clicking a menu row did
+			// nothing whatsoever, not even the wrong row.
+			x, y := event.Position()
+			if !inRect(x, y, filterDialog) {
+				return nil, action
+			}
+			if action == tview.MouseLeftClick {
+				// filterDialogText's own fixed layout: row 0 headline, row
+				// 1 blank, rows 2/3/4 = All/Changed/Failed, row 5 blank,
+				// row 6 the cancel hint - offset by one extra row here
+				// since filterDialog.SetBorder(true) means GetRect()'s own
+				// y is the border row, one above the first content row.
+				_, ry, _, _ := filterDialog.GetRect()
+				switch y - ry - 1 {
+				case 2:
+					applyFilter(filterQuery{mode: filterAll})
+				case 3:
+					applyFilter(filterQuery{mode: filterChanged})
+				case 4:
+					applyFilter(filterQuery{mode: filterFailed})
+				}
+				return nil, action
+			}
+			return event, action
+		}
+		if searchDialogOpen {
+			// searchDialogFlex holds a real tview.InputField (searchInput)
+			// with its own native click-to-position-cursor handling - a
+			// click inside the dialog's own box is let through unchanged
+			// so Pages' own dispatch (confirmed against pages.go: it tries
+			// every visible page, topmost first) reaches it naturally;
+			// anything outside the box is swallowed so it can't leak
+			// through to the main page underneath.
+			if x, y := event.Position(); inRect(x, y, searchDialogFlex) {
+				return event, action
+			}
+			return nil, action
+		}
+		if rerunDialogOpen {
+			// Same reasoning as searchDialogOpen above, for rerunForm's
+			// own native per-field click-to-focus (tview.Form).
+			if x, y := event.Position(); inRect(x, y, rerunForm) {
+				return event, action
+			}
 			return nil, action
 		}
 		if viewingOutput {
+			// outputTopBar/outputBottomBar are plain, non-interactive
+			// TextViews - swallow a click there before it can reach
+			// TextView's own default MouseLeftDown handling, which would
+			// otherwise silently move keyboard focus onto a one-line
+			// status bar (confirmed live: Escape/Enter/arrow-key
+			// navigation then stop reaching the output view at all, since
+			// TextView's own InputHandler intercepts Escape/Enter for
+			// itself and there's nothing else to visibly scroll).
+			if x, y := event.Position(); inRect(x, y, outputTopBar) || inRect(x, y, outputBottomBar) {
+				return nil, action
+			}
 			// A left click on the tab bar itself switches tabs
 			// (design-docs/Tabbed UI.md) - checked here, at the
 			// Application level, rather than via outputTabs' own
@@ -1807,6 +1900,11 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 				}
 			}
 			return event, action
+		}
+		// topBar/bottomBar - same focus-steal guard as outputTopBar/
+		// outputBottomBar above, for the main page.
+		if x, y := event.Position(); inRect(x, y, topBar) || inRect(x, y, bottomBar) {
+			return nil, action
 		}
 		switch action {
 		case tview.MouseScrollUp, tview.MouseScrollDown:

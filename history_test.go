@@ -29,7 +29,7 @@ func TestAppendCapped(t *testing.T) {
 		want     []string
 	}{
 		{
-			name: "under the cap just appends",
+			name:     "under the cap just appends",
 			existing: []string{"a", "b"},
 			next:     "c",
 			max:      5,

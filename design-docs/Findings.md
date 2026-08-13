@@ -27,9 +27,13 @@ immediately implemented.
 
 * --step, --check, --diff
 
-* When everything is expanded while playbook is still running, show new
-  entries also expanded.
-
 * Split pane
 
 * Edit files from drilldown view
+
+* Errors before / during execution
+
+* Mouse
+
+* OK/Changed/Skipped sumamry instead of individual hosts when space is
+  constrained

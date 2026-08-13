@@ -579,12 +579,36 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	})
 
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if event == nil {
+			// See tui.go's own SetMouseCapture for why this guard exists -
+			// tview's fireMouseActions can invoke this callback again
+			// within the same physical mouse event with a nil event, once
+			// an earlier call in the same batch already returned nil.
+			return nil, action
+		}
 		if hostDialogOpen {
-			// Fully modal, same reasoning as the main app's own dialogs
-			// (tui.go's SetMouseCapture): the host dialog doesn't need
-			// mouse interaction, so the simplest way to stop a click
-			// reaching the tab bar underneath is to swallow all mouse
-			// input outright while it's open.
+			// hostFlex holds a real tview.InputField (hostInput) with its
+			// own native click-to-position-cursor handling - a click
+			// inside the dialog's own box is let through unchanged so
+			// Pages' own dispatch (confirmed against tview's pages.go: it
+			// tries every visible page, topmost first) reaches it
+			// naturally; anything outside the box is swallowed so it
+			// can't leak through to the tab bar underneath (same
+			// reasoning as tui.go's own dialog handling in
+			// SetMouseCapture).
+			if x, y := event.Position(); inRect(x, y, hostFlex) {
+				return event, action
+			}
+			return nil, action
+		}
+		// header/footer are plain, non-interactive TextViews - swallow a
+		// click there before it can reach TextView's own default
+		// MouseLeftDown handling, which would otherwise silently move
+		// keyboard focus onto a one-line status bar (same focus-steal
+		// issue as tui.go's topBar/bottomBar/outputTopBar/
+		// outputBottomBar - confirmed live there that Escape/Enter/arrow
+		// navigation then silently stop reaching the real content).
+		if x, y := event.Position(); inRect(x, y, header) || inRect(x, y, footer) {
 			return nil, action
 		}
 		if action == tview.MouseLeftClick {
