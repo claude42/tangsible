@@ -684,7 +684,13 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	searchHeadline := tview.NewTextView().SetDynamicColors(true).
 		SetText(" [::b]Search[::-]\n\n [gray]Enter to apply, Esc to cancel[-]")
 	searchInput := tview.NewInputField().SetLabel("Search: ")
+	// Top/bottom margin Box items, same as filterFlex's own - a real
+	// tview.NewBox() rather than a bare nil, so its Draw() still fills its
+	// rect with the dialog's own background instead of letting whatever's
+	// behind the "search" page show through (the same background
+	// see-through bug fixed for the other dialogs).
 	searchDialogFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewBox(), 1, 0, false). // top margin
 		AddItem(searchHeadline, 0, 1, false).
 		AddItem(searchInput, 1, 0, true)
 	searchDialogFlex.SetBorder(true).SetTitle(" Search ")
@@ -1405,12 +1411,17 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// see-through.
 	searchDialogFlex.
 		AddItem(tview.NewBox(), 1, 0, false).
+		// Right-aligned, Cancel-then-Search - same convention as rerunForm's
+		// own AddButton("Cancel", ...).AddButton("Re-run", ...) pair below
+		// (matches the template page's host dialog): the rightmost button
+		// is always the primary/default action.
 		AddItem(tview.NewFlex().
 			AddItem(tview.NewBox(), 0, 1, false).
-			AddItem(searchApplyButton, 10, 0, false).
-			AddItem(tview.NewBox(), 2, 0, false).
 			AddItem(searchCancelButton, 10, 0, false).
-			AddItem(tview.NewBox(), 0, 1, false), 1, 0, false)
+			AddItem(tview.NewBox(), 2, 0, false).
+			AddItem(searchApplyButton, 10, 0, false).
+			AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
+		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
 
 	list.SetChangedFunc(func(index int) {
 		if rebuilding {
@@ -1492,7 +1503,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
 	pages.AddPage("filter", centeredModal(filterFlex, 46, 10), true, false)
-	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 9), true, false)
+	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 11), true, false)
 	pages.AddPage("rerun", centeredModal(rerunForm, 56, 13), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
