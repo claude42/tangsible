@@ -604,27 +604,29 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// variant before ever calling AddItem, and that's the entire
 	// highlighting mechanism.
 
-	// Output drill-down page: a single, reused TextView (never recreated
-	// per drill-down), updated via SetText each time a host row is
-	// selected. Dynamic colors are on so formatHostOutput can color its
-	// section labels/status line/TASK: highlighting - every piece of
-	// dynamic content it writes (task source, stdout/stderr/msg, the full
+	// Output drill-down page (design-docs/Tabbed UI.md): outputTabs is a
+	// tabbedPane (tabs.go) - a fresh set of tab content TextViews is built
+	// by buildOutputTabs and handed to it via SetTabs every time a host
+	// row is selected (see showOutput below), rather than one single,
+	// reused TextView the way this used to work. Dynamic colors are on
+	// for each tab's own TextView so buildOutputTabs' own tab builders
+	// can color their section labels/status line - every piece of dynamic
+	// content any of them write (task source, stdout/stderr/msg, the full
 	// JSON result) is individually tview.Escape()'d before going in, so a
 	// literal "[" in real command output or YAML (e.g. "tags: [a, b]")
 	// can never be misread as a color tag.
-	outputView := tview.NewTextView()
-	outputView.SetDynamicColors(true)
+	outputTabs := newTabbedPane()
 
 	outputTopBar := tview.NewTextView()
 	outputTopBar.SetTextStyle(barStyle)
 
-	outputBottomBar := tview.NewTextView().SetText(" ↑/↓ or j/k/h/l scroll  g/home top  G/end bottom  ←/→: prev/next host  n/p: prev/next task  esc/enter: back ")
+	outputBottomBar := tview.NewTextView().SetText(" ↑/↓ or j/k/h/l scroll  g/home top  G/end bottom  tab/shift-tab or click: switch tab  ←/→: prev/next host  n/p: prev/next task  esc/enter: back ")
 	outputBottomBar.SetTextStyle(barStyle)
 
 	outputFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(outputTopBar, 1, 0, false).
-		AddItem(outputView, 0, 1, true).
+		AddItem(outputTabs.Primitive(), 0, 1, true).
 		AddItem(outputBottomBar, 1, 0, false)
 
 	pages := tview.NewPages()
@@ -726,6 +728,39 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// else in this file - it needs no locking of its own.
 	resolveCache := map[resolveKey]resolvedRender{}
 
+	// resolvedView tracks the *current* "Resolved" tab's own TextView, so
+	// the async resolve callback below can update just that one tab's
+	// content in place (a plain SetText on the same still-live object)
+	// without rebuilding - and so without disturbing the scroll position
+	// of - whichever tab the user actually has open right now, if it's
+	// not Resolved. Set every time renderOutputTabs runs (task/host
+	// navigation always rebuilds every tab from scratch, fresh
+	// TextViews); nil whenever the current task genuinely has no
+	// Resolved tab content yet to point at (shouldn't happen in
+	// practice, since buildOutputTabs always includes one, but this
+	// function doesn't assume that blindly).
+	var resolvedView *tview.TextView
+
+	// renderOutputTabs rebuilds every tab from buildOutputTabs' own
+	// output and hands the result to outputTabs.SetTabs - which itself
+	// preserves whichever tab is currently active, by name, so repeatedly
+	// calling this while browsing (Left/Right/n/p) doesn't keep resetting
+	// the user back to the Task tab.
+	renderOutputTabs := func(task *taskNode, host string, resolved resolvedRender) {
+		names, contents := buildOutputTabs(task, host, sourceIndex, resolved)
+		prims := make([]tview.Primitive, len(names))
+		resolvedView = nil
+		for i, content := range contents {
+			tv := tview.NewTextView().SetDynamicColors(true)
+			tv.SetText(content)
+			prims[i] = tv
+			if names[i] == "Resolved" {
+				resolvedView = tv
+			}
+		}
+		outputTabs.SetTabs(names, prims)
+	}
+
 	showOutput := func(task *taskNode, host string) {
 		outputTask, outputHost = task, host
 		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
@@ -734,8 +769,8 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		// different host/task), not gated behind a keypress - per
 		// design-docs/Drilldown, Resolved Values.md. Runs on its own
 		// goroutine so opening the view is never blocked on a real
-		// ansible-playbook invocation; the "Resolved" section reads
-		// "Resolving..." (formatHostOutput's own Pending case) until it
+		// ansible-playbook invocation; the Resolved tab reads
+		// "Resolving..." (buildResolvedTab's own Pending case) until it
 		// completes. The outputTask/outputHost/viewingOutput check right
 		// before updating the view guards against a stale result landing
 		// after the user has already navigated elsewhere - the cache
@@ -755,19 +790,25 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 				}
 				app.QueueUpdateDraw(func() {
 					resolveCache[key] = result
-					if outputTask == task && outputHost == host && viewingOutput {
-						outputView.SetText(formatHostOutput(task, host, sourceIndex, result))
+					// A targeted, in-place update of the Resolved tab's
+					// own TextView - not a renderOutputTabs rebuild -
+					// specifically so this never disturbs the scroll
+					// position of whatever *other* tab the user might
+					// currently be reading while this was still pending.
+					if outputTask == task && outputHost == host && viewingOutput && resolvedView != nil {
+						resolvedView.SetText(buildResolvedTab(result))
 					}
 				})
 			}()
 		}
 
-		outputView.SetText(formatHostOutput(task, host, sourceIndex, resolved))
-		// SetText does not reset scroll position (lineOffset/trackEnd) -
-		// without this, reopening a different host's output right after
-		// scrolling through a previous one would open already scrolled to
-		// the old position, potentially hiding the new content entirely.
-		outputView.ScrollToBeginning()
+		renderOutputTabs(task, host, resolved)
+		// Every fresh tab's own TextView starts scrolled to the top
+		// already (a brand new widget), so there's nothing to reset here
+		// the way the old single-TextView version needed SetText not to
+		// reset scroll position - see tabbedPane's own "reset to top on
+		// every switch" behavior in tabs.go for the *within-view*
+		// equivalent of that same concern.
 		viewingOutput = true
 		pages.SwitchToPage("output")
 	}
@@ -985,25 +1026,6 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 			}
 		}
 	}
-
-	outputView.SetDoneFunc(func(tcell.Key) {
-		// Fires on Escape, Enter, Tab, or Backtab (TextView's fixed set of
-		// "done" keys). Tab/Backtab also backing out is a harmless side
-		// effect, not a real concern.
-		viewingOutput = false
-		if outputTask != nil {
-			// Leave the tree's cursor on whatever (task, host) the output
-			// page was last showing - which may have moved via
-			// navigateOutputTask/navigateOutputHost since the page was
-			// opened - expanding its task if it isn't already, so the row
-			// is actually visible rather than just logically "selected".
-			expanded[outputTask] = true
-			currentID = hostRowID{outputTask, outputHost}
-			following = false
-			rebuild()
-		}
-		pages.SwitchToPage("main")
-	})
 
 	// navigateOutputHost moves the output page to the previous/next host
 	// (delta -1/+1) within outputTask's own HostOrder - the same order the
@@ -1480,6 +1502,30 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		startHeartbeat()
 	}
 
+	// closeOutput backs out of the output drill-down view, restoring the
+	// main tree's own cursor to whatever (task, host) it was last
+	// showing - which may have moved via navigateOutputTask/
+	// navigateOutputHost since the page was opened - expanding its task
+	// if it isn't already, so the row is actually visible rather than
+	// just logically "selected". Used to be tview.TextView's own native
+	// SetDoneFunc (firing on Escape/Enter/Tab/Backtab, its fixed "done
+	// key" set) - now called explicitly for Escape/Enter/q from
+	// SetInputCapture's own viewingOutput branch below, since Tab/Backtab
+	// mean "switch tab" here now (design-docs/Tabbed UI.md) rather than
+	// "close," and outputTabs' own per-tab TextViews are recreated fresh
+	// on every renderOutputTabs call anyway, so there's no single,
+	// persistent TextView left to hang a native SetDoneFunc off of.
+	closeOutput := func() {
+		viewingOutput = false
+		if outputTask != nil {
+			expanded[outputTask] = true
+			currentID = hostRowID{outputTask, outputHost}
+			following = false
+			rebuild()
+		}
+		pages.SwitchToPage("main")
+	}
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		// Ctrl-C's meaning never changes based on what's open - per
 		// Purpose.md's "behaves like running ansible-playbook directly"
@@ -1569,12 +1615,15 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 
 		if viewingOutput && event.Key() == tcell.KeyRune && event.Rune() == 'q' {
 			// Same convention as the filter dialog's own q (Filters.md):
-			// closes/backs out rather than quitting. Translated into a
-			// synthetic Escape, the same mechanism the vim-alias
-			// translations below use, so outputView's own native
-			// SetDoneFunc handles it identically to a real Escape press -
-			// no separate close-and-restore-cursor logic to keep in sync.
-			return tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)
+			// closes/backs out rather than quitting. Calls closeOutput
+			// directly rather than synthesizing an Escape the way this
+			// used to (relying on outputView's own native SetDoneFunc to
+			// catch it) - there's no single persistent TextView left to
+			// forward a synthesized event to now that each tab's content
+			// is its own TextView, recreated fresh on every
+			// renderOutputTabs call.
+			closeOutput()
+			return nil
 		}
 
 		isQuit := event.Key() == tcell.KeyRune && event.Rune() == 'q'
@@ -1618,6 +1667,23 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 
 		if viewingOutput {
 			switch {
+			case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyEnter:
+				// Used to be tview.TextView's own native "done key"
+				// handling (SetDoneFunc, which also fired on Tab/Backtab -
+				// harmless there since those had no other meaning yet).
+				// Now explicit, since Tab/Backtab below mean "switch tab"
+				// instead (design-docs/Tabbed UI.md), and there's no
+				// single persistent TextView left to hang a native
+				// SetDoneFunc off of - each tab's content is recreated
+				// fresh on every renderOutputTabs call.
+				closeOutput()
+				return nil
+			case event.Key() == tcell.KeyTab:
+				outputTabs.Next()
+				return nil
+			case event.Key() == tcell.KeyBacktab:
+				outputTabs.Prev()
+				return nil
 			case event.Key() == tcell.KeyLeft:
 				navigateOutputHost(-1)
 				return nil
@@ -1724,9 +1790,23 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 			return nil, action
 		}
 		if viewingOutput {
-			return event, action // TextView's own wheel handling has no
-			// such clamp - there's no "selected line" to keep visible -
-			// so the output view already pans freely without any help.
+			// A left click on the tab bar itself switches tabs
+			// (design-docs/Tabbed UI.md) - checked here, at the
+			// Application level, rather than via outputTabs' own
+			// MouseHandler, matching this app's existing convention of
+			// doing mouse/key overrides centrally rather than inside a
+			// widget (see this function's own doc comment). Anything else
+			// (a click elsewhere, wheel scrolling) passes through
+			// unchanged - TextView's own wheel handling has no "keep the
+			// selected line visible" clamp to fight the way the main
+			// tree's list once did, so the active tab's own content
+			// already pans freely without any help.
+			if action == tview.MouseLeftClick {
+				if x, y := event.Position(); outputTabs.HandleClick(x, y) {
+					return nil, action
+				}
+			}
+			return event, action
 		}
 		switch action {
 		case tview.MouseScrollUp, tview.MouseScrollDown:
@@ -2749,73 +2829,102 @@ type resolvedRender struct {
 	Err     string
 }
 
-// formatHostOutput renders task.Raw[host] for the output drill-down view,
-// per the layout in design-docs/drilldown.txt: a Task summary block
-// (Name/Role/Host/Status), Output, Items (a looped task's own per-item
-// labels, omitted for a non-looped task - see loopItemLabels), Error,
-// Task definition (the task's own YAML source), Play definition (the
-// parent play's own YAML source), and Detailed results (the full JSON) -
-// in that order. It decodes into a
-// generic map (not a fixed struct) since different Ansible modules return
-// wildly different result shapes; msg/stdout/stderr are pulled out as
-// labeled, human-readable sections, followed unconditionally by the
-// complete result as pretty-printed JSON, which is what makes this work
-// for any module type without having to special-case each one. The output
-// TextView has dynamic colors on (see NewLiveTUI), so every piece of
-// dynamic/external content here - task/play source, stdout/stderr/msg,
-// the full JSON, even the raw bytes on a decode failure - is individually
-// tview.Escape()'d before being written, so a literal "[" in any of it
-// (e.g. "tags: [a, b]", a JSON array) can never be misread as a color
-// tag; only this function's own fixed label/status text is trusted
-// unescaped.
+// buildOutputTabs is the output drill-down view's own tab-content builder
+// (design-docs/Tabbed UI.md), replacing what used to be one monolithic
+// formatHostOutput string with up to 6 named tabs instead - Task, Output
+// (merging what used to be separate Output/Warnings/Items/Error sections
+// into one tab, per design-docs/Tabbed UI.md's own content-mapping
+// decision - each piece keeps its own sectionLabel header within it, so
+// several distinct pieces sharing one tab don't become an undifferentiated
+// blob), Task definition, Resolved, Play definition, and Details - in
+// that order. Every tab but Task/Resolved/Details is dynamic: names/
+// contents simply omits one entirely when that particular task has
+// nothing for it (an empty "" from that tab's own builder), matching this
+// function's predecessor's "omit rather than show a placeholder"
+// convention, just applied to whole tabs instead of stacked sections.
 //
-// The Task summary block replaces what used to be a separate leading
-// colored bullet line - Status is now that block's own colored field
-// (colorTag(o), the same outcome palette the tree itself uses) instead,
-// so the host's outcome for this task is still visible without reading
-// anything else first. Role is derived from task.Path via roleFromPath -
-// a heuristic, not something any event reports directly - and the line
-// is omitted entirely when it's not role-sourced, matching this
-// function's general "omit rather than show a placeholder" convention
-// (Output/Error/Task definition/Play definition all do the same for a
-// miss or empty value).
+// Decodes into a generic map (not a fixed struct) since different Ansible
+// modules return wildly different result shapes - shared across every
+// tab builder below, computed once here. Every piece of dynamic/external
+// content in any tab - task/play source, stdout/stderr/msg, the full
+// JSON, even the raw bytes on a decode failure - is individually
+// tview.Escape()'d before being written (each tab's own TextView has
+// dynamic colors on, see NewLiveTUI/showOutput), so a literal "[" in any
+// of it (e.g. "tags: [a, b]", a JSON array) can never be misread as a
+// color tag; only each builder's own fixed label/status text is trusted
+// unescaped.
 //
 // sourceIndex backs both Task definition (task.Path) and Play definition
 // (task.Play.Path) - source.go indexes plays the same way it indexes
 // tasks, into the same map. Both are best-effort: a lookup miss (an empty
 // path, or just not found - an unusual file layout, or a task/play
-// genuinely generated at runtime) omits that section entirely rather than
+// genuinely generated at runtime) omits that tab entirely rather than
 // showing an error.
 //
-// resolved carries the "Resolved" section's own state (design-docs/
+// resolved carries the "Resolved" tab's own state (design-docs/
 // Drilldown, Resolved Values.md) - computed asynchronously by the caller
 // (showOutput, see NewLiveTUI), never by this function itself, since a
 // real ansible-playbook invocation is far too slow to run synchronously
 // from inside a pure render function. Placed right after Task definition
-// so raw and resolved source sit side by side for comparison.
-func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender) string {
+// so raw and resolved source sit next to each other in the tab order.
+func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender) (names []string, contents []string) {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		// Shouldn't happen in normal operation - every host recorded via
 		// recordHost always has some raw payload - but a live jsonl stream
 		// from an external process isn't something to trust blindly, so
 		// degrade gracefully rather than showing a blank screen.
-		return fmt.Sprintf("(no output recorded for %s)", tview.Escape(host))
+		return []string{"Output"}, []string{fmt.Sprintf("(no output recorded for %s)", tview.Escape(host))}
 	}
 
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		// Not a JSON object - shouldn't happen for any real module
 		// result, but show the raw bytes rather than nothing.
-		return tview.Escape(string(raw))
+		return []string{"Output"}, []string{tview.Escape(string(raw))}
 	}
 
-	var b strings.Builder
 	o := task.Hosts[host]
 
-	// Task summary block - placeholder color ("silver"), like Play
-	// definition's below: section colors are still to be revisited.
-	b.WriteString(sectionLabel("silver", "Task"))
+	add := func(name, content string) {
+		if content == "" {
+			return
+		}
+		names = append(names, name)
+		contents = append(contents, content)
+	}
+
+	// Task/Resolved/Details are always present - appended directly rather
+	// than through add()'s own empty-skips-it convention, since none of
+	// the three can genuinely come back empty (Task always has at least
+	// Name/Host/Status; Resolved's own zero value is documented as
+	// "treated as Pending," never blank; Details' JSON dump always
+	// succeeds or reports its own failure).
+	names = append(names, "Task")
+	contents = append(contents, buildTaskTab(task, host, decoded, o))
+
+	add("Output", buildOutputTab(decoded, o))
+	add("Task definition", buildSourceTab(task.Path, sourceIndex))
+
+	names = append(names, "Resolved")
+	contents = append(contents, buildResolvedTab(resolved))
+
+	if task.Play != nil {
+		add("Play definition", buildSourceTab(task.Play.Path, sourceIndex))
+	}
+
+	names = append(names, "Details")
+	contents = append(contents, buildDetailsTab(decoded, raw))
+
+	return names, contents
+}
+
+// buildTaskTab renders the Task tab's own summary block
+// (Name/Action/Role/Host/Status). Role is derived from task.Path via
+// roleFromPath - a heuristic, not something any event reports directly -
+// and the line is omitted entirely when it's not role-sourced.
+func buildTaskTab(task *taskNode, host string, decoded map[string]interface{}, o outcome) string {
+	var b strings.Builder
 	fmt.Fprintf(&b, "Name: %s\n", tview.Escape(task.Name))
 	if action, ok := decoded["action"].(string); ok && action != "" {
 		fmt.Fprintf(&b, "Action: %s\n", tview.Escape(action))
@@ -2824,14 +2933,24 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex, 
 		fmt.Fprintf(&b, "Role: %s\n", tview.Escape(role))
 	}
 	fmt.Fprintf(&b, "Host: %s\n", tview.Escape(host))
-	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n\n\n", colorTag(o), tview.Escape(o.String()))
+	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n", colorTag(o), tview.Escape(o.String()))
+	return b.String()
+}
 
-	// writeTextSection renders one label+plain-text section (Output/
-	// Error) - omitted entirely when text is empty. The trailing "\n\n\n"
-	// closes text's own last line and adds two blank lines before
-	// whatever comes next, matching sectionLabel's own one-blank-line-
-	// after-the-underline spacing to produce drilldown.txt's two-blank-
-	// line gap between sections.
+// buildOutputTab merges what used to be separate Output/Warnings/Items/
+// Error sections into this one tab's own content (design-docs/Tabbed
+// UI.md) - each piece keeps its own sectionLabel header, exactly as
+// before, so several distinct pieces sharing one tab still read as
+// distinct pieces. "" (the tab omitted entirely by buildOutputTabs' own
+// add()) only if all four are empty.
+func buildOutputTab(decoded map[string]interface{}, o outcome) string {
+	var b strings.Builder
+	// writeTextSection renders one label+plain-text piece - omitted
+	// entirely when text is empty. The trailing "\n\n\n" closes text's
+	// own last line and adds two blank lines before whatever comes next,
+	// matching sectionLabel's own one-blank-line-after-the-underline
+	// spacing to produce drilldown.txt's two-blank-line gap between
+	// pieces.
 	writeTextSection := func(color, label, text string) {
 		if text == "" {
 			return
@@ -2843,9 +2962,9 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex, 
 	// Only one of MSG/STDOUT is shown, not both - see primaryOutputField;
 	// always labeled "Output" here regardless of which field it came
 	// from, since that distinction is an internal selection detail, not
-	// something worth surfacing in the section header. Skipped is its own
-	// case: a skipped result's msg/stdout are rarely useful (often empty,
-	// or a generic message that doesn't say what condition skipped it) -
+	// something worth surfacing in the header. Skipped is its own case: a
+	// skipped result's msg/stdout are rarely useful (often empty, or a
+	// generic message that doesn't say what condition skipped it) -
 	// skip_reason/false_condition (skipOutputText) is what's actually
 	// worth showing here instead.
 	var outputText string
@@ -2874,10 +2993,7 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex, 
 	// module-specific like everything else here - any result carrying a
 	// "warnings" field (a JSON array of strings, confirmed empirically -
 	// e.g. ansible's own discovered-interpreter notice) gets its contents
-	// shown here, one per line, regardless of outcome or module. Placed
-	// between Output and Error per that same doc, ahead of Items - which
-	// didn't exist yet when this rule was written and is module-specific
-	// besides.
+	// shown here, one per line, regardless of outcome or module.
 	if warnings := joinedStringList(decoded["warnings"], "\n"); warnings != "" {
 		writeTextSection("gold", "Warnings", warnings)
 	}
@@ -2886,8 +3002,8 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex, 
 	// loopItemLabels. Rendered as a plain "* label" bullet list, one per
 	// loop item, matching drilldown.txt's own mockup - no per-item
 	// status, just what was iterated over; the per-item OK/Changed/
-	// Failed detail already lives in "results" within Detailed results
-	// below for anyone who needs it.
+	// Failed detail already lives in "results" within Details for anyone
+	// who needs it.
 	if items := loopItemLabels(decoded); len(items) > 0 {
 		b.WriteString(sectionLabel("yellow", "Items"))
 		for _, item := range items {
@@ -2899,49 +3015,48 @@ func formatHostOutput(task *taskNode, host string, sourceIndex taskSourceIndex, 
 	stderr, _ := decoded["stderr"].(string)
 	writeTextSection("red", "Error", stderr)
 
-	// writeSourceSection renders one label+YAML-source section (Task
-	// definition/Play definition) - omitted entirely on a lookup miss.
-	writeSourceSection := func(color, label, path string) {
-		source, ok := sourceIndex[path]
-		if !ok || source == "" {
-			return
-		}
-		b.WriteString(sectionLabel(color, label))
-		b.WriteString(colorizeYAML(source))
-		b.WriteString("\n")
-		if loc := taskSourceLocation(path); loc != "" {
-			fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
-		}
-		b.WriteString("\n\n")
-	}
-	writeSourceSection("orange", "Task definition", task.Path)
+	return strings.TrimRight(b.String(), "\n")
+}
 
-	// Resolved: design-docs/Drilldown, Resolved Values.md - the same task
-	// definition just shown above, re-rendered with its variables filled
-	// in. Right after Task definition, deliberately, so raw and resolved
-	// sit side by side for comparison. Blue - outside both the outcome
-	// palette (green/yellow/teal/red/maroon) and every other section
-	// color already in use here, so it's never mistaken for either.
+// buildSourceTab renders one YAML-source tab's own content (Task
+// definition/Play definition) - "" (the tab omitted entirely by
+// buildOutputTabs' own add()) on a sourceIndex lookup miss.
+func buildSourceTab(path string, sourceIndex taskSourceIndex) string {
+	source, ok := sourceIndex[path]
+	if !ok || source == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(colorizeYAML(source))
+	b.WriteString("\n")
+	if loc := taskSourceLocation(path); loc != "" {
+		fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
+	}
+	return b.String()
+}
+
+// buildResolvedTab renders the Resolved tab's own content - always
+// non-empty (see resolvedRender's own doc comment: its zero value is
+// treated the same as Pending), so this tab is never omitted.
+func buildResolvedTab(resolved resolvedRender) string {
 	switch {
 	case resolved.Pending:
-		writeTextSection("blue", "Resolved", "Resolving...")
+		return "Resolving..."
 	case resolved.Err != "":
-		writeTextSection("blue", "Resolved", "Could not resolve: "+resolved.Err)
+		return "Could not resolve: " + tview.Escape(resolved.Err)
 	default:
-		writeTextSection("blue", "Resolved", resolved.Text)
+		return tview.Escape(resolved.Text)
 	}
+}
 
-	if task.Play != nil {
-		writeSourceSection("purple", "Play definition", task.Play.Path)
-	}
-
+// buildDetailsTab renders the full result as pretty-printed JSON - always
+// succeeds or reports its own formatting failure, so this tab is never
+// omitted; this is also what makes every tab set work for any module
+// type without having to special-case each one.
+func buildDetailsTab(decoded map[string]interface{}, raw json.RawMessage) string {
 	pretty, err := json.MarshalIndent(decoded, "", "  ")
-	b.WriteString(sectionLabel("gray", "Detailed results"))
 	if err != nil {
-		fmt.Fprintf(&b, "(failed to format: %s)\n%s", tview.Escape(err.Error()), tview.Escape(string(raw)))
-	} else {
-		b.WriteString(tview.Escape(string(pretty)))
+		return fmt.Sprintf("(failed to format: %s)\n%s", tview.Escape(err.Error()), tview.Escape(string(raw)))
 	}
-
-	return b.String()
+	return tview.Escape(string(pretty))
 }

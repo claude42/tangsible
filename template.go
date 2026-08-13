@@ -407,10 +407,13 @@ func runTemplateVerb(args []string) int {
 // runTemplateTUI builds and runs the standalone single-view program
 // design-docs/Tangsible template.md describes: a thin header (template
 // path + current hostname, the same "outputTopBar" pattern the existing
-// drill-down view already uses), a body showing either the rendered
-// content or the render's own error message, and a bottom keybinding-hint
-// bar - no Pages("main")/tree underneath any of this, since there's
-// nothing here to navigate back to.
+// drill-down view already uses), a two-tab body (design-docs/Tabbed
+// UI.md) - "Source" (the template file's own raw content) and "Rendered"
+// (the render's own result, or its error message in place of content on
+// failure, exactly like this view's original single-body behavior, just
+// relocated into a tab) - and a bottom keybinding-hint bar. No
+// Pages("main")/tree underneath any of this, since there's nothing here
+// to navigate back to.
 func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest []string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
@@ -418,15 +421,19 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	header := tview.NewTextView().SetDynamicColors(true)
 	header.SetTextStyle(barStyle)
 
-	body := tview.NewTextView().SetDynamicColors(true)
+	sourceView := tview.NewTextView().SetDynamicColors(true)
+	renderedView := tview.NewTextView().SetDynamicColors(true)
+
+	tabs := newTabbedPane()
+	tabs.SetTabs([]string{"Source", "Rendered"}, []tview.Primitive{sourceView, renderedView})
 
 	footer := tview.NewTextView().SetDynamicColors(true).
-		SetText(" e: edit template  h: change host  q/esc: quit ")
+		SetText(" tab/shift-tab or click: switch tab  e: edit template  h: change host  q/esc: quit ")
 	footer.SetTextStyle(barStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
-		AddItem(body, 0, 1, true).
+		AddItem(tabs.Primitive(), 0, 1, true).
 		AddItem(footer, 1, 0, false)
 
 	pages := tview.NewPages().AddPage("main", flex, true, true)
@@ -437,7 +444,22 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		header.SetText(fmt.Sprintf(" %s — %s ", tview.Escape(templatePath), tview.Escape(currentHost)))
 	}
 	setHeader()
-	body.SetText("Rendering...")
+	renderedView.SetText("Rendering...")
+
+	// refreshSource re-reads the template file itself into the Source
+	// tab - called both up front and every time 'e' returns from the
+	// editor, since that's the one thing that can actually change the
+	// file's own content (switching hosts or reprocessing never does).
+	refreshSource := func() {
+		data, err := os.ReadFile(templatePath)
+		if err != nil {
+			sourceView.SetText("[red]" + tview.Escape(err.Error()) + "[-]")
+			return
+		}
+		sourceView.SetText(tview.Escape(string(data)))
+		sourceView.ScrollToBeginning()
+	}
+	refreshSource()
 
 	// render runs one synchronous ansible-playbook invocation on its own
 	// goroutine (so a slow render - a large template, slow fact-gathering,
@@ -451,13 +473,13 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 			setHeader()
 			switch {
 			case err != nil:
-				body.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+				renderedView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 			case result.Failed:
-				body.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
+				renderedView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
 			default:
-				body.SetText(tview.Escape(result.Content))
+				renderedView.SetText(tview.Escape(result.Content))
 			}
-			body.ScrollToBeginning()
+			renderedView.ScrollToBeginning()
 		})
 	}
 	go render()
@@ -483,14 +505,14 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	closeHostDialog := func() {
 		hostDialogOpen = false
 		pages.HidePage("host")
-		app.SetFocus(body)
+		app.SetFocus(tabs.Primitive())
 	}
 	hostInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			if v := strings.TrimSpace(hostInput.GetText()); v != "" && v != currentHost {
 				currentHost = v
 				setHeader()
-				body.SetText("Rendering...")
+				renderedView.SetText("Rendering...")
 				go render()
 			}
 		}
@@ -517,6 +539,20 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		case event.Rune() == 'q':
 			app.Stop()
 			return nil
+		case event.Key() == tcell.KeyTab:
+			// design-docs/Tabbed UI.md: Tab/Backtab are tview.TextView's
+			// own default "done key" set (they'd otherwise back out of
+			// this view entirely, the same incidental behavior the
+			// drill-down view's own SetDoneFunc already documents as
+			// harmless there - it isn't harmless here, since these two
+			// keys are now this view's own deliberate tab-switching
+			// gesture instead), so they're intercepted here before ever
+			// reaching either TextView.
+			tabs.Next()
+			return nil
+		case event.Key() == tcell.KeyBacktab:
+			tabs.Prev()
+			return nil
 		case event.Rune() == 'e':
 			// Suspend hands the real terminal to the editor as a normal
 			// foreground process (tview.Application.Suspend already does
@@ -531,7 +567,8 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 				cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 				_ = cmd.Run()
 			})
-			body.SetText("Rendering...")
+			refreshSource()
+			renderedView.SetText("Rendering...")
 			go render()
 			return nil
 		case event.Rune() == 'h':
@@ -541,7 +578,24 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		return event
 	})
 
-	app.SetRoot(pages, true).SetFocus(body)
+	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if hostDialogOpen {
+			// Fully modal, same reasoning as the main app's own dialogs
+			// (tui.go's SetMouseCapture): the host dialog doesn't need
+			// mouse interaction, so the simplest way to stop a click
+			// reaching the tab bar underneath is to swallow all mouse
+			// input outright while it's open.
+			return nil, action
+		}
+		if action == tview.MouseLeftClick {
+			if x, y := event.Position(); tabs.HandleClick(x, y) {
+				return nil, action
+			}
+		}
+		return event, action
+	})
+
+	app.SetRoot(pages, true).SetFocus(tabs.Primitive())
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}
