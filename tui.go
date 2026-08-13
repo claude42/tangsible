@@ -530,6 +530,12 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// or anything else that isn't the heartbeat ticker, which does stop
 	// once frozen - would recompute now.Sub(startedAt) fresh and make the
 	// top bar's elapsed time keep climbing after the run is actually done.
+	var lastRebuildWidth int // the list width rebuild() actually rendered
+	// against, last time it ran - set at the same place rebuild() computes
+	// its own `width` local. Compared against the list's *current* width by
+	// the resize-watcher goroutine (see NewLiveTUI's call to
+	// startHeartbeat) to notice a terminal resize that happened with no
+	// other event to piggyback a rebuild on.
 	var viewingOutput bool // true while the host-output page is frontmost; see
 	// SetInputCapture below - selects between the main tree's and the output
 	// view's own page-specific key bindings (Left/Right and n/p mean
@@ -931,6 +937,10 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 		if width < 20 {
 			width = 20
 		}
+		lastRebuildWidth = width // recorded regardless of what triggered
+		// this particular rebuild, so the resize watcher (see NewLiveTUI's
+		// call to startHeartbeat) always compares against whatever was
+		// actually last rendered.
 
 		activeTask := activeTaskNow()
 
@@ -1555,6 +1565,52 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	// data race, not just a latency curiosity, even though the first tick
 	// is spinnerInterval away.
 	startHeartbeat()
+
+	// resizeWatcher: a second, permanent ticker, deliberately independent of
+	// startHeartbeat's own per-generation running/frozen lifecycle (unlike
+	// startHeartbeat, this is started exactly once and never restarted by
+	// submitRerun). Its only job is noticing a bare terminal resize once the
+	// run is frozen - startHeartbeat's own ticker already permanently stops
+	// once processDone is observed true, so nothing else is left driving a
+	// rebuild() on a terminal resize with no other incoming event. While a
+	// run is still live, startHeartbeat's own ticker already re-syncs
+	// everything within spinnerInterval regardless of resize - so this
+	// goroutine skips its own work entirely until processDone.
+	go func() {
+		ticker := time.NewTicker(spinnerInterval) // reused only as a
+		// convenient existing interval - not tied to spinner-animation cadence.
+		defer ticker.Stop()
+		for range ticker.C {
+			if quitting.Load() {
+				return // same accepted best-effort guard startHeartbeat's own
+				// ticker already uses - nothing waits on this goroutine, so a
+				// hang here wouldn't itself block process exit.
+			}
+			if !processDone.Load() {
+				continue // startHeartbeat's own ticker already handles this
+				// case every spinnerInterval regardless of resize.
+			}
+			app.QueueUpdate(func() { // NOT QueueUpdateDraw - avoid forcing a
+				// real screen redraw on every tick when nothing changed.
+				_, _, width, _ := list.GetInnerRect()
+				if width != lastRebuildWidth {
+					rebuild()
+					// app.Draw() would deadlock here: it's QueueUpdate under
+					// another name, and this closure is already running via
+					// QueueUpdate - i.e. already on the event-loop goroutine -
+					// so a nested QueueUpdate call would enqueue itself and
+					// then block forever waiting for the event loop to loop
+					// back and process it, which it structurally cannot do
+					// while stuck inside this very call. ForceDraw() calls
+					// a.draw() directly, no channel round-trip - and its own
+					// doc comment says exactly this is safe: "safe to call
+					// this function during queued updates and direct event
+					// handling."
+					app.ForceDraw()
+				}
+			})
+		}
+	}()
 
 	// submitRerun (Enter while rerunDialogOpen - see SetInputCapture below)
 	// reads the form's own current values, closes the dialog, and starts a

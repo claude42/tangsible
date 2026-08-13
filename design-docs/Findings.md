@@ -15,8 +15,6 @@ immediately implemented.
 
 * Plays with no tasks are not displayed
 
-* TODO: treeview doesn't fully adapt to window resizeing anymore
-
 * Search in drill down window
 
 * Summary line not visible - beyond the screen
@@ -37,3 +35,5 @@ immediately implemented.
 
 * OK/Changed/Skipped sumamry instead of individual hosts when space is
   constrained
+
+* Show full log
