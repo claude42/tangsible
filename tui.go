@@ -52,23 +52,81 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 	return int(d / time.Minute), int(d/time.Second) % 60
 }
 
-// topBarText renders the top bar: playbook name, plus a heartbeat - a
-// spinner frame and total elapsed time since the TUI itself started (our
-// own time.Now(), NOT any event's _timestamp - "has our program been
-// alive/responsive," a different question from any one task's own
-// duration) - plus the currently active filter (see Filters.md's "title
-// bar shows the currently selected filter" requirement; shown
-// unconditionally, including "All", rather than only when a filter is
-// actually narrowing anything). Once frozen, the spinner is dropped
-// entirely (simplicity over cuteness) rather than stuck on an arbitrary
-// frame or swapped for a checkmark. No tview.Escape() needed here - unlike
-// the list, this TextView never enables dynamic color tags.
-func topBarText(playbookName string, elapsed time.Duration, frozen bool, filter filterQuery) string {
-	mm, ss := minutesSeconds(elapsed)
-	if frozen {
-		return fmt.Sprintf(" %s  %02d:%02d  Filter: %s ", playbookName, mm, ss, filter.label())
+// topBarText renders the top bar: a Playbook:/Role: label (isRole picks
+// which), the currently active filter (see Filters.md's "title bar shows
+// the currently selected filter" requirement; shown unconditionally,
+// including "All", rather than only when a filter is actually narrowing
+// anything), every host seen so far (state.AllHosts, same set taskLabel
+// greys-in against), and a heartbeat - a spinner frame (dropped once
+// frozen - simplicity over cuteness rather than stuck on an arbitrary
+// frame or swapped for a checkmark) and total elapsed time since the TUI
+// itself started (our own time.Now(), NOT any event's _timestamp - "has
+// our program been alive/responsive," a different question from any one
+// task's own duration). The heartbeat is always right-aligned to width;
+// the host list is what gives way (via truncateHostsList) when the line
+// is too narrow for everything to fit, so the heartbeat never gets
+// pushed off-screen. No tview.Escape() needed here - unlike the list,
+// this TextView never enables dynamic color tags.
+func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, width int) string {
+	label := "Playbook"
+	if isRole {
+		label = "Role"
 	}
-	return fmt.Sprintf(" %s  %c %02d:%02d  Filter: %s ", playbookName, spinnerAt(elapsed), mm, ss, filter.label())
+	mm, ss := minutesSeconds(elapsed)
+	var right string
+	if frozen {
+		right = fmt.Sprintf("%02d:%02d ", mm, ss)
+	} else {
+		right = fmt.Sprintf("%c %02d:%02d ", spinnerAt(elapsed), mm, ss)
+	}
+
+	prefix := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: ", label, playbookName, filter.label())
+	hostsBudget := width - len([]rune(prefix)) - len([]rune(right))
+	left := prefix + truncateHostsList(hosts, hostsBudget)
+
+	pad := width - len([]rune(left)) - len([]rune(right))
+	if pad < 1 {
+		pad = 1
+	}
+	return left + strings.Repeat(" ", pad) + right
+}
+
+// truncateHostsList renders hosts as a comma-separated list, shortened to
+// fit maxWidth by dropping hosts off the end and appending ", ..." (same
+// "documented heuristic, not chased to 100%" style as taskLabel's own
+// hostname-shrink loop elsewhere in this file) - never breaks a single
+// hostname mid-word, only ever drops whole hosts from the tail.
+func truncateHostsList(hosts []string, maxWidth int) string {
+	full := strings.Join(hosts, ", ")
+	if maxWidth <= 0 {
+		return ""
+	}
+	if len([]rune(full)) <= maxWidth {
+		return full
+	}
+
+	const suffix = "..."
+	var b strings.Builder
+	kept := 0
+	for i, h := range hosts {
+		candidate := b.String()
+		if i > 0 {
+			candidate += ", "
+		}
+		candidate += h
+		if len([]rune(candidate))+len(", "+suffix) > maxWidth {
+			break
+		}
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(h)
+		kept++
+	}
+	if kept == 0 {
+		return suffix
+	}
+	return b.String() + ", " + suffix
 }
 
 // row is one flattened, currently-visible line in the list: a play, a task,
@@ -492,7 +550,7 @@ func filterDialogText(active filterQuery) string {
 // design-docs/Drilldown, Resolved Values.md) see the same
 // inventory/extra-vars context the real run did. Not used for anything
 // else in this function.
-func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -615,7 +673,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
-	topBar := tview.NewTextView().SetText(topBarText(playbookName, 0, false, currentFilter))
+	topBar := tview.NewTextView().SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 20))
 	topBar.SetTextStyle(barStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
@@ -894,7 +952,23 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 			}
 			elapsed = frozenElapsed
 		}
-		topBar.SetText(topBarText(playbookName, elapsed, frozen, currentFilter))
+		_, _, width, _ := list.GetInnerRect()
+		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
+		// (never 0), and QueueUpdateDraw can't run this closure before
+		// Run()'s first real-size draw pass anyway - taskLabel is also
+		// panic-safe for any width - but clamp defensively in case that
+		// ordering assumption ever changes.
+		if width < 20 {
+			width = 20
+		}
+		lastRebuildWidth = width // recorded regardless of what triggered
+		// this particular rebuild, so the resize watcher (see NewLiveTUI's
+		// call to startHeartbeat) always compares against whatever was
+		// actually last rendered. topBar shares list's own width (both are
+		// full-width children of the same outer Flex row), so it's reused
+		// below for topBarText's own right-alignment/truncation too rather
+		// than re-deriving a second width from topBar.GetInnerRect().
+		topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, width))
 
 		// One-time, right on the running-to-frozen transition: for a
 		// genuine failure (see genuineFailure - shared with statusRowText
@@ -927,20 +1001,6 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 				}
 			}
 		}
-
-		_, _, width, _ := list.GetInnerRect()
-		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
-		// (never 0), and QueueUpdateDraw can't run this closure before
-		// Run()'s first real-size draw pass anyway - taskLabel is also
-		// panic-safe for any width - but clamp defensively in case that
-		// ordering assumption ever changes.
-		if width < 20 {
-			width = 20
-		}
-		lastRebuildWidth = width // recorded regardless of what triggered
-		// this particular rebuild, so the resize watcher (see NewLiveTUI's
-		// call to startHeartbeat) always compares against whatever was
-		// actually last rendered.
 
 		activeTask := activeTaskNow()
 

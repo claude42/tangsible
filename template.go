@@ -441,7 +441,7 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	currentHost := initialHost
 
 	setHeader := func() {
-		header.SetText(fmt.Sprintf(" %s — %s ", tview.Escape(templatePath), tview.Escape(currentHost)))
+		header.SetText(fmt.Sprintf(" Template: %s   Host: %s ", tview.Escape(templatePath), tview.Escape(currentHost)))
 	}
 	setHeader()
 	renderedView.SetText("Rendering...")
