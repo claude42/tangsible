@@ -1,34 +1,95 @@
 # Tangsible
 
-A terminal UI for `ansible-playbook`, built for interactive use — running
-playbooks by hand during development, not unattended automation.
+**A live terminal UI for `ansible-playbook`, for the person actually
+watching it run.**
+
+Tangsible wraps `ansible-playbook` in a navigable, incrementally-updating
+tree of plays → tasks → hosts, color-coded by outcome. It comes up
+immediately, updates live while the run is still in progress, and lets you
+drill into any host's result — task source, output, stderr, diff, full
+JSON — without losing your place in the run.
+
+```
+ tangsible ▸ deploy.yml                                       ⠋ 00:14
+────────────────────────────────────────────────────────────────────
+ Deploy webapp
+   Gather facts                              web-1 OK    web-2 OK
+   Install packages                          web-1 OK    web-2 Chgd
+ ▶ Configure nginx                           web-1 OK    web-2 Fail
+     web-2: Failed — "nginx: [emerg] invalid number of arguments"
+   Restart service                           web-1 OK    web-2 ⠂
+────────────────────────────────────────────────────────────────────
+ ↑↓ move   ↵ expand/open   n/p next/prev task   r rerun   q quit
+```
+*(a simplified mockup of the actual TUI — the real thing color-codes each
+host by outcome and updates this live, line by line, as Ansible runs)*
 
 ## Why
 
 Running `ansible-playbook` directly is painful when you're actually
-watching it: output scrolls by faster than you can read it, a failing
-task's real output is buried in a wall of text, and reconstructing
-"which hosts succeeded, which failed, and why" after the fact means
-scrolling back through a terminal or grepping a log file.
+watching it, not just kicking it off and walking away:
 
-Tangsible wraps `ansible-playbook` in a live, navigable tree of
-plays → tasks → hosts. It comes up immediately and updates as the run
-progresses — you can scroll around and inspect earlier results while
-later tasks are still executing — and once something fails, drilling into
-it shows the task's own source, its output, and the full result side by
-side, not spread across your scrollback.
+- Output scrolls by faster than you can read it — reconstructing "which
+  hosts succeeded, which failed, and why" after the fact means scrolling
+  back through a terminal or grepping a log file.
+- A failing task's real error is usually buried several screens up, mixed
+  in with everything that ran fine.
+- There's no live overview — you can't tell at a glance how far along a
+  multi-host, multi-task run is, or which hosts have diverged from the
+  rest, until it's already finished (or you've lost the scrollback).
+
+Tangsible turns that stream of text into a structure you can look at:
+scroll around and inspect earlier results while later tasks are still
+executing, and once something fails, jump straight to it — the task as
+written, its output, and the full result, side by side, not spread across
+your scrollback.
+
+## Who it's for
+
+Anyone running `ansible-playbook` **by hand, repeatedly, against a
+live-ish environment** — the edit-run-inspect-rerun loop of writing or
+debugging a playbook or role, not unattended automation:
+
+- Developers and platform engineers iterating on playbooks/roles against
+  dev or staging boxes.
+- Anyone who currently keeps a second terminal open just to `tail` a log
+  or scroll back to find where things went wrong.
+- Small-team/solo ops work in the ~10-host range — not fleet management
+  (see [Current limitations](#current-limitations)).
+
+It is *not* aimed at CI pipelines, scheduled/unattended runs, or
+orchestrating jobs across a team — for those, the tools below are a
+better fit than Tangsible ever intends to be.
+
+## Why not X?
+
+| Instead of... | You get... | Tangsible's difference |
+|---|---|---|
+| Plain `ansible-playbook` | Full scrollback, but no structure — you `grep`/scroll to find what happened | Same output, restructured into a live, navigable tree — nothing to grep for |
+| `ansible-playbook --step` | A pause-and-confirm prompt before each task | Doesn't slow the run down or ask permission — you watch it run at full speed and drill in only where you care to |
+| ARA (Ansible Run Analysis) | Rich *post-run* reporting via a web UI, backed by a database/API server | Zero infrastructure — no DB, no server, nothing to stand up — and it's live *during* the run, in your terminal, not a report you open afterward |
+| AWX / Ansible Tower / Semaphore | A full orchestration platform: scheduling, RBAC, web UI, job history, teams | Built for one person at a terminal, not a service to deploy — a single static binary with no install beyond it |
+| `ansible-console` | Interactive **ad-hoc** command execution, one module call at a time | Runs your actual playbooks — plays, tasks, handlers, roles — not a replacement for playbooks, a better window onto them |
+
+The short version: everything above either doesn't restructure the output
+for live watching, or asks you to run infrastructure to get that
+restructuring. Tangsible is a single binary that shells out to
+`ansible-playbook` exactly as you would, and turns its output into
+something you can watch and navigate as it happens.
 
 ## Features
 
 - **Live**, incremental updates — no waiting for the run to finish.
 - A **tree view** of plays/tasks/hosts, color-coded by outcome
   (OK/Changed/Skipped/Failed/Unreachable), with expand/collapse and a
-  right-aligned host list per task so you can see at a glance who's done
-  what.
+  host list per task so you can see at a glance who's done what.
 - A **drill-down view** per host/task result: the task exactly as written
   in your playbook or role (with a light syntax highlight), its output,
-  stderr, and the full JSON result — all in one place, colorized and
-  navigable to the next/previous task or host without leaving the view.
+  stderr, a `--diff` tab, and the full JSON result — all in one place,
+  colorized and navigable to the next/previous task or host without
+  leaving the view.
+- **Filtering** — narrow the tree to just Changed, just Failed, or a
+  full-text search across task names, source, and output.
 - Keyboard **and mouse** navigation (see below).
 - The playbook path is optional — resolved from an env var, a per-project
   config file, a global config file, or a conventional `site.yml`, in
@@ -67,7 +128,7 @@ This produces a `tangsible` binary in the current directory.
 tangsible run [<playbook.yml>] [ansible-playbook args...]
 ```
 
-The `run` verb is mandatory (more verbs exist — see `rerun` in Rerun.md).
+The `run` verb is mandatory (more verbs exist — see `rerun` below).
 Anything after the playbook is passed straight through to
 `ansible-playbook` — inventory, tags, limits, verbosity, whatever you'd
 normally pass. For example:
@@ -129,6 +190,8 @@ control, and more).
 | `←`/`→` | Collapse / expand a task |
 | `n` / `p` | Jump to the next / previous task |
 | `Home` / `End` | Jump to the first / last row |
+| `a` / `c` / `f` | Filter: All / Changed / Failed |
+| `/` | Search filter (task name, source, output) |
 | `r` | Open the re-run dialog (once the run has finished) |
 | `q` / `Ctrl-C` | Interrupt the run, or quit once it's finished |
 
