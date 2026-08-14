@@ -24,9 +24,11 @@ normal run/role tree UI at all. There's no tree to browse and nothing here
 needs the live jsonl-streaming pipeline: each render is one synchronous
 ansible-playbook invocation (the initial one, and again every time the
 template is reprocessed - see Editing below), and the result is shown
-directly in the one view this verb ever shows. q/Esc quits the whole
-program from there, the same way Esc/Enter already return you from the
-existing drill-down view - just with nothing to return *to* here.
+directly in the one view this verb ever shows. `q` quits the whole program
+from there - deliberately just `q` (and Ctrl-C), not Esc too: Esc used to
+quit identically, but that made it too easy to close the whole thing by
+reflex while just browsing the Rendered/Source tabs, so it's inert here
+instead.
 
 ## Host resolution
 
@@ -86,7 +88,7 @@ Task/Output/Warnings/Error section layout:
       template failure this is the Jinja traceback; `stderr` too if
       that's ever non-empty) in its place.
   * A bottom keybinding-hint bar, matching every other view in the app
-    (`e`: edit, `h`: change host, `q`/Esc: quit).
+    (`e`: edit, `h`: change host, `q`: quit).
 
 ## Editing
 

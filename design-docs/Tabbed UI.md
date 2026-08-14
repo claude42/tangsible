@@ -96,7 +96,7 @@ throughout, just applied to tabs instead of stacked sections):
 
 ## Template page: content mapping
 
-Two tabs: **Source**, **Rendered**. A Jinja failure replaces Rendered's
+Two tabs: **Rendered**, **Source**. A Jinja failure replaces Rendered's
 own content with the error text, exactly like today's single-view
 behavior - just relocated into a tab rather than swapping the whole view.
 

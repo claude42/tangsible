@@ -230,7 +230,7 @@ other three dialogs' buttons aren't.
 
 A completely separate program from `run`/`rerun`/`role` (own `main()`
 entry point, own key/mouse handling) for interactively debugging a Jinja2
-template against one host. Two tabs - Source, Rendered.
+template against one host. Two tabs - Rendered, Source.
 
 * Cursor keys, Page up/down, Home/End - native `tview.TextView` scrolling
                      of whichever tab is active (also `g`/`G`/`j`/`k`/`h`/`l`
@@ -239,19 +239,25 @@ template against one host. Two tabs - Source, Rendered.
                      these are never explicitly wired here; they work
                      because TextView natively supports them and nothing
                      intercepts them first)
-* Tab / Shift-Tab  - switch between the Source and Rendered tabs (wraps at
+* Ctrl-A / Ctrl-E  - same as Home / End - unlike the vim bindings above,
+                     `tview.TextView` does NOT handle these two natively,
+                     so (like the main tree) they're explicitly translated
+                     to Home/End before dispatch
+* Tab / Shift-Tab  - switch between the Rendered and Source tabs (wraps at
                      both ends, same as the drill-down view's own tabs)
 * e                - open the template file in `$VISUAL`/`$EDITOR` (a
                      foreground subprocess, suspending the TUI exactly like
                      `git commit` would) - re-renders unconditionally once
                      the editor exits, whether or not anything was saved
 * h                - open the "change host" dialog (see below)
-* q / Esc / Ctrl-C - quit the program outright - no distinction between
-                     these three here (see "q/Esc mean different things"
-                     in Possible inconsistencies below), and no
-                     interrupt-vs-quit split either, since there's no
-                     long-running child process to interrupt (each render
-                     is one synchronous `ansible-playbook` invocation)
+* q / Ctrl-C       - quit the program outright - no distinction between the
+                     two here, and no interrupt-vs-quit split either, since
+                     there's no long-running child process to interrupt
+                     (each render is one synchronous `ansible-playbook`
+                     invocation). Esc deliberately does NOT quit here (it
+                     used to, identically to q/Ctrl-C, but that made it too
+                     easy to close the whole program by reflex while just
+                     browsing the tabs) - it's simply inert instead
 
 **Mouse**
 * Wheel / trackpad - scroll the active tab's content
@@ -300,11 +306,14 @@ things to change:
   interrupt distinction) in the `template` program. Each is individually
   justified in its own section above, but it's a lot of different
   behavior for one key across the app.
-* **Escape's meaning varies by context** in a similar way: does nothing at
-  the main tree's own top level; closes a dialog or the drill-down view
-  with no side effect; and quits the whole program outright in the
-  `template` verb specifically (no equivalent top-level "Escape quits" in
-  the main tree/drill-down program).
+* **Escape's meaning varies by context** in a similar way, though less than
+  it used to: does nothing at the main tree's own top level; closes a
+  dialog or the drill-down view with no side effect; and, in the
+  `template` verb, is likewise just inert at the top level - it used to
+  quit the whole program there, uniquely, which was flagged here as an
+  inconsistency and has since been removed (only `q`/Ctrl-C quit the
+  `template` verb now, matching how nothing else in the app treats bare
+  Escape as "quit").
 * **Cursor left/right mean different things depending on what's focused**:
   expand/collapse in the main tree, but previous/next *host* in the output
   drill-down view. Not a bug (there's nothing to expand/collapse once

@@ -646,7 +646,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	outputTopBar := tview.NewTextView()
 	outputTopBar.SetTextStyle(barStyle)
 
-	outputBottomBar := tview.NewTextView().SetText(" ↑/↓ or j/k/h/l scroll  g/home top  G/end bottom  tab/shift-tab or click: switch tab  ←/→: prev/next host  n/p: prev/next task  esc/enter: back ")
+	outputBottomBar := tview.NewTextView().SetText(" tab/shift-tab: switch tab  n/p: prev/next task  ←/→: prev/next host  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
 	outputBottomBar.SetTextStyle(barStyle)
 
 	outputFlex := tview.NewFlex().
@@ -1478,7 +1478,7 @@ func NewLiveTUI(state *playbookState, playbookName string, procH *procHandle, pr
 	}
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
-	bottomBar := tview.NewTextView().SetText(" ↑/↓/j/k navigate  ←/→: expand/collapse  n/p: prev/next task  home/end/G: top/bottom  F: resume follow  E/C: expand/collapse all  enter/space: toggle  /: filter  r: re-run  q: quit ")
+	bottomBar := tview.NewTextView().SetText(" p/n: prev/next task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
 	bottomBar.SetTextStyle(barStyle)
 
 	flex := tview.NewFlex().

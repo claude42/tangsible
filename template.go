@@ -425,10 +425,10 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	renderedView := tview.NewTextView().SetDynamicColors(true)
 
 	tabs := newTabbedPane()
-	tabs.SetTabs([]string{"Source", "Rendered"}, []tview.Primitive{sourceView, renderedView})
+	tabs.SetTabs([]string{"Rendered", "Source"}, []tview.Primitive{renderedView, sourceView})
 
 	footer := tview.NewTextView().SetDynamicColors(true).
-		SetText(" tab/shift-tab or click: switch tab  e: edit template  h: change host  q/esc: quit ")
+		SetText(" tab/shift-tab: switch tab  e: edit template  h: change host  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
 	footer.SetTextStyle(barStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -576,12 +576,27 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 			return event
 		}
 		switch {
-		case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyCtrlC:
+		// Deliberately no KeyEscape case here (unlike Ctrl-C) - Esc used to
+		// quit identically to q/Ctrl-C, but that's an easy accidental hit
+		// while just browsing the rendered/source tabs; only q and Ctrl-C
+		// quit now. Falls through to `return event` at the bottom, which
+		// tview.TextView (sourceView/renderedView) with no SetDoneFunc of
+		// its own just no-ops on - not a dead binding, just genuinely
+		// inert.
+		case event.Key() == tcell.KeyCtrlC:
 			app.Stop()
 			return nil
 		case event.Rune() == 'q':
 			app.Stop()
 			return nil
+		case event.Key() == tcell.KeyCtrlA:
+			// Not natively handled by tview.TextView (unlike Home/End,
+			// which it does handle directly) - translated the same way
+			// tui.go's own universal key aliases do, so the footer's
+			// "CTRL-A/E: top/bottom" claim is actually true here too.
+			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyCtrlE:
+			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyTab:
 			// design-docs/Tabbed UI.md: Tab/Backtab are tview.TextView's
 			// own default "done key" set (they'd otherwise back out of
