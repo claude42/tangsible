@@ -107,7 +107,18 @@ type generationOutcome struct {
 // pre-flight failure has nowhere to hide the already-visible TUI from, so
 // it just renders as a failed generation like any other, no gate needed).
 func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, err error) {
-	cmd = exec.Command("ansible-playbook", append([]string{playbook}, args...)...)
+	// --diff is always appended to the actual subprocess argv (never to
+	// args itself, which is also what's reassembled into .tangsible's
+	// history/rerun args) so the drill-down view's Diff tab
+	// (buildDiffTab, tui.go) has something to show whenever a module
+	// supports diff mode - unconditionally, not just when the user
+	// happens to pass --diff themselves. Harmless if they did anyway:
+	// ansible-playbook tolerates a repeated boolean flag.
+	cmdArgs := make([]string, 0, len(args)+2)
+	cmdArgs = append(cmdArgs, playbook)
+	cmdArgs = append(cmdArgs, args...)
+	cmdArgs = append(cmdArgs, "--diff")
+	cmd = exec.Command("ansible-playbook", cmdArgs...)
 	cmd.Env = append(os.Environ(),
 		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
 		// Pin compact (single-line) JSON so our line-based scanner can't be

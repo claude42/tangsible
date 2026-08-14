@@ -5,6 +5,7 @@ go 1.24.4
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/gdamore/tcell/v2 v2.8.1
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/rivo/tview v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
 )

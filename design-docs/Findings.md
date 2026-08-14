@@ -23,7 +23,7 @@ immediately implemented.
 
 * View Play
 
-* --step, --check, --diff
+* --step, --check
 
 * Split pane
 

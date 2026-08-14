@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/pmezard/go-difflib/difflib"
 	"github.com/rivo/tview"
 )
 
@@ -3107,17 +3108,21 @@ type resolvedRender struct {
 
 // buildOutputTabs is the output drill-down view's own tab-content builder
 // (design-docs/Tabbed UI.md), replacing what used to be one monolithic
-// formatHostOutput string with up to 6 named tabs instead - Task, Output
+// formatHostOutput string with up to 7 named tabs instead - Task, Output
 // (merging what used to be separate Output/Warnings/Items/Error sections
 // into one tab, per design-docs/Tabbed UI.md's own content-mapping
 // decision - each piece keeps its own sectionLabel header within it, so
 // several distinct pieces sharing one tab don't become an undifferentiated
-// blob), Task definition, Resolved, Play definition, and Details - in
-// that order. Every tab but Task/Resolved/Details is dynamic: names/
+// blob), Diff, Task definition, Resolved, Play definition, and Details -
+// in that order. Every tab but Task/Resolved/Details is dynamic: names/
 // contents simply omits one entirely when that particular task has
 // nothing for it (an empty "" from that tab's own builder), matching this
 // function's predecessor's "omit rather than show a placeholder"
 // convention, just applied to whole tabs instead of stacked sections.
+// Diff is the newest of these (--diff is now always passed to
+// ansible-playbook, see spawnGeneration in main.go) - buildDiffTab below
+// omits it whenever a task's result carries no diff key, or one that
+// resolves to no actual change (e.g. before == after).
 //
 // Decodes into a generic map (not a fixed struct) since different Ansible
 // modules return wildly different result shapes - shared across every
@@ -3180,6 +3185,7 @@ func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, r
 	contents = append(contents, buildTaskTab(task, host, decoded, o))
 
 	add("Output", buildOutputTab(decoded, o))
+	add("Diff", buildDiffTab(decoded))
 	add("Task definition", buildSourceTab(task.Path, sourceIndex))
 
 	names = append(names, "Resolved")
@@ -3292,6 +3298,162 @@ func buildOutputTab(decoded map[string]interface{}, o outcome) string {
 	writeTextSection("red", "Error", stderr)
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// buildDiffTab renders the Diff tab's own content - "" (the tab omitted
+// entirely by buildOutputTabs' own add()) whenever decoded["diff"] is
+// absent, or present but produces no actual change to show.
+//
+// This is a direct port of ansible-core's own default display callback,
+// CallbackBase._get_diff (ansible/plugins/callback/__init__.py) - not a
+// from-scratch format, so a task's Diff tab here reads exactly like what
+// `ansible-playbook --diff` itself would print, since that's the same
+// data (decoded["diff"]) and the same shape decisions (a single dict, or
+// a list of them for a multi-file diff; each dict may carry
+// binary/oversize skip notices, a before/after pair, and/or a literal
+// preformatted "prepared" string - never mutually exclusive, matching
+// the original's own non-early-returning structure).
+func buildDiffTab(decoded map[string]interface{}) string {
+	raw, ok := decoded["diff"]
+	if !ok || raw == nil {
+		return ""
+	}
+
+	var entries []interface{}
+	if list, isList := raw.([]interface{}); isList {
+		entries = list
+	} else {
+		entries = []interface{}{raw}
+	}
+
+	var blocks []string
+	for _, entry := range entries {
+		d, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if block := buildDiffEntry(d); block != "" {
+			blocks = append(blocks, block)
+		}
+	}
+	return strings.Join(blocks, "\n")
+}
+
+// buildDiffEntry renders one diff dict's own content (_get_diff's
+// per-entry body) - "" if this entry produced nothing to show at all.
+func buildDiffEntry(d map[string]interface{}) string {
+	var b strings.Builder
+
+	if _, ok := d["dst_binary"]; ok {
+		b.WriteString("diff skipped: destination file appears to be binary\n")
+	}
+	if _, ok := d["src_binary"]; ok {
+		b.WriteString("diff skipped: source file appears to be binary\n")
+	}
+	if v, ok := d["dst_larger"]; ok {
+		fmt.Fprintf(&b, "diff skipped: destination file size is greater than %v\n", v)
+	}
+	if v, ok := d["src_larger"]; ok {
+		fmt.Fprintf(&b, "diff skipped: source file size is greater than %v\n", v)
+	}
+
+	if _, hasBefore := d["before"]; hasBefore {
+		if _, hasAfter := d["after"]; hasAfter {
+			b.WriteString(unifiedDiffText(d))
+		}
+	}
+
+	if prepared, ok := d["prepared"].(string); ok && prepared != "" {
+		b.WriteString(tview.Escape(prepared))
+	}
+
+	return b.String()
+}
+
+// unifiedDiffText computes and colorizes the before/after unified diff
+// for one diff dict - "" if before and after are identical (no hunks),
+// mirroring _get_diff's own has_diff check so an unchanged file
+// contributes nothing to the tab.
+func unifiedDiffText(d map[string]interface{}) string {
+	beforeHeader := "before"
+	if h, ok := d["before_header"]; ok {
+		beforeHeader = fmt.Sprintf("before: %v", h)
+	}
+	afterHeader := "after"
+	if h, ok := d["after_header"]; ok {
+		afterHeader = fmt.Sprintf("after: %v", h)
+	}
+
+	beforeLines := diffLinesWithMarker(diffFieldText(d["before"]))
+	afterLines := diffLinesWithMarker(diffFieldText(d["after"]))
+
+	text, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+		A:        beforeLines,
+		FromFile: beforeHeader,
+		B:        afterLines,
+		ToFile:   afterHeader,
+		Context:  3,
+	})
+	if err != nil || text == "" {
+		return ""
+	}
+
+	var out strings.Builder
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "+"):
+			fmt.Fprintf(&out, "[green]%s[-]\n", tview.Escape(line))
+		case strings.HasPrefix(line, "-"):
+			fmt.Fprintf(&out, "[red]%s[-]\n", tview.Escape(line))
+		case strings.HasPrefix(line, "@@"):
+			fmt.Fprintf(&out, "[teal]%s[-]\n", tview.Escape(line))
+		default:
+			out.WriteString(tview.Escape(line))
+			out.WriteString("\n")
+		}
+	}
+	return out.String()
+}
+
+// diffFieldText converts one before/after value into plain text -
+// verbatim for a string, "" for nil/absent, else pretty-printed JSON
+// (matching _serialize_diff's own default result_format of "json", not
+// YAML) for a module that reports a structured value instead (e.g. the
+// file module's mode changes).
+func diffFieldText(v interface{}) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	default:
+		pretty, err := json.MarshalIndent(t, "", "    ")
+		if err != nil {
+			return ""
+		}
+		return string(pretty) + "\n"
+	}
+}
+
+// diffLinesWithMarker splits s into lines the way go-difflib's Matcher
+// expects - each line keeping its own trailing "\n" (a plain "\n"-based
+// heuristic, not Python's full splitlines(True), same "good enough, not
+// chased further" tolerance as this file's other line-based heuristics,
+// e.g. yamlKeyLine) - and, if the final line has none, appends the same
+// "\ No newline at end of file" marker ansible's own _get_diff does, so a
+// diff against a file with no trailing newline reads identically.
+func diffLinesWithMarker(s string) []string {
+	if s == "" {
+		return nil
+	}
+	lines := strings.SplitAfter(s, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	} else {
+		lines[len(lines)-1] += "\n\\ No newline at end of file\n"
+	}
+	return lines
 }
 
 // buildSourceTab renders one YAML-source tab's own content (Task

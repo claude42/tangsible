@@ -1,0 +1,23 @@
+# Exercises the Diff tab (--diff is always passed, see spawnGeneration in
+# main.go): "write scratch file" creates it from nothing, "overwrite
+# scratch file" then changes its content - both produce a real before/
+# after diff. "no diff" is a plain command with nothing to diff, to
+# confirm the Diff tab is correctly absent for it.
+- hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: write scratch file
+      copy:
+        dest: /tmp/tangsible-diff-demo.txt
+        content: |
+          line one
+          line two
+    - name: overwrite scratch file
+      copy:
+        dest: /tmp/tangsible-diff-demo.txt
+        content: |
+          line one
+          line three
+    - name: no diff
+      command: echo hi
