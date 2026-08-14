@@ -99,6 +99,11 @@ something you can watch and navigate as it happens.
   jump straight into that same dialog from the command line with
   `tangsible rerun`, pre-filled from what you last ran (see Re-running
   below).
+- **Test a role on its own** with `tangsible role <name>` — no throwaway
+  playbook to hand-write first (see Testing a role below).
+- **Debug a Jinja2 template** with `tangsible template <path>` — renders
+  it through Ansible's own templating against a real host and shows the
+  result (or the error) directly (see Debugging a template below).
 
 ## Requirements
 
@@ -128,8 +133,9 @@ This produces a `tangsible` binary in the current directory.
 tangsible run [<playbook.yml>] [ansible-playbook args...]
 ```
 
-The `run` verb is mandatory (more verbs exist — see `rerun` below).
-Anything after the playbook is passed straight through to
+A leading verb is mandatory — `run` above, plus `rerun`, `role`, and
+`template` (see their own sections below). Anything after the playbook is
+passed straight through to
 `ansible-playbook` — inventory, tags, limits, verbosity, whatever you'd
 normally pass. For example:
 
@@ -174,6 +180,45 @@ press `Enter` in the dialog — `rerun` never fires off a playbook silently.
 
 This relies on `.tangsible` remembering past invocations — see
 Configuration below.
+
+## Testing a role in isolation
+
+Developing a role usually means it can't just be run — `ansible-playbook`
+only ever executes playbooks, so you'd normally have to add the role to
+an existing playbook, or hand-write a throwaway stub, just to try it:
+
+```
+tangsible role <role_name> [ansible-playbook args...]
+```
+
+Tangsible generates a small stub playbook (`hosts: all`, running just
+that role — narrow the actual target the normal way, with `-l`/`-i`) and
+runs it exactly like `tangsible run` would, live tree and all. The stub
+is deleted when Tangsible exits; a mid-session re-run (`r`) reuses it
+rather than regenerating it. `tangsible rerun` with no arguments works for
+a role the same way it does for a playbook — it remembers whichever you
+ran most recently, one or the other.
+
+## Debugging a Jinja2 template
+
+Jinja2 templates are easy to get subtly wrong, and testing one properly
+means going through Ansible's own templating rather than a generic Jinja
+tool — which normally means crafting a playbook or role just to render
+it once:
+
+```
+tangsible template <path to template> [<hostname>] [-e ...]
+```
+
+This is a different, single-view mode — no tree, just the rendered
+output (or, on failure, the Jinja error) for one host at a time.
+`hostname` is optional (Tangsible picks the first inventory host if
+omitted); `-e` works as usual for passing extra vars. If the template
+lives at a role's conventional `roles/<name>/templates/...` path, that
+role's own variables are made available automatically, the same as a
+real `include_role` would. Press `e` to open the template in `$VISUAL`/
+`$EDITOR` and re-render on save, `h` to switch which host it's rendered
+against, `q` to quit.
 
 ## Keyboard shortcuts
 
