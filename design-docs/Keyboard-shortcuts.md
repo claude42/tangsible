@@ -104,6 +104,15 @@ there's something to put in them).
 * n / p            - show the same tab's content for the previous / next
                      task, same host (no wraparound; skips tasks hidden by
                      the active filter)
+* e                - open the file containing the currently displayed
+                     task's own source in `$VISUAL`/`$EDITOR` (a foreground
+                     subprocess, suspending the TUI - same mechanism as the
+                     `template` verb's own `e` binding below). Unlike the
+                     `template` verb, this does NOT re-run or refresh
+                     anything once the editor exits - the view still shows
+                     the already-recorded result for this task, unaffected
+                     by any edit made to its source afterward. A no-op if
+                     the task's source location couldn't be determined.
 
 When you close the view (Escape/Enter/q), the tree's own cursor updates to
 match whatever (task, host) was last shown - including if you navigated to
@@ -329,3 +338,26 @@ things to change:
   do the same thing (switch tabs)** - listed here as a *positive*
   consistency worth preserving, not a problem, in case future changes to
   either drift apart.
+
+## My notes, pls ignore for now
+
+### Treeview bottom bar
+
+* n/p
+* E/C
+* F
+* f
+* /
+* r
+
+### Drill down
+
+* n/p
+* <-/->
+* Tab
+
+
+
+## Misc
+
+* Search dialog buttons

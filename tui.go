@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -1941,6 +1942,26 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			case event.Key() == tcell.KeyRune && event.Rune() == 'n':
 				navigateOutputTask(1)
 				return nil
+			case event.Key() == tcell.KeyRune && event.Rune() == 'e':
+				// Opens the file the currently displayed task's own source
+				// came from, per source.go's taskSourceIndex/task.Path -
+				// same app.Suspend + $VISUAL/$EDITOR/vi mechanism the
+				// template verb's own 'e' binding already uses
+				// (template.go's preferredEditor). Deliberately does NOT
+				// refresh anything afterward, unlike the template verb -
+				// there's no live render to redo here, and this view's own
+				// content (the task's already-recorded result) can't
+				// change by editing the source after the fact.
+				if outputTask != nil {
+					if file := taskSourceFile(outputTask.Path); file != "" {
+						app.Suspend(func() {
+							cmd := exec.Command(preferredEditor(), file)
+							cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+							_ = cmd.Run()
+						})
+					}
+				}
+				return nil
 			}
 			return event
 		}
@@ -3112,6 +3133,20 @@ func taskSourceLocation(path string) string {
 		return ""
 	}
 	return fmt.Sprintf("[%s, line %s]", file, lineStr)
+}
+
+// taskSourceFile extracts just the file portion of task.Path
+// ("<absolute file>:<line>", see events.go/aggregate.go) - "" if path
+// doesn't have that shape (shouldn't happen for a real event, but not
+// trusted blindly, same caution as taskSourceLocation above). Backs the
+// output drill-down view's own 'e' binding (openTaskSourceFile below),
+// which only needs the file to hand to an editor, not the line.
+func taskSourceFile(path string) string {
+	idx := strings.LastIndex(path, ":")
+	if idx == -1 {
+		return ""
+	}
+	return path[:idx]
 }
 
 // rolePathPattern matches the standard Ansible role directory layout
