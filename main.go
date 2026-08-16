@@ -87,14 +87,13 @@ type pendingGeneration struct {
 
 // generationOutcome is one ansible-playbook invocation's result. main
 // accumulates one per generation - the first invocation, plus every rerun
-// since (Rerun.md) - so every generation's stderr/diagnostics still get
-// printed once Tangsible finally exits, not just the last one, even though
-// only the LAST generation's exit code decides Tangsible's own exit status.
+// since (Rerun.md) - so every generation's stderr still gets printed once
+// Tangsible finally exits, not just the last one, even though only the LAST
+// generation's exit code decides Tangsible's own exit status.
 type generationOutcome struct {
 	exitCode    int
 	waitErr     error
 	childStderr []string
-	diagnostics []string
 }
 
 // spawnGeneration starts one ansible-playbook invocation for playbook+args,
@@ -274,14 +273,12 @@ func main() {
 		var explicit bool
 		playbook, rest, explicit = splitPlaybookArgs(args)
 		if !explicit {
-			var source string
-			playbook, source = resolvePlaybook()
+			playbook, _ = resolvePlaybook()
 			if playbook == "" {
 				fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 				fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
 				os.Exit(2)
 			}
-			fmt.Fprintf(os.Stderr, "tangsible: no playbook given - using %q (%s)\n", playbook, source)
 		}
 
 		// Recorded unconditionally, before ansible-playbook is even
@@ -418,15 +415,10 @@ func main() {
 	// generationOutcome; read back only after app.Run() returns below.
 
 	var applyLive func(rawEvent)
-	apply := func(item streamItem) []string {
-		var diagnostics []string
-		if item.diag != "" {
-			diagnostics = append(diagnostics, item.diag)
-		}
+	apply := func(item streamItem) {
 		if item.isEvent && !quitting.Load() {
 			applyLive(item.ev)
 		}
-		return diagnostics
 	}
 
 	// runGeneration drains one generation's stdout to completion - from
@@ -436,12 +428,11 @@ func main() {
 	// and every rerun since, for both verbs (see requestRerun) - so
 	// there's exactly one place that knows how a generation finishes.
 	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, peeked ...streamItem) {
-		var diagnostics []string
 		for _, item := range peeked {
-			diagnostics = append(diagnostics, apply(item)...)
+			apply(item)
 		}
 		for item := range stdoutCh {
-			diagnostics = append(diagnostics, apply(item)...)
+			apply(item)
 		}
 		childStderr := <-stderrLines // wait for stderr to fully drain before Wait()
 		waitErr := cmd.Wait()
@@ -452,7 +443,7 @@ func main() {
 		// program (not just per-variable), so this ordering is what makes
 		// that store visible there.
 		outcomesMu.Lock()
-		outcomes = append(outcomes, generationOutcome{exitCode: code, waitErr: waitErr, childStderr: childStderr, diagnostics: diagnostics})
+		outcomes = append(outcomes, generationOutcome{exitCode: code, waitErr: waitErr, childStderr: childStderr})
 		outcomesMu.Unlock()
 		processDone.Store(true)
 	}
@@ -510,7 +501,7 @@ func main() {
 				// below renders it the same as any other failed run.
 				exitCode.Store(-1)
 				outcomesMu.Lock()
-				outcomes = append(outcomes, generationOutcome{exitCode: -1, waitErr: err, diagnostics: []string{err.Error()}})
+				outcomes = append(outcomes, generationOutcome{exitCode: -1, waitErr: err})
 				outcomesMu.Unlock()
 				processDone.Store(true)
 				return
@@ -545,8 +536,7 @@ func main() {
 	// A 99 exit means the user asked us (via q/Ctrl-C) to interrupt that
 	// generation's run - not a failure. Suppress the stderr lines that
 	// would otherwise read like an error report for something the user
-	// deliberately did; every generation's diagnostics still print
-	// unconditionally. Printed in generation order, oldest first, so a
+	// deliberately did. Printed in generation order, oldest first, so a
 	// mid-session rerun doesn't erase what an earlier generation reported -
 	// that generation's own tree view is long gone by the time Tangsible
 	// finally exits (Rerun.md's re-run forgets the previous run's results),
@@ -556,9 +546,6 @@ func main() {
 			for _, l := range o.childStderr {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
-		}
-		for _, l := range o.diagnostics {
-			fmt.Println(l)
 		}
 	}
 
@@ -609,14 +596,12 @@ func streamStderr(r io.Reader) []string {
 }
 
 // streamItem is one unit of stdout output. isEvent is true whenever the
-// line decoded successfully as JSON, independent of whether diag is also
-// set - the two are not mutually exclusive: v2_playbook_on_stats sets both
-// (isEvent so Apply still sees it, diag for the cross-check dump), while a
-// malformed line or a final scanner error sets only diag.
+// line decoded successfully as JSON; a malformed line is still sent (with
+// isEvent false) so main's pre-flight gate - which only cares whether
+// anything ever arrived on stdout at all - sees it.
 type streamItem struct {
 	ev      rawEvent
 	isEvent bool
-	diag    string
 }
 
 // scanEvents reads one JSON object per line from r, decoding each into a
@@ -643,23 +628,10 @@ func scanEvents(r io.Reader) <-chan streamItem {
 
 			var ev rawEvent
 			if err := json.Unmarshal([]byte(line), &ev); err != nil {
-				ch <- streamItem{diag: "(not JSON) " + line}
+				ch <- streamItem{}
 				continue
 			}
-
-			item := streamItem{ev: ev, isEvent: true}
-			if ev.Event == "v2_playbook_on_stats" {
-				var stats struct {
-					Stats map[string]interface{} `json:"stats"`
-				}
-				json.Unmarshal([]byte(line), &stats)
-				pretty, _ := json.MarshalIndent(stats.Stats, "  ", "  ")
-				item.diag = fmt.Sprintf("ansible's own final stats (for cross-checking):\n  %s", pretty)
-			}
-			ch <- item
-		}
-		if err := scanner.Err(); err != nil {
-			ch <- streamItem{diag: fmt.Sprintf("error reading ansible-playbook output: %v", err)}
+			ch <- streamItem{ev: ev, isEvent: true}
 		}
 	}()
 	return ch

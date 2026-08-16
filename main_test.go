@@ -92,28 +92,19 @@ func TestScanEvents(t *testing.T) {
 		if second.isEvent {
 			t.Errorf("second item = %+v, want isEvent=false for a non-JSON line", second)
 		}
-		if !strings.HasPrefix(second.diag, "(not JSON) ") {
-			t.Errorf("second item's diag = %q, want it prefixed \"(not JSON) \"", second.diag)
-		}
 
 		if _, ok := <-ch; ok {
 			t.Error("expected the channel to be closed after both lines were consumed")
 		}
 	})
 
-	t.Run("v2_playbook_on_stats is both an event and a diagnostic", func(t *testing.T) {
-		// The two aren't mutually exclusive - documented explicitly on
-		// streamItem - worth pinning down so a future change doesn't
-		// accidentally make them exclusive.
+	t.Run("v2_playbook_on_stats decodes like any other event", func(t *testing.T) {
 		input := `{"_event":"v2_playbook_on_stats","stats":{"web1":{"ok":1}}}` + "\n"
 		ch := scanEvents(strings.NewReader(input))
 
 		item := <-ch
-		if !item.isEvent {
-			t.Error("expected isEvent=true for v2_playbook_on_stats")
-		}
-		if item.diag == "" {
-			t.Error("expected a non-empty diag for v2_playbook_on_stats")
+		if !item.isEvent || item.ev.Event != "v2_playbook_on_stats" {
+			t.Errorf("item = %+v, want a decoded v2_playbook_on_stats event", item)
 		}
 	})
 
