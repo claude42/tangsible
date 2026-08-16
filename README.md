@@ -125,6 +125,12 @@ go build ./...
 
 This produces a `tangsible` binary in the current directory.
 
+Or you can simply do
+```
+go install code.aw.net/claude/tangsible@latest
+```
+to install it in `$GOPATH/bin` (usually `~/go/bin`).
+
 Pre-built binaries will follow soon.
 
 ## Quick start
