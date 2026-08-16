@@ -9,20 +9,7 @@ immediately, updates live while the run is still in progress, and lets you
 drill into any host's result — task source, output, stderr, diff, full
 JSON — without losing your place in the run.
 
-```
- tangsible ▸ deploy.yml                                       ⠋ 00:14
-────────────────────────────────────────────────────────────────────
- Deploy webapp
-   Gather facts                              web-1 OK    web-2 OK
-   Install packages                          web-1 OK    web-2 Chgd
- ▶ Configure nginx                           web-1 OK    web-2 Fail
-     web-2: Failed — "nginx: [emerg] invalid number of arguments"
-   Restart service                           web-1 OK    web-2 ⠂
-────────────────────────────────────────────────────────────────────
- ↑↓ move   ↵ expand/open   n/p next/prev task   r rerun   q quit
-```
-*(a simplified mockup of the actual TUI — the real thing color-codes each
-host by outcome and updates this live, line by line, as Ansible runs)*
+![Tangsible demo](assets/demo.gif)
 
 ## Why
 
@@ -108,7 +95,7 @@ Tangsible is designed around the development loop of finding something wrong, ch
 Tangsible provides a couple of shortcuts for common development tasks that
 normally require writing temporary playbooks.
 
-- **Test a role in isolation** with `tangsible role <role>`.
+- **Run / test a role in isolation** with `tangsible role <role>`.
 - **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own
   templating against a real inventory host. Press `e` to edit the template and
   automatically render it again after saving.
@@ -183,7 +170,7 @@ The same workflow is available from the command line:
 tangsible rerun [playbook.yml] [ansible-playbook args...]
 ```
 
-## Testing a role in isolation
+## Running a role in isolation
 
 Normally, `ansible-playbook` runs playbooks rather than individual roles.
 Testing a role in isolation therefore usually means creating a temporary
@@ -246,6 +233,7 @@ control, and more).
 | Key | Action |
 |---|---|
 | `Tab` / `Shift Tab` | Switch between tabs | 
+| `e` | Edit task file |
 | `n`/`p` | Next / previous task (same host) |
 | `←`/`→` | Previous / next host (same task) |
 | `Esc`/`Enter` | Close, back to the tree |
@@ -256,6 +244,7 @@ control, and more).
 |---|---|
 | `Tab` / `Shift Tab` | Switch between tabs | 
 | `n`/`p` | Next / previous task (same host) |
+| `e` | Edit template file |
 | `←`/`→` | Previous / next host (same task) |
 | `q`/`Ctrl-C` | Quit |
 
