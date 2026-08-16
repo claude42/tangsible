@@ -568,6 +568,16 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	var currentRows []row
 	var currentID any
 	var rebuilding bool
+	lastAppliedSelectedIndex := -1 // the index last genuinely applied to
+	// list via SetCurrentItem, tracked separately from list's own
+	// currentItem because list.Clear()/AddItem() (see treelist.go) reset
+	// that to 0 on every single rebuild - without this, rebuild()'s
+	// trailing selection-apply call below has no way to tell a genuine
+	// selection change apart from itself simply reasserting the same
+	// logical row again, and would re-clamp (ensureVisible) the viewport
+	// back to the cursor on every call - including the heartbeat ticker's,
+	// every 200ms, while a run is still live, fighting any mouse-wheel
+	// panning the user just did. See restoreCurrentItem's own doc comment.
 	following := true                    // auto-follow the newest row until the user navigates away
 	var jumpingToEnd bool                // true only while our own 'F' handler drives SetCurrentItem
 	everStarted := !startWithRerunDialog // false only for the "rerun"
@@ -1027,6 +1037,10 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 
 		if len(currentRows) == 0 {
 			list.Clear()
+			lastAppliedSelectedIndex = -1 // whatever appears once real rows
+			// exist again must be treated as a genuine first selection, not
+			// coincidentally matched against whatever index was applied
+			// before everything was cleared.
 			return
 		}
 
@@ -1099,7 +1113,16 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 			list.AddItem(r.text, selected)
 		}
-		list.SetCurrentItem(selectedIndex)
+		if selectedIndex == lastAppliedSelectedIndex {
+			// Same logical selection as last time - just reassert it after
+			// Clear()/AddItem() reset list's own currentItem, without
+			// re-clamping the viewport (see restoreCurrentItem's doc
+			// comment and lastAppliedSelectedIndex's above).
+			list.restoreCurrentItem(selectedIndex)
+		} else {
+			list.SetCurrentItem(selectedIndex)
+			lastAppliedSelectedIndex = selectedIndex
+		}
 
 		// Reveal the trailing status row(s) on the running-to-frozen
 		// transition, same bug class revealExpandedTask already exists
@@ -1497,19 +1520,18 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 
 	list.SetChangedFunc(func(index int) {
 		if rebuilding {
-			// treeList.Clear() resets currentItem to -1, and the first
-			// AddItem() afterward sets it straight to 0 (treelist.go) - so
-			// rebuild()'s own trailing SetCurrentItem(selectedIndex) call
-			// almost always looks like a genuine change from treeList's own
-			// point of view (0 -> whatever the real selection is) and fires
-			// this callback, even though nothing the user did caused it.
-			// rebuild() restores the real selection itself once done, so
-			// these need to be ignored - this guard is also what stops that
-			// same SetCurrentItem call from recursing into rebuild() again:
-			// rebuild() sets rebuilding true for its entire body - Clear(),
-			// every AddItem(), and its own final SetCurrentItem() - so any
-			// "changed" event that cascades from within it lands here while
-			// rebuilding is still true and is correctly ignored instead.
+			// rebuild()'s own trailing selection-apply call (see
+			// lastAppliedSelectedIndex) only ever reaches list.SetCurrentItem
+			// - and so only ever fires this callback - when the selection
+			// has genuinely changed since the last rebuild; a no-op
+			// reselection goes through restoreCurrentItem instead, which
+			// never calls this at all. So on a genuine change, this guard's
+			// only remaining job is to stop that same SetCurrentItem call
+			// from recursing into rebuild() again: rebuild() sets rebuilding
+			// true for its entire body - Clear(), every AddItem(), and its
+			// own final selection-apply call - so any "changed" event that
+			// cascades from within it lands here while rebuilding is still
+			// true and is correctly ignored instead.
 			return
 		}
 		if index >= 0 && index < len(currentRows) {
@@ -1701,6 +1723,9 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		failureCursorPlaced = false
 		haveFrozenElapsed = false
 		frozenElapsed = 0
+		lastAppliedSelectedIndex = -1 // a fresh generation's row 0 must not
+		// be mistaken for "no change" just because it happens to match
+		// whatever index the previous generation last applied.
 		resolveCache = map[resolveKey]resolvedRender{} // a new generation
 		// means new vars/facts - any cached "Resolved" render is for a
 		// previous generation's own values and must not linger.

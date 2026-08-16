@@ -113,11 +113,15 @@ func (t *treeList) SetChangedFunc(handler func(index int)) *treeList {
 // wheel (see NewLiveTUI's mouse comment).
 //
 // The changed callback fires, and the viewport scrolls to reveal the new
-// selection (ensureVisible), only when the index actually changes - a
-// no-op reselection (rebuild() re-asserting the same logical row after a
-// data-only change, e.g. a new host result arriving) must never yank the
-// scroll position back. That guarantee is this type's entire reason for
-// existing.
+// selection (ensureVisible), whenever the index differs from currentItem -
+// which Clear()/AddItem() (see AddItem) will already have reset to 0/-1 by
+// the time a caller gets here, so this alone can't tell a genuine
+// selection change apart from rebuild() simply reasserting the same
+// logical row after a data-only change (e.g. a new host result arriving).
+// tui.go's rebuild() is the one that actually makes that distinction (via
+// lastAppliedSelectedIndex) and calls restoreCurrentItem instead of this
+// method when nothing really changed - see rebuild() and
+// restoreCurrentItem's own doc comment.
 func (t *treeList) SetCurrentItem(index int) *treeList {
 	if len(t.rows) == 0 {
 		t.currentItem = -1
@@ -137,6 +141,29 @@ func (t *treeList) SetCurrentItem(index int) *treeList {
 		}
 	}
 	return t
+}
+
+// restoreCurrentItem re-establishes the selected index after a
+// Clear()/AddItem() repopulation (which resets currentItem, see AddItem),
+// without invoking ensureVisible or the changed callback - unlike
+// SetCurrentItem, this is for reasserting a selection that hasn't actually
+// changed from the caller's own point of view, so the viewport must not be
+// re-clamped. See tui.go's rebuild()/lastAppliedSelectedIndex for the only
+// caller and the bug this exists to fix (a periodic rebuild - e.g. the
+// heartbeat ticker while a run is still live - silently re-clamping the
+// mouse-panned viewport back to the cursor every tick).
+func (t *treeList) restoreCurrentItem(index int) {
+	if len(t.rows) == 0 {
+		t.currentItem = -1
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(t.rows) {
+		index = len(t.rows) - 1
+	}
+	t.currentItem = index
 }
 
 // GetOffset returns the index of the first visible row.
