@@ -39,8 +39,8 @@ type rerunResolution struct {
 
 // resolveRerun computes a rerunResolution from the "rerun" verb's own args
 // (everything after the verb - possibly an explicit playbook, possibly
-// -l/--tags/other passthrough args) and cfg, the already-loaded .tangsible
-// config (see readTangsibleConfig). ok is false only if no playbook or
+// -l/--tags/other passthrough args) and cfg, the already-loaded
+// .tangsible/state.toml (see readState). ok is false only if no playbook or
 // role could be determined at all - no explicit playbook given, and
 // nothing on record via General.Last (nothing has ever been invoked in
 // this project) - which main.go treats as a usage error, the same shape as
@@ -48,9 +48,9 @@ type rerunResolution struct {
 //
 // Kept as a pure function, no I/O of its own, so it's directly testable -
 // main.go is the only caller, and it's the one that actually reads
-// .tangsible, regenerates a role's stub playbook when needed, and prints
-// the resolution note when the playbook/role came from history rather
-// than the command line.
+// .tangsible/state.toml, regenerates a role's stub playbook when needed,
+// and prints the resolution note when the playbook/role came from history
+// rather than the command line.
 //
 // Precedence, per Rerun.md: an explicit playbook on the command line
 // always wins over cfg's history (and always means a playbook rerun, never
@@ -65,7 +65,7 @@ type rerunResolution struct {
 // no arguments if never run for this playbook" - which falls out for free
 // here, no special-casing needed: historyStringToArgs("") is nil, and
 // parsePassthroughArgs(nil) is the zero parsedPassthroughArgs.
-func resolveRerun(args []string, cfg playbookConfig) (res rerunResolution, ok bool) {
+func resolveRerun(args []string, cfg stateConfig) (res rerunResolution, ok bool) {
 	playbook, cliRest, explicit := splitPlaybookArgs(args)
 	cliParsed := parsePassthroughArgs(cliRest)
 

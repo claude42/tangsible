@@ -31,8 +31,8 @@ import (
 // silently go blank for every role run. Dot-prefixed so it doesn't clutter
 // a directory listing next to the user's own files; should be
 // .gitignore'd (not done automatically - same "don't reach beyond the
-// project's own files uninvited" restraint writeTangsibleConfig already
-// exercises for .tangsible itself).
+// project's own files uninvited" restraint writeState already exercises
+// for .tangsible/state.toml itself).
 func roleStubFilename(role string) string {
 	return ".tangsible-role-" + role + ".yml"
 }

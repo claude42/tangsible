@@ -22,9 +22,14 @@ profile.cov
 # in the repo root)
 /tangsible
 
-# Per-directory invocation-history config `run`/`rerun` auto-write to the
-# cwd (see CLAUDE.md's Rerun section) - local run history, not project source.
-/.tangsible
+# Per-directory invocation-history state `run`/`rerun`/`role` auto-write to
+# the cwd (see CLAUDE.md's Rerun section) - local run history, not project
+# source, and can carry hostnames/tags/extra-vars from past invocations.
+# .tangsible/config.toml is deliberately NOT ignored here - unlike
+# state.toml, it's user-authored settings (design-docs/
+# Dottangsible-directory.md), never written by Tangsible itself, and safe
+# (often desirable) to commit and share across a team.
+/.tangsible/state.toml
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

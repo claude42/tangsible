@@ -267,8 +267,8 @@ func main() {
 		// verb), but doesn't have to be - splitPlaybookArgs treats a
 		// missing or flag-shaped first argument as "none given
 		// positionally" and resolvePlaybook takes over (see resolve.go for
-		// the full TANGSIBLE_PLAYBOOK/.tangsible/$XDG_CONFIG_HOME/site.yml
-		// cascade).
+		// the full TANGSIBLE_PLAYBOOK/.tangsible/config.toml/
+		// $XDG_CONFIG_HOME/site.yml cascade).
 		var rest []string
 		var explicit bool
 		playbook, rest, explicit = splitPlaybookArgs(args)
@@ -276,7 +276,7 @@ func main() {
 			playbook, _ = resolvePlaybook()
 			if playbook == "" {
 				fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
-				fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
+				fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible/config.toml, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
 				os.Exit(2)
 			}
 		}
@@ -290,8 +290,8 @@ func main() {
 		// actually asked for. Unlike "rerun" (see below), "run" always
 		// records immediately - there's no confirmation step to wait for,
 		// the invocation already happened by definition.
-		if err := appendInvocation(tangsibleFilePath, playbook, "", argsToHistoryString(rest)); err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
+		if err := appendInvocation(tangsibleStatePath, playbook, "", argsToHistoryString(rest)); err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleStatePath, err)
 		}
 		originalArgs = parsePassthroughArgs(rest)
 
@@ -323,8 +323,8 @@ func main() {
 		// already has, and for the same reason: losing the ability to
 		// pre-fill a future rerun is never worth aborting the run the user
 		// actually asked for.
-		if err := appendInvocation(tangsibleFilePath, "", roleName, argsToHistoryString(rest)); err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleFilePath, err)
+		if err := appendInvocation(tangsibleStatePath, "", roleName, argsToHistoryString(rest)); err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleStatePath, err)
 		}
 		originalArgs = parsePassthroughArgs(rest)
 
@@ -340,7 +340,7 @@ func main() {
 		// this is entirely new machinery, see rerunresolve.go. Read fresh
 		// rather than threaded through from anywhere else, since this is
 		// the only place in "rerun"'s own flow that needs it.
-		cfg := readTangsibleConfig(tangsibleFilePath)
+		cfg := readState(tangsibleStatePath)
 		res, resolved := resolveRerun(args, cfg)
 		if !resolved {
 			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
@@ -384,12 +384,13 @@ func main() {
 	sourceIndex := buildTaskSourceIndex(playbook)
 
 	// Read fresh here rather than threading through the "rerun" branch's
-	// own cfg local (which is scoped to that switch case) - a second read
-	// of a small, local TOML file is cheap and consistent with how
-	// resolvePlaybook/readDefaultPlaybook already re-read it independently
-	// elsewhere, rather than passing one shared value through the whole
-	// program.
-	startExpanded := defaultTreeExpanded(readTangsibleConfig(tangsibleFilePath))
+	// own cfg local (which is scoped to that switch case, and is now a
+	// stateConfig rather than the settingsConfig this needs anyway) - a
+	// second read of a small, local TOML file is cheap and consistent with
+	// how resolvePlaybook/readDefaultPlaybook already re-read it
+	// independently elsewhere, rather than passing one shared value
+	// through the whole program.
+	startExpanded := defaultTreeExpanded(readSettingsConfig(tangsibleConfigPath))
 
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
@@ -478,9 +479,9 @@ func main() {
 		// meaningful to record or to rerun from directly (see
 		// startRoleSession).
 		if roleDisplayName != "" {
-			_ = appendInvocation(tangsibleFilePath, "", roleDisplayName, argsToHistoryString(newArgs))
+			_ = appendInvocation(tangsibleStatePath, "", roleDisplayName, argsToHistoryString(newArgs))
 		} else {
-			_ = appendInvocation(tangsibleFilePath, playbook, "", argsToHistoryString(newArgs))
+			_ = appendInvocation(tangsibleStatePath, playbook, "", argsToHistoryString(newArgs))
 		}
 
 		go func() {

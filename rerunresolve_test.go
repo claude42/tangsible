@@ -19,8 +19,8 @@ import (
 	"testing"
 )
 
-func cfgWithHistory(last string, entries ...playbookHistory) playbookConfig {
-	var cfg playbookConfig
+func cfgWithHistory(last string, entries ...playbookHistory) stateConfig {
+	var cfg stateConfig
 	cfg.General.Last = last
 	cfg.History = entries
 	return cfg
@@ -42,7 +42,7 @@ func TestResolveRerun(t *testing.T) {
 	})
 
 	t.Run("no playbook given and no history at all - not ok", func(t *testing.T) {
-		_, ok := resolveRerun(nil, playbookConfig{})
+		_, ok := resolveRerun(nil, stateConfig{})
 		if ok {
 			t.Error("resolveRerun() ok = true, want false when nothing has ever been invoked")
 		}
@@ -147,7 +147,7 @@ func TestResolveRerun(t *testing.T) {
 
 func TestLastTarget(t *testing.T) {
 	t.Run("unset", func(t *testing.T) {
-		if _, ok := lastTarget(playbookConfig{}); ok {
+		if _, ok := lastTarget(stateConfig{}); ok {
 			t.Error("lastTarget() ok = true, want false for a zero-value config")
 		}
 	})
@@ -170,7 +170,7 @@ func TestLastTarget(t *testing.T) {
 		// field (or its own predecessor, LastPlaybook): [[history]]
 		// entries exist, general.last doesn't - real case, not
 		// hypothetical.
-		var cfg playbookConfig
+		var cfg stateConfig
 		cfg.History = []playbookHistory{{Playbook: "site.yml", Invocations: []string{"--tags foo"}}}
 		entry, ok := lastTarget(cfg)
 		if !ok || entry.Playbook != "site.yml" {
@@ -179,7 +179,7 @@ func TestLastTarget(t *testing.T) {
 	})
 	t.Run("unset and two or more entries in history - still not ok", func(t *testing.T) {
 		// Genuinely ambiguous: History's order is first-seen, not recency.
-		var cfg playbookConfig
+		var cfg stateConfig
 		cfg.History = []playbookHistory{
 			{Playbook: "site.yml", Invocations: []string{"--tags foo"}},
 			{Role: "myrole", Invocations: []string{"-l host"}},

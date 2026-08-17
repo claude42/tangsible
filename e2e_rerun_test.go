@@ -334,14 +334,14 @@ func TestE2E_RerunDialog_ClearedFieldStaysCleared(t *testing.T) {
 // code path (no generation started until the dialog is confirmed,
 // everStarted gating the status row) with a real subprocess/file boundary
 // - not just resolveRerun's own unit tests, which never touch the TUI or
-// .tangsible at all.
+// .tangsible/state.toml at all.
 func TestE2E_CLIRerun_ShowsDialogBeforeRunning(t *testing.T) {
 	requireE2ETools(t)
 	bin := buildE2EBinary(t)
 	workDir := t.TempDir()
 	playbook := filepath.Join(repoRoot(t), "testdata", "outcomes.yml")
 
-	// Seed .tangsible history with a first `run` invocation - `rerun`
+	// Seed .tangsible/state.toml history with a first `run` invocation - `rerun`
 	// (below, no playbook given) needs something to resolve to and
 	// pre-fill from. The history write happens synchronously at the very
 	// top of main(), long before "Playbook completed successfully" can
@@ -359,7 +359,7 @@ func TestE2E_CLIRerun_ShowsDialogBeforeRunning(t *testing.T) {
 		t.Errorf("status row rendered before any generation ever ran - everStarted gating regression:\n%s", got)
 	}
 	if hostsLine := lineContaining(got, "Limit hosts to:"); !strings.Contains(hostsLine, "localhost") {
-		t.Errorf("Hosts field = %q, want it pre-filled with \"localhost\" from .tangsible history", hostsLine)
+		t.Errorf("Hosts field = %q, want it pre-filled with \"localhost\" from .tangsible/state.toml history", hostsLine)
 	}
 
 	s.send("Enter")

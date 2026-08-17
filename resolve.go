@@ -23,52 +23,48 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// tangsibleFilePath is the project-local config/history file's path -
-// shared between resolvePlaybook's read and main's history.go writes, so
-// there's exactly one literal for it.
-const tangsibleFilePath = ".tangsible"
+// tangsibleDir is the project-local directory Tangsible reads its settings
+// from and writes its state to - see settingsConfig/stateConfig below for
+// the split and why it exists (design-docs/Dottangsible-directory.md).
+// Replaces the single flat .tangsible file this project used before that
+// split.
+const tangsibleDir = ".tangsible"
 
-// playbookConfig is the shape of .tangsible and
-// $XDG_CONFIG_HOME/tangsible/config.toml. Originally deliberately minimal
-// (a single key), since the user's own spec for this format explicitly
-// expected it to grow later - History and Last (see history.go) are that
-// growth: only .tangsible ever has either populated in practice
-// (invocation history is inherently per-project), but the type is shared
-// with the global config file too rather than forking it into two shapes,
-// since both are harmlessly empty there.
-type playbookConfig struct {
+// tangsibleConfigPath is .tangsible/config.toml - see settingsConfig's own
+// doc comment. Shared by resolvePlaybook's read and main's
+// defaultTreeExpanded caller. A var, not a const, since it's built via
+// filepath.Join (same style as configHome below) for cross-platform
+// correctness.
+var tangsibleConfigPath = filepath.Join(tangsibleDir, "config.toml")
+
+// settingsConfig is the shape of Tangsible's user-authored settings files -
+// the project-local .tangsible/config.toml (tangsibleConfigPath) and the
+// global $XDG_CONFIG_HOME/tangsible/config.toml (resolved via configHome)
+// - both read-only from Tangsible's own point of view: nothing in this
+// program ever opens either one for writing. That read-only guarantee is
+// the actual fix design-docs/Dottangsible-directory.md exists to make
+// possible - not just moving invocation history out of the way, but
+// removing every code path that could ever clobber a user's own comments
+// or formatting in this file. The two files keep sharing this one type
+// (and readSettingsConfig) rather than forking it, since their shape truly
+// is identical - the global file's own DefaultTreeState is simply never
+// consulted in practice (see its own doc comment below), harmlessly
+// unused rather than modeled separately.
+//
+// State that Tangsible itself owns and writes - invocation history, and
+// which target ran most recently - lives in the separate stateConfig
+// (history.go), local-only, never in this type.
+type settingsConfig struct {
 	General struct {
 		DefaultPlaybook string `toml:"default_playbook"`
-		// Last is the playbook path or role name (see "tangsible role",
-		// design-docs/Tangsible role.md) of the most recent invocation of
-		// *any* verb, updated by appendInvocation on every one - what
-		// "tangsible rerun" (no playbook given) resolves to (Rerun.md).
-		// One field for both, not two parallel ones: a playbook path and
-		// a role name are never really ambiguous in practice (a playbook
-		// almost always has a .yml/.yaml extension or a path separator; a
-		// role name is a bare identifier), and whichever of a
-		// playbookHistory entry's own Playbook/Role fields matches this
-		// value at lookup time (see lastTarget) says which kind it was -
-		// no separate flag needed. Distinct from History's own
-		// per-playbook/per-role ordering: History preserves insertion
-		// order of *which targets have ever been seen*, not *when* each
-		// was last touched relative to the others, so it can't answer
-		// "what ran most recently" on its own - this one field can,
-		// without restructuring History itself or adding per-invocation
-		// timestamps. Named Last, not LastPlaybook (its own original
-		// name, before "tangsible role" existed) - a breaking rename of
-		// .tangsible's own schema, same as this project has already done
-		// once before when introducing verb dispatch itself.
-		Last string `toml:"last"`
 		// DefaultTreeState governs whether a freshly-started run's very
 		// first task row starts expanded or collapsed - "expanded" or
 		// "collapsed" (case-insensitive, see defaultTreeExpanded), only
-		// ever read from .tangsible specifically (project-local), not the
-		// global config.toml - unlike DefaultPlaybook/Last, this isn't
-		// part of any resolution cascade.
+		// ever read from the project-local .tangsible/config.toml, not the
+		// global one - unlike DefaultPlaybook, this isn't part of any
+		// resolution cascade.
 		DefaultTreeState string `toml:"default_tree_state"`
 	} `toml:"general"`
-	History []playbookHistory `toml:"history"`
 }
 
 // defaultTreeExpanded reports whether cfg.General.DefaultTreeState says a
@@ -78,7 +74,7 @@ type playbookConfig struct {
 // silently rather than warning on a typo, consistent with this project's
 // general "swallow and fall back" convention for config values elsewhere
 // (readDefaultPlaybook, decodeHostResult).
-func defaultTreeExpanded(cfg playbookConfig) bool {
+func defaultTreeExpanded(cfg settingsConfig) bool {
 	return strings.EqualFold(cfg.General.DefaultTreeState, "expanded")
 }
 
@@ -146,31 +142,40 @@ func configHome() string {
 	return filepath.Join(home, ".config")
 }
 
-// readTangsibleConfig reads path as a playbookConfig TOML file, returning
-// the zero value if the file doesn't exist (the common case for 3 of
-// resolvePlaybook's 4 sources, not worth a warning) or can't be parsed (a
-// warning is printed to stderr here, since an existing-but-broken config
-// shouldn't fail silently and invisibly - safe to print directly, since
-// this always runs before the TUI is ever constructed). Shared by
-// readDefaultPlaybook and history.go's appendInvocation/lastInvocation, so
-// there's exactly one place that knows how to read this file.
-func readTangsibleConfig(path string) playbookConfig {
-	var cfg playbookConfig
+// readTOMLFile decodes path as TOML into a T, returning T's zero value if
+// the file doesn't exist (silently - the common case for most of
+// resolvePlaybook's sources, not worth a warning) or can't be parsed (a
+// warning is printed to stderr - an existing-but-broken file shouldn't
+// fail silently and invisibly; safe to print directly, since every caller
+// runs before the TUI is ever constructed). Shared by readSettingsConfig
+// (this file) and history.go's readState - the two TOML shapes Tangsible
+// ever reads from disk - so there's exactly one place that knows the
+// stat/decode/warn dance, even though what it decodes into now differs
+// between config.toml and state.toml.
+func readTOMLFile[T any](path string) T {
+	var v T
 	if _, err := os.Stat(path); err != nil {
-		return cfg
+		return v
 	}
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+	if _, err := toml.DecodeFile(path, &v); err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't parse %s: %v\n", path, err)
-		return playbookConfig{}
+		var zero T
+		return zero
 	}
-	return cfg
+	return v
+}
+
+// readSettingsConfig reads path (a config.toml, local or global - see
+// settingsConfig's own doc comment) via readTOMLFile.
+func readSettingsConfig(path string) settingsConfig {
+	return readTOMLFile[settingsConfig](path)
 }
 
 // readDefaultPlaybook returns path's general.default_playbook value - ""
 // if the file doesn't exist, can't be parsed, or simply doesn't set that
-// key. See readTangsibleConfig for the shared read/warn behavior.
+// key. See readTOMLFile for the shared read/warn behavior.
 func readDefaultPlaybook(path string) string {
-	return readTangsibleConfig(path).General.DefaultPlaybook
+	return readSettingsConfig(path).General.DefaultPlaybook
 }
 
 // resolvePlaybook determines which playbook to run when none was given
@@ -189,8 +194,8 @@ func resolvePlaybook() (path, source string) {
 	if v := os.Getenv("TANGSIBLE_PLAYBOOK"); v != "" {
 		return v, "TANGSIBLE_PLAYBOOK"
 	}
-	if v := readDefaultPlaybook(tangsibleFilePath); v != "" {
-		return v, "./.tangsible"
+	if v := readDefaultPlaybook(tangsibleConfigPath); v != "" {
+		return v, "./.tangsible/config.toml"
 	}
 	if home := configHome(); home != "" {
 		configPath := filepath.Join(home, "tangsible", "config.toml")

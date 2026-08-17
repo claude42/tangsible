@@ -262,12 +262,13 @@ When no playbook is given on the command line, Tangsible resolves one
 from, in order:
 
 1. `$TANGSIBLE_PLAYBOOK`
-2. `.tangsible` in the current directory
+2. `.tangsible/config.toml` in the current directory
 3. `$XDG_CONFIG_HOME/tangsible/config.toml` (default:
    `~/.config/tangsible/config.toml`)
 4. `./site.yml`, if present
 
-`.tangsible` and `config.toml` share the same TOML format:
+`.tangsible/config.toml` and the global `config.toml` share the same TOML
+format:
 
 ```toml
 [general]
@@ -275,11 +276,8 @@ default_playbook = "myplaybook.yml"
 default_tree_state = "collapsed"
 ```
 
-The project-local `.tangsible` also stores invocation history used by
-tangsible rerun.
-
-Because that history can contain hostnames, tags and extra variables, you may
-want to add `.tangsible` to your project's `.gitignore`.
+Invocation history used by `tangsible rerun` lives in .tangsible/state.toml
+and should best be gitignored.
 
 ## Current limitations
 

@@ -172,13 +172,13 @@ func TestReadDefaultPlaybook(t *testing.T) {
 	})
 }
 
-// resolvePlaybook reads .tangsible/site.yml relative to the process's own
-// cwd, so each case below runs in its own isolated temp directory via
-// t.Chdir rather than sharing one.
+// resolvePlaybook reads .tangsible/config.toml/site.yml relative to the
+// process's own cwd, so each case below runs in its own isolated temp
+// directory via t.Chdir rather than sharing one.
 func TestResolvePlaybook(t *testing.T) {
-	t.Run("TANGSIBLE_PLAYBOOK wins even when .tangsible also exists", func(t *testing.T) {
+	t.Run("TANGSIBLE_PLAYBOOK wins even when .tangsible/config.toml also exists", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		writeDefaultPlaybookConfig(t, ".tangsible", "from-dot-tangsible.yml")
+		writeDefaultPlaybookConfig(t, ".tangsible/config.toml", "from-dot-tangsible.yml")
 		t.Setenv("TANGSIBLE_PLAYBOOK", "from-env.yml")
 
 		path, source := resolvePlaybook()
@@ -187,15 +187,15 @@ func TestResolvePlaybook(t *testing.T) {
 		}
 	})
 
-	t.Run(".tangsible wins over site.yml when no env var is set", func(t *testing.T) {
+	t.Run(".tangsible/config.toml wins over site.yml when no env var is set", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		t.Setenv("TANGSIBLE_PLAYBOOK", "")
-		writeDefaultPlaybookConfig(t, ".tangsible", "from-dot-tangsible.yml")
+		writeDefaultPlaybookConfig(t, ".tangsible/config.toml", "from-dot-tangsible.yml")
 		mustWriteFile(t, "site.yml", "")
 
 		path, source := resolvePlaybook()
-		if path != "from-dot-tangsible.yml" || source != "./.tangsible" {
-			t.Errorf("resolvePlaybook() = (%q, %q), want (\"from-dot-tangsible.yml\", \"./.tangsible\")", path, source)
+		if path != "from-dot-tangsible.yml" || source != "./.tangsible/config.toml" {
+			t.Errorf("resolvePlaybook() = (%q, %q), want (\"from-dot-tangsible.yml\", \"./.tangsible/config.toml\")", path, source)
 		}
 	})
 
@@ -223,6 +223,28 @@ func TestResolvePlaybook(t *testing.T) {
 			t.Errorf("resolvePlaybook() = (%q, %q), want (\"\", \"\")", path, source)
 		}
 	})
+
+	// A stale, pre-upgrade flat .tangsible file (see
+	// design-docs/Dottangsible-directory.md) sitting where .tangsible/
+	// should now be a directory must not error out on the read side - only
+	// appendInvocation's write path is meant to surface a loud, actionable
+	// error (see history_test.go's
+	// TestAppendInvocationCreatesTangsibleDirCollision); reads degrade
+	// gracefully, same as any other missing/unreadable source, and the
+	// cascade simply falls through to the next one.
+	t.Run("stale flat .tangsible file falls through to the next source", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		t.Setenv("TANGSIBLE_PLAYBOOK", "")
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty-xdg-config"))
+		mustWriteFile(t, ".tangsible", "[general]\ndefault_playbook = \"stale.yml\"\n")
+		mustWriteFile(t, "site.yml", "")
+
+		path, source := resolvePlaybook()
+		if path != "site.yml" || source != "./site.yml" {
+			t.Errorf("resolvePlaybook() = (%q, %q), want (\"site.yml\", \"./site.yml\")", path, source)
+		}
+	})
 }
 
 func writeDefaultPlaybookConfig(t *testing.T, path, defaultPlaybook string) {
@@ -233,6 +255,9 @@ func writeDefaultPlaybookConfig(t *testing.T, path, defaultPlaybook string) {
 
 func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +277,7 @@ func TestDefaultTreeExpanded(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var cfg playbookConfig
+			var cfg settingsConfig
 			cfg.General.DefaultTreeState = c.value
 			if got := defaultTreeExpanded(cfg); got != c.want {
 				t.Errorf("defaultTreeExpanded(%q) = %v, want %v", c.value, got, c.want)
