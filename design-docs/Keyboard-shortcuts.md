@@ -15,15 +15,18 @@ things worth a second look while reviewing this list, not necessarily bugs.
 * Home / End       - move cursor to top / end of the list (does NOT resume
                      autoscrolling - see F below)
 * Ctrl-A / Ctrl-E  - same as Home / End
+* < / >            - same as Home / End
 * G                - move cursor to end of list (same as End - does not
                      resume autoscrolling)
-* n / p            - move to previous / next task, expand the task if
+* n / p            - move to next / previous task, expand the task if
                      necessary, if cursor was on a specific host on the
                      current task, position cursor on same host in the new
                      task (falls back to the task's own row if that host
                      hasn't reported a result for it yet). From a play row,
                      next/prev targets that play's own first task, or the
                      previous play's last task
+* Shift-N          - same as p (previous task) - an alias, not a separate
+                     "previous of something else"
 * Cursor right     - expand tree element (no-op if already expanded, or on
                      a host row / play row)
 * Cursor left      - collapse tree element; on a host row, collapses its
@@ -89,6 +92,7 @@ there's something to put in them).
 * Ctrl-F / Ctrl-B  - move cursor one page up / down
 * Home / End       - move cursor to top / end
 * Ctrl-A / Ctrl-E  - move cursor to top / end
+* < / >            - same as Home / End
 * G                - move cursor to end
 * Tab / Shift-Tab  - switch to the next / previous tab (wraps at both
                      ends - unlike every other list in this app, a small,
@@ -101,9 +105,11 @@ there's something to put in them).
                      NOT quit the app, unlike bare `q` everywhere else
 * Cursor left / right - show the same tab's content for the previous /
                      next host on this task (no wraparound)
-* n / p            - show the same tab's content for the previous / next
+* n / p            - show the same tab's content for the next / previous
                      task, same host (no wraparound; skips tasks hidden by
                      the active filter)
+* Shift-N          - same as p (previous task) - an alias, not a separate
+                     "previous of something else"
 * e                - open the file containing the currently displayed
                      task's own source in `$VISUAL`/`$EDITOR` (a foreground
                      subprocess, suspending the TUI - same mechanism as the

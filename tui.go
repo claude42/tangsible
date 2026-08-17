@@ -1915,10 +1915,14 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// Returning a *different* event than the one passed in makes
 		// Application forward the synthesized event to whichever primitive
 		// is currently focused, as if the user had typed that key - see
-		// tview's application.go. This is also what makes plain 'G'/Ctrl-E
+		// tview's application.go. This is also what makes plain 'G'/Ctrl-E/'>'
 		// ride the exact same path plain End already does: ordinary
 		// navigation, deliberately with no special "resume autoscroll"
-		// side effect (that's F's job alone, below).
+		// side effect (that's F's job alone, below). '<'/'>' are plain
+		// mnemonic aliases for Home/End (think "jump to the start/end",
+		// same shape as many pagers/viewers) - not otherwise meaningful
+		// input in either the main tree or the output view, so safe to
+		// claim unconditionally the same way 'G' already is.
 		switch {
 		case event.Key() == tcell.KeyRune && event.Rune() == 'j':
 			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
@@ -1933,6 +1937,10 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		case event.Key() == tcell.KeyCtrlE:
 			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyRune && event.Rune() == 'G':
+			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyRune && event.Rune() == '<':
+			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyRune && event.Rune() == '>':
 			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		}
 
@@ -1961,7 +1969,11 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			case event.Key() == tcell.KeyRight:
 				navigateOutputHost(1)
 				return nil
-			case event.Key() == tcell.KeyRune && event.Rune() == 'p':
+			// Shift-N is a plain alias for 'p' here (not a distinct
+			// binding of its own) - added on request, echoing vim's own
+			// n/N ("next/previous match") convention even though n/p
+			// here aren't search-related.
+			case event.Key() == tcell.KeyRune && event.Rune() == 'p', event.Key() == tcell.KeyRune && event.Rune() == 'N':
 				navigateOutputTask(-1)
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == 'n':
@@ -2029,7 +2041,9 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		case event.Key() == tcell.KeyRune && event.Rune() == 'n':
 			navigateMainTask(1)
 			return nil
-		case event.Key() == tcell.KeyRune && event.Rune() == 'p':
+		// Shift-N alias for 'p' - see the same binding's own comment in
+		// the viewingOutput branch above.
+		case event.Key() == tcell.KeyRune && event.Rune() == 'p', event.Key() == tcell.KeyRune && event.Rune() == 'N':
 			navigateMainTask(-1)
 			return nil
 		case event.Key() == tcell.KeyRune && event.Rune() == 'f':
