@@ -347,7 +347,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "no playbook or role given, and nothing has ever been run in this project to rerun")
 			os.Exit(2)
 		}
-		_, _, explicit := splitPlaybookArgs(args)
 		// res.Role set (rather than res.Playbook) means the most recent
 		// invocation in this project was "tangsible role", not
 		// "tangsible run" (design-docs/Tangsible role.md) - only possible
@@ -359,15 +358,9 @@ func main() {
 		// exactly like "tangsible role" itself, via the same
 		// startRoleSession helper.
 		if res.Role != "" {
-			if !explicit {
-				fmt.Fprintf(os.Stderr, "tangsible: no playbook given - re-running role %q (last run in this project)\n", res.Role)
-			}
 			playbook, cleanup = startRoleSession(res.Role)
 			roleDisplayName = res.Role
 		} else {
-			if !explicit {
-				fmt.Fprintf(os.Stderr, "tangsible: no playbook given - re-running %q (last run in this project)\n", res.Playbook)
-			}
 			playbook = res.Playbook
 		}
 		originalArgs = parsedPassthroughArgs{Tags: res.Tags, SkipTags: res.SkipTags, Hosts: res.Hosts, Rest: res.Rest}
