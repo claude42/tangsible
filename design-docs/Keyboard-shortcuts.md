@@ -12,6 +12,10 @@ things worth a second look while reviewing this list, not necessarily bugs.
 * j / k            - move cursor up / down (stop autoscrolling if necessary)
 * Page up / down   - move cursor one page up / down
 * Ctrl-F / Ctrl-B  - move cursor one page up / down
+* Space / b        - move cursor one page down / up (a pager-style alias,
+                     e.g. `less`/`man`) - Space is no longer also an alias
+                     for Enter here (see Enter below); Enter alone still
+                     does what Enter/Space used to do together
 * Home / End       - move cursor to top / end of the list (does NOT resume
                      autoscrolling - see F below)
 * Ctrl-A / Ctrl-E  - same as Home / End
@@ -32,7 +36,7 @@ things worth a second look while reviewing this list, not necessarily bugs.
 * Cursor left      - collapse tree element; on a host row, collapses its
                      parent task instead and moves the cursor there; no-op
                      on a play row
-* Enter / Space    - toggle tree element; on a host row (nothing to
+* Enter            - toggle tree element; on a host row (nothing to
                      toggle), opens its command output instead
 * E / C            - expand / collapse all tree elements. If collapsing
                      removes the row the cursor was on (a host row whose
@@ -67,10 +71,10 @@ for what *is* available there).
 **Mouse**
 * Wheel / trackpad - pan contents up / down (stop autoscrolling if
                      necessary)
-* Click on a tree element - select AND activate it (same as Enter/Space) -
+* Click on a tree element - select AND activate it (same as Enter) -
                      expands/collapses a task, or opens a host's command
                      output. No separate double-click behavior - a single
-                     click already does everything Enter/Space does.
+                     click already does everything Enter does.
 * Click on the top/bottom info bars - no effect (deliberately swallowed;
                      these are plain status text, not interactive - a
                      click here used to silently steal keyboard focus and
@@ -79,7 +83,7 @@ for what *is* available there).
 
 ## Output/command drill-down view
 
-Opened by Enter/Space/click on a host row. Up to 7 tabs - Task, Output,
+Opened by Enter/click on a host row. Up to 7 tabs - Task, Output,
 Diff, Task definition, Resolved, Docs, Details - shown only when that tab
 actually has content for the current task (Task/Details are always
 present; Output/Diff/Task definition/Resolved/Docs are shown only when
@@ -94,6 +98,8 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
 * j / k            - move cursor up / down
 * Page up / down   - move cursor one page up / down
 * Ctrl-F / Ctrl-B  - move cursor one page up / down
+* Space / b        - move cursor one page down / up (same pager-style
+                     alias as the main tree view above)
 * Home / End       - move cursor to top / end
 * Ctrl-A / Ctrl-E  - move cursor to top / end
 * < / >            - same as Home / End

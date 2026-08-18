@@ -245,7 +245,13 @@ func (t *treeList) activate(index int) {
 // secondary-text navigation - all real tview.List features - are omitted
 // because they never reach here: NewLiveTUI's SetInputCapture intercepts
 // Left/Right itself before dispatch, and this app never used shortcuts or
-// secondary text.
+// secondary text. The Space case below is likewise dead in practice, not
+// removed: NewLiveTUI's SetInputCapture now translates a plain Space into
+// PgDn before it ever reaches here (a pager-style alias, alongside 'b' for
+// PgUp), so only Enter still activates a row in the real app - kept here
+// so this widget's own behavior stays correct and self-contained on its
+// own terms, independent of whatever the app wiring above it does with a
+// given key.
 func (t *treeList) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return t.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 		if len(t.rows) == 0 {

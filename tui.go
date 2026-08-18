@@ -1994,7 +1994,13 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// mnemonic aliases for Home/End (think "jump to the start/end",
 		// same shape as many pagers/viewers) - not otherwise meaningful
 		// input in either the main tree or the output view, so safe to
-		// claim unconditionally the same way 'G' already is.
+		// claim unconditionally the same way 'G' already is. Space/'b' are
+		// the same idea for Page down/up (a common pager convention,
+		// e.g. `less`/`man`) - claiming Space here does mean it's no
+		// longer also an alias for Enter in the main tree (treeList's own
+		// native InputHandler used to activate the current row on Space,
+		// same as Enter); Enter alone still does that, so nothing is
+		// actually lost, just no longer duplicated onto this key.
 		switch {
 		case event.Key() == tcell.KeyRune && event.Rune() == 'j':
 			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
@@ -2003,6 +2009,10 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		case event.Key() == tcell.KeyCtrlF:
 			return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyCtrlB:
+			return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyRune && event.Rune() == ' ':
+			return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone)
+		case event.Key() == tcell.KeyRune && event.Rune() == 'b':
 			return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyCtrlA:
 			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
