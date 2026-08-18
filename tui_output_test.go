@@ -360,7 +360,7 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 	}
 
 	t.Run("identical to Task definition - Resolved tab omitted", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: source})
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: source}, resolvedRender{})
 		if hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want no Resolved tab for an identical resolve", names)
 		}
@@ -370,21 +370,21 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 	})
 
 	t.Run("genuinely different from Task definition - Resolved tab shown", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: "- name: hi\n  ansible.builtin.debug:\n    msg: hello world\n"})
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: "- name: hi\n  ansible.builtin.debug:\n    msg: hello world\n"}, resolvedRender{})
 		if !hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want a Resolved tab when the resolved text differs", names)
 		}
 	})
 
 	t.Run("still pending - Resolved tab omitted, no placeholder", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Pending: true})
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Pending: true}, resolvedRender{})
 		if hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want no Resolved tab while still pending", names)
 		}
 	})
 
 	t.Run("resolve errored - Resolved tab shown", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Err: "ansible-playbook exploded"})
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Err: "ansible-playbook exploded"}, resolvedRender{})
 		if !hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want a Resolved tab on a genuine resolve error", names)
 		}
@@ -397,12 +397,76 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 			Hosts: map[string]outcome{"web1": outcomeOK},
 			Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 		}
-		names, _ := buildOutputTabs(noSourceTask, "web1", taskSourceIndex{}, resolvedRender{Text: ""})
+		names, _ := buildOutputTabs(noSourceTask, "web1", taskSourceIndex{}, resolvedRender{Text: ""}, resolvedRender{})
 		if !hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want a Resolved tab when there's no Task definition tab to compare against", names)
 		}
 		if hasTab(names, "Task definition") {
 			t.Errorf("names = %v, want no Task definition tab on a sourceIndex miss", names)
+		}
+	})
+}
+
+func TestDocsTabHidden(t *testing.T) {
+	t.Run("zero value - no action was ever looked up - hidden", func(t *testing.T) {
+		if !docsTabHidden(resolvedRender{}) {
+			t.Error("docsTabHidden() = false, want true for the zero value (no action to look up)")
+		}
+	})
+	t.Run("still pending - hidden, no placeholder", func(t *testing.T) {
+		if !docsTabHidden(resolvedRender{Pending: true}) {
+			t.Error("docsTabHidden() = false, want true while still fetching")
+		}
+	})
+	t.Run("fetched successfully - shown", func(t *testing.T) {
+		if docsTabHidden(resolvedRender{Text: "- name: copy\n  description: ...\n"}) {
+			t.Error("docsTabHidden() = true, want false once ansible-doc's own output is in hand")
+		}
+	})
+	t.Run("fetch errored - shown, not hidden behind the error", func(t *testing.T) {
+		if docsTabHidden(resolvedRender{Err: "[ERROR]: module some_module not found"}) {
+			t.Error("docsTabHidden() = true, want false on a genuine fetch error - that's real information")
+		}
+	})
+}
+
+func TestBuildOutputTabsDocsVisibility(t *testing.T) {
+	task := &taskNode{
+		Name:  "hi",
+		Path:  "/project/unknown.yml:1",
+		Hosts: map[string]outcome{"web1": outcomeOK},
+		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
+	}
+	hasTab := func(names []string, name string) bool {
+		return slices.Contains(names, name)
+	}
+
+	t.Run("zero value docs - Docs tab omitted", func(t *testing.T) {
+		names, _ := buildOutputTabs(task, "web1", taskSourceIndex{}, resolvedRender{}, resolvedRender{})
+		if hasTab(names, "Docs") {
+			t.Errorf("names = %v, want no Docs tab when nothing was ever looked up", names)
+		}
+	})
+
+	t.Run("docs fetched - Docs tab shown with ansible-doc's own text", func(t *testing.T) {
+		names, contents := buildOutputTabs(task, "web1", taskSourceIndex{}, resolvedRender{}, resolvedRender{Text: "- copy:\n"})
+		idx := slices.Index(names, "Docs")
+		if idx == -1 {
+			t.Fatalf("names = %v, want a Docs tab once ansible-doc's output is in hand", names)
+		}
+		if !strings.Contains(contents[idx], "- copy:") {
+			t.Errorf("Docs tab content = %q, want it to contain ansible-doc's own output", contents[idx])
+		}
+	})
+
+	t.Run("docs errored - Docs tab shown with the error", func(t *testing.T) {
+		names, contents := buildOutputTabs(task, "web1", taskSourceIndex{}, resolvedRender{}, resolvedRender{Err: "module not found"})
+		idx := slices.Index(names, "Docs")
+		if idx == -1 {
+			t.Fatalf("names = %v, want a Docs tab on a genuine fetch error", names)
+		}
+		if !strings.Contains(contents[idx], "module not found") {
+			t.Errorf("Docs tab content = %q, want it to contain the error", contents[idx])
 		}
 	})
 }

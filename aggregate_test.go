@@ -27,10 +27,6 @@ func playStartEvent(name string) rawEvent {
 	return rawEvent{Event: "v2_playbook_on_play_start", Play: &playRef{Name: name}}
 }
 
-func playStartEventWithPath(name, path string) rawEvent {
-	return rawEvent{Event: "v2_playbook_on_play_start", Play: &playRef{Name: name, Path: path}}
-}
-
 func taskStartEvent(name, path string) rawEvent {
 	return rawEvent{Event: "v2_playbook_on_task_start", Task: &taskRef{Name: name, Path: path}}
 }
@@ -265,49 +261,5 @@ func TestReset_ClearsRunDataButNotHooks(t *testing.T) {
 	}
 	if len(s.Plays) != 1 || s.Plays[0].Name != "second play" {
 		t.Errorf("Plays after post-Reset Apply = %v, want a single \"second play\"", s.Plays)
-	}
-}
-
-func TestApply_SetsPlayPathAndTaskPlayBackPointer(t *testing.T) {
-	s := &playbookState{}
-	s.Apply(playStartEventWithPath("my play", "/pb.yml:1"))
-	s.Apply(taskStartEvent("task A", "/pb.yml:3"))
-	s.Apply(taskStartEvent("task B", "/pb.yml:5"))
-
-	if len(s.Plays) != 1 {
-		t.Fatalf("got %d plays, want 1", len(s.Plays))
-	}
-	play := s.Plays[0]
-	if play.Path != "/pb.yml:1" {
-		t.Errorf("play.Path = %q, want %q", play.Path, "/pb.yml:1")
-	}
-	if len(play.Tasks) != 2 {
-		t.Fatalf("got %d tasks, want 2", len(play.Tasks))
-	}
-	for _, task := range play.Tasks {
-		if task.Play != play {
-			t.Errorf("task %q's Play = %v, want the same *playNode as s.Plays[0] (%v)", task.Name, task.Play, play)
-		}
-	}
-}
-
-// Regression guard: a second play must get its own Path, not the first
-// play's leftover pendingPlayPath - each v2_playbook_on_play_start must
-// overwrite it, the same way pendingPlayName already does.
-func TestApply_SecondPlayGetsItsOwnPath(t *testing.T) {
-	s := &playbookState{}
-	s.Apply(playStartEventWithPath("play one", "/pb.yml:1"))
-	s.Apply(taskStartEvent("task A", "/pb.yml:3"))
-	s.Apply(playStartEventWithPath("play two", "/pb.yml:9"))
-	s.Apply(taskStartEvent("task B", "/pb.yml:11"))
-
-	if len(s.Plays) != 2 {
-		t.Fatalf("got %d plays, want 2", len(s.Plays))
-	}
-	if s.Plays[1].Path != "/pb.yml:9" {
-		t.Errorf("second play's Path = %q, want %q", s.Plays[1].Path, "/pb.yml:9")
-	}
-	if s.Plays[1].Tasks[0].Play != s.Plays[1] {
-		t.Error("task B's Play back-pointer doesn't point at the second play")
 	}
 }

@@ -300,6 +300,25 @@ func taskOutputText(t *taskNode, host string) string {
 	return text
 }
 
+// taskAction returns host's own "action" result field on task - the
+// module's name exactly as Ansible reported it (its FQCN when the task
+// was written that way, e.g. "ansible.builtin.copy") - or "" if there's
+// no result recorded yet, it's undecodable, or the result simply has no
+// action field. Backs the Docs tab's ansible-doc lookup (showOutput),
+// same decode-then-extract shape as taskOutputText above.
+func taskAction(t *taskNode, host string) string {
+	raw, ok := t.Raw[host]
+	if !ok {
+		return ""
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return ""
+	}
+	action, _ := decoded["action"].(string)
+	return action
+}
+
 // taskMatchesSearch reports whether t matches the "Contents" search filter
 // (Filters.md's "Contents"/M filter): term found in the task's own title,
 // its source ("ansible command" - the same TASK: section source text
@@ -832,13 +851,24 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// else in this file - it needs no locking of its own.
 	resolveCache := map[resolveKey]resolvedRender{}
 
+	// docsCache holds every module's own resolvedRender for the "Docs" tab
+	// (ansibledoc.go's fetchAnsibleDoc), keyed by the task's own "action"
+	// result field (taskAction) rather than by (task, host) the way
+	// resolveCache is - a module's own documentation depends on nothing
+	// about the current run (no vars, no facts, not even which host), so
+	// every task using the same module shares one entry, and - unlike
+	// resolveCache - this is deliberately *not* cleared on a rerun
+	// (submitRerun): the installed collections a rerun's ansible-doc would
+	// see are the same as before it, so there's nothing stale to flush.
+	docsCache := map[string]resolvedRender{}
+
 	// renderOutputTabs rebuilds every tab from buildOutputTabs' own
 	// output and hands the result to outputTabs.SetTabs - which itself
 	// preserves whichever tab is currently active, by name, so repeatedly
 	// calling this while browsing (Left/Right/n/p) doesn't keep resetting
 	// the user back to the Task tab.
-	renderOutputTabs := func(task *taskNode, host string, resolved resolvedRender) {
-		names, contents := buildOutputTabs(task, host, sourceIndex, resolved)
+	renderOutputTabs := func(task *taskNode, host string, resolved resolvedRender, docs resolvedRender) {
+		names, contents := buildOutputTabs(task, host, sourceIndex, resolved, docs)
 		prims := make([]tview.Primitive, len(names))
 		for i, content := range contents {
 			tv := tview.NewTextView().SetDynamicColors(true)
@@ -901,7 +931,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 						// own "kicked off the moment a drill-down opens"
 						// timing), so there's realistically nothing
 						// meaningful to lose yet.
-						renderOutputTabs(task, host, result)
+						renderOutputTabs(task, host, result, docsCache[taskAction(task, host)])
 					}
 					// Otherwise the tab stays exactly as absent as it
 					// already was - nothing on screen needs to change.
@@ -909,7 +939,46 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}()
 		}
 
-		renderOutputTabs(task, host, resolved)
+		// Same "kick off immediately, stay absent until ready" treatment
+		// as Resolved above, for the Docs tab (ansibledoc.go's
+		// fetchAnsibleDoc) - cached by module name in docsCache, not by
+		// (task, host), since a module's own documentation is the same
+		// for every task/host that uses it (see docsCache's own comment).
+		// action == "" (no result recorded yet, or this result simply has
+		// no action field) means there's nothing to look up at all - docs
+		// stays the zero resolvedRender{}, which buildOutputTabs'
+		// docsTabHidden already treats as "omit the tab."
+		action := taskAction(task, host)
+		var docs resolvedRender
+		docsCached := action == "" // no action to look up - stays the
+		// zero value, and there's nothing to kick off below either.
+		if action != "" {
+			docs, docsCached = docsCache[action]
+		}
+		if !docsCached {
+			docs = resolvedRender{Pending: true}
+			docsCache[action] = docs
+			go func() {
+				text, err := fetchAnsibleDoc(action)
+				result := resolvedRender{}
+				if err != nil {
+					result.Err = err.Error()
+				} else {
+					result.Text = text
+				}
+				app.QueueUpdateDraw(func() {
+					docsCache[action] = result
+					if outputTask != task || outputHost != host || !viewingOutput {
+						return
+					}
+					if !docsTabHidden(result) {
+						renderOutputTabs(task, host, resolveCache[key], result)
+					}
+				})
+			}()
+		}
+
+		renderOutputTabs(task, host, resolved, docs)
 		// Every fresh tab's own TextView starts scrolled to the top
 		// already (a brand new widget), so there's nothing to reset here
 		// the way the old single-TextView version needed SetText not to
@@ -3250,44 +3319,49 @@ type resolvedRender struct {
 // into one tab, per design-docs/Tabbed UI.md's own content-mapping
 // decision - each piece keeps its own sectionLabel header within it, so
 // several distinct pieces sharing one tab don't become an undifferentiated
-// blob), Diff, Task definition, Resolved, Play definition, and Details -
-// in that order. Every tab but Task/Details is dynamic: names/contents
-// simply omits one entirely when that particular task has nothing for it
-// (an empty "" from that tab's own builder, or - Resolved specifically -
-// resolvedTabHidden saying its content wouldn't add anything "Task
-// definition" doesn't already show), matching this function's
-// predecessor's "omit rather than show a placeholder" convention, just
-// applied to whole tabs instead of stacked sections. Diff is the newest of
-// these (--diff is now always passed to
+// blob), Diff, Task definition, Resolved, Docs, and Details - in that
+// order. Every tab but Task/Details is dynamic: names/contents simply
+// omits one entirely when that particular task has nothing for it (an
+// empty "" from that tab's own builder, or - Docs/Resolved specifically -
+// docsTabHidden/resolvedTabHidden's own conditions), matching this
+// function's predecessor's "omit rather than show a placeholder"
+// convention, just applied to whole tabs instead of stacked sections.
+// Diff is the newest of these (--diff is now always passed to
 // ansible-playbook, see spawnGeneration in main.go) - buildDiffTab below
 // omits it whenever a task's result carries no diff key, or one that
-// resolves to no actual change (e.g. before == after).
+// resolves to no actual change (e.g. before == after). Play definition (a
+// task's parent play, shown the same way as Task definition) existed
+// briefly and was removed after real use showed it was never actually
+// consulted - see design-docs/Ideas.md.
 //
 // Decodes into a generic map (not a fixed struct) since different Ansible
 // modules return wildly different result shapes - shared across every
 // tab builder below, computed once here. Every piece of dynamic/external
-// content in any tab - task/play source, stdout/stderr/msg, the full
-// JSON, even the raw bytes on a decode failure - is individually
-// tview.Escape()'d before being written (each tab's own TextView has
-// dynamic colors on, see NewLiveTUI/showOutput), so a literal "[" in any
-// of it (e.g. "tags: [a, b]", a JSON array) can never be misread as a
-// color tag; only each builder's own fixed label/status text is trusted
-// unescaped.
+// content in any tab - task source, ansible-doc's own output, stdout/
+// stderr/msg, the full JSON, even the raw bytes on a decode failure - is
+// individually tview.Escape()'d before being written (each tab's own
+// TextView has dynamic colors on, see NewLiveTUI/showOutput), so a
+// literal "[" in any of it (e.g. "tags: [a, b]", a JSON array) can never
+// be misread as a color tag; only each builder's own fixed label/status
+// text is trusted unescaped.
 //
-// sourceIndex backs both Task definition (task.Path) and Play definition
-// (task.Play.Path) - source.go indexes plays the same way it indexes
-// tasks, into the same map. Both are best-effort: a lookup miss (an empty
-// path, or just not found - an unusual file layout, or a task/play
-// genuinely generated at runtime) omits that tab entirely rather than
-// showing an error.
+// sourceIndex backs Task definition (task.Path) - best-effort: a lookup
+// miss (an empty path, or just not found - an unusual file layout, or a
+// task genuinely generated at runtime) omits that tab entirely rather
+// than showing an error.
 //
 // resolved carries the "Resolved" tab's own state (design-docs/
 // Drilldown, Resolved Values.md) - computed asynchronously by the caller
 // (showOutput, see NewLiveTUI), never by this function itself, since a
 // real ansible-playbook invocation is far too slow to run synchronously
-// from inside a pure render function. Placed right after Task definition
-// so raw and resolved source sit next to each other in the tab order.
-func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender) (names []string, contents []string) {
+// from inside a pure render function. docs carries the "Docs" tab's own
+// state the same way (showOutput, backed by ansibledoc.go's
+// fetchAnsibleDoc) - a real `ansible-doc` invocation, same reasoning.
+// Resolved is placed right after Task definition, Docs right after that -
+// requested in that order over the module-reference-first ordering this
+// originally shipped with, once live use showed the task's own values
+// mattered more, front and center, than the module's general docs.
+func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender, docs resolvedRender) (names []string, contents []string) {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		// Shouldn't happen in normal operation - every host recorded via
@@ -3345,8 +3419,9 @@ func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, r
 		contents = append(contents, buildResolvedTab(resolved))
 	}
 
-	if task.Play != nil {
-		add("Play definition", buildSourceTab(task.Play.Path, sourceIndex))
+	if !docsTabHidden(docs) {
+		names = append(names, "Docs")
+		contents = append(contents, buildDocsTab(docs))
 	}
 
 	names = append(names, "Details")
@@ -3610,9 +3685,9 @@ func diffLinesWithMarker(s string) []string {
 	return lines
 }
 
-// buildSourceTab renders one YAML-source tab's own content (Task
-// definition/Play definition) - "" (the tab omitted entirely by
-// buildOutputTabs' own add()) on a sourceIndex lookup miss.
+// buildSourceTab renders the Task definition tab's own content - "" (the
+// tab omitted entirely by buildOutputTabs' own add()) on a sourceIndex
+// lookup miss.
 func buildSourceTab(path string, sourceIndex taskSourceIndex) string {
 	source, ok := sourceIndex[path]
 	if !ok || source == "" {
@@ -3677,6 +3752,36 @@ func buildResolvedTab(resolved resolvedRender) string {
 		return "Could not resolve: " + tview.Escape(resolved.Err)
 	}
 	return tview.Escape(resolved.Text)
+}
+
+// docsTabHidden is buildOutputTabs' "omit the Docs tab" decision, factored
+// out the same way resolvedTabHidden is so showOutput's own async
+// completion callback (which needs the identical condition to decide
+// whether a finished ansible-doc lookup should make the tab appear) can't
+// drift out of agreement with it. Hidden while still Pending - same
+// "silently absent, not a placeholder that might vanish" reasoning as
+// Resolved. Also hidden on the zero value (docs.Pending == false,
+// Text == "", Err == "") - what showOutput passes when the task's result
+// carries no "action" field at all (see taskAction), i.e. there was never
+// anything to look up in the first place. Never hidden on a genuine Err
+// once a lookup was actually attempted - e.g. "module not found" or
+// ansible-doc missing from PATH is real information worth surfacing, not
+// worth pretending the tab doesn't exist over.
+func docsTabHidden(docs resolvedRender) bool {
+	if docs.Pending {
+		return true
+	}
+	return docs.Text == "" && docs.Err == ""
+}
+
+// buildDocsTab renders the Docs tab's own content - ansible-doc -s's own
+// output verbatim (design-docs/Ideas.md's "ansible-doc -s" entry), never
+// called with docs.Pending true, same reasoning as buildResolvedTab.
+func buildDocsTab(docs resolvedRender) string {
+	if docs.Err != "" {
+		return "Could not fetch ansible-doc: " + tview.Escape(docs.Err)
+	}
+	return tview.Escape(docs.Text)
 }
 
 // buildDetailsTab renders the full result as pretty-printed JSON - always

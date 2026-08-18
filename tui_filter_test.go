@@ -168,6 +168,27 @@ func TestTaskOutputText(t *testing.T) {
 	}
 }
 
+func TestTaskAction(t *testing.T) {
+	task := &taskNode{Raw: map[string]json.RawMessage{
+		"web1": json.RawMessage(`{"action":"ansible.builtin.copy","changed":false}`),
+		"web2": json.RawMessage(`{"changed":false}`),
+		"web3": json.RawMessage(`not valid json`),
+	}}
+
+	if got := taskAction(task, "web1"); got != "ansible.builtin.copy" {
+		t.Errorf("web1: got %q, want the action field's own FQCN verbatim", got)
+	}
+	if got := taskAction(task, "web2"); got != "" {
+		t.Errorf("web2 (no action field): got %q, want empty string", got)
+	}
+	if got := taskAction(task, "web3"); got != "" {
+		t.Errorf("web3 (undecodable JSON): got %q, want empty string", got)
+	}
+	if got := taskAction(task, "no-such-host"); got != "" {
+		t.Errorf("host not recorded at all: got %q, want empty string", got)
+	}
+}
+
 // buildTwoPlayState builds a small tree by hand (no Apply needed):
 // play1 has task1 (web1, web2) and task2 (web1 only); play2 has task3
 // (web2 only). Shared by the allTasks/tasksForHost/visibleTasks tests

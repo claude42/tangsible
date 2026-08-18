@@ -27,7 +27,7 @@ import (
 // source for the output drill-down view by walking the *playbook's own*
 // directory tree, never by tracing roles:/include_role references - a
 // stub written to a system temp directory would start that walk from an
-// empty directory and the role's own Task/Play definition sections would
+// empty directory and the role's own Task definition sections would
 // silently go blank for every role run. Dot-prefixed so it doesn't clutter
 // a directory listing next to the user's own files; should be
 // .gitignore'd (not done automatically - same "don't reach beyond the
@@ -90,7 +90,7 @@ func startRoleSession(role string) (stubPath string, cleanup func()) {
 		os.Exit(1)
 	}
 	if !roleFoundNearby(role) {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't find ./roles/%s - ansible-playbook will still try to resolve it, but the drill-down view's Task/Play definition sections won't be available for it\n", role)
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't find ./roles/%s - ansible-playbook will still try to resolve it, but the drill-down view's Task definition section won't be available for it\n", role)
 	}
 	return path, func() { os.Remove(path) }
 }

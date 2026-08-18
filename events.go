@@ -53,12 +53,6 @@ func (ev rawEvent) Timestamp() time.Time {
 
 type playRef struct {
 	Name string `json:"name"`
-	// Path is the play's own source location, "<absolute file>:<line>",
-	// the same shape as taskRef.Path - used by tui.go's output drill-down
-	// view to look up the parent play's own raw source text via
-	// source.go's taskSourceIndex, the same way a task's own Path already
-	// does.
-	Path string `json:"path"`
 }
 
 type taskRef struct {

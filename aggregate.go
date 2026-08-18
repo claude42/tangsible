@@ -66,13 +66,6 @@ type taskNode struct {
 	// future summary/history view (see Findings.md) would want it; remove
 	// if that never materializes.
 	StartedAt time.Time
-	// Play is this task's parent play - a back-pointer, set once at
-	// construction (Apply's task-start case) rather than derived by
-	// scanning playbookState.Plays on demand, since the parent is already
-	// known for free at that moment. Used by tui.go's output drill-down
-	// view to look up the parent play's own source (play.Path) alongside
-	// the task's own.
-	Play      *playNode
 	HostOrder []string
 	Hosts     map[string]outcome
 	// Raw holds each host's full original result payload for this task,
@@ -109,14 +102,7 @@ func (t *taskNode) counts() (ok, changed, skipped, failed, unreachable int) {
 }
 
 type playNode struct {
-	Name string
-	// Path is the play's own source location, "<absolute file>:<line>",
-	// from the starting event's own play.path (events.go) - stashed via
-	// pendingPlayPath below since, like Name, it arrives on
-	// v2_playbook_on_play_start but the playNode itself isn't created
-	// until this play's first task starts (see Apply). Used the same way
-	// taskNode.Path is: a lookup key into source.go's taskSourceIndex.
-	Path  string
+	Name  string
 	Tasks []*taskNode
 }
 
@@ -155,10 +141,6 @@ type playbookState struct {
 	HadUnreachable bool
 
 	pendingPlayName string
-	// pendingPlayPath mirrors pendingPlayName - both arrive on
-	// v2_playbook_on_play_start but aren't consumed until this play's
-	// first task starts and its playNode actually gets created.
-	pendingPlayPath string
 	currentPlay     *playNode
 	currentTask     *taskNode
 
@@ -184,7 +166,6 @@ func (s *playbookState) Reset() {
 	s.AllHosts = nil
 	s.HadUnreachable = false
 	s.pendingPlayName = ""
-	s.pendingPlayPath = ""
 	s.currentPlay = nil
 	s.currentTask = nil
 }
@@ -194,7 +175,6 @@ func (s *playbookState) Apply(ev rawEvent) {
 	case "v2_playbook_on_play_start":
 		if ev.Play != nil {
 			s.pendingPlayName = ev.Play.Name
-			s.pendingPlayPath = ev.Play.Path
 		}
 		s.currentPlay = nil
 
@@ -215,7 +195,7 @@ func (s *playbookState) Apply(ev rawEvent) {
 	// tree at all instead of silently overwriting something else's data.
 	case "v2_playbook_on_task_start", "v2_playbook_on_handler_task_start":
 		if s.currentPlay == nil {
-			s.currentPlay = &playNode{Name: s.pendingPlayName, Path: s.pendingPlayPath}
+			s.currentPlay = &playNode{Name: s.pendingPlayName}
 			s.Plays = append(s.Plays, s.currentPlay)
 			if s.OnPlayAdded != nil {
 				s.OnPlayAdded(s.currentPlay)
@@ -225,7 +205,6 @@ func (s *playbookState) Apply(ev rawEvent) {
 			s.currentTask = &taskNode{
 				Name:      ev.Task.Name,
 				Path:      ev.Task.Path,
-				Play:      s.currentPlay,
 				StartedAt: ev.Timestamp(),
 				Hosts:     map[string]outcome{},
 				Raw:       map[string]json.RawMessage{},

@@ -3,37 +3,27 @@
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
 
-* Sometimes a host gets green first and only later turns yellow. That doesn't
-  sound right. First OK, then changed?!
 * A summary page (comparable to what ansible-playbook does) would be nice
-
-* Hide cursor when autoscrolling is active
 
 * Need concept on how / when to display global stderr output
 
-* All lines are currently selectable
-
-* Plays with no tasks are not displayed
-
 * Search in drill down window
 
-* Summary line not visible - beyond the screen
+* Summary line sometimes not visible - beyond the screen (still?)
 
 * Progress bar (by analyzing playbook)
 
-* View Play
-
-* --step, --check
+* --check
 
 * Split pane
 
-* Edit files from drilldown view
-
 * Errors before / during execution
 
-* Mouse
-
 * OK/Changed/Skipped sumamry instead of individual hosts when space is
-  constrained
+  constrained or if --color=no
 
-* Show full log
+* Show full log (won't be possible)
+
+* show file
+
+* tangsible template seems to be run from /tmp/ - shows in some variables

@@ -79,15 +79,15 @@ for what *is* available there).
 
 ## Output/command drill-down view
 
-Opened by Enter/Space/click on a host row. Six tabs - Task, Output, Task
-definition, Resolved, Play definition, Details - shown only when that tab
+Opened by Enter/Space/click on a host row. Up to 7 tabs - Task, Output,
+Diff, Task definition, Resolved, Docs, Details - shown only when that tab
 actually has content for the current task (Task/Details are always
-present; Output/Task definition/Play definition/Resolved are shown only
-when there's something to put in them - Resolved specifically appears a
-moment after the view opens once a background variable-resolution attempt
-finishes with a result that's actually worth showing, never as an
-immediately-visible "Resolving..." placeholder - see the Drilldown,
-Resolved Values.md design doc).
+present; Output/Diff/Task definition/Resolved/Docs are shown only when
+there's something to put in them - Resolved/Docs specifically appear a
+moment after the view opens once a background variable-resolution/
+ansible-doc lookup attempt, respectively, finishes with a result that's
+actually worth showing, never as an immediately-visible "Resolving..."
+placeholder - see the Drilldown, Resolved Values.md design doc).
 
 * Cursor up / down - move cursor up / down (scrolls the active tab's own
                      content)

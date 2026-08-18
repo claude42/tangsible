@@ -29,8 +29,8 @@ What it does is
   * Written into the current working directory, not a system temp
     directory - a dot-prefixed name, e.g. .tangsible-role-<role_name>.yml.
     This matters beyond tidiness: the existing output drill-down view
-    finds a task's own source (the "Task definition"/"Play definition"
-    sections) by walking the playbook's own directory tree looking for
+    finds a task's own source (the "Task definition" section) by walking
+    the playbook's own directory tree looking for
     matching YAML files, and never traces roles:/include_role references
     to find them another way. If the stub lived in a system temp
     directory, that walk would start from an empty directory and those
@@ -48,7 +48,7 @@ What it does is
     not a full reimplementation of ansible's own role-search algorithm.
   * If the role can't be found this way, the stub is still generated and
     handed to ansible-playbook to resolve however it normally would - the
-    only cost is that the Task/Play definition sections stay empty for
+    only cost is that the Task definition section stays empty for
     that role's tasks, same "omit rather than fail" behaviour the
     drill-down view already falls back to elsewhere (e.g. a task whose
     source file just isn't found).
