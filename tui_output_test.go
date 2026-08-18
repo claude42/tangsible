@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -263,6 +264,145 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 		_, text := primaryOutputField(decoded)
 		if text != "" {
 			t.Errorf("primaryOutputField() text = %q, want empty - the var: heuristic is debug-only", text)
+		}
+	})
+}
+
+func TestResolvedMatchesSource(t *testing.T) {
+	cases := []struct {
+		name     string
+		resolved resolvedRender
+		source   string
+		want     bool
+	}{
+		{
+			name:     "pending - never matches, regardless of Text",
+			resolved: resolvedRender{Pending: true, Text: "- name: hi\n"},
+			source:   "- name: hi\n",
+			want:     false,
+		},
+		{
+			name:     "error - never matches, even if Text happens to be set too",
+			resolved: resolvedRender{Err: "boom"},
+			source:   "- name: hi\n",
+			want:     false,
+		},
+		{
+			name:     "byte-for-byte identical",
+			resolved: resolvedRender{Text: "- name: hi\n  debug:\n    msg: hi\n"},
+			source:   "- name: hi\n  debug:\n    msg: hi\n",
+			want:     true,
+		},
+		{
+			name:     "identical modulo one trailing newline - ansible.builtin.template's own write isn't guaranteed to agree with source.go on this",
+			resolved: resolvedRender{Text: "- name: hi\n  debug:\n    msg: hi"},
+			source:   "- name: hi\n  debug:\n    msg: hi\n",
+			want:     true,
+		},
+		{
+			name:     "genuinely different - a variable actually resolved",
+			resolved: resolvedRender{Text: "- name: hi\n  debug:\n    msg: hello world\n"},
+			source:   "- name: hi\n  debug:\n    msg: '{{ greeting }}'\n",
+			want:     false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resolvedMatchesSource(c.resolved, c.source); got != c.want {
+				t.Errorf("resolvedMatchesSource(%+v, %q) = %v, want %v", c.resolved, c.source, got, c.want)
+			}
+		})
+	}
+}
+
+func TestResolvedTabHidden(t *testing.T) {
+	t.Run("no source to compare against - never hidden, even if Text happens to be empty too", func(t *testing.T) {
+		if resolvedTabHidden(resolvedRender{Text: ""}, "") {
+			t.Error("resolvedTabHidden() = true, want false when there's no Task definition tab to compare against")
+		}
+	})
+	t.Run("source present and identical - hidden", func(t *testing.T) {
+		if !resolvedTabHidden(resolvedRender{Text: "- name: hi\n"}, "- name: hi\n") {
+			t.Error("resolvedTabHidden() = false, want true for an identical resolve")
+		}
+	})
+	t.Run("source present but different - not hidden", func(t *testing.T) {
+		if resolvedTabHidden(resolvedRender{Text: "- name: hi there\n"}, "- name: hi\n") {
+			t.Error("resolvedTabHidden() = true, want false when the resolved text actually differs")
+		}
+	})
+	t.Run("still pending - hidden, no \"Resolving...\" placeholder", func(t *testing.T) {
+		if !resolvedTabHidden(resolvedRender{Pending: true}, "- name: hi\n") {
+			t.Error("resolvedTabHidden() = false, want true while still resolving - the tab stays entirely absent until there's something to show")
+		}
+	})
+	t.Run("still pending - hidden even with no source to compare against", func(t *testing.T) {
+		if !resolvedTabHidden(resolvedRender{Pending: true}, "") {
+			t.Error("resolvedTabHidden() = false, want true while still resolving, regardless of source")
+		}
+	})
+}
+
+func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
+	const path = "/project/site.yml:3"
+	const source = "- name: hi\n  ansible.builtin.debug:\n    msg: hi\n"
+
+	task := &taskNode{
+		Name:  "hi",
+		Path:  path,
+		Hosts: map[string]outcome{"web1": outcomeOK},
+		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
+	}
+	sourceIndex := taskSourceIndex{path: source}
+
+	hasTab := func(names []string, name string) bool {
+		return slices.Contains(names, name)
+	}
+
+	t.Run("identical to Task definition - Resolved tab omitted", func(t *testing.T) {
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: source})
+		if hasTab(names, "Resolved") {
+			t.Errorf("names = %v, want no Resolved tab for an identical resolve", names)
+		}
+		if !hasTab(names, "Task definition") {
+			t.Errorf("names = %v, want a Task definition tab regardless", names)
+		}
+	})
+
+	t.Run("genuinely different from Task definition - Resolved tab shown", func(t *testing.T) {
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: "- name: hi\n  ansible.builtin.debug:\n    msg: hello world\n"})
+		if !hasTab(names, "Resolved") {
+			t.Errorf("names = %v, want a Resolved tab when the resolved text differs", names)
+		}
+	})
+
+	t.Run("still pending - Resolved tab omitted, no placeholder", func(t *testing.T) {
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Pending: true})
+		if hasTab(names, "Resolved") {
+			t.Errorf("names = %v, want no Resolved tab while still pending", names)
+		}
+	})
+
+	t.Run("resolve errored - Resolved tab shown", func(t *testing.T) {
+		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Err: "ansible-playbook exploded"})
+		if !hasTab(names, "Resolved") {
+			t.Errorf("names = %v, want a Resolved tab on a genuine resolve error", names)
+		}
+	})
+
+	t.Run("no source found at all - Resolved tab still shown, nothing to call it identical to", func(t *testing.T) {
+		noSourceTask := &taskNode{
+			Name:  "hi",
+			Path:  "/project/unknown.yml:1",
+			Hosts: map[string]outcome{"web1": outcomeOK},
+			Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
+		}
+		names, _ := buildOutputTabs(noSourceTask, "web1", taskSourceIndex{}, resolvedRender{Text: ""})
+		if !hasTab(names, "Resolved") {
+			t.Errorf("names = %v, want a Resolved tab when there's no Task definition tab to compare against", names)
+		}
+		if hasTab(names, "Task definition") {
+			t.Errorf("names = %v, want no Task definition tab on a sourceIndex miss", names)
 		}
 	})
 }

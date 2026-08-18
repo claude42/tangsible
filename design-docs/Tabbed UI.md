@@ -86,10 +86,15 @@ throughout, just applied to tabs instead of stacked sections):
    this tab's own content - they still don't become one big undifferentiated
    blob, just live under one tab instead of one always-visible page.
 3. **Task definition** - present when the source lookup succeeds.
-4. **Resolved** - unlike the others, always present rather than
-   conditional: there's always *something* to show (pending
-   "Resolving...", the actual result, or an error) - it's a process state,
-   not optional content the way Warnings/Items are.
+4. **Resolved** - conditional, and not just on whether the lookup
+   succeeds: absent while the background resolve is still running (no
+   "Resolving..." placeholder - a follow-up revision of this feature,
+   design-docs/Drilldown, Resolved Values.md's own "Triggering, caching,
+   and display" section covers the reasoning), absent on success if the
+   resolved text turns out byte-for-byte identical to "Task definition"'s
+   own raw source (nothing this tab would add), present once resolved to
+   something genuinely different, and present on a genuine resolve error
+   (real information the other tabs don't carry).
 5. **Play definition** - present when `task.Play != nil` and its own
    source lookup succeeds (same condition as today).
 6. **Details** - the full JSON. Always present.

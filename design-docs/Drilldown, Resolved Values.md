@@ -93,16 +93,37 @@ Reuses most of `template.go`'s existing plumbing directly:
   a different host/task via Left/Right/n/p) - not gated behind a keypress.
   Runs on its own goroutine (the same `QueueUpdateDraw`-on-completion
   pattern already used elsewhere in this app), so opening the view is
-  never blocked on it; the new section reads "Resolving..." until the
-  background render finishes.
+  never blocked on it.
 * Cached per `(task, host)` for the lifetime of the current generation -
   revisiting the same row a second time is free. The cache is cleared
   wherever `state.Reset()` already runs (a rerun), so a stale render from
   a previous generation's own vars can never linger.
-* Shown as a new section, placed directly after "Task definition" (raw and
-  resolved side by side, for easy comparison) - not a reuse of
-  `formatHostOutput`'s other sections' own layout, just the same
-  label/underline convention (`sectionLabel`) they already use.
+* Shown as a new tab, placed directly after "Task definition" (raw and
+  resolved side by side, for easy comparison) - see design-docs/Tabbed
+  UI.md for the tab-based drill-down view this section predates.
+* **No "Resolving..." placeholder** - the tab is entirely absent from the
+  tab bar until the background resolve has actually finished with
+  something worth showing (`resolvedTabHidden`, `tui.go`). An earlier
+  revision of this feature showed the tab immediately with placeholder
+  text, on the reasoning that "something is happening" is itself useful
+  feedback - reverted after real use showed the opposite: a user who
+  tabbed onto it while it still read "Resolving..." would sometimes watch
+  it disappear out from under them a moment later (whenever resolving
+  finished identical to source, see below), which reads as the UI
+  glitching rather than as intended behavior. A tab that simply never
+  appears for a task with nothing to show reads as "this task doesn't
+  have one," which is the truth.
+* **Omitted entirely** once resolving finishes and comes back byte-for-byte
+  identical to "Task definition"'s own raw source - a real, common
+  outcome, not an edge case: it happens whenever a task has no `{{ }}`
+  expressions at all, and equally whenever every expression it does have
+  falls back to its own literal text via the `default()` wrapper above
+  (e.g. a play-level `vars:` entry, which this mechanism's stub genuinely
+  can't see - see "Known gaps" below). In both cases the tab would show
+  nothing "Task definition" doesn't already, so it's left out rather than
+  shown as a pointless duplicate. Still shown (once resolved, not before)
+  on a genuine resolve error - that's real information of its own, not a
+  duplicate of anything else on screen.
 
 ## Known gaps (accepted, not chased further here)
 

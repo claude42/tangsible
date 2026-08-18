@@ -832,19 +832,6 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// else in this file - it needs no locking of its own.
 	resolveCache := map[resolveKey]resolvedRender{}
 
-	// resolvedView tracks the *current* "Resolved" tab's own TextView, so
-	// the async resolve callback below can update just that one tab's
-	// content in place (a plain SetText on the same still-live object)
-	// without rebuilding - and so without disturbing the scroll position
-	// of - whichever tab the user actually has open right now, if it's
-	// not Resolved. Set every time renderOutputTabs runs (task/host
-	// navigation always rebuilds every tab from scratch, fresh
-	// TextViews); nil whenever the current task genuinely has no
-	// Resolved tab content yet to point at (shouldn't happen in
-	// practice, since buildOutputTabs always includes one, but this
-	// function doesn't assume that blindly).
-	var resolvedView *tview.TextView
-
 	// renderOutputTabs rebuilds every tab from buildOutputTabs' own
 	// output and hands the result to outputTabs.SetTabs - which itself
 	// preserves whichever tab is currently active, by name, so repeatedly
@@ -853,14 +840,10 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	renderOutputTabs := func(task *taskNode, host string, resolved resolvedRender) {
 		names, contents := buildOutputTabs(task, host, sourceIndex, resolved)
 		prims := make([]tview.Primitive, len(names))
-		resolvedView = nil
 		for i, content := range contents {
 			tv := tview.NewTextView().SetDynamicColors(true)
 			tv.SetText(content)
 			prims[i] = tv
-			if names[i] == "Resolved" {
-				resolvedView = tv
-			}
 		}
 		outputTabs.SetTabs(names, prims)
 	}
@@ -873,12 +856,20 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// different host/task), not gated behind a keypress - per
 		// design-docs/Drilldown, Resolved Values.md. Runs on its own
 		// goroutine so opening the view is never blocked on a real
-		// ansible-playbook invocation; the Resolved tab reads
-		// "Resolving..." (buildResolvedTab's own Pending case) until it
-		// completes. The outputTask/outputHost/viewingOutput check right
-		// before updating the view guards against a stale result landing
-		// after the user has already navigated elsewhere - the cache
-		// itself is still updated regardless, so a later revisit is free.
+		// ansible-playbook invocation. The Resolved tab itself starts
+		// out entirely absent, not a visible "Resolving..." placeholder
+		// (resolvedTabHidden treats Pending as hidden) - an earlier
+		// version showed the placeholder immediately, but that made the
+		// tab a moving target: a user who tabbed onto it while it read
+		// "Resolving..." would watch it vanish out from under them the
+		// instant resolving finished identical to source. Silently
+		// absent until there's something worth showing reads as "this
+		// task doesn't have one" rather than "something just
+		// disappeared," even though both are the same outcome. The
+		// outputTask/outputHost/viewingOutput check right before
+		// updating the view guards against a stale result landing after
+		// the user has already navigated elsewhere - the cache itself is
+		// still updated regardless, so a later revisit is free.
 		key := resolveKey{task, host}
 		resolved, cached := resolveCache[key]
 		if !cached {
@@ -894,14 +885,26 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 				}
 				app.QueueUpdateDraw(func() {
 					resolveCache[key] = result
-					// A targeted, in-place update of the Resolved tab's
-					// own TextView - not a renderOutputTabs rebuild -
-					// specifically so this never disturbs the scroll
-					// position of whatever *other* tab the user might
-					// currently be reading while this was still pending.
-					if outputTask == task && outputHost == host && viewingOutput && resolvedView != nil {
-						resolvedView.SetText(buildResolvedTab(result))
+					if outputTask != task || outputHost != host || !viewingOutput {
+						return
 					}
+					if !resolvedTabHidden(result, sourceIndex[task.Path]) {
+						// The tab wasn't shown at all until now (see
+						// above) - only a full renderOutputTabs can make
+						// a brand new tab appear at all, unlike the
+						// old design's in-place SetText on an
+						// already-existing TextView. Accepted here even
+						// though it loses whatever tab/scroll position
+						// was current: this fires at most once, very
+						// shortly after the view was first opened (see
+						// design-docs/Drilldown, Resolved Values.md's
+						// own "kicked off the moment a drill-down opens"
+						// timing), so there's realistically nothing
+						// meaningful to lose yet.
+						renderOutputTabs(task, host, result)
+					}
+					// Otherwise the tab stays exactly as absent as it
+					// already was - nothing on screen needs to change.
 				})
 			}()
 		}
@@ -3248,12 +3251,14 @@ type resolvedRender struct {
 // decision - each piece keeps its own sectionLabel header within it, so
 // several distinct pieces sharing one tab don't become an undifferentiated
 // blob), Diff, Task definition, Resolved, Play definition, and Details -
-// in that order. Every tab but Task/Resolved/Details is dynamic: names/
-// contents simply omits one entirely when that particular task has
-// nothing for it (an empty "" from that tab's own builder), matching this
-// function's predecessor's "omit rather than show a placeholder"
-// convention, just applied to whole tabs instead of stacked sections.
-// Diff is the newest of these (--diff is now always passed to
+// in that order. Every tab but Task/Details is dynamic: names/contents
+// simply omits one entirely when that particular task has nothing for it
+// (an empty "" from that tab's own builder, or - Resolved specifically -
+// resolvedTabHidden saying its content wouldn't add anything "Task
+// definition" doesn't already show), matching this function's
+// predecessor's "omit rather than show a placeholder" convention, just
+// applied to whole tabs instead of stacked sections. Diff is the newest of
+// these (--diff is now always passed to
 // ansible-playbook, see spawnGeneration in main.go) - buildDiffTab below
 // omits it whenever a task's result carries no diff key, or one that
 // resolves to no actual change (e.g. before == after).
@@ -3309,21 +3314,36 @@ func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, r
 		contents = append(contents, content)
 	}
 
-	// Task/Resolved/Details are always present - appended directly rather
-	// than through add()'s own empty-skips-it convention, since none of
-	// the three can genuinely come back empty (Task always has at least
-	// Name/Host/Status; Resolved's own zero value is documented as
-	// "treated as Pending," never blank; Details' JSON dump always
-	// succeeds or reports its own failure).
+	// Task/Details are always present - appended directly rather than
+	// through add()'s own empty-skips-it convention, since neither can
+	// genuinely come back empty (Task always has at least Name/Host/
+	// Status; Details' JSON dump always succeeds or reports its own
+	// failure). Resolved is the one exception to "always present" among
+	// this trio - see resolvedMatchesSource below.
 	names = append(names, "Task")
 	contents = append(contents, buildTaskTab(task, host, decoded, o))
 
 	add("Output", buildOutputTab(decoded, o))
 	add("Diff", buildDiffTab(decoded))
+	taskSource := sourceIndex[task.Path]
 	add("Task definition", buildSourceTab(task.Path, sourceIndex))
 
-	names = append(names, "Resolved")
-	contents = append(contents, buildResolvedTab(resolved))
+	// Omitted specifically when it would show nothing "Task definition"
+	// doesn't already - i.e. resolving finished cleanly and came back
+	// byte-for-byte the same as the raw source, which happens whenever a
+	// task has no {{ }} expressions at all, or every one of them fell
+	// back to its own literal text via wrapJinjaDefaults' default()
+	// wrapper (design-docs/Drilldown, Resolved Values.md) because nothing
+	// could actually resolve it. Deliberately still shown while Pending
+	// (the eventual text isn't known yet) or on a genuine Err (that's
+	// itself information "Task definition" doesn't carry), and whenever
+	// there's no source to compare against at all (taskSource == "",
+	// meaning "Task definition" was itself omitted above) - nothing to
+	// call "identical" to in that case.
+	if !resolvedTabHidden(resolved, taskSource) {
+		names = append(names, "Resolved")
+		contents = append(contents, buildResolvedTab(resolved))
+	}
 
 	if task.Play != nil {
 		add("Play definition", buildSourceTab(task.Play.Path, sourceIndex))
@@ -3607,18 +3627,56 @@ func buildSourceTab(path string, sourceIndex taskSourceIndex) string {
 	return b.String()
 }
 
-// buildResolvedTab renders the Resolved tab's own content - always
-// non-empty (see resolvedRender's own doc comment: its zero value is
-// treated the same as Pending), so this tab is never omitted.
-func buildResolvedTab(resolved resolvedRender) string {
-	switch {
-	case resolved.Pending:
-		return "Resolving..."
-	case resolved.Err != "":
-		return "Could not resolve: " + tview.Escape(resolved.Err)
-	default:
-		return tview.Escape(resolved.Text)
+// resolvedMatchesSource reports whether resolved's own rendered text is
+// byte-for-byte identical to source (the task's raw, unresolved YAML,
+// i.e. sourceIndex[task.Path] - the same text "Task definition" shows) -
+// true only once resolving has actually finished successfully (Pending
+// and Err both count as "not identical," since there's genuinely
+// different information to show in either case: a still-running resolve,
+// or a failure message). Trims one trailing newline from each side before
+// comparing - ansible.builtin.template's own file write and this
+// project's own source-extraction (source.go) aren't guaranteed to agree
+// on a single trailing newline, and that alone shouldn't count as a real
+// difference worth a whole extra tab for.
+func resolvedMatchesSource(resolved resolvedRender, source string) bool {
+	if resolved.Pending || resolved.Err != "" {
+		return false
 	}
+	return strings.TrimSuffix(resolved.Text, "\n") == strings.TrimSuffix(source, "\n")
+}
+
+// resolvedTabHidden is buildOutputTabs' actual "omit the Resolved tab"
+// decision, factored out so showOutput's own async completion callback
+// (which needs the identical condition to decide whether finishing a
+// resolve should make the tab appear) can't silently drift out of
+// agreement with it. Hidden while still Pending - there's no "Resolving..."
+// placeholder shown anymore (see showOutput's own comment on why: a tab
+// that shows up immediately only to sometimes vanish once resolving
+// finishes identical to source read as broken, not as a feature). Never
+// hidden on a genuine Err - that's real information "Task definition"
+// doesn't carry. Otherwise hidden exactly when resolvedMatchesSource says
+// so, except source == "" (no "Task definition" tab to compare against in
+// the first place - see buildOutputTabs) always means "don't hide."
+func resolvedTabHidden(resolved resolvedRender, source string) bool {
+	if resolved.Pending {
+		return true
+	}
+	if resolved.Err != "" {
+		return false
+	}
+	return source != "" && resolvedMatchesSource(resolved, source)
+}
+
+// buildResolvedTab renders the Resolved tab's own content. Never called
+// with resolved.Pending true - buildOutputTabs' own resolvedTabHidden gate
+// (this tab's only call site) keeps the tab, and so this function, out of
+// the picture entirely until a resolve has actually finished - so unlike
+// its predecessor, this has no "Resolving..." case to render.
+func buildResolvedTab(resolved resolvedRender) string {
+	if resolved.Err != "" {
+		return "Could not resolve: " + tview.Escape(resolved.Err)
+	}
+	return tview.Escape(resolved.Text)
 }
 
 // buildDetailsTab renders the full result as pretty-printed JSON - always
