@@ -619,12 +619,17 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// or anything else that isn't the heartbeat ticker, which does stop
 	// once frozen - would recompute now.Sub(startedAt) fresh and make the
 	// top bar's elapsed time keep climbing after the run is actually done.
-	var lastRebuildWidth int // the list width rebuild() actually rendered
-	// against, last time it ran - set at the same place rebuild() computes
-	// its own `width` local. Compared against the list's *current* width by
-	// the resize-watcher goroutine (see NewLiveTUI's call to
-	// startHeartbeat) to notice a terminal resize that happened with no
-	// other event to piggyback a rebuild on.
+	var lastTotalWidth int // pages' own width (the terminal's, regardless of
+	// which of "main"/"output"/"split" is frontmost - see rebuild()'s own
+	// totalWidth local) last time rebuild() ran. Compared against pages'
+	// *current* width by the resize-watcher goroutine (see NewLiveTUI's
+	// call to startHeartbeat) to notice a terminal resize that happened
+	// with no other event to piggyback a rebuild on - pages itself, being
+	// the app's root primitive, always reports the true current terminal
+	// size no matter which page is showing, unlike list's own width (used
+	// for a different purpose below - the tree's own column layout - which
+	// stops tracking the terminal 1:1 once a two-pane drill-down is open,
+	// design-docs/TwoPanedLayout.md).
 	var viewingOutput bool // true while the host-output page is frontmost; see
 	// SetInputCapture below - selects between the main tree's and the output
 	// view's own page-specific key bindings (Left/Right and n/p mean
@@ -767,6 +772,24 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 
 	pages := tview.NewPages()
 
+	// currentPageName/switchPage track which of "main"/"output"/"split" is
+	// currently frontmost, so rebuild()'s own live resize-reactivity (see
+	// design-docs/TwoPanedLayout.md) can tell whether a page switch is
+	// actually needed before calling pages.SwitchToPage - which, per
+	// tview's own source, re-focuses the new front page every time it's
+	// called, even redundantly. Calling it unconditionally on every
+	// rebuild (every heartbeat tick while a drill-down is open) would be
+	// harmless in practice but is needless churn; gating on a real change
+	// avoids it for free.
+	currentPageName := "main"
+	switchPage := func(name string) {
+		if name == currentPageName {
+			return
+		}
+		currentPageName = name
+		pages.SwitchToPage(name)
+	}
+
 	// Filter and search dialogs: two small, modal overlays on top of the
 	// main page (see Filters.md's Dialog section - split into two separate
 	// dialogs after live use of a single combined one showed it was too
@@ -900,28 +923,12 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	}
 
 	showOutput := func(task *taskNode, host string) {
-		// Pane-mode (split vs. full-screen) is decided once per drill-down
-		// session, right here, only on a fresh open - !viewingOutput is
-		// still true from the previous, unrelated session (or the initial
-		// zero value) the very first time this runs for a new one; every
-		// later call for the same session (navigateOutputHost/
-		// navigateOutputTask stepping through hosts/tasks) leaves splitMode
-		// exactly as it was decided at open time, per
-		// design-docs/TwoPanedLayout.md.
-		if !viewingOutput {
-			_, _, totalWidth, _ := list.GetInnerRect() // same width-as-proxy-
-			// for-terminal-size trick the resize watcher already relies on
-			// (see NewLiveTUI's startHeartbeat/resizeWatcher comments) -
-			// list still occupies the full terminal width at this point,
-			// since "main" is still frontmost right up until this function
-			// switches away from it below.
-			splitMode = twoPaneLayout && totalWidth >= splitMinTotalWidth
-			if splitMode {
-				splitFlex.ResizeItem(flex, splitTreeWidth(totalWidth), 0)
-				bottomBar.SetText(splitBottomBarText) // closeOutput restores
-				// mainBottomBarText - see its own doc comment.
-			}
-		}
+		// Pane-mode (split vs. full-screen) is no longer decided here at
+		// all - rebuild() (below) re-evaluates it, live, from the
+		// terminal's actual current width on every call, including the one
+		// this function makes at the very end (see design-docs/
+		// TwoPanedLayout.md) - so a fresh open and a later resize while
+		// already open are handled by the exact same code path, not two.
 
 		outputTask, outputHost = task, host
 		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
@@ -1048,13 +1055,8 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		expanded[task] = true
 		currentID = hostRowID{task, host}
 		following = false
-		rebuild()
-
-		if splitMode {
-			pages.SwitchToPage("split")
-		} else {
-			pages.SwitchToPage("output")
-		}
+		rebuild() // also decides/applies pane mode now that viewingOutput is
+		// true - see rebuild()'s own resync block.
 	}
 
 	// navigateOutputTask moves the output page to the previous/next task
@@ -1103,6 +1105,36 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 			elapsed = frozenElapsed
 		}
+
+		// Two-pane layout (design-docs/TwoPanedLayout.md) is live, not
+		// decided once at open time: every rebuild - including ones driven
+		// purely by a terminal resize, with no other event to piggyback on
+		// (see the resize-watcher goroutine and the heartbeat ticker below)
+		// - re-evaluates whether the terminal is currently wide enough for
+		// a split view, and keeps the tree pane's own width current within
+		// that range. pages itself, not list, is the width source: as the
+		// app's own root primitive it always reports the true current
+		// terminal size no matter which page is frontmost, unlike list's
+		// own width, which stops tracking the terminal 1:1 the moment a
+		// two-pane session fixes it to the tree pane's own share (see
+		// width/lastTotalWidth below - two genuinely different quantities
+		// now, not one).
+		_, _, totalWidth, _ := pages.GetInnerRect()
+		lastTotalWidth = totalWidth // compared against pages' *current*
+		// width by the resize-watcher goroutine below, to notice a resize
+		// that happened with no other event to piggyback a rebuild on.
+		if viewingOutput {
+			splitMode = twoPaneLayout && totalWidth >= splitMinTotalWidth
+			if splitMode {
+				splitFlex.ResizeItem(flex, splitTreeWidth(totalWidth), 0)
+				bottomBar.SetText(splitBottomBarText)
+				switchPage("split")
+			} else {
+				bottomBar.SetText(mainBottomBarText)
+				switchPage("output")
+			}
+		}
+
 		_, _, width, _ := list.GetInnerRect()
 		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
 		// (never 0), and QueueUpdateDraw can't run this closure before
@@ -1112,13 +1144,13 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		if width < 20 {
 			width = 20
 		}
-		lastRebuildWidth = width // recorded regardless of what triggered
-		// this particular rebuild, so the resize watcher (see NewLiveTUI's
-		// call to startHeartbeat) always compares against whatever was
-		// actually last rendered. topBar shares list's own width (both are
-		// full-width children of the same outer Flex row), so it's reused
-		// below for topBarText's own right-alignment/truncation too rather
-		// than re-deriving a second width from topBar.GetInnerRect().
+		// topBar shares list's own width (both are full-width children of
+		// the same outer Flex row when "main" is frontmost - and while a
+		// two-pane session has list pinned to the tree pane's own share
+		// instead, topBar is that same tree pane's own top bar, so the two
+		// still match) - reused below for topBarText's own right-
+		// alignment/truncation too rather than re-deriving a second width
+		// from topBar.GetInnerRect().
 		topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, width))
 
 		// One-time, right on the running-to-frozen transition: for a
@@ -1843,7 +1875,13 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// rebuild() on a terminal resize with no other incoming event. While a
 	// run is still live, startHeartbeat's own ticker already re-syncs
 	// everything within spinnerInterval regardless of resize - so this
-	// goroutine skips its own work entirely until processDone.
+	// goroutine skips its own work entirely until processDone. "Everything"
+	// now includes the two-pane drill-down's own split-vs-full-screen mode
+	// and tree-pane width, not just the tree's row text/column layout - see
+	// rebuild()'s own resync block (design-docs/TwoPanedLayout.md) - so a
+	// frozen run's drill-down reacts to a resize exactly as live one does,
+	// via the same rebuild() call, just noticed by this ticker instead of
+	// startHeartbeat's.
 	go func() {
 		ticker := time.NewTicker(spinnerInterval) // reused only as a
 		// convenient existing interval - not tied to spinner-animation cadence.
@@ -1860,8 +1898,15 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 			app.QueueUpdate(func() { // NOT QueueUpdateDraw - avoid forcing a
 				// real screen redraw on every tick when nothing changed.
-				_, _, width, _ := list.GetInnerRect()
-				if width != lastRebuildWidth {
+				_, _, totalWidth, _ := pages.GetInnerRect() // pages, not
+				// list - the terminal's true current width regardless of
+				// which page is frontmost (see rebuild()'s own
+				// lastTotalWidth comment); using list here would miss a
+				// resize entirely while a two-pane session has fixed list's
+				// own width to the tree pane's share, or while viewing a
+				// full-screen drill-down at all (list isn't part of that
+				// page's own draw tree, so its rect goes stale).
+				if totalWidth != lastTotalWidth {
 					rebuild()
 					// app.Draw() would deadlock here: it's QueueUpdate under
 					// another name, and this closure is already running via
@@ -1966,7 +2011,14 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		viewingOutput = false
 		splitMode = false
 		bottomBar.SetText(mainBottomBarText)
-		pages.SwitchToPage("main")
+		switchPage("main")
+		rebuild() // list's own row text was last baked while viewingOutput
+		// was still true - possibly at the tree pane's own (narrower,
+		// hosts-omitted) width rather than the full terminal's, especially
+		// now that a resize can happen live while split is open
+		// (design-docs/TwoPanedLayout.md) - a plain page switch alone only
+		// fixes list's box size via tview's own native redraw, not its
+		// already-baked text content.
 	}
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {

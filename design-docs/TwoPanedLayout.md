@@ -37,19 +37,17 @@ The user will have the option to set two_pane_layout = false in the config
 files to prevent this behavior (thus tangsible will behave in the same way as
 it does now). Default for two_pane_layout will be true though.
 
-## Pane-mode decision (live vs. static)
+## Pane-mode decision (live)
 
-Whether a given drill-down opens in two-pane or today's full-screen mode is
-decided once, at the moment the drill-down opens, from the terminal width at
-that instant. If the terminal is resized while the drill-down stays open, the
-already-chosen mode is kept for the rest of that drill-down session — only
-the panes' own internal layout reflows (column widths, wrapping), the same
-way it already does today. Whether to open in two-pane or full-screen mode is
-only re-decided the next time a drill-down is opened. Live re-toggling
-between the two modes mid-session (i.e. actually switching layouts because
-a resize crossed the 120-character threshold while the view stays open) is
-out of scope for the first implementation and can be revisited later if
-needed.
+Whether a drill-down is currently shown in two-pane or full-screen mode is
+re-evaluated continuously against the terminal's actual current width — on
+open, and again on every later resize for as long as the drill-down stays
+open, in both directions. Shrinking below 110 characters while a two-pane
+session is open switches it to full-screen immediately, without having to
+close and reopen it; growing back above 110 switches it back to two-pane.
+While two-pane mode stays active across a resize, the tree pane's own width
+is kept current too (still governed by the 30–80 character growth rule
+above), independent of whichever way the terminal is being resized.
 
 ## Tree pane content while split
 
