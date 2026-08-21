@@ -391,6 +391,7 @@ func main() {
 	// independently elsewhere, rather than passing one shared value
 	// through the whole program.
 	startExpanded := defaultTreeExpanded(readSettingsConfig(tangsibleConfigPath))
+	twoPaneLayout := twoPaneLayoutEnabled(readSettingsConfig(tangsibleConfigPath))
 
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
@@ -513,7 +514,7 @@ func main() {
 	if roleDisplayName != "" {
 		displayName = roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)

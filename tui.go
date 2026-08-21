@@ -394,7 +394,7 @@ func taskVisible(t *taskNode, q filterQuery, sourceIndex taskSourceIndex, isActi
 // showOutput is called when a host row is selected (Enter), to display
 // that host's full result for that task. sourceIndex is only read by
 // taskVisible's filterSearch case, to search a task's own source text.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, layout hostColumnLayout, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string)) []row {
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, layout hostColumnLayout, allHosts []string, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string)) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		var playRows []row
@@ -404,7 +404,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, l
 				continue
 			}
 			playRows = append(playRows, row{
-				text:     taskLabel(t, state.AllHosts, layout, width, t == activeTask, frame, false),
+				text:     taskLabel(t, allHosts, layout, width, t == activeTask, frame, false),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -571,7 +571,7 @@ func filterDialogText(active filterQuery) string {
 // design-docs/Drilldown, Resolved Values.md) see the same
 // inventory/extra-vars context the real run did. Not used for anything
 // else in this function.
-func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -631,6 +631,27 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// different things on each page). A plain locally-owned bool, not a
 	// pages.GetFrontPage() query, since this function owns both places that
 	// ever switch pages.
+	var rebuild func() // declared (not yet assigned - see its real definition
+	// further down) before showOutput, which now calls it directly (see
+	// design-docs/TwoPanedLayout.md's live-sync) - a closure only needs
+	// rebuild's identifier in scope by the time it actually runs, not by the
+	// time it's defined, so this forward declaration is enough to let
+	// showOutput's own closure reference it here.
+	//
+	// bottomBar/flex/splitFlex are forward-declared the same way, for the
+	// same reason: showOutput (and, for bottomBar, closeOutput too) needs
+	// these identifiers in scope before their real construction further
+	// down assigns them.
+	var bottomBar *tview.TextView
+	var flex, splitFlex *tview.Flex
+	var splitMode bool // true while the currently-open drill-down is
+	// rendered as the two-pane "split" page (design-docs/TwoPanedLayout.md)
+	// rather than full-screen "output" - decided once, in showOutput, the
+	// moment a drill-down freshly opens (viewingOutput was false), and left
+	// alone for the rest of that session even if the terminal is resized
+	// while it stays open (per the design doc's own explicit call: only the
+	// panes' own internal layout reflows mid-session, the split-vs-full-
+	// screen choice itself doesn't re-decide until the next open).
 	currentFilter := filterQuery{mode: filterAll} // see Filters.md; the
 	// two dialogs below are the only writers.
 	//
@@ -879,6 +900,29 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	}
 
 	showOutput := func(task *taskNode, host string) {
+		// Pane-mode (split vs. full-screen) is decided once per drill-down
+		// session, right here, only on a fresh open - !viewingOutput is
+		// still true from the previous, unrelated session (or the initial
+		// zero value) the very first time this runs for a new one; every
+		// later call for the same session (navigateOutputHost/
+		// navigateOutputTask stepping through hosts/tasks) leaves splitMode
+		// exactly as it was decided at open time, per
+		// design-docs/TwoPanedLayout.md.
+		if !viewingOutput {
+			_, _, totalWidth, _ := list.GetInnerRect() // same width-as-proxy-
+			// for-terminal-size trick the resize watcher already relies on
+			// (see NewLiveTUI's startHeartbeat/resizeWatcher comments) -
+			// list still occupies the full terminal width at this point,
+			// since "main" is still frontmost right up until this function
+			// switches away from it below.
+			splitMode = twoPaneLayout && totalWidth >= splitMinTotalWidth
+			if splitMode {
+				splitFlex.ResizeItem(flex, splitTreeWidth(totalWidth), 0)
+				bottomBar.SetText(splitBottomBarText) // closeOutput restores
+				// mainBottomBarText - see its own doc comment.
+			}
+		}
+
 		outputTask, outputHost = task, host
 		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
 
@@ -986,7 +1030,31 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// every switch" behavior in tabs.go for the *within-view*
 		// equivalent of that same concern.
 		viewingOutput = true
-		pages.SwitchToPage("output")
+
+		// Live-sync (design-docs/TwoPanedLayout.md): keep the tree's own
+		// cursor pointed at whatever (task, host) the drill-down is
+		// currently showing, expanding that task so the row is actually
+		// there to point at - on every call, not just the first, so
+		// navigateOutputHost/navigateOutputTask (Left/Right, n/p while
+		// already viewing output) keep it current too. This used to be
+		// closeOutput's own one-time job on the way out; doing it here
+		// instead, unconditionally, makes closeOutput's own copy
+		// unnecessary (see below) and is what actually makes the tree
+		// "follow" while a two-pane session is open. No separate scrolling
+		// code is needed to keep the new row visible even when it's off
+		// screen: rebuild()'s own SetCurrentItem call fires whenever
+		// selectedIndex genuinely changes, and treeList.ensureVisible()
+		// (treelist.go) already runs on exactly that.
+		expanded[task] = true
+		currentID = hostRowID{task, host}
+		following = false
+		rebuild()
+
+		if splitMode {
+			pages.SwitchToPage("split")
+		} else {
+			pages.SwitchToPage("output")
+		}
 	}
 
 	// navigateOutputTask moves the output page to the previous/next task
@@ -1018,7 +1086,6 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		showOutput(tasks[newIdx], outputHost)
 	}
 
-	var rebuild func()
 	rebuild = func() {
 		rebuilding = true
 		defer func() { rebuilding = false }()
@@ -1088,14 +1155,31 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 
 		activeTask := activeTaskNow()
 
+		// treeAllHosts is state.AllHosts normally, or nil while a two-pane
+		// drill-down session is open (design-docs/TwoPanedLayout.md): hosts
+		// aren't shown on collapsed tree rows in that mode (the drill-down
+		// pane already shows exactly which host is selected - see
+		// showOutput's live-sync). computeHostColumnLayout/taskLabel both
+		// already have a documented allHosts == nil fallback - no shared
+		// column, title rendered alone against avail - normally only
+		// reachable transiently before the run's first host reports
+		// anything; reused here deliberately rather than adding a second
+		// code path. state.AllHosts itself is untouched - only these two
+		// call sites (and the selected-row re-render below) see the
+		// override, so the top bar/filters/etc. keep seeing the real list.
+		treeAllHosts := state.AllHosts
+		if splitMode {
+			treeAllHosts = nil
+		}
+
 		// Computed once per rebuild and reused for every row - both
 		// flattenRows' own per-row taskLabel calls and the standalone
 		// selected-row re-render just below - so the cursor row always
 		// aligns to the identical column every other row uses (see
 		// computeHostColumnLayout).
-		layout := computeHostColumnLayout(state, state.AllHosts, width)
+		layout := computeHostColumnLayout(state, treeAllHosts, width)
 
-		currentRows = flattenRows(state, expanded, width, layout, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
+		currentRows = flattenRows(state, expanded, width, layout, treeAllHosts, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
 		hasStatusRow := false
 		if frozen && everStarted {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
@@ -1165,7 +1249,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		case *playNode:
 			currentRows[selectedIndex].text = playRowText(id, true)
 		case *taskNode:
-			currentRows[selectedIndex].text = taskLabel(id, state.AllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true)
+			currentRows[selectedIndex].text = taskLabel(id, treeAllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true)
 		case hostRowID:
 			currentRows[selectedIndex].text = "    " + hostLabel(id.task, id.host, true)
 		}
@@ -1634,10 +1718,10 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	}
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
-	bottomBar := tview.NewTextView().SetText(" p/n: prev/next task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
+	bottomBar = tview.NewTextView().SetText(mainBottomBarText)
 	bottomBar.SetTextStyle(barStyle)
 
-	flex := tview.NewFlex().
+	flex = tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(topBar, 1, 0, false).
 		AddItem(list, 0, 1, true).
@@ -1666,8 +1750,36 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
 	filterFlex.SetBorder(true).SetTitle(" Filter ")
 
+	// splitDivider is a one-column-wide vertical rule between the two panes
+	// - a bare Box with no content, whose Draw() (like every tview
+	// Primitive's) unconditionally fills its own rect with its background
+	// color, so a solid column is all it takes; no text/rune content needed
+	// for a plain vertical line. Colored to match barStyle's own background
+	// (tcell.ColorNavy, the same blue every top/bottom bar already uses),
+	// not the brighter named "blue", so the divider reads as part of the
+	// same chrome rather than a clashing second shade.
+	splitDivider := tview.NewBox().SetBackgroundColor(tcell.ColorNavy)
+
+	// splitFlex is design-docs/TwoPanedLayout.md's two-pane drill-down: the
+	// tree pane (flex - topBar/list/bottomBar, the exact same primitive
+	// "main" uses) alongside the drill-down pane (outputFlex - the exact
+	// same primitive "output" uses), side by side, with splitDivider between
+	// them. Reusing both primitives directly rather than building parallel
+	// copies works because only one of "main"/"output"/"split" is ever the
+	// frontmost page at a time - each still gets laid out and drawn fresh,
+	// with whatever rect its current parent gives it, regardless of which
+	// other page it was last shown under. flex's own width here is just a
+	// placeholder; showOutput sets it for real via ResizeItem on every fresh
+	// drill-down open, once the terminal's actual current width is known
+	// (splitTreeWidth).
+	splitFlex = tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(flex, splitMinTreeWidth, 0, false).
+		AddItem(splitDivider, splitDividerWidth, 0, false).
+		AddItem(outputFlex, 0, 1, true)
+
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
+	pages.AddPage("split", splitFlex, true, false)
 	pages.AddPage("filter", centeredModal(filterFlex, 46, 10), true, false)
 	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 11), true, false)
 	pages.AddPage("rerun", centeredModal(rerunForm, 56, 13), true, false)
@@ -1834,27 +1946,26 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	rerunForm.SetButtonsAlign(tview.AlignRight)
 	rerunForm.AddButton("Cancel", closeDialogs).AddButton("Re-run", submitRerun)
 
-	// closeOutput backs out of the output drill-down view, restoring the
-	// main tree's own cursor to whatever (task, host) it was last
-	// showing - which may have moved via navigateOutputTask/
-	// navigateOutputHost since the page was opened - expanding its task
-	// if it isn't already, so the row is actually visible rather than
-	// just logically "selected". Used to be tview.TextView's own native
-	// SetDoneFunc (firing on Escape/Enter/Tab/Backtab, its fixed "done
-	// key" set) - now called explicitly for Escape/Enter/q from
-	// SetInputCapture's own viewingOutput branch below, since Tab/Backtab
-	// mean "switch tab" here now (design-docs/Tabbed UI.md) rather than
-	// "close," and outputTabs' own per-tab TextViews are recreated fresh
-	// on every renderOutputTabs call anyway, so there's no single,
-	// persistent TextView left to hang a native SetDoneFunc off of.
+	// closeOutput backs out of the output drill-down view. Used to be
+	// tview.TextView's own native SetDoneFunc (firing on Escape/Enter/Tab/
+	// Backtab, its fixed "done key" set) - now called explicitly for
+	// Escape/Enter/q from SetInputCapture's own viewingOutput branch below,
+	// since Tab/Backtab mean "switch tab" here now (design-docs/Tabbed
+	// UI.md) rather than "close," and outputTabs' own per-tab TextViews are
+	// recreated fresh on every renderOutputTabs call anyway, so there's no
+	// single, persistent TextView left to hang a native SetDoneFunc off of.
+	//
+	// Restoring the main tree's own cursor to whatever (task, host) the
+	// drill-down was last showing needs no work here anymore: showOutput's
+	// own live-sync (design-docs/TwoPanedLayout.md) already keeps
+	// expanded/currentID/following current on every call, including
+	// whichever navigateOutputTask/navigateOutputHost call was the most
+	// recent one before this fires - there's nothing left to reconcile on
+	// the way out.
 	closeOutput := func() {
 		viewingOutput = false
-		if outputTask != nil {
-			expanded[outputTask] = true
-			currentID = hostRowID{outputTask, outputHost}
-			following = false
-			rebuild()
-		}
+		splitMode = false
+		bottomBar.SetText(mainBottomBarText)
 		pages.SwitchToPage("main")
 	}
 
@@ -2253,6 +2364,19 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			return nil, action
 		}
 		if viewingOutput {
+			// While a two-pane drill-down (design-docs/TwoPanedLayout.md) is
+			// open, the tree pane stays visible but must stay fully inert -
+			// a click landing on it would otherwise reach list's own
+			// MouseHandler (toggling expand/collapse, opening a different
+			// host's output) with no keyboard-side equivalent guarding it,
+			// unlike the full-screen case where the tree isn't drawn at all
+			// so no click can ever land there. Checked first, before any of
+			// the output-specific hit-tests below.
+			if splitMode {
+				if x, y := event.Position(); inRect(x, y, flex) {
+					return nil, action
+				}
+			}
 			// outputTopBar/outputBottomBar are plain, non-interactive
 			// TextViews - swallow a click there before it can reach
 			// TextView's own default MouseLeftDown handling, which would
@@ -2316,6 +2440,17 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 
 const taskIndent = "  "
 
+// mainBottomBarText is the tree's own normal shortcut hint - bottomBar's
+// initial text, and what closeOutput restores it to. splitBottomBarText
+// replaces it for the duration of a two-pane drill-down session
+// (design-docs/TwoPanedLayout.md): none of the tree's own shortcuts act on
+// it while a drill-down is open (see SetInputCapture's viewingOutput
+// branch), even though the tree pane itself stays visible and its bottomBar
+// keeps drawing - showing the normal hint text there would advertise keys
+// that currently do nothing.
+const mainBottomBarText = " p/n: prev/next task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+const splitBottomBarText = " Esc: close drill-down to use the tree "
+
 // colorTag returns the tview style-tag foreground color name for o, per
 // TUI.md's OK/Changed/Skipped/Failed = green/yellow/cyan/red convention
 // (using tcell's/W3C's "teal" as the closest named match for cyan).
@@ -2352,6 +2487,24 @@ const (
 	// rendered after the widest title (shorter titles get more, padded out
 	// to the same shared column - see taskLabel).
 	titleHostGapFloor = 3
+
+	// splitMinTreeWidth/splitMaxTreeWidth/splitDividerWidth/
+	// splitMinOutputWidth/splitMinTotalWidth implement
+	// design-docs/TwoPanedLayout.md's numbers for the two-pane drill-down:
+	// below splitMinTotalWidth columns, a drill-down still opens full-screen
+	// (see showOutput); at or above it, the tree pane gets at least
+	// splitMinTreeWidth columns, growing up to splitMaxTreeWidth before any
+	// further width goes to the drill-down pane instead (see
+	// splitTreeWidth). splitMinTotalWidth is derived from the other three
+	// rather than a second hardcoded number, so the one-column divider
+	// between the panes (splitDivider) is accounted for in the gate too -
+	// otherwise a terminal exactly at the tree/output floor would render
+	// the drill-down pane one column under its own stated minimum.
+	splitMinTreeWidth   = 30
+	splitMaxTreeWidth   = 80
+	splitDividerWidth   = 1
+	splitMinOutputWidth = 79
+	splitMinTotalWidth  = splitMinTreeWidth + splitDividerWidth + splitMinOutputWidth
 
 	// halfBlock is U+258C LEFT HALF BLOCK - its filled ("ink") half renders
 	// in the cell's current foreground color, its unfilled half shows the
@@ -2396,6 +2549,17 @@ func hostTransition(leftTag, rightTag string) string {
 type hostColumnLayout struct {
 	TitleColWidth int
 	HostDisplay   []string
+}
+
+// splitTreeWidth implements design-docs/TwoPanedLayout.md's growth rule for
+// the two-pane drill-down: the tree pane grows first, from splitMinTreeWidth
+// up to splitMaxTreeWidth, before any further width goes to the drill-down
+// pane. Only meaningful (and only ever called) once totalWidth has already
+// been checked to be at least splitMinTotalWidth - showOutput is the sole
+// caller, right after that same check.
+func splitTreeWidth(totalWidth int) int {
+	extra := totalWidth - splitMinTotalWidth
+	return splitMinTreeWidth + min(extra, splitMaxTreeWidth-splitMinTreeWidth)
 }
 
 // computeHostColumnLayout implements TUI.md's third-iteration algorithm:

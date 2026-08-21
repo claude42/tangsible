@@ -64,6 +64,16 @@ type settingsConfig struct {
 		// global one - unlike DefaultPlaybook, this isn't part of any
 		// resolution cascade.
 		DefaultTreeState string `toml:"default_tree_state"`
+		// TwoPaneLayout governs design-docs/TwoPanedLayout.md's two-pane
+		// drill-down (tree pane kept visible alongside the output view on a
+		// wide enough terminal). A *bool, not a plain bool, so an absent key
+		// defaults to true (see twoPaneLayoutEnabled) without the
+		// zero-value-collision problem a plain bool would have - unlike
+		// DefaultTreeState's string-enum workaround for the same underlying
+		// issue, a genuine tri-state (unset/true/false) is simpler here
+		// since there's no third named value to give the unset case its own
+		// meaning.
+		TwoPaneLayout *bool `toml:"two_pane_layout"`
 	} `toml:"general"`
 }
 
@@ -76,6 +86,14 @@ type settingsConfig struct {
 // (readDefaultPlaybook, decodeHostResult).
 func defaultTreeExpanded(cfg settingsConfig) bool {
 	return strings.EqualFold(cfg.General.DefaultTreeState, "expanded")
+}
+
+// twoPaneLayoutEnabled reports whether the two-pane drill-down
+// (design-docs/TwoPanedLayout.md) should be used. Default true - an unset
+// TwoPaneLayout (nil, the common case: most users never set this) means
+// enabled; only an explicit "two_pane_layout = false" turns it off.
+func twoPaneLayoutEnabled(cfg settingsConfig) bool {
+	return cfg.General.TwoPaneLayout == nil || *cfg.General.TwoPaneLayout
 }
 
 // verb identifies which top-level command Tangsible was invoked with -
