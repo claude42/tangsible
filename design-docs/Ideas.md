@@ -27,3 +27,13 @@ immediately implemented.
 * show file
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
+
+* Strategy free
+
+* Run history
+
+* Summary line
+
+* Per-host task timing - see [PerHostTaskTiming.md](PerHostTaskTiming.md);
+  discussed and investigated, leaning toward dropping (queueing vs. actual
+  duration is ambiguous under linear strategy when forks < host count)
