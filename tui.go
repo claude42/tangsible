@@ -3370,24 +3370,38 @@ func skipOutputText(decoded map[string]interface{}) string {
 	return reason
 }
 
-// loopItemLabels returns one display label per element of a looped task's
-// own "results" array (present only when the task used loop:/with_*,
-// confirmed empirically against a real loop's v2_runner_on_ok event -
-// absent entirely for a non-looped task, so a task without it simply gets
-// no Items section, per formatHostOutput's usual "omit rather than show
-// empty" convention). Each item's own "_ansible_item_label" is what
-// Ansible itself uses for display (e.g. "changed: [host] => (item=foo)")
-// - used directly when it's a plain string (the common case: looping over
-// a list of strings/numbers); for a loop over dicts/lists, that label is
-// itself the raw structure rather than a string, so it's rendered as
-// compact JSON instead, same "always show *something* readable" fallback
-// style as formatHostOutput's own decode-failure path.
-func loopItemLabels(decoded map[string]interface{}) []string {
+// loopItemDetail is one element of a looped task's own "results" array -
+// see loopItemDetails.
+type loopItemDetail struct {
+	Label string
+	// Msg is this item's own "msg" field, distinct from the task-level
+	// "msg" formatHostOutput already shows via primaryOutputField (which,
+	// for a failed loop, is Ansible's own generic "One or more items
+	// failed" - never the reason any one item actually failed). Empty
+	// when the item carries no "msg" of its own, which is the common case
+	// for an OK/Changed item that never had anything to say.
+	Msg string
+}
+
+// loopItemDetails returns one label+msg pair per element of a looped
+// task's own "results" array (present only when the task used
+// loop:/with_*, confirmed empirically against a real loop's
+// v2_runner_on_ok event - absent entirely for a non-looped task, so a
+// task without it simply gets no Items section, per formatHostOutput's
+// usual "omit rather than show empty" convention). Each item's own
+// "_ansible_item_label" is what Ansible itself uses for display (e.g.
+// "changed: [host] => (item=foo)") - used directly when it's a plain
+// string (the common case: looping over a list of strings/numbers); for a
+// loop over dicts/lists, that label is itself the raw structure rather
+// than a string, so it's rendered as compact JSON instead, same "always
+// show *something* readable" fallback style as formatHostOutput's own
+// decode-failure path.
+func loopItemDetails(decoded map[string]interface{}) []loopItemDetail {
 	results, ok := decoded["results"].([]interface{})
 	if !ok {
 		return nil
 	}
-	labels := make([]string, 0, len(results))
+	details := make([]loopItemDetail, 0, len(results))
 	for _, r := range results {
 		item, ok := r.(map[string]interface{})
 		if !ok {
@@ -3397,13 +3411,29 @@ func loopItemLabels(decoded map[string]interface{}) []string {
 		if !ok {
 			label = item["item"]
 		}
+		var labelText string
 		if s, ok := label.(string); ok {
-			labels = append(labels, s)
-			continue
+			labelText = s
+		} else if b, err := json.Marshal(label); err == nil {
+			labelText = string(b)
 		}
-		if b, err := json.Marshal(label); err == nil {
-			labels = append(labels, string(b))
-		}
+		msg, _ := item["msg"].(string)
+		details = append(details, loopItemDetail{Label: labelText, Msg: msg})
+	}
+	return details
+}
+
+// loopItemLabels is loopItemDetails' own labels, for callers (and
+// existing tests) that only ever cared about item identity, not any
+// per-item message.
+func loopItemLabels(decoded map[string]interface{}) []string {
+	details := loopItemDetails(decoded)
+	if details == nil {
+		return nil
+	}
+	labels := make([]string, 0, len(details))
+	for _, d := range details {
+		labels = append(labels, d.Label)
 	}
 	return labels
 }
@@ -3736,15 +3766,23 @@ func buildOutputTab(decoded map[string]interface{}, o outcome) string {
 	}
 
 	// Items: only present for a looped task (loop:/with_*) - see
-	// loopItemLabels. Rendered as a plain "* label" bullet list, one per
-	// loop item, matching drilldown.txt's own mockup - no per-item
-	// status, just what was iterated over; the per-item OK/Changed/
-	// Failed detail already lives in "results" within Details for anyone
-	// who needs it.
-	if items := loopItemLabels(decoded); len(items) > 0 {
+	// loopItemDetails. Rendered as a "* label" bullet list, matching
+	// drilldown.txt's own mockup, one per loop item - plus, when that
+	// item carries its own "msg" (typically a failed item's own specific
+	// reason, e.g. a per-file permission error a loop over several
+	// ansible.builtin.file tasks can produce - distinct from the
+	// task-level "msg" the Output section above already shows, which for
+	// a failed loop is just Ansible's generic "One or more items
+	// failed"), it's shown indented on the line right below that item's
+	// own bullet, so each item's reason sits next to the item it belongs
+	// to rather than requiring a trip to Details' full JSON to find it.
+	if items := loopItemDetails(decoded); len(items) > 0 {
 		b.WriteString(sectionLabel("yellow", "Items"))
 		for _, item := range items {
-			fmt.Fprintf(&b, "* %s\n", tview.Escape(item))
+			fmt.Fprintf(&b, "* %s\n", tview.Escape(item.Label))
+			if item.Msg != "" {
+				fmt.Fprintf(&b, "  %s\n", tview.Escape(item.Msg))
+			}
 		}
 		b.WriteString("\n\n")
 	}

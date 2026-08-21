@@ -167,6 +167,42 @@ func TestLoopItemLabels(t *testing.T) {
 	})
 }
 
+func TestLoopItemDetails(t *testing.T) {
+	t.Run("a failed item's own msg is captured alongside its label", func(t *testing.T) {
+		decoded := map[string]interface{}{
+			"msg": "One or more items failed",
+			"results": []interface{}{
+				map[string]interface{}{
+					"_ansible_item_label": "fish/functions",
+					"item":                "fish/functions",
+					"failed":              true,
+					"msg":                 "There was an issue creating /home/claude/.config/fish as requested: [Errno 13] Permission denied: b'/home/claude/.config/fish'",
+				},
+				map[string]interface{}{
+					"_ansible_item_label": "fish/completions",
+					"item":                "fish/completions",
+					"changed":             true,
+				},
+			},
+		}
+		got := loopItemDetails(decoded)
+		want := []loopItemDetail{
+			{Label: "fish/functions", Msg: "There was an issue creating /home/claude/.config/fish as requested: [Errno 13] Permission denied: b'/home/claude/.config/fish'"},
+			{Label: "fish/completions", Msg: ""},
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("loopItemDetails() = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("no results key at all - not a looped task", func(t *testing.T) {
+		got := loopItemDetails(map[string]interface{}{"changed": false})
+		if got != nil {
+			t.Errorf("loopItemDetails() = %v, want nil", got)
+		}
+	})
+}
+
 func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 	t.Run("debug msg: plain string", func(t *testing.T) {
 		decoded := map[string]interface{}{"action": "ansible.builtin.debug", "msg": "hello world"}
