@@ -51,7 +51,7 @@ func TestRecapForHost(t *testing.T) {
 	// Unreachable is 0 for web1 and must not appear in Categories at all -
 	// design-docs/Recap.md's own "don't render a category with zero
 	// tasks" rule.
-	wantLabels := []string{"ok", "changed", "failed", "skipped"}
+	wantLabels := []string{"ok", "skipped", "changed", "failed"}
 	if len(got.Categories) != len(wantLabels) {
 		t.Fatalf("got %d categories, want %d: %+v", len(got.Categories), len(wantLabels), got.Categories)
 	}
@@ -64,7 +64,7 @@ func TestRecapForHost(t *testing.T) {
 	// The two failed tasks must both be present, in run order, so the
 	// recap's own expanded "failed (2)" list can show each with its own
 	// message.
-	failed := got.Categories[2]
+	failed := got.Categories[3]
 	if failed.Label != "failed" || len(failed.Tasks) != 2 {
 		t.Fatalf("failed category = %+v, want 2 tasks", failed)
 	}

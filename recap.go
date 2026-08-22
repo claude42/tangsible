@@ -91,10 +91,10 @@ func recapForHost(state *playbookState, host string) recapHostSummary {
 	}
 	for _, c := range []recapCategory{
 		{"ok", outcomeOK, ok},
+		{"skipped", outcomeSkipped, skipped},
 		{"changed", outcomeChanged, changed},
 		{"unreachable", outcomeUnreachable, unreachable},
 		{"failed", outcomeFailed, failed},
-		{"skipped", outcomeSkipped, skipped},
 	} {
 		if len(c.Tasks) > 0 {
 			s.Categories = append(s.Categories, c)
@@ -242,10 +242,10 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 		return fmt.Sprintf("[%s:lightgray:b]%s : [-:-:-]%s%s%s%s%s",
 			pureBlack, tview.Escape(hostPadded),
 			firstSeg("ok", w.OK, s.OK, outcomeOK),
+			seg("skipped", w.Skipped, s.Skipped, outcomeSkipped),
 			seg("changed", w.Changed, s.Changed, outcomeChanged),
 			seg("unreachable", w.Unreachable, s.Unreachable, outcomeUnreachable),
 			seg("failed", w.Failed, s.Failed, outcomeFailed),
-			seg("skipped", w.Skipped, s.Skipped, outcomeSkipped),
 		)
 	}
 	seg := func(label string, width, n int, o outcome) string {
@@ -254,10 +254,10 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 	return fmt.Sprintf("[white::b]%s[-::-] : %s  %s  %s  %s  %s",
 		tview.Escape(hostPadded),
 		seg("ok", w.OK, s.OK, outcomeOK),
+		seg("skipped", w.Skipped, s.Skipped, outcomeSkipped),
 		seg("changed", w.Changed, s.Changed, outcomeChanged),
 		seg("unreachable", w.Unreachable, s.Unreachable, outcomeUnreachable),
 		seg("failed", w.Failed, s.Failed, outcomeFailed),
-		seg("skipped", w.Skipped, s.Skipped, outcomeSkipped),
 	)
 }
 
