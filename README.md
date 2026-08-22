@@ -3,11 +3,11 @@
 **A live terminal UI for `ansible-playbook`, for the person actually
 watching it run.**
 
-Tangsible wraps `ansible-playbook` in a live, navigable
-tree of plays → tasks → hosts, color-coded by outcome. It comes up
-immediately, updates live while the run is still in progress, and lets you
-drill into any host's result — task source, output, stderr, diff, full
-JSON — without losing your place in the run.
+Tangsible wraps `ansible-playbook` in a live, navigable tree of plays → tasks
+→ hosts, color-coded by outcome. It comes up immediately, updates live while
+the run is still in progress, and lets you drill into any host's result —
+task source, output, stderr, diff, full JSON — without losing your place in
+the run.
 
 ![Tangsible demo](assets/demo.gif)
 
@@ -55,7 +55,7 @@ better fit than Tangsible ever intends to be.
 | Plain `ansible-playbook` | Full scrollback, but no structure — you `grep`/scroll to find what happened | Same output, restructured into a live, navigable tree — nothing to grep for |
 | `ansible-playbook --step` | A pause-and-confirm prompt before each task | Doesn't slow the run down or ask permission — you watch it run at full speed and drill in only where you care to |
 | ARA (Ansible Run Analysis) | Rich *post-run* reporting via a web UI, backed by a database/API server | Zero infrastructure — no DB, no server, nothing to stand up — and it's live *during* the run, in your terminal, not a report you open afterward |
-| Ansible Navigator | Complex functionality, images, collections, execution environments | Focus on playbooks, intuitive UI with in-depth information |
+| Ansible Navigator | Complex functionality, images, collections, execution environments | Focus on playbooks, intuitive UI, provides all the necessary information to easily run and debug playbooks |
 | AWX / Ansible Tower / Semaphore | A full orchestration platform: scheduling, RBAC, web UI, job history, teams | Built for one person at a terminal, not a service to deploy — a single static binary with no install beyond it |
 
 In short: Tangsible is a development and troubleshooting interface for
