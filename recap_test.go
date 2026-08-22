@@ -87,3 +87,96 @@ func TestRecapForHost_HostNeverReported(t *testing.T) {
 		t.Errorf("Categories = %+v, want empty", got.Categories)
 	}
 }
+
+// TestRecapForHost_WarningsAreCrossCutting confirms a warning-bearing
+// task still lands in its own outcome bucket as usual, and *additionally*
+// shows up under "warnings" too - not instead of it. Deliberately using
+// the exact same task in both places, since that's the whole point of
+// warnings being orthogonal to outcome.
+func TestRecapForHost_WarningsAreCrossCutting(t *testing.T) {
+	s := &playbookState{}
+	s.Apply(playStartEvent("my play"))
+
+	s.Apply(taskStartEvent("task with a warning", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false,"warnings":["deprecated syntax"]}`)))
+
+	s.Apply(taskStartEvent("task without a warning", "/pb.yml:6"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+
+	got := recapForHost(s, "web1")
+	if got.OK != 2 || got.Warnings != 1 {
+		t.Fatalf("counts = %+v, want OK:2 Warnings:1", got)
+	}
+
+	wantLabels := []string{"ok", "warnings"}
+	if len(got.Categories) != len(wantLabels) {
+		t.Fatalf("got %d categories, want %d: %+v", len(got.Categories), len(wantLabels), got.Categories)
+	}
+	for i, label := range wantLabels {
+		if got.Categories[i].Label != label {
+			t.Errorf("Categories[%d].Label = %q, want %q", i, got.Categories[i].Label, label)
+		}
+	}
+
+	ok := got.Categories[0]
+	if len(ok.Tasks) != 2 {
+		t.Errorf("ok category has %d tasks, want 2 (both, warning or not)", len(ok.Tasks))
+	}
+	warnings := got.Categories[1]
+	if len(warnings.Tasks) != 1 || warnings.Tasks[0].Name != "task with a warning" {
+		t.Errorf("warnings category = %+v, want exactly [task with a warning]", warnings)
+	}
+}
+
+func TestHasWarnings(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"no warnings field at all", `{"changed":false}`, false},
+		{"empty warnings list", `{"warnings":[]}`, false},
+		{"one warning", `{"warnings":["be careful"]}`, true},
+		{"multiple warnings", `{"warnings":["one","two"]}`, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := hasWarnings(json.RawMessage(c.raw)); got != c.want {
+				t.Errorf("hasWarnings(%s) = %v, want %v", c.raw, got, c.want)
+			}
+		})
+	}
+}
+
+func TestTaskHasWarnings(t *testing.T) {
+	task := &taskNode{
+		Hosts: map[string]outcome{"web1": outcomeOK, "web2": outcomeOK},
+		Raw: map[string]json.RawMessage{
+			"web1": json.RawMessage(`{"changed":false}`),
+			"web2": json.RawMessage(`{"changed":false,"warnings":["hi"]}`),
+		},
+	}
+	if !taskHasWarnings(task) {
+		t.Error("taskHasWarnings() = false, want true (web2 has one)")
+	}
+
+	noWarnings := &taskNode{
+		Hosts: map[string]outcome{"web1": outcomeOK},
+		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
+	}
+	if taskHasWarnings(noWarnings) {
+		t.Error("taskHasWarnings() = true, want false")
+	}
+}
+
+func TestRecapTaskDetail_WarningsJoinsWithSemicolons(t *testing.T) {
+	task := &taskNode{
+		Hosts: map[string]outcome{"web1": outcomeOK},
+		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"warnings":["one","two"]}`)},
+	}
+	got := recapTaskDetail(task, "web1", "warnings")
+	want := " (one; two)"
+	if got != want {
+		t.Errorf("recapTaskDetail() = %q, want %q", got, want)
+	}
+}

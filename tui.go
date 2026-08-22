@@ -592,7 +592,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, l
 				for _, host := range t.HostOrder {
 					h := host
 					playRows = append(playRows, row{
-						text:     "    " + hostLabel(t, h, false),
+						text:     hostLabel(t, h, false),
 						id:       hostRowID{t, h},
 						selected: func() { showOutput(t, h) },
 					})
@@ -1583,18 +1583,19 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		case *taskNode:
 			currentRows[selectedIndex].text = taskLabel(id, treeAllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true)
 		case hostRowID:
-			currentRows[selectedIndex].text = "    " + hostLabel(id.task, id.host, true)
+			currentRows[selectedIndex].text = hostLabel(id.task, id.host, true)
 		case recapHostRowID:
 			currentRows[selectedIndex].text = recapHostRowText(string(id), recapForHost(state, string(id)), recapComputeColumnWidths(state), true)
 		case recapCategoryRowID:
 			for _, cat := range recapForHost(state, id.host).Categories {
-				if cat.Outcome == id.outcome {
+				if cat.Label == id.label {
 					currentRows[selectedIndex].text = recapCategoryRowText(cat, true)
 					break
 				}
 			}
 		case recapTaskRowID:
-			currentRows[selectedIndex].text = recapTaskRowText(id.task, id.host, id.task.Hosts[id.host], true)
+			detail := recapTaskDetail(id.task, id.host, id.label)
+			currentRows[selectedIndex].text = recapTaskRowText(id.task, detail, recapCategoryColor(id.label), true)
 		}
 
 		list.Clear()
@@ -1690,7 +1691,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		for _, host := range state.AllHosts {
 			recapHostExpanded[host] = true
 			for _, cat := range recapForHost(state, host).Categories {
-				recapCategoryExpanded[recapCategoryRowID{host: host, outcome: cat.Outcome}] = true
+				recapCategoryExpanded[recapCategoryRowID{host: host, label: cat.Label}] = true
 			}
 		}
 		rebuild()
@@ -1775,7 +1776,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			// Collapsing the parent category removes this row - move the
 			// cursor up to the category row left behind, same reasoning
 			// as hostRowID above.
-			categoryID := recapCategoryRowID{host: id.host, outcome: id.task.Hosts[id.host]}
+			categoryID := recapCategoryRowID{host: id.host, label: id.label}
 			recapCategoryExpanded[categoryID] = false
 			currentID = categoryID
 			following = false
@@ -2932,7 +2933,13 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	return app, applyLive
 }
 
-const taskIndent = "  "
+// taskIndent is two independent 2-rune segments concatenated - the
+// active-task spinner slot, then the task-has-a-warning slot (see
+// taskLabel's own rawPrefix) - always this exact width regardless of
+// which segment(s), if either, currently show their own glyph instead of
+// plain spaces, so nothing else in this file ever needs to reserve
+// separate width for either one.
+const taskIndent = "    "
 
 // mainBottomBarText is the tree's own normal shortcut hint - bottomBar's
 // initial text, and what closeOutput restores it to. splitBottomBarText
@@ -3031,6 +3038,16 @@ const (
 	// that reason - nudged dark enough to keep white bold text readable
 	// while still landing on a fixed, non-remappable extended-256 slot.
 	progressFillColor = "#146414"
+
+	// warningColor marks a ⚠ indicator wherever one appears (taskLabel's
+	// own collapsed-row aggregate marker, hostLabel's own per-host
+	// marker, recap.go's own "warnings" category) - a pinkish shade,
+	// matching real ansible-playbook's own default [WARNING] color.
+	// Unlike pureBlack/progressFillColor above, a plain named tcell color
+	// is fine here rather than a hand-picked hex: "hotpink" doesn't equal
+	// any base-16 ANSI slot's own nominal RGB, so it's not subject to the
+	// same terminal-theme remapping risk those two had to work around.
+	warningColor = "hotpink"
 )
 
 // hostTransition builds the halfBlock separator cell between two adjacent
@@ -3218,7 +3235,16 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int)
 // already-existing indent rather than the title column, so every row's
 // title column stays the same width regardless of which task, if any,
 // happens to be active. When active is false, taskIndent's own plain
-// spaces render there instead - the same fixed width either way.
+// spaces render there instead - the same fixed width either way. A
+// second, equally fixed 2-rune slot right after it shows a warningColor
+// ⚠ instead of two plain spaces if any host recorded a warning for this
+// task (taskHasWarnings) - the task-level aggregate; hostLabel's own
+// per-host marker gives the precise "which host" once expanded. Known,
+// accepted limitation: U+26A0 has "ambiguous" East Asian Width in
+// Unicode's own terms, so a terminal that renders it two columns wide
+// rather than one would shift everything after it by one column - not
+// chased further here, same tolerance this project already extends to
+// the spinner's own Braille frames elsewhere.
 //
 // selected marks this as the row currently under the cursor (see rebuild's
 // selected-row patch, and NewLiveTUI's SetSelectedStyle comment for why
@@ -3227,20 +3253,27 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int)
 // bold text on its own outcome color as a background instead of a
 // foreground - the inverse of the normal rendering below.
 func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool) string {
-	// rawPrefix fills the row's leading taskIndent-width slot: the spinner
-	// frame plus one space for the active task, or taskIndent's own plain
-	// spaces otherwise - always exactly len(taskIndent) wide either way,
-	// so no separate width needs reserving from the title column for this
-	// at all.
-	rawPrefix := taskIndent
+	// spinnerSegment/warningSegment each fill exactly one of taskIndent's
+	// two 2-rune slots (see taskIndent's own doc comment) - concatenated
+	// below into one prefix exactly len(taskIndent) runes wide regardless
+	// of which segment(s) show their own glyph, so no separate width
+	// needs reserving from the title column for either one.
+	spinnerSegment := "  "
 	if active {
-		rawPrefix = string(frame) + " "
+		spinnerSegment = string(frame) + " "
 	}
 	// tview.Escape's own guaranteed-correct handling of "[...]"-shaped text
 	// applies here too (list rows parse tags, unlike the top bar) - harmless
 	// no-op on taskIndent's plain spaces or the spinner rune, neither of
-	// which is ever "["-shaped.
-	prefix := tview.Escape(rawPrefix)
+	// which is ever "["-shaped. warningSegment's own tag is constructed
+	// here, from a fixed literal and warningColor, never from external
+	// data - already safe tag syntax, not something that needs (or should)
+	// survive Escape() the way spinnerSegment does.
+	warningSegment := "  "
+	if taskHasWarnings(task) {
+		warningSegment = fmt.Sprintf("[%s]⚠[-] ", warningColor)
+	}
+	prefix := tview.Escape(spinnerSegment) + warningSegment
 
 	nameRunes := []rune(task.Name)
 	haveHosts := len(allHosts) > 0
@@ -3384,18 +3417,77 @@ func outcomeDetail(task *taskNode, host string) string {
 	return ""
 }
 
+// decodeWarnings decodes raw and returns its own "warnings" field (nil
+// if raw doesn't decode, or carries none) - shared by hasWarnings (a
+// plain presence check, backing the tree's own ⚠ indicators) and
+// recap.go's own recapTaskDetail (which needs the actual joined text),
+// so both agree on exactly what "this result has a warning" means: any
+// result carrying a non-empty "warnings" field, "regardless of outcome
+// or module" - the same rule buildOutputTab's own Warnings section in
+// the drill-down view already follows.
+func decodeWarnings(raw json.RawMessage) interface{} {
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	return decoded["warnings"]
+}
+
+// hasWarnings reports whether raw's own "warnings" field is present and
+// non-empty. Backs hostLabel's own per-host ⚠ marker and taskHasWarnings
+// below - only presence matters there, not the warning text itself
+// (that's what drilling down, or the recap's own "warnings" category,
+// is for).
+func hasWarnings(raw json.RawMessage) bool {
+	return joinedStringList(decodeWarnings(raw), "\n") != ""
+}
+
+// taskHasWarnings reports whether any host recorded a warning for task -
+// backs taskLabel's own aggregate ⚠ marker on the collapsed row (which
+// has no per-host granularity to show at all, the same reason its
+// outcome coloring is already per-host-segment rather than a single
+// verdict for the whole row - expanding reveals which host, via
+// hostLabel's own marker).
+func taskHasWarnings(task *taskNode) bool {
+	for _, raw := range task.Raw {
+		if hasWarnings(raw) {
+			return true
+		}
+	}
+	return false
+}
+
 // hostLabel builds one host row's text, colored uniformly by its single
 // outcome. No width-based truncation/alignment applies here - that rule is
 // TASK-row-specific per TUI.md. selected mirrors taskLabel's own parameter -
 // black bold text on the outcome color as a background, instead of the
 // outcome color as a foreground.
+//
+// The returned text includes its own leading indent, built to the exact
+// same two-slot shape as taskLabel's own prefix (see taskIndent's doc
+// comment): a blank 2-rune slot (a host row has no spinner concept, so
+// this one is always plain spaces) followed by a warningColor ⚠ in the
+// second 2-rune slot, when this host's own result for task carries a
+// warning - warnings are orthogonal to outcome (confirmed empirically:
+// buildOutputTab already shows a task's own "warnings" field regardless of
+// outcome or module), so the marker deliberately doesn't inherit whatever
+// color the outcome itself is. Originally this was a trailing marker
+// appended after the outcome detail instead - moved to a leading, aligned
+// column to match where taskLabel's own aggregate ⚠ sits one row up,
+// rather than jumping from the start of the row (collapsed) to the end
+// (expanded) depending on which is showing.
 func hostLabel(task *taskNode, host string, selected bool) string {
 	o := task.Hosts[host]
 	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(outcomeDetail(task, host)))
-	if selected {
-		return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", pureBlack, colorTag(o), line)
+	warningSegment := "  "
+	if hasWarnings(task.Raw[host]) {
+		warningSegment = fmt.Sprintf("[%s]⚠[-] ", warningColor)
 	}
-	return fmt.Sprintf("[%s]%s[-]", colorTag(o), line)
+	prefix := "  " + warningSegment
+	if selected {
+		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", pureBlack, colorTag(o), line)
+	}
+	return prefix + fmt.Sprintf("[%s]%s[-]", colorTag(o), line)
 }
 
 // allTasks returns every task across every play, in run order (play order,
@@ -4220,7 +4312,7 @@ func buildOutputTab(decoded map[string]interface{}, o outcome) string {
 	// e.g. ansible's own discovered-interpreter notice) gets its contents
 	// shown here, one per line, regardless of outcome or module.
 	if warnings := joinedStringList(decoded["warnings"], "\n"); warnings != "" {
-		writeTextSection("gold", "Warnings", warnings)
+		writeTextSection(warningColor, "Warnings", warnings)
 	}
 
 	// Items: only present for a looped task (loop:/with_*) - see

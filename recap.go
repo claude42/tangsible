@@ -34,23 +34,61 @@ import (
 	"github.com/rivo/tview"
 )
 
-// recapCategory is one non-empty outcome bucket for one host - "non-empty"
+// recapCategory is one non-empty bucket for one host - "non-empty"
 // because recapForHost only ever includes a category here when it has at
 // least one task, per design-docs/Recap.md's own "if there's zero tasks
-// in a category then don't even render that line" decision.
+// in a category then don't even render that line" decision. Label is
+// the discriminator used everywhere (row ids, matching a category back
+// up by name) rather than outcome, because "warnings" isn't tied to any
+// single outcome - a warning can appear on an OK, Changed, Failed, or
+// any other result, so unlike the other five categories it has no
+// natural outcome value of its own. Color is resolved once per category
+// (recapCategoryColor) rather than re-deriving it from Label at every
+// render site.
 type recapCategory struct {
-	Label   string
-	Outcome outcome
-	Tasks   []*taskNode
+	Label string
+	Color string
+	Tasks []*taskNode
+}
+
+// recapCategoryColor maps a category's own label to its display color -
+// colorTag's own palette for the five outcome-based categories, and
+// warningColor for "warnings", which cuts across all of them rather than
+// being tied to one. Shared by recapForHost (building a fresh
+// recapCategory) and rebuild's own selected-row re-render (which only
+// has a label, not a full recapCategory, to work from), so the two can't
+// disagree about what color a given category is.
+func recapCategoryColor(label string) string {
+	switch label {
+	case "ok":
+		return colorTag(outcomeOK)
+	case "skipped":
+		return colorTag(outcomeSkipped)
+	case "changed":
+		return colorTag(outcomeChanged)
+	case "unreachable":
+		return colorTag(outcomeUnreachable)
+	case "failed":
+		return colorTag(outcomeFailed)
+	case "warnings":
+		return warningColor
+	default:
+		return "white"
+	}
 }
 
 // recapHostSummary is one host's own recap: every count (including zero
-// ones - the summary line itself always shows all five, matching
-// ansible's own recap line) plus the non-empty categories available to
-// expand into.
+// ones - the summary line itself always shows all six, matching
+// ansible's own recap line for the first five, plus warnings as a
+// tangsible-specific addition) plus the non-empty categories available
+// to expand into. Warnings is deliberately not mutually exclusive with
+// the other five - a task keeps its own outcome bucket (ok/changed/...)
+// and can *also* show up under "warnings", since a warning is orthogonal
+// to outcome (confirmed empirically: buildOutputTab already shows a
+// task's own "warnings" field regardless of outcome or module).
 type recapHostSummary struct {
-	OK, Changed, Unreachable, Failed, Skipped int
-	Categories                                []recapCategory
+	OK, Changed, Unreachable, Failed, Skipped, Warnings int
+	Categories                                          []recapCategory
 }
 
 // recapForHost scans every task across every play for this one host's
@@ -60,7 +98,7 @@ type recapHostSummary struct {
 // fresh on every rebuild rather than tracked incrementally, matching
 // aggregate.go's own "no second source of truth" convention for counts.
 func recapForHost(state *playbookState, host string) recapHostSummary {
-	var ok, changed, unreachable, failed, skipped []*taskNode
+	var ok, changed, unreachable, failed, skipped, warned []*taskNode
 	for _, play := range state.Plays {
 		for _, task := range play.Tasks {
 			o, present := task.Hosts[host]
@@ -79,6 +117,9 @@ func recapForHost(state *playbookState, host string) recapHostSummary {
 			case outcomeSkipped:
 				skipped = append(skipped, task)
 			}
+			if hasWarnings(task.Raw[host]) {
+				warned = append(warned, task)
+			}
 		}
 	}
 
@@ -88,13 +129,15 @@ func recapForHost(state *playbookState, host string) recapHostSummary {
 		Unreachable: len(unreachable),
 		Failed:      len(failed),
 		Skipped:     len(skipped),
+		Warnings:    len(warned),
 	}
 	for _, c := range []recapCategory{
-		{"ok", outcomeOK, ok},
-		{"skipped", outcomeSkipped, skipped},
-		{"changed", outcomeChanged, changed},
-		{"unreachable", outcomeUnreachable, unreachable},
-		{"failed", outcomeFailed, failed},
+		{"ok", recapCategoryColor("ok"), ok},
+		{"skipped", recapCategoryColor("skipped"), skipped},
+		{"changed", recapCategoryColor("changed"), changed},
+		{"unreachable", recapCategoryColor("unreachable"), unreachable},
+		{"failed", recapCategoryColor("failed"), failed},
+		{"warnings", recapCategoryColor("warnings"), warned},
 	} {
 		if len(c.Tasks) > 0 {
 			s.Categories = append(s.Categories, c)
@@ -108,18 +151,24 @@ func recapForHost(state *playbookState, host string) recapHostSummary {
 // than reusing it for recapTaskRowID, even though both ultimately mean
 // "this task, this host") because a task's own row can legitimately
 // appear twice at once in currentRows once frozen - once as an expanded
-// host row in the live tree above, once as a recap task line below -
-// and sharing one identity between them would make rebuild()'s own
+// host row in the live tree above, once as a recap task line below - and
+// sharing one identity between them would make rebuild()'s own
 // selection-restoration ambiguous about which occurrence currentID
-// actually refers to.
+// actually refers to. recapTaskRowID also carries its own category label,
+// not just (host, task): since "warnings" isn't mutually exclusive with
+// the other categories, the identical task can now legitimately appear
+// as two separate rows for the same host (once under its own outcome,
+// once under "warnings") - without the label, those two rows would share
+// one identity and hit the exact same ambiguity all over again.
 type recapHostRowID string
 type recapCategoryRowID struct {
-	host    string
-	outcome outcome
+	host  string
+	label string
 }
 type recapTaskRowID struct {
-	host string
-	task *taskNode
+	host  string
+	label string
+	task  *taskNode
 }
 
 // recapHeadingRowID identifies one of the recap section's own four
@@ -168,14 +217,14 @@ func recapHeadingUnderlineRowText() string {
 // its neighbors' hostnames or counts are, but the whole point of
 // column alignment is that every row agrees on the same widths.
 type recapColumnWidths struct {
-	Host                                      int
-	OK, Changed, Unreachable, Failed, Skipped int
+	Host                                                int
+	OK, Changed, Unreachable, Failed, Skipped, Warnings int
 }
 
 // recapComputeColumnWidths scans every host's own recap once (reusing
 // recapForHost - cheap at this project's own target scale, see its own
 // doc comment) to find the widest hostname and the widest digit count
-// each of the five fields ever needs, so every host's summary line can
+// each of the six fields ever needs, so every host's summary line can
 // right-align its numbers and left-align its hostname to the identical
 // columns - matching ansible's own real recap output, which does the
 // same per-field alignment across hosts rather than sizing each line to
@@ -203,6 +252,9 @@ func recapComputeColumnWidths(state *playbookState) recapColumnWidths {
 		if l := digits(s.Skipped); l > w.Skipped {
 			w.Skipped = l
 		}
+		if l := digits(s.Warnings); l > w.Warnings {
+			w.Warnings = l
+		}
 	}
 	return w
 }
@@ -210,10 +262,14 @@ func recapComputeColumnWidths(state *playbookState) recapColumnWidths {
 // recapHostRowText renders one host's own summary line, hostname
 // left-padded and each count right-padded to w's own columns so every
 // host's line lines up - and each "label=N" segment colored via
-// colorTag by its own outcome (green ok, yellow changed, ...), rather
-// than picking one dominant color for the whole line, so the same
-// "color signals outcome" convention this app uses everywhere else
-// applies per field here too. selected inverts each segment's own color
+// recapCategoryColor (green ok, yellow changed, ..., pink warnings),
+// rather than picking one dominant color for the whole line, so the same
+// "color signals meaning" convention this app uses everywhere else
+// applies per field here too. warnings=N is a tangsible-specific
+// addition, not something real ansible-playbook's own recap line
+// includes - placed last, after the five fields that do mirror it, since
+// it's a different, cross-cutting kind of count rather than one more
+// slice of the same partition. selected inverts each segment's own color
 // to a background (black bold text on it) instead of a foreground - the
 // same "outcome color becomes a background under the cursor" convention
 // taskLabel/hostLabel already use, just applied per segment here rather
@@ -233,31 +289,33 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 		// segment) would double it up against that trailing space,
 		// visibly shifting the "ok=" column by one space compared to the
 		// unselected rendering right above/below it.
-		firstSeg := func(label string, width, n int, o outcome) string {
-			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", pureBlack, colorTag(o), label, width, n)
+		firstSeg := func(label string, width, n int, color string) string {
+			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", pureBlack, color, label, width, n)
 		}
-		seg := func(label string, width, n int, o outcome) string {
-			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", pureBlack, colorTag(o), label, width, n)
+		seg := func(label string, width, n int, color string) string {
+			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", pureBlack, color, label, width, n)
 		}
-		return fmt.Sprintf("[%s:lightgray:b]%s : [-:-:-]%s%s%s%s%s",
+		return fmt.Sprintf("[%s:lightgray:b]%s : [-:-:-]%s%s%s%s%s%s",
 			pureBlack, tview.Escape(hostPadded),
-			firstSeg("ok", w.OK, s.OK, outcomeOK),
-			seg("skipped", w.Skipped, s.Skipped, outcomeSkipped),
-			seg("changed", w.Changed, s.Changed, outcomeChanged),
-			seg("unreachable", w.Unreachable, s.Unreachable, outcomeUnreachable),
-			seg("failed", w.Failed, s.Failed, outcomeFailed),
+			firstSeg("ok", w.OK, s.OK, recapCategoryColor("ok")),
+			seg("skipped", w.Skipped, s.Skipped, recapCategoryColor("skipped")),
+			seg("changed", w.Changed, s.Changed, recapCategoryColor("changed")),
+			seg("unreachable", w.Unreachable, s.Unreachable, recapCategoryColor("unreachable")),
+			seg("failed", w.Failed, s.Failed, recapCategoryColor("failed")),
+			seg("warnings", w.Warnings, s.Warnings, recapCategoryColor("warnings")),
 		)
 	}
-	seg := func(label string, width, n int, o outcome) string {
-		return fmt.Sprintf("[%s]%s=%*d[-]", colorTag(o), label, width, n)
+	seg := func(label string, width, n int, color string) string {
+		return fmt.Sprintf("[%s]%s=%*d[-]", color, label, width, n)
 	}
-	return fmt.Sprintf("[white::b]%s[-::-] : %s  %s  %s  %s  %s",
+	return fmt.Sprintf("[white::b]%s[-::-] : %s  %s  %s  %s  %s  %s",
 		tview.Escape(hostPadded),
-		seg("ok", w.OK, s.OK, outcomeOK),
-		seg("skipped", w.Skipped, s.Skipped, outcomeSkipped),
-		seg("changed", w.Changed, s.Changed, outcomeChanged),
-		seg("unreachable", w.Unreachable, s.Unreachable, outcomeUnreachable),
-		seg("failed", w.Failed, s.Failed, outcomeFailed),
+		seg("ok", w.OK, s.OK, recapCategoryColor("ok")),
+		seg("skipped", w.Skipped, s.Skipped, recapCategoryColor("skipped")),
+		seg("changed", w.Changed, s.Changed, recapCategoryColor("changed")),
+		seg("unreachable", w.Unreachable, s.Unreachable, recapCategoryColor("unreachable")),
+		seg("failed", w.Failed, s.Failed, recapCategoryColor("failed")),
+		seg("warnings", w.Warnings, s.Warnings, recapCategoryColor("warnings")),
 	)
 }
 
@@ -269,21 +327,36 @@ func recapCategoryRowText(c recapCategory, selected bool) string {
 	if selected {
 		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, line)
 	}
-	return fmt.Sprintf("[%s]%s[-]", colorTag(c.Outcome), line)
+	return fmt.Sprintf("[%s]%s[-]", c.Color, line)
+}
+
+// recapTaskDetail returns the parenthesized detail to show after a task's
+// own name on one recap task line - outcomeDetail (the identical detail
+// hostLabel already shows for the same (task, host) pair in the live
+// tree) for every category except "warnings", which instead shows the
+// task's own warning text(s), semicolon-joined rather than newline-joined
+// like the drill-down's own Warnings section: a recap row is always a
+// single line, unlike that section's own free-standing TextView content.
+func recapTaskDetail(task *taskNode, host, label string) string {
+	if label == "warnings" {
+		if joined := joinedStringList(decodeWarnings(task.Raw[host]), "; "); joined != "" {
+			return fmt.Sprintf(" (%s)", joined)
+		}
+		return ""
+	}
+	return outcomeDetail(task, host)
 }
 
 // recapTaskRowText renders one task line under a category - the task's
 // own name (already "role : task name" when role-sourced, straight from
 // task.Name - see source.go/CLAUDE.md's own note that this is how a real
-// event's task.name already renders) plus outcomeDetail's own
-// parenthesized message/output, the identical detail hostLabel shows for
-// the same (task, host) pair in the live tree.
-func recapTaskRowText(task *taskNode, host string, o outcome, selected bool) string {
-	line := fmt.Sprintf("    %s%s", tview.Escape(task.Name), tview.Escape(outcomeDetail(task, host)))
+// event's task.name already renders) plus detail (recapTaskDetail).
+func recapTaskRowText(task *taskNode, detail, color string, selected bool) string {
+	line := fmt.Sprintf("    %s%s", tview.Escape(task.Name), tview.Escape(detail))
 	if selected {
 		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, line)
 	}
-	return fmt.Sprintf("[%s]%s[-]", colorTag(o), line)
+	return fmt.Sprintf("[%s]%s[-]", color, line)
 }
 
 // flattenRecapRows builds the recap section's own rows - appended after
@@ -313,7 +386,7 @@ func flattenRecapRows(state *playbookState, hostExpanded map[string]bool, catego
 		}
 		for _, cat := range summary.Categories {
 			cat := cat
-			catID := recapCategoryRowID{host: host, outcome: cat.Outcome}
+			catID := recapCategoryRowID{host: host, label: cat.Label}
 			rows = append(rows, row{
 				text: recapCategoryRowText(cat, false),
 				id:   catID,
@@ -327,8 +400,8 @@ func flattenRecapRows(state *playbookState, hostExpanded map[string]bool, catego
 			for _, task := range cat.Tasks {
 				task := task
 				rows = append(rows, row{
-					text: recapTaskRowText(task, host, cat.Outcome, false),
-					id:   recapTaskRowID{host: host, task: task},
+					text: recapTaskRowText(task, recapTaskDetail(task, host, cat.Label), cat.Color, false),
+					id:   recapTaskRowID{host: host, label: cat.Label, task: task},
 					selected: func() {
 						showOutput(task, host)
 					},
