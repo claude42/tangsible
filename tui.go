@@ -301,6 +301,27 @@ type row struct {
 	id       any
 }
 
+// nextInteractiveRow finds the next row index, starting just past from
+// and moving by delta (+1/-1), whose own selected callback is non-nil -
+// skipping purely decorative rows (statusRowID/statusDividerRowID, and
+// design-docs/Recap.md's own recapHeadingRowID rows) entirely, rather
+// than stopping the cursor on each one in turn on the way past. -1 (no
+// wraparound, matching this app's own convention everywhere else) if the
+// search runs off either end without finding one. Backs SetInputCapture's
+// own Up/Down/j/k handling for the main tree - a real report: without
+// this, moving from the tree's last row down onto the recap section's
+// first host line took seven silent keypresses, since none of the
+// status/heading rows in between has a visible selected state to move
+// through.
+func nextInteractiveRow(rows []row, from, delta int) int {
+	for i := from + delta; i >= 0 && i < len(rows); i += delta {
+		if rows[i].selected != nil {
+			return i
+		}
+	}
+	return -1
+}
+
 type hostRowID struct {
 	task *taskNode
 	host string
@@ -750,6 +771,15 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// those.
 
 	expanded := map[*taskNode]bool{}
+	// recapHostExpanded/recapCategoryExpanded back the recap section's own
+	// two-level expand/collapse (design-docs/Recap.md) - kept separate
+	// from expanded since neither key type (a hostname, a
+	// recapCategoryRowID) is a *taskNode. Both start empty/collapsed
+	// unconditionally, regardless of startExpanded - the recap's own
+	// "initially only the top level is visible" is a fixed behavior, not
+	// tied to the tree's own default_tree_state config knob.
+	recapHostExpanded := map[string]bool{}
+	recapCategoryExpanded := map[recapCategoryRowID]bool{}
 	var currentRows []row
 	var currentID any
 	var rebuilding bool
@@ -1475,6 +1505,22 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 				)
 				hasStatusRow = true
 			}
+			// Recap (design-docs/Recap.md) - appended below the status rows
+			// regardless of whether one was actually shown, so this doesn't
+			// silently disappear if statusRowText's own "always non-empty"
+			// guarantee ever changes. Rendered as more rows in the exact
+			// same flat list the live tree already uses, not a separate
+			// page - Home/End/PageUp/PageDown/arrow navigation all already
+			// work on it for free this way. A blank spacer, the "Summary"
+			// heading, its underline, and another blank spacer come first,
+			// setting the section off visually from the status line above.
+			currentRows = append(currentRows,
+				row{text: "", id: recapDividerBeforeHeading},
+				row{text: recapHeadingRowText(), id: recapHeadingRow},
+				row{text: recapHeadingUnderlineRowText(), id: recapHeadingUnderlineRow},
+				row{text: "", id: recapDividerAfterHeading},
+			)
+			currentRows = append(currentRows, flattenRecapRows(state, recapHostExpanded, recapCategoryExpanded, showOutput)...)
 		}
 
 		if len(currentRows) == 0 {
@@ -1538,6 +1584,17 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			currentRows[selectedIndex].text = taskLabel(id, treeAllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true)
 		case hostRowID:
 			currentRows[selectedIndex].text = "    " + hostLabel(id.task, id.host, true)
+		case recapHostRowID:
+			currentRows[selectedIndex].text = recapHostRowText(string(id), recapForHost(state, string(id)), recapComputeColumnWidths(state), true)
+		case recapCategoryRowID:
+			for _, cat := range recapForHost(state, id.host).Categories {
+				if cat.Outcome == id.outcome {
+					currentRows[selectedIndex].text = recapCategoryRowText(cat, true)
+					break
+				}
+			}
+		case recapTaskRowID:
+			currentRows[selectedIndex].text = recapTaskRowText(id.task, id.host, id.task.Hosts[id.host], true)
 		}
 
 		list.Clear()
@@ -1627,13 +1684,29 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		for _, t := range allTasks(state) {
 			expanded[t] = true
 		}
+		// Extends to the recap section too (design-docs/Recap.md), for
+		// consistency with E's own "expand everything" meaning everywhere
+		// else in this app.
+		for _, host := range state.AllHosts {
+			recapHostExpanded[host] = true
+			for _, cat := range recapForHost(state, host).Categories {
+				recapCategoryExpanded[recapCategoryRowID{host: host, outcome: cat.Outcome}] = true
+			}
+		}
 		rebuild()
 	}
 	collapseAll := func() {
-		if hid, ok := currentID.(hostRowID); ok {
-			currentID = hid.task
+		switch id := currentID.(type) {
+		case hostRowID:
+			currentID = id.task
+		case recapTaskRowID:
+			currentID = recapHostRowID(id.host)
+		case recapCategoryRowID:
+			currentID = recapHostRowID(id.host)
 		}
 		expanded = map[*taskNode]bool{}
+		recapHostExpanded = map[string]bool{}
+		recapCategoryExpanded = map[recapCategoryRowID]bool{}
 		rebuild()
 	}
 
@@ -1647,14 +1720,27 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		if idx < 0 || idx >= len(currentRows) {
 			return
 		}
-		if t, ok := currentRows[idx].id.(*taskNode); ok && !expanded[t] {
-			expanded[t] = true
-			rebuild()
-			revealExpandedTask(t)
+		switch id := currentRows[idx].id.(type) {
+		case *taskNode:
+			if !expanded[id] {
+				expanded[id] = true
+				rebuild()
+				revealExpandedTask(id)
+			}
+		case recapHostRowID:
+			if !recapHostExpanded[string(id)] {
+				recapHostExpanded[string(id)] = true
+				rebuild()
+			}
+		case recapCategoryRowID:
+			if !recapCategoryExpanded[id] {
+				recapCategoryExpanded[id] = true
+				rebuild()
+			}
 		}
-		// Already-expanded task, a host row, or a play row: no-op - see
-		// Keyboard-shortcuts.md's "Right on an already-expanded element"
-		// decision.
+		// Already-expanded task/host/category, a recap task line, a host
+		// row, or a play row: no-op - see Keyboard-shortcuts.md's "Right
+		// on an already-expanded element" decision.
 	}
 	handleLeft := func() {
 		idx := list.GetCurrentItem()
@@ -1673,6 +1759,25 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			// Keyboard-shortcuts.md.
 			expanded[id.task] = false
 			currentID = id.task
+			following = false
+			rebuild()
+		case recapHostRowID:
+			if recapHostExpanded[string(id)] {
+				recapHostExpanded[string(id)] = false
+				rebuild()
+			}
+		case recapCategoryRowID:
+			if recapCategoryExpanded[id] {
+				recapCategoryExpanded[id] = false
+				rebuild()
+			}
+		case recapTaskRowID:
+			// Collapsing the parent category removes this row - move the
+			// cursor up to the category row left behind, same reasoning
+			// as hostRowID above.
+			categoryID := recapCategoryRowID{host: id.host, outcome: id.task.Hosts[id.host]}
+			recapCategoryExpanded[categoryID] = false
+			currentID = categoryID
 			following = false
 			rebuild()
 		}
@@ -1953,11 +2058,11 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// (matches the template page's host dialog): the rightmost button
 		// is always the primary/default action.
 		AddItem(tview.NewFlex().
-			AddItem(tview.NewBox(), 0, 1, false).
-			AddItem(searchCancelButton, 10, 0, false).
-			AddItem(tview.NewBox(), 2, 0, false).
-			AddItem(searchApplyButton, 10, 0, false).
-			AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
+							AddItem(tview.NewBox(), 0, 1, false).
+							AddItem(searchCancelButton, 10, 0, false).
+							AddItem(tview.NewBox(), 2, 0, false).
+							AddItem(searchApplyButton, 10, 0, false).
+							AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
 		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
 
 	list.SetChangedFunc(func(index int) {
@@ -2241,6 +2346,8 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// time this returns, rebuild() below already sees a running, empty
 		// generation.
 		expanded = map[*taskNode]bool{}
+		recapHostExpanded = map[string]bool{}
+		recapCategoryExpanded = map[recapCategoryRowID]bool{}
 		currentID = nil
 		following = true
 		failureCursorPlaced = false
@@ -2437,12 +2544,44 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			return nil
 		}
 
+		// Main tree only (not the output view, a real tview.TextView with
+		// its own unrelated meaning for these same keys): Up/Down/j/k skip
+		// straight over the trailing status/recap section's own purely
+		// decorative rows (nextInteractiveRow) instead of falling through
+		// to treeList's native one-row-at-a-time handling, which has no
+		// idea any of these rows are meant to be invisible to the cursor.
+		// Checked here, before the vim-alias translation just below, so
+		// 'j'/'k' get exactly the same treatment as the real arrow keys
+		// rather than being translated first and forwarded straight to
+		// treeList, bypassing this entirely.
+		if !viewingOutput {
+			var delta int
+			switch {
+			case event.Key() == tcell.KeyUp, event.Key() == tcell.KeyRune && event.Rune() == 'k':
+				delta = -1
+			case event.Key() == tcell.KeyDown, event.Key() == tcell.KeyRune && event.Rune() == 'j':
+				delta = 1
+			}
+			if delta != 0 {
+				// A genuine SetCurrentItem call (not one made while
+				// rebuilding) already makes list's own SetChangedFunc
+				// update currentID and clear following itself - no need to
+				// do either of those here too.
+				if next := nextInteractiveRow(currentRows, list.GetCurrentItem(), delta); next != -1 {
+					list.SetCurrentItem(next)
+				}
+				return nil
+			}
+		}
+
 		// vim/emacs navigation aliases, translated to the native key tview
 		// itself already understands and handled identically by both List
 		// (main tree) and TextView (output view) - confirmed against
 		// tview's own source rather than reimplementing this logic here.
-		// Returning a *different* event than the one passed in makes
-		// Application forward the synthesized event to whichever primitive
+		// j/k specifically only ever reach this translation for the output
+		// view now - the main tree's own j/k are already handled, skip-aware,
+		// by the block just above. Returning a *different* event than the
+		// one passed in makes
 		// is currently focused, as if the user had typed that key - see
 		// tview's application.go. This is also what makes plain 'G'/Ctrl-E/'>'
 		// ride the exact same path plain End already does: ordinary
@@ -3230,6 +3369,21 @@ func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail
 	return prefix + styledTitle + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
 }
 
+// outcomeDetail returns the extra parenthesized bit hostLabel (and
+// recap.go's own recapTaskRowText) append after a host's outcome for one
+// task - what it is depends on the outcome: only OK/Changed/Failed and
+// Skipped have one defined so far; "" for Unreachable, rendering exactly
+// as before.
+func outcomeDetail(task *taskNode, host string) string {
+	switch task.Hosts[host] {
+	case outcomeOK, outcomeChanged, outcomeFailed:
+		return outputSummary(task.Raw[host])
+	case outcomeSkipped:
+		return skipDetail(task.Raw[host])
+	}
+	return ""
+}
+
 // hostLabel builds one host row's text, colored uniformly by its single
 // outcome. No width-based truncation/alignment applies here - that rule is
 // TASK-row-specific per TUI.md. selected mirrors taskLabel's own parameter -
@@ -3237,18 +3391,7 @@ func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail
 // outcome color as a foreground.
 func hostLabel(task *taskNode, host string, selected bool) string {
 	o := task.Hosts[host]
-	// detail is the extra parenthesized bit appended after the outcome
-	// word - what it is depends on the outcome. Only OK/Changed/Failed and
-	// Skipped have one defined so far; Unreachable renders exactly as
-	// before.
-	var detail string
-	switch o {
-	case outcomeOK, outcomeChanged, outcomeFailed:
-		detail = outputSummary(task.Raw[host])
-	case outcomeSkipped:
-		detail = skipDetail(task.Raw[host])
-	}
-	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(detail))
+	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(outcomeDetail(task, host)))
 	if selected {
 		return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", pureBlack, colorTag(o), line)
 	}
