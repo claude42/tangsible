@@ -55,8 +55,8 @@ better fit than Tangsible ever intends to be.
 | Plain `ansible-playbook` | Full scrollback, but no structure — you `grep`/scroll to find what happened | Same output, restructured into a live, navigable tree — nothing to grep for |
 | `ansible-playbook --step` | A pause-and-confirm prompt before each task | Doesn't slow the run down or ask permission — you watch it run at full speed and drill in only where you care to |
 | ARA (Ansible Run Analysis) | Rich *post-run* reporting via a web UI, backed by a database/API server | Zero infrastructure — no DB, no server, nothing to stand up — and it's live *during* the run, in your terminal, not a report you open afterward |
+| Ansible Navigator | Complex functionality, images, collections, execution environments | Focus on playbooks, intuitive UI with in-depth information |
 | AWX / Ansible Tower / Semaphore | A full orchestration platform: scheduling, RBAC, web UI, job history, teams | Built for one person at a terminal, not a service to deploy — a single static binary with no install beyond it |
-| `ansible-console` | Interactive **ad-hoc** command execution, one module call at a time | Runs your actual playbooks — plays, tasks, handlers, roles — not a replacement for playbooks, a better window onto them |
 
 In short: Tangsible is a development and troubleshooting interface for
 ansible-playbook, not a replacement for Ansible or an orchestration platform.
