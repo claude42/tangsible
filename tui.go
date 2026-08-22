@@ -67,8 +67,44 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // task's own duration). The heartbeat is always right-aligned to width;
 // the host list is what gives way (via truncateHostsList) when the line
 // is too narrow for everything to fit, so the heartbeat never gets
-// pushed off-screen. No tview.Escape() needed here - unlike the list,
-// this TextView never enables dynamic color tags.
+// pushed off-screen.
+//
+// The whole bar doubles as a literal progress fill (design-docs' own
+// "the headline as a progress bar" idea): its background is
+// progressFillColor from the left edge up to whatever fraction of
+// progressPos/progressTotal the bar's own width represents, and plain
+// navy for the remainder - sweeping across playbook name, hosts, and
+// even the heartbeat itself as it grows, exactly like a real progress
+// bar's fill would, rather than being confined to some reserved strip.
+// Computed against the fully-assembled plain line so the split always
+// lands on a real character boundary regardless of how much of the line
+// is playbook name vs. hosts vs. heartbeat.
+//
+// Deliberately asymmetric with the "Task x/y" text embedded in the same
+// line: the text is never clamped to progressTotal, even once frozen, so
+// an unmatched-to-the-end run (e.g. dynamic includes the skeleton
+// couldn't predict) stays visible as useful signal about how well this
+// prototype's matching actually tracked this run. The fill, once frozen,
+// IS clamped to 100% regardless of how far progressPos actually got -
+// a highly visible bar stuck short of full on a run that has genuinely
+// finished would read as broken, not approximate, in a way a plain
+// number sitting below its total doesn't. No fill/color effect at all
+// (the bar renders exactly as it always has) when progressTotal is 0 -
+// no skeleton at all, e.g. the throwaway --list-tasks probe failed, or
+// the run hasn't spawned yet during "rerun"'s own startup dialog - same
+// "omit rather than show something misleading" convention this file
+// already uses elsewhere.
+//
+// Dynamic colors are enabled on this TextView specifically to make the
+// fill possible (a single tcell.Style can't vary per-column), so -
+// unlike before this existed - playbookName/filter.label()/hosts (all
+// external content: a user's own filenames, search term, or inventory
+// hostnames) need escaping. Done once, late, on the two already-sliced
+// halves of the fully-assembled line rather than on each piece as it's
+// built - simpler, and safe: tview.Escape() only ever expands a literal
+// "[" in-place within whichever half it's applied to, which cannot shift
+// anything in the OTHER half or retroactively invalidate the split point
+// that was already computed against the unescaped text.
 func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
 	label := "Playbook"
 	if isRole {
@@ -76,15 +112,8 @@ func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.D
 	}
 	mm, ss := minutesSeconds(elapsed)
 	// progressPrefix: the prototype "Task x/y" indicator (progress.go) -
-	// omitted entirely when progressTotal is 0 (no skeleton at all, e.g.
-	// the throwaway --list-tasks probe failed, or the run hasn't spawned
-	// yet during "rerun"'s own startup dialog), same "omit rather than
-	// show a misleading 0/0" convention this file already uses elsewhere.
-	// Deliberately never clamped to progressTotal even once frozen - an
-	// unmatched-to-the-end run (e.g. dynamic includes the skeleton
-	// couldn't predict) showing less than 100% here is itself useful
-	// signal about how well this prototype's matching actually tracked
-	// this run, not a bug to paper over.
+	// see this function's own doc comment above for why it's never
+	// clamped to progressTotal, unlike the fill below.
 	var progressPrefix string
 	if progressTotal > 0 {
 		progressPrefix = fmt.Sprintf("Task %d/%d  ", progressPos, progressTotal)
@@ -104,7 +133,20 @@ func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.D
 	if pad < 1 {
 		pad = 1
 	}
-	return left + strings.Repeat(" ", pad) + right
+	line := []rune(left + strings.Repeat(" ", pad) + right)
+
+	if progressTotal <= 0 {
+		return fmt.Sprintf("[white:navy:b]%s[-:-:-]", tview.Escape(string(line)))
+	}
+	fillWidth := len(line)
+	if !frozen {
+		fillWidth = len(line) * progressPos / progressTotal
+		if fillWidth > len(line) {
+			fillWidth = len(line)
+		}
+	}
+	filled, unfilled := string(line[:fillWidth]), string(line[fillWidth:])
+	return fmt.Sprintf("[white:%s:b]%s[-:-:-][white:navy:b]%s[-:-:-]", progressFillColor, tview.Escape(filled), tview.Escape(unfilled))
 }
 
 // truncateHostsList renders hosts as a comma-separated list, shortened to
@@ -751,7 +793,8 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
-	topBar := tview.NewTextView().SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 0, 0, 20))
+	topBar := tview.NewTextView().SetDynamicColors(true).
+		SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 0, 0, 20))
 	topBar.SetTextStyle(barStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
@@ -2610,6 +2653,18 @@ const (
 	// text color, which specifically needs to read as unambiguously black
 	// against the light backgrounds those rows use.
 	pureBlack = "#1a1a1a"
+
+	// progressFillColor is topBarText's own "headline as a progress bar"
+	// fill - a fixed hex value, not tcell's named "green", for the same
+	// reason pureBlack isn't named "black": tcell's nearest-color search
+	// prefers an EXACT match to a base-16 slot's own nominal RGB even when
+	// given as a hex value (confirmed against tcell's colorfit.go, same
+	// finding pureBlack's own doc comment already made), and some terminal
+	// themes remap that slot to something that reads poorly under white
+	// text. Deliberately not the nominal xterm green (#008000) for exactly
+	// that reason - nudged dark enough to keep white bold text readable
+	// while still landing on a fixed, non-remappable extended-256 slot.
+	progressFillColor = "#146414"
 )
 
 // hostTransition builds the halfBlock separator cell between two adjacent
