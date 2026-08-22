@@ -30,6 +30,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rivo/tview"
 )
@@ -171,17 +172,23 @@ type recapTaskRowID struct {
 	task  *taskNode
 }
 
-// recapHeadingRowID identifies one of the recap section's own four
-// leading decoration rows (a blank spacer, "Summary", its "===="
-// underline, another blank spacer) - four distinct values of the same
-// named type, rather than reusing statusDividerRowID's own empty-struct
-// sentinel for all of them: that type's own zero size makes every
-// instance compare equal, which would make rebuild()'s identity-based
-// selection-restoration unable to tell these apart if the cursor ever
-// happened to be sitting on one of them when a rebuild ran. None of
-// these four rows carries a selected callback - like
-// statusRowID/statusDividerRowID, the cursor can still be moved onto one
-// by plain arrow-key navigation, but Enter does nothing there.
+// recapHeadingRowID identifies one of the recap section's own six leading
+// decoration rows (a blank spacer, "Summary", its "====" underline,
+// another blank spacer, the free-text narrative line - see
+// recapNarrativeSummary - and one more blank spacer after it) - six
+// distinct values of the same named type, rather than reusing
+// statusDividerRowID's own empty-struct sentinel for all of them: that
+// type's own zero size makes every instance compare equal, which would
+// make rebuild()'s identity-based selection-restoration unable to tell
+// these apart if the cursor ever happened to be sitting on one of them
+// when a rebuild ran. None of these six rows carries a selected callback -
+// like statusRowID/statusDividerRowID, the cursor can still be moved onto
+// one by plain arrow-key navigation, but Enter does nothing there; Up/
+// Down/j/k skip over all of them entirely instead, for free, via
+// nextInteractiveRow's own generic "selected == nil" rule - matching
+// design-docs/Recap.md's explicit "these are additional lines... the
+// cursor hast to jump over" requirement for the narrative line
+// specifically, with no row-specific code needed to honor it.
 type recapHeadingRowID int
 
 const (
@@ -189,6 +196,8 @@ const (
 	recapHeadingRow
 	recapHeadingUnderlineRow
 	recapDividerAfterHeading
+	recapNarrativeRow
+	recapDividerAfterNarrative
 )
 
 // recapHeadingText is the plain "Summary" heading (design-docs/Recap.md)
@@ -209,6 +218,90 @@ func recapHeadingRowText() string {
 // sectionLabel's own embedded newlines the way a TextView can.
 func recapHeadingUnderlineRowText() string {
 	return "[white]" + strings.Repeat("=", len(recapHeadingText)) + "[-]"
+}
+
+// pluralS returns "" for n == 1, "s" otherwise - shared by every
+// singular/plural word recapNarrativeSummary builds, all of which happen
+// to just take a trailing "s" (task/tasks, host/hosts).
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// recapNarrativeSummary renders design-docs/Recap.md's own "Additional
+// idea" - a plain-language overview of the whole run, shown between the
+// "Summary" heading and the per-host lines below it. Deliberately plain,
+// untagged text (no per-field coloring the way recapHostRowText's own
+// "label=N" segments get) - this is free-flowing prose, not one more
+// structured line to align to columns.
+//
+// Always exactly one to three separate sentences, one clause each,
+// rather than a single sentence joining multiple facts with a comma - a
+// comma-joined clause ("...in xx:xx minutes, 1 host failed...,
+// 2 were not reachable") can't have its middle clause dropped without
+// leaving the punctuation wrong; a period between every clause means
+// each one can be included or omitted independently with no cleanup
+// needed elsewhere. The first sentence (elapsed time, task/host counts)
+// always appears; the second (hosts that failed) and third (hosts that
+// went unreachable) only appear when their own count is greater than
+// zero - a fully clean run gets just the first sentence.
+//
+// "Reachable" hosts is every host in state.AllHosts except one currently
+// counted Unreachable for at least one task (recapForHost's own
+// Unreachable field) - not necessarily disjoint from "failed" (a host
+// could conceivably fail a task before later going unreachable), but
+// that's an accepted edge case, not something this narrative sentence
+// tries to resolve; real runs overwhelmingly land in one bucket or the
+// other. elapsed is the run's own total wall-clock duration (rebuild's
+// frozenElapsed, same value topBarText's own elapsed readout freezes to),
+// not any one task's or host's own timing.
+func recapNarrativeSummary(state *playbookState, elapsed time.Duration) string {
+	totalTasks := len(allTasks(state))
+	totalHosts := len(state.AllHosts)
+
+	var unreachableHosts, failedHosts int
+	for _, host := range state.AllHosts {
+		s := recapForHost(state, host)
+		if s.Unreachable > 0 {
+			unreachableHosts++
+		}
+		if s.Failed > 0 {
+			failedHosts++
+		}
+	}
+	reachableHosts := totalHosts - unreachableHosts
+
+	mm, ss := minutesSeconds(elapsed)
+	sentence := fmt.Sprintf("Completed %d task%s on %d reachable host%s in %02d:%02d minutes.",
+		totalTasks, pluralS(totalTasks),
+		reachableHosts, pluralS(reachableHosts),
+		mm, ss)
+
+	if failedHosts > 0 {
+		sentence += fmt.Sprintf(" %d host%s failed before the end of the playbook.",
+			failedHosts, pluralS(failedHosts))
+	}
+	if unreachableHosts > 0 {
+		was := "was"
+		if unreachableHosts != 1 {
+			was = "were"
+		}
+		sentence += fmt.Sprintf(" %d host%s %s not reachable.",
+			unreachableHosts, pluralS(unreachableHosts), was)
+	}
+	return sentence
+}
+
+// recapNarrativeRowText wraps recapNarrativeSummary's own text for
+// display as a tree row - tview.Escape'd like every other piece of
+// dynamic/derived content in this app once dynamic colors are on,
+// even though this particular text is built entirely from this app's
+// own fixed sentence templates and never echoes anything user-authored
+// (a hostname, a task name) that could itself contain a literal "[".
+func recapNarrativeRowText(state *playbookState, elapsed time.Duration) string {
+	return tview.Escape(recapNarrativeSummary(state, elapsed))
 }
 
 // recapColumnWidths is the recap section's own per-column alignment,

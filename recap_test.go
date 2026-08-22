@@ -17,6 +17,7 @@ package main
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestRecapForHost(t *testing.T) {
@@ -166,6 +167,86 @@ func TestTaskHasWarnings(t *testing.T) {
 	}
 	if taskHasWarnings(noWarnings) {
 		t.Error("taskHasWarnings() = true, want false")
+	}
+}
+
+func TestRecapNarrativeSummary(t *testing.T) {
+	buildState := func(hosts map[string]string) *playbookState {
+		// hosts maps hostname -> "ok"/"failed"/"unreachable" for one single
+		// task shared by all of them - enough to exercise the counting
+		// logic without needing a realistic multi-task run.
+		s := &playbookState{}
+		s.Apply(playStartEvent("my play"))
+		s.Apply(taskStartEvent("task one", "/pb.yml:3"))
+		for host, outcome := range hosts {
+			switch outcome {
+			case "ok":
+				s.Apply(hostResultEvent("v2_runner_on_ok", host, json.RawMessage(`{"changed":false}`)))
+			case "failed":
+				s.Apply(hostResultEvent("v2_runner_on_failed", host, json.RawMessage(`{"msg":"boom"}`)))
+			case "unreachable":
+				s.Apply(hostResultEvent("v2_runner_on_unreachable", host, json.RawMessage(`{"msg":"no route"}`)))
+			}
+		}
+		return s
+	}
+
+	cases := []struct {
+		name    string
+		hosts   map[string]string
+		elapsed time.Duration
+		want    string
+	}{
+		{
+			name:    "clean run, singular task and host",
+			hosts:   map[string]string{"web1": "ok"},
+			elapsed: 5 * time.Second,
+			want:    "Completed 1 task on 1 reachable host in 00:05 minutes.",
+		},
+		{
+			name:    "clean run, plural tasks and hosts",
+			hosts:   map[string]string{"web1": "ok", "web2": "ok"},
+			elapsed: 3*time.Minute + 12*time.Second,
+			want:    "Completed 1 task on 2 reachable hosts in 03:12 minutes.",
+		},
+		{
+			name:    "one host failed, singular clause",
+			hosts:   map[string]string{"web1": "failed"},
+			elapsed: 0,
+			want:    "Completed 1 task on 1 reachable host in 00:00 minutes. 1 host failed before the end of the playbook.",
+		},
+		{
+			name:    "two hosts failed, plural clause",
+			hosts:   map[string]string{"web1": "failed", "web2": "failed"},
+			elapsed: 0,
+			want:    "Completed 1 task on 2 reachable hosts in 00:00 minutes. 2 hosts failed before the end of the playbook.",
+		},
+		{
+			name:    "one host unreachable, singular was",
+			hosts:   map[string]string{"web1": "unreachable"},
+			elapsed: 0,
+			want:    "Completed 1 task on 0 reachable hosts in 00:00 minutes. 1 host was not reachable.",
+		},
+		{
+			name:    "two hosts unreachable, plural were",
+			hosts:   map[string]string{"web1": "unreachable", "web2": "unreachable"},
+			elapsed: 0,
+			want:    "Completed 1 task on 0 reachable hosts in 00:00 minutes. 2 hosts were not reachable.",
+		},
+		{
+			name:    "both failed and unreachable, each its own sentence",
+			hosts:   map[string]string{"web1": "failed", "web2": "unreachable"},
+			elapsed: 0,
+			want:    "Completed 1 task on 1 reachable host in 00:00 minutes. 1 host failed before the end of the playbook. 1 host was not reachable.",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := recapNarrativeSummary(buildState(c.hosts), c.elapsed)
+			if got != c.want {
+				t.Errorf("recapNarrativeSummary() = %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 

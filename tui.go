@@ -1519,6 +1519,8 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 				row{text: recapHeadingRowText(), id: recapHeadingRow},
 				row{text: recapHeadingUnderlineRowText(), id: recapHeadingUnderlineRow},
 				row{text: "", id: recapDividerAfterHeading},
+				row{text: recapNarrativeRowText(state, elapsed), id: recapNarrativeRow},
+				row{text: "", id: recapDividerAfterNarrative},
 			)
 			currentRows = append(currentRows, flattenRecapRows(state, recapHostExpanded, recapCategoryExpanded, showOutput)...)
 		}

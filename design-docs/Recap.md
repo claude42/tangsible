@@ -51,7 +51,13 @@ hostname : ok=159  changed=94   unreachable=0    failed=2    skipped=25   rescue
 * When user presses return on one of these lines, the corresponding drilldown
   view shall be opened
 
-## Open topics
-* Currently we display ok/changed/failed/skipped/unreachable for each task.
-  Can we also determine "rescued" and "ignored" for the summary?! To
-  consider: is it important?
+## Additional idea
+
+Between the "Summary" heading and the host lines of the summary, I would like
+to add a free text summary like this:
+
+    Completed 17 tasks on 5 reachable hosts in xx:xx minutes. 1 host failed
+    before the end of the playbook, 2 were not reachable.
+
+Keep in mind: these are additional lines in the tree view that the cursor
+hast to jump over when navigating up or down.
