@@ -70,50 +70,38 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // pushed off-screen.
 //
 // The whole bar doubles as a literal progress fill (design-docs' own
-// "the headline as a progress bar" idea): its background is
-// progressFillColor from the left edge up to whatever fraction of
-// progressPos/progressTotal the bar's own width represents, and plain
-// navy for the remainder - sweeping across playbook name, hosts, and
-// even the heartbeat itself as it grows, exactly like a real progress
-// bar's fill would, rather than being confined to some reserved strip.
-// Computed against the fully-assembled plain line so the split always
-// lands on a real character boundary regardless of how much of the line
-// is playbook name vs. hosts vs. heartbeat.
-//
-// Deliberately asymmetric with the "Task x/y" text embedded in the same
-// line: the text is never clamped to progressTotal, even once frozen, so
-// an unmatched-to-the-end run (e.g. dynamic includes the skeleton
-// couldn't predict) stays visible as useful signal about how well this
-// prototype's matching actually tracked this run. The fill, once frozen,
-// IS clamped to 100% regardless of how far progressPos actually got -
-// a highly visible bar stuck short of full on a run that has genuinely
-// finished would read as broken, not approximate, in a way a plain
-// number sitting below its total doesn't. No fill/color effect at all
-// (the bar renders exactly as it always has) when progressTotal is 0 -
-// no skeleton at all, e.g. the throwaway --list-tasks probe failed, or
-// the run hasn't spawned yet during "rerun"'s own startup dialog - same
-// "omit rather than show something misleading" convention this file
-// already uses elsewhere.
-//
-// Dynamic colors are enabled on this TextView specifically to make the
-// fill possible (a single tcell.Style can't vary per-column), so -
-// unlike before this existed - playbookName/filter.label()/hosts (all
-// external content: a user's own filenames, search term, or inventory
-// hostnames) need escaping. Done once, late, on the two already-sliced
-// halves of the fully-assembled line rather than on each piece as it's
-// built - simpler, and safe: tview.Escape() only ever expands a literal
-// "[" in-place within whichever half it's applied to, which cannot shift
-// anything in the OTHER half or retroactively invalidate the split point
-// that was already computed against the unescaped text.
+// "the headline as a progress bar" idea) via progressFillLine - see its
+// own doc comment for the fill/escaping details. composeTopBarLine below
+// is this function's own plain-text half, split out only because
+// topBarText itself is a thin composeTopBarLine+progressFillLine
+// wrapper - split mode uses its own, separately-composed
+// composeSplitHeaderLine instead of this one (see its own doc comment
+// for why a shared tree-only composer isn't reused there).
 func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
+	return progressFillLine(
+		composeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, progressPos, progressTotal, width),
+		progressPos, progressTotal, frozen)
+}
+
+// composeTopBarLine builds the top bar's own plain, unfilled, already-
+// width-padded text - see topBarText's own doc comment for what it
+// shows. Kept separate from the fill step itself (progressFillLine/
+// progressFillLineAt) so a caller that needs to coordinate this bar's
+// own fill boundary against something else (split mode's own tree-bar +
+// divider + drill-down-bar alignment, in rebuild) can do so without
+// duplicating this composition logic.
+func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
 	}
 	mm, ss := minutesSeconds(elapsed)
 	// progressPrefix: the prototype "Task x/y" indicator (progress.go) -
-	// see this function's own doc comment above for why it's never
-	// clamped to progressTotal, unlike the fill below.
+	// deliberately never clamped to progressTotal, even once frozen
+	// (unlike progressFillLine's own fill, see its doc comment) - an
+	// unmatched-to-the-end run (e.g. dynamic includes the skeleton
+	// couldn't predict) stays visible here as useful signal about how
+	// well this prototype's matching actually tracked this run.
 	var progressPrefix string
 	if progressTotal > 0 {
 		progressPrefix = fmt.Sprintf("Task %d/%d  ", progressPos, progressTotal)
@@ -133,20 +121,135 @@ func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.D
 	if pad < 1 {
 		pad = 1
 	}
-	line := []rune(left + strings.Repeat(" ", pad) + right)
+	return left + strings.Repeat(" ", pad) + right
+}
 
+// composeSplitHeaderLine builds split mode's own combined header line -
+// a single, self-contained composition padded against the *full*
+// terminal width (width) in one pass, deliberately NOT reusing
+// composeTopBarLine (padded against just the tree pane's own share) plus
+// a second, separately-composed piece concatenated after it. An earlier
+// version did exactly that, and it produced two real, reported bugs at
+// once: when the tree-pane sub-line's own content didn't fit its own
+// narrower budget, composeTopBarLine's own overflow guard (pad clamped
+// to a minimum of 1) pushed the "Task x/y  elapsed" segment out of its
+// own right-aligned position and into the middle of the row, with the
+// drill-down's own host/task trailing after it rather than sitting right
+// after "Hosts:" - and that same overflow silently fed a combined line
+// whose real length disagreed with the width the fill was computed
+// against, corrupting where the fill boundary actually landed. A single
+// composition against one width, computed once, can't disagree with
+// itself.
+//
+// Layout, left to right: Playbook:/Role:, Filter:, "Hosts: " followed by
+// hostAndTask (the drill-down's own currently-shown "<host>   <task
+// title>", three spaces between the two - matching every other field
+// separator on this line - there's exactly one relevant host/task
+// pane-side, not "every host seen so far" the way the tree-only bar's
+// own host list is), then - flush right, same as topBarText's own right
+// side - the "Task x/y" progress indicator and the heartbeat (spinner +
+// elapsed, or just elapsed once frozen).
+func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
+	label := "Playbook"
+	if isRole {
+		label = "Role"
+	}
+	mm, ss := minutesSeconds(elapsed)
+	var progressPrefix string
+	if progressTotal > 0 {
+		progressPrefix = fmt.Sprintf("Task %d/%d  ", progressPos, progressTotal)
+	}
+	var right string
+	if frozen {
+		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
+	} else {
+		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, spinnerAt(elapsed), mm, ss)
+	}
+
+	left := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: %s", label, playbookName, filter.label(), hostAndTask)
+
+	pad := width - len([]rune(left)) - len([]rune(right))
+	if pad < 1 {
+		pad = 1
+	}
+	return left + strings.Repeat(" ", pad) + right
+}
+
+// progressFillWidth returns how many of a totalWidth-rune-wide line
+// should be considered "filled" for the given progress - shared by
+// progressFillLine's own self-contained fill computation. 0 whenever
+// there's no skeleton at all (progressTotal <= 0 - see progressFillLine's
+// own doc comment for why that means "no fill effect", not "0%
+// filled"); totalWidth itself once frozen, regardless of how far
+// progressPos actually got (same "snap to 100% rather than read as
+// broken" reasoning as progressFillLine).
+func progressFillWidth(totalWidth, progressPos, progressTotal int, frozen bool) int {
 	if progressTotal <= 0 {
-		return fmt.Sprintf("[white:navy:b]%s[-:-:-]", tview.Escape(string(line)))
+		return 0
 	}
-	fillWidth := len(line)
-	if !frozen {
-		fillWidth = len(line) * progressPos / progressTotal
-		if fillWidth > len(line) {
-			fillWidth = len(line)
-		}
+	if frozen {
+		return totalWidth
 	}
-	filled, unfilled := string(line[:fillWidth]), string(line[fillWidth:])
+	fillWidth := totalWidth * progressPos / progressTotal
+	if fillWidth > totalWidth {
+		fillWidth = totalWidth
+	}
+	if fillWidth < 0 {
+		fillWidth = 0
+	}
+	return fillWidth
+}
+
+// progressFillLineAt applies the progress-fill background (see
+// progressFillLine's own doc comment for the visual/escaping details) at
+// an explicit, already-decided fillWidth rather than computing its own
+// proportionally from progressPos/progressTotal - the building block
+// progressFillLine itself uses internally.
+func progressFillLineAt(line string, fillWidth int) string {
+	runes := []rune(line)
+	if fillWidth > len(runes) {
+		fillWidth = len(runes)
+	}
+	if fillWidth < 0 {
+		fillWidth = 0
+	}
+	filled, unfilled := string(runes[:fillWidth]), string(runes[fillWidth:])
 	return fmt.Sprintf("[white:%s:b]%s[-:-:-][white:navy:b]%s[-:-:-]", progressFillColor, tview.Escape(filled), tview.Escape(unfilled))
+}
+
+// progressFillLine wraps an already-composed, already-width-padded plain
+// bar line with the progress-fill background (design-docs' own "the
+// headline as a progress bar" idea): progressFillColor from the left
+// edge up to whatever fraction of progressPos/progressTotal the line's
+// own length represents (progressFillWidth), and plain navy for the
+// remainder - sweeping across whatever content the line holds, rather
+// than being confined to some reserved strip.
+//
+// No fill/color effect at all (the line renders exactly as plain
+// white-on-navy text always has) when progressTotal is 0 - no skeleton
+// at all, e.g. the throwaway --list-tasks probe failed, or the run
+// hasn't spawned yet during "rerun"'s own startup dialog - same "omit
+// rather than show something misleading" convention this file already
+// uses elsewhere. (progressFillWidth already returns 0 in this case, but
+// that alone would still produce a filled/unfilled *tag pair* with an
+// empty filled half - indistinguishable in the end, but this short-
+// circuits it explicitly rather than relying on that coincidence.)
+//
+// Callers must enable dynamic colors on whichever TextView this feeds,
+// to make the fill possible at all (a single tcell.Style can't vary
+// per-column) - which means line's own content, if it came from external
+// data (a user's own filenames, a search term, an inventory hostname, a
+// task's own name), needs escaping. Done here, once, on the two already-
+// sliced halves rather than by each caller on each piece as it's built -
+// simpler, and safe: tview.Escape() only ever expands a literal "[" in
+// place within whichever half it's applied to, which cannot shift
+// anything in the OTHER half or retroactively invalidate the split point
+// already computed against the unescaped line.
+func progressFillLine(line string, progressPos, progressTotal int, frozen bool) string {
+	if progressTotal <= 0 {
+		return fmt.Sprintf("[white:navy:b]%s[-:-:-]", tview.Escape(line))
+	}
+	return progressFillLineAt(line, progressFillWidth(len([]rune(line)), progressPos, progressTotal, frozen))
 }
 
 // truncateHostsList renders hosts as a comma-separated list, shortened to
@@ -711,7 +814,14 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// these identifiers in scope before their real construction further
 	// down assigns them.
 	var bottomBar *tview.TextView
-	var flex, splitFlex *tview.Flex
+	var flex, splitFlex, splitBody, treeBody *tview.Flex
+	var splitDivider *tview.Box
+	var splitHeader *tview.TextView // forward-declared for the same
+	// reason - rebuild's own split-mode header (a single widget spanning
+	// the full terminal width, replacing topBar/outputTopBar for the
+	// duration of a split session - see splitFlex's own construction for
+	// why) needs setting live, before its real construction (further
+	// down) assigns it.
 	var splitMode bool // true while the currently-open drill-down is
 	// rendered as the two-pane "split" page (design-docs/TwoPanedLayout.md)
 	// rather than full-screen "output" - decided once, in showOutput, the
@@ -822,7 +932,11 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// can never be misread as a color tag.
 	outputTabs := newTabbedPane()
 
-	outputTopBar := tview.NewTextView()
+	// Dynamic colors on, same reason and same escaping discipline as
+	// topBar (see progressFillLine) - its own fill makes host/task.Name
+	// (both external content) need escaping, handled once by
+	// progressFillLine itself rather than here.
+	outputTopBar := tview.NewTextView().SetDynamicColors(true)
 	outputTopBar.SetTextStyle(barStyle)
 
 	outputBottomBar := tview.NewTextView().SetText(" tab/shift-tab: switch tab  n/p: prev/next task  ←/→: prev/next host  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
@@ -833,6 +947,20 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		AddItem(outputTopBar, 1, 0, false).
 		AddItem(outputTabs.Primitive(), 0, 1, true).
 		AddItem(outputBottomBar, 1, 0, false)
+
+	// splitHeader replaces topBar/outputTopBar entirely for the duration
+	// of a split session (splitFlex's own construction, further down): a
+	// single widget spanning the terminal's true full width, rather than
+	// two independently-positioned widgets (the tree pane's own topBar,
+	// the drill-down pane's own outputTopBar) either side of splitDivider
+	// that are each supposed to land on the identical fill boundary but
+	// - reported live, twice - didn't quite: a couple of columns right at
+	// the seam stayed the wrong color regardless of how carefully the two
+	// widgets' own widths were kept in agreement. One widget's own width
+	// trivially agrees with itself, which is what actually fixes that
+	// class of bug rather than chasing its exact cause further.
+	splitHeader = tview.NewTextView().SetDynamicColors(true)
+	splitHeader.SetTextStyle(barStyle)
 
 	pages := tview.NewPages()
 
@@ -941,6 +1069,14 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// keypress.
 	var outputTask *taskNode
 	var outputHost string
+	// outputTopBarPlainText is outputTopBar's own "host — task" content,
+	// unwrapped and unpadded - set once per navigation (showOutput) but
+	// re-wrapped with a fresh progressFillLine on every single rebuild()
+	// call, the same live-updating treatment topBar's own text already
+	// gets, so the drill-down's own headline keeps sweeping green as the
+	// run progresses even while the user isn't actively navigating within
+	// it.
+	var outputTopBarPlainText string
 
 	// resolveKey identifies one (task, host) pair's own "Resolved"
 	// section cache entry (design-docs/Drilldown, Resolved Values.md).
@@ -995,7 +1131,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// already open are handled by the exact same code path, not two.
 
 		outputTask, outputHost = task, host
-		outputTopBar.SetText(fmt.Sprintf(" %s — %s ", host, task.Name))
+		outputTopBarPlainText = fmt.Sprintf(" %s — %s ", host, task.Name)
 
 		// Kicked off the moment a drill-down opens (or navigates to a
 		// different host/task), not gated behind a keypress - per
@@ -1169,6 +1305,13 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 			elapsed = frozenElapsed
 		}
+		// Read once per rebuild and shared by both topBar and (while a
+		// drill-down is open) outputTopBar below - progressFillLine's own
+		// fill needs the identical (progressPos, progressTotal, frozen)
+		// triple for both bars to stay in visual agreement with each
+		// other, and there's no reason to re-read the tracker twice for
+		// one rebuild pass anyway.
+		progressPos, progressTotal := progressPosition()
 
 		// Two-pane layout (design-docs/TwoPanedLayout.md) is live, not
 		// decided once at open time: every rebuild - including ones driven
@@ -1190,12 +1333,56 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		if viewingOutput {
 			splitMode = twoPaneLayout && totalWidth >= splitMinTotalWidth
 			if splitMode {
-				splitFlex.ResizeItem(flex, splitTreeWidth(totalWidth), 0)
+				splitBody.ResizeItem(treeBody, splitTreeWidth(totalWidth), 0)
 				bottomBar.SetText(splitBottomBarText)
 				switchPage("split")
 			} else {
 				bottomBar.SetText(mainBottomBarText)
 				switchPage("output")
+			}
+
+			if splitMode {
+				// splitHeader is one single widget spanning the terminal's
+				// true full width (totalWidth) - unlike an earlier version
+				// of this, which kept topBar/outputTopBar as two
+				// independently-positioned widgets either side of
+				// splitDivider and tried to keep their own fills in
+				// agreement: that was reported live, twice, to leave a
+				// couple of columns right at the seam the wrong color
+				// regardless of how carefully the two widths were derived
+				// to match each other. One widget's own width trivially
+				// agrees with itself, which is what actually closes that
+				// class of bug. splitDivider itself (the body rows below
+				// this one) is deliberately not part of this string at
+				// all - this header has no separate divider glyph of its
+				// own, so the single column that visually sits above it
+				// just participates in the fill like any other character.
+				//
+				// composeSplitHeaderLine (not composeTopBarLine +
+				// outputTopBarPlainText concatenated after it - a second
+				// live report caught two real bugs in that approach at
+				// once, see its own doc comment) builds hostAndTask from
+				// outputHost/outputTask directly - the one host/task this
+				// drill-down is actually showing, not state.AllHosts (the
+				// tree-only bar's own "every host seen so far" list).
+				hostAndTask := outputHost
+				if outputTask != nil {
+					hostAndTask = outputHost + "   " + outputTask.Name
+				}
+				splitHeader.SetText(progressFillLine(
+					composeSplitHeaderLine(playbookName, isRole, hostAndTask, elapsed, frozen, currentFilter, progressPos, progressTotal, totalWidth),
+					progressPos, progressTotal, frozen))
+			} else {
+				// Padded to the full terminal width before the fill is
+				// applied (same reason composeTopBarLine pads its own
+				// line) - outputTopBar's own "host — task" text is
+				// usually much shorter than the row, and a fill tag only
+				// colors runes actually present in the string.
+				full := outputTopBarPlainText
+				if gap := totalWidth - len([]rune(full)); gap > 0 {
+					full += strings.Repeat(" ", gap)
+				}
+				outputTopBar.SetText(progressFillLine(full, progressPos, progressTotal, frozen))
 			}
 		}
 
@@ -1208,15 +1395,17 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		if width < 20 {
 			width = 20
 		}
-		// topBar shares list's own width (both are full-width children of
-		// the same outer Flex row when "main" is frontmost - and while a
-		// two-pane session has list pinned to the tree pane's own share
-		// instead, topBar is that same tree pane's own top bar, so the two
-		// still match) - reused below for topBarText's own right-
-		// alignment/truncation too rather than re-deriving a second width
-		// from topBar.GetInnerRect().
-		progressPos, progressTotal := progressPosition()
-		topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, progressPos, progressTotal, width))
+		if !splitMode {
+			// topBar shares list's own width here (both are full-width
+			// children of the same outer Flex row when "main" is
+			// frontmost) - reused below for topBarText's own right-
+			// alignment/truncation too rather than re-deriving a second
+			// width from topBar.GetInnerRect(). Skipped entirely in split
+			// mode, where splitHeader (above) shows this same information
+			// instead - topBar itself sits unused, off-page, for the
+			// duration of a split session.
+			topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, progressPos, progressTotal, width))
+		}
 
 		// One-time, right on the running-to-frozen transition: for a
 		// genuine failure (see genuineFailure - shared with statusRowText
@@ -1865,25 +2054,54 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// for a plain vertical line. Colored to match barStyle's own background
 	// (tcell.ColorNavy, the same blue every top/bottom bar already uses),
 	// not the brighter named "blue", so the divider reads as part of the
-	// same chrome rather than a clashing second shade.
-	splitDivider := tview.NewBox().SetBackgroundColor(tcell.ColorNavy)
+	// same chrome rather than a clashing second shade. Deliberately never
+	// repainted by rebuild's own split-mode progress-fill coordination
+	// (above) - a live report: it's a fixed structural separator between
+	// the two panes, not part of the data being visualized, and turning it
+	// green as the fill swept past it read as wrong, not as "one seamless
+	// bar." Only spans the body rows now (see treeBody/splitBody below) -
+	// splitHeader's own row has no separate divider glyph of its own at
+	// all, per a second live report: the single column directly above
+	// this divider, in the header row, should participate in the header's
+	// own fill exactly like every other character there, not read as part
+	// of the (fixed, unfilled) separator below it.
+	splitDivider = tview.NewBox().SetBackgroundColor(tcell.ColorNavy)
 
-	// splitFlex is design-docs/TwoPanedLayout.md's two-pane drill-down: the
-	// tree pane (flex - topBar/list/bottomBar, the exact same primitive
-	// "main" uses) alongside the drill-down pane (outputFlex - the exact
-	// same primitive "output" uses), side by side, with splitDivider between
-	// them. Reusing both primitives directly rather than building parallel
-	// copies works because only one of "main"/"output"/"split" is ever the
-	// frontmost page at a time - each still gets laid out and drawn fresh,
-	// with whatever rect its current parent gives it, regardless of which
-	// other page it was last shown under. flex's own width here is just a
-	// placeholder; showOutput sets it for real via ResizeItem on every fresh
-	// drill-down open, once the terminal's actual current width is known
-	// (splitTreeWidth).
-	splitFlex = tview.NewFlex().SetDirection(tview.FlexColumn).
-		AddItem(flex, splitMinTreeWidth, 0, false).
+	// treeBody/outputBody are the tree pane's/drill-down pane's own
+	// bodies with their individual header rows carved out - list/
+	// bottomBar and outputTabs/outputBottomBar respectively, the exact
+	// same primitives flex/outputFlex already use, reused here the same
+	// way flex/outputFlex themselves are already reused between their own
+	// standalone pages and splitFlex (see splitFlex's own doc comment
+	// below) - safe for the identical reason: only one of "main"/
+	// "output"/"split" is ever frontmost, so list/bottomBar are never
+	// actually drawn via two different parents at once.
+	treeBody = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(list, 0, 1, true).
+		AddItem(bottomBar, 1, 0, false)
+	outputBody := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(outputTabs.Primitive(), 0, 1, true).
+		AddItem(outputBottomBar, 1, 0, false)
+
+	// splitBody is the two-pane row itself - treeBody alongside
+	// outputBody, with splitDivider between them - everything splitFlex
+	// used to be before splitHeader existed. treeBody's own width here is
+	// just a placeholder; showOutput sets it for real via ResizeItem on
+	// every fresh drill-down open, once the terminal's actual current
+	// width is known (splitTreeWidth).
+	splitBody = tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(treeBody, splitMinTreeWidth, 0, false).
 		AddItem(splitDivider, splitDividerWidth, 0, false).
-		AddItem(outputFlex, 0, 1, true)
+		AddItem(outputBody, 0, 1, true)
+
+	// splitFlex is design-docs/TwoPanedLayout.md's two-pane drill-down:
+	// splitHeader (a single bar spanning the terminal's true full width -
+	// see its own doc comment for why it replaces topBar/outputTopBar
+	// entirely here, rather than each pane keeping its own) above
+	// splitBody's own two-column row.
+	splitFlex = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(splitHeader, 1, 0, false).
+		AddItem(splitBody, 0, 1, false)
 
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
@@ -2501,7 +2719,16 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			// so no click can ever land there. Checked first, before any of
 			// the output-specific hit-tests below.
 			if splitMode {
-				if x, y := event.Position(); inRect(x, y, flex) {
+				if x, y := event.Position(); inRect(x, y, treeBody) {
+					return nil, action
+				}
+				// splitHeader is a plain, non-interactive TextView, same
+				// focus-steal reasoning as outputTopBar/outputBottomBar
+				// just below - it replaces topBar/outputTopBar entirely
+				// for the duration of a split session (splitFlex's own
+				// construction), so it needs the identical guard they'd
+				// otherwise each carry on their own.
+				if x, y := event.Position(); inRect(x, y, splitHeader) {
 					return nil, action
 				}
 			}
