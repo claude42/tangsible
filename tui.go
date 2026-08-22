@@ -2935,13 +2935,20 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	return app, applyLive
 }
 
-// taskIndent is two independent 2-rune segments concatenated - the
-// active-task spinner slot, then the task-has-a-warning slot (see
-// taskLabel's own rawPrefix) - always this exact width regardless of
-// which segment(s), if either, currently show their own glyph instead of
-// plain spaces, so nothing else in this file ever needs to reserve
-// separate width for either one.
-const taskIndent = "    "
+// taskIndent is one fixed-width slot, always this exact width regardless
+// of what (if anything) currently occupies it - the active-task spinner,
+// a warningColor ⚠ once that task has finished and at least one host
+// recorded a warning for it (see taskLabel's own prefix construction), or
+// plain spaces - so nothing else in this file ever needs to reserve
+// separate width for any of them. Spinner and warning glyph deliberately
+// share this one slot rather than getting one each: live use showed two
+// independent slots pushed every task title two columns further right
+// than before this feature existed, and put the warning glyph in its own
+// separate column from the spinner instead of the same one - both
+// reverted, since a task's own warning only becomes known for certain
+// once it's done anyway (the spinner is gone by then), so the two never
+// have anything genuine to show at the same instant.
+const taskIndent = "  "
 
 // mainBottomBarText is the tree's own normal shortcut hint - bottomBar's
 // initial text, and what closeOutput restores it to. splitBottomBarText
@@ -3236,17 +3243,20 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int)
 // suffix after the title - the space it needs comes out of the
 // already-existing indent rather than the title column, so every row's
 // title column stays the same width regardless of which task, if any,
-// happens to be active. When active is false, taskIndent's own plain
-// spaces render there instead - the same fixed width either way. A
-// second, equally fixed 2-rune slot right after it shows a warningColor
-// ⚠ instead of two plain spaces if any host recorded a warning for this
-// task (taskHasWarnings) - the task-level aggregate; hostLabel's own
-// per-host marker gives the precise "which host" once expanded. Known,
-// accepted limitation: U+26A0 has "ambiguous" East Asian Width in
-// Unicode's own terms, so a terminal that renders it two columns wide
-// rather than one would shift everything after it by one column - not
-// chased further here, same tolerance this project already extends to
-// the spinner's own Braille frames elsewhere.
+// happens to be active. When active is false and any host recorded a
+// warning for this task (taskHasWarnings - the task-level aggregate;
+// hostLabel's own per-host marker gives the precise "which host" once
+// expanded), a warningColor ⚠ renders in that same slot instead; taskIndent's
+// own plain spaces render there only when neither applies. The spinner
+// always wins over the warning glyph when both would otherwise apply -
+// in practice they never actually do, since a task's own warnings are
+// only knowable for certain once it's finished recording every host's
+// result, by which point it's no longer active anyway. Known, accepted
+// limitation: U+26A0 has "ambiguous" East Asian Width in Unicode's own
+// terms, so a terminal that renders it two columns wide rather than one
+// would shift everything after it by one column - not chased further
+// here, same tolerance this project already extends to the spinner's own
+// Braille frames elsewhere.
 //
 // selected marks this as the row currently under the cursor (see rebuild's
 // selected-row patch, and NewLiveTUI's SetSelectedStyle comment for why
@@ -3255,27 +3265,26 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int)
 // bold text on its own outcome color as a background instead of a
 // foreground - the inverse of the normal rendering below.
 func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool) string {
-	// spinnerSegment/warningSegment each fill exactly one of taskIndent's
-	// two 2-rune slots (see taskIndent's own doc comment) - concatenated
-	// below into one prefix exactly len(taskIndent) runes wide regardless
-	// of which segment(s) show their own glyph, so no separate width
-	// needs reserving from the title column for either one.
-	spinnerSegment := "  "
-	if active {
-		spinnerSegment = string(frame) + " "
+	// One prefix fills taskIndent's single slot (see its own doc comment) -
+	// the active spinner takes priority; otherwise a warningColor ⚠ if the
+	// task has finished with at least one host's warning recorded; plain
+	// spaces otherwise. tview.Escape's own guaranteed-correct handling of
+	// "[...]"-shaped text applies to the plain-text branches here too (list
+	// rows parse tags, unlike the top bar) - harmless no-op on taskIndent's
+	// plain spaces or the spinner rune, neither of which is ever
+	// "["-shaped. The warning branch's own tag is constructed here, from a
+	// fixed literal and warningColor, never from external data - already
+	// safe tag syntax, not something that needs (or should) survive
+	// Escape() the way the other two branches do.
+	var prefix string
+	switch {
+	case active:
+		prefix = tview.Escape(string(frame) + " ")
+	case taskHasWarnings(task):
+		prefix = fmt.Sprintf("[%s]⚠[-] ", warningColor)
+	default:
+		prefix = tview.Escape(taskIndent)
 	}
-	// tview.Escape's own guaranteed-correct handling of "[...]"-shaped text
-	// applies here too (list rows parse tags, unlike the top bar) - harmless
-	// no-op on taskIndent's plain spaces or the spinner rune, neither of
-	// which is ever "["-shaped. warningSegment's own tag is constructed
-	// here, from a fixed literal and warningColor, never from external
-	// data - already safe tag syntax, not something that needs (or should)
-	// survive Escape() the way spinnerSegment does.
-	warningSegment := "  "
-	if taskHasWarnings(task) {
-		warningSegment = fmt.Sprintf("[%s]⚠[-] ", warningColor)
-	}
-	prefix := tview.Escape(spinnerSegment) + warningSegment
 
 	nameRunes := []rune(task.Name)
 	haveHosts := len(allHosts) > 0
@@ -3459,33 +3468,41 @@ func taskHasWarnings(task *taskNode) bool {
 	return false
 }
 
+// hostIndent is a host row's own fixed leading indent width - wider than
+// taskIndent's, deliberately: a host row sits one level deeper than its
+// task in the tree, and needs its own, wider fixed indent to read as
+// such. Its one slot never holds a spinner - only a warningColor ⚠ in
+// column 1 (see hostLabel) when this host's own result for the task
+// carries a warning, plain spaces otherwise - so the hostname (and
+// everything after it) always starts at the identical column regardless
+// of whether a warning is currently showing.
+const hostIndent = "    "
+
 // hostLabel builds one host row's text, colored uniformly by its single
 // outcome. No width-based truncation/alignment applies here - that rule is
 // TASK-row-specific per TUI.md. selected mirrors taskLabel's own parameter -
 // black bold text on the outcome color as a background, instead of the
 // outcome color as a foreground.
 //
-// The returned text includes its own leading indent, built to the exact
-// same two-slot shape as taskLabel's own prefix (see taskIndent's doc
-// comment): a blank 2-rune slot (a host row has no spinner concept, so
-// this one is always plain spaces) followed by a warningColor ⚠ in the
-// second 2-rune slot, when this host's own result for task carries a
+// The returned text includes its own leading indent (hostIndent): a
+// warningColor ⚠ in column 1, followed by plain spaces out to
+// hostIndent's own width, when this host's own result for task carries a
 // warning - warnings are orthogonal to outcome (confirmed empirically:
-// buildOutputTab already shows a task's own "warnings" field regardless of
-// outcome or module), so the marker deliberately doesn't inherit whatever
-// color the outcome itself is. Originally this was a trailing marker
-// appended after the outcome detail instead - moved to a leading, aligned
-// column to match where taskLabel's own aggregate ⚠ sits one row up,
-// rather than jumping from the start of the row (collapsed) to the end
-// (expanded) depending on which is showing.
+// buildOutputTab already shows a task's own "warnings" field regardless
+// of outcome or module), so the marker deliberately doesn't inherit
+// whatever color the outcome itself is - or hostIndent's own plain spaces
+// unchanged when there's no warning to show. Originally this was a
+// trailing marker appended after the outcome detail instead, then a
+// leading marker one column right of column 1 - both reverted after live
+// use: a marker at the row's very first column, with the hostname itself
+// never shifting regardless of whether it's showing, reads clearest.
 func hostLabel(task *taskNode, host string, selected bool) string {
 	o := task.Hosts[host]
 	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(outcomeDetail(task, host)))
-	warningSegment := "  "
+	prefix := tview.Escape(hostIndent)
 	if hasWarnings(task.Raw[host]) {
-		warningSegment = fmt.Sprintf("[%s]⚠[-] ", warningColor)
+		prefix = fmt.Sprintf("[%s]⚠[-]%s", warningColor, strings.Repeat(" ", len(hostIndent)-1))
 	}
-	prefix := "  " + warningSegment
 	if selected {
 		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", pureBlack, colorTag(o), line)
 	}
