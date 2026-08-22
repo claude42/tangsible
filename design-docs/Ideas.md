@@ -11,11 +11,7 @@ immediately implemented.
 
 * Summary line sometimes not visible - beyond the screen (still?)
 
-* Progress bar (by analyzing playbook)
-
 * --check
-
-* Split pane
 
 * Errors before / during execution
 
@@ -32,8 +28,12 @@ immediately implemented.
 
 * Run history
 
-* Summary line
-
 * Per-host task timing - see [PerHostTaskTiming.md](PerHostTaskTiming.md);
   discussed and investigated, leaning toward dropping (queueing vs. actual
   duration is ambiguous under linear strategy when forks < host count)
+
+* use
+  ansible.builtin.debug:
+    var: hostvars[inventory_hostname]
+
+  to print out all variables
