@@ -117,39 +117,14 @@ func flattenInventoryHosts(raw map[string]json.RawMessage) []string {
 // own flags, confirmed via `ansible-inventory --help`; passing one it
 // doesn't recognize surfaces ansible's own clear error rather than
 // tangsible trying to filter the list itself), and returns the first host
-// per flattenInventoryHosts' own deterministic ordering.
+// per flattenInventoryHosts' own deterministic ordering. listInventoryHosts
+// (host.go) does the actual invocation and JSON parsing - shared with the
+// "hosts" verb's own full host listing (design-docs/HostVerb.md).
 func resolveInventoryHost(passthroughArgs []string) (string, error) {
-	cmd := exec.Command("ansible-inventory", append([]string{"--list"}, passthroughArgs...)...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	hosts, err := listInventoryHosts(passthroughArgs)
 	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", fmt.Errorf("ansible-inventory --list failed: %s", msg)
+		return "", err
 	}
-
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(out, &raw); err != nil {
-		// Not necessarily a real parse error against genuine JSON - e.g. a
-		// stray -h/--help among the passthrough args makes ansible-
-		// inventory print its own usage text instead (confirmed live:
-		// "ansible-inventory --list -h ..." exits 0 with plain usage text
-		// on stdout, not an error cmd.Output() would ever catch above).
-		// Leading with the actual output rather than just Go's own
-		// generic json error is what makes a case like that diagnosable
-		// instead of a bare "invalid character 'u' looking for beginning
-		// of value".
-		snippet := strings.TrimSpace(string(out))
-		if len(snippet) > 300 {
-			snippet = snippet[:300] + "..."
-		}
-		return "", fmt.Errorf("ansible-inventory --list didn't produce valid JSON (%v) - it printed:\n%s", err, snippet)
-	}
-
-	hosts := flattenInventoryHosts(raw)
 	if len(hosts) == 0 {
 		return "", fmt.Errorf("no hosts found in the inventory")
 	}

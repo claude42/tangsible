@@ -98,14 +98,14 @@ func twoPaneLayoutEnabled(cfg settingsConfig) bool {
 
 // verb identifies which top-level command Tangsible was invoked with -
 // "run" (the direct successor of the original bare-playbook invocation),
-// "rerun" (see Rerun.md), "role" (see design-docs/Tangsible role.md), or
-// "template" (see design-docs/Tangsible template.md). A verb is now
-// mandatory: unlike the playbook argument, there's no shape-based way to
-// tell "no verb given" from "verb given" (every verb looks like a plain
-// word, same as a playbook path), and more verbs were expected to follow
-// Rerun.md's own rationale for introducing this - so requiring one
-// explicitly, as a breaking change, is simpler than trying to keep
-// guessing.
+// "rerun" (see Rerun.md), "role" (see design-docs/Tangsible role.md),
+// "template" (see design-docs/Tangsible template.md), or "host"/"hosts"
+// (see design-docs/HostVerb.md). A verb is now mandatory: unlike the
+// playbook argument, there's no shape-based way to tell "no verb given"
+// from "verb given" (every verb looks like a plain word, same as a
+// playbook path), and more verbs were expected to follow Rerun.md's own
+// rationale for introducing this - so requiring one explicitly, as a
+// breaking change, is simpler than trying to keep guessing.
 type verb string
 
 const (
@@ -113,6 +113,8 @@ const (
 	verbRerun    verb = "rerun"
 	verbRole     verb = "role"
 	verbTemplate verb = "template"
+	verbHost     verb = "host"
+	verbHosts    verb = "hosts"
 )
 
 // parseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
@@ -123,7 +125,7 @@ func parseVerb(args []string) (v verb, rest []string, ok bool) {
 		return "", nil, false
 	}
 	switch verb(args[0]) {
-	case verbRun, verbRerun, verbRole, verbTemplate:
+	case verbRun, verbRerun, verbRole, verbTemplate, verbHost, verbHosts:
 		return verb(args[0]), args[1:], true
 	default:
 		return "", nil, false
