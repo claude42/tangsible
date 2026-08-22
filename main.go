@@ -383,6 +383,29 @@ func main() {
 	// else instead.
 	sourceIndex := buildTaskSourceIndex(playbook)
 
+	// progH holds the current (or about-to-run) generation's own
+	// "Task x/y" progress skeleton (progress.go) - an atomic.Pointer
+	// since tui.go's OnTaskAdded hook and topBarText rendering both read
+	// it from whatever goroutine is running at the time (tview's event
+	// loop, same as everywhere else in this file that isn't itself
+	// mutating playbookState directly). Built synchronously here, same
+	// reasoning as sourceIndex just above, for "run"/"role"'s very first
+	// generation (pending != nil - the pre-flight gate already confirmed
+	// a real run is happening): this is a prototype, and getting the
+	// skeleton in place before any real task-start event can possibly
+	// arrive is worth more, for now, than shaving startup latency -
+	// unlike sourceIndex, this shells out to a second real
+	// ansible-playbook invocation, so the cost is closer to (very
+	// roughly) doubling ansible's own startup time than to a plain YAML
+	// parse. Left unset for "rerun" (pending == nil): nothing has run
+	// yet, and requestRerun below builds this exact same way once the
+	// dialog is actually confirmed, using whatever args the user ends up
+	// submitting.
+	var progH atomic.Pointer[progressTracker]
+	if pending != nil {
+		progH.Store(newProgressTracker(buildProgressSkeleton(playbook, originalArgs.Reassemble())))
+	}
+
 	// Read fresh here rather than threading through the "rerun" branch's
 	// own cfg local (which is scoped to that switch case, and is now a
 	// stateConfig rather than the settingsConfig this needs anyway) - a
@@ -464,6 +487,20 @@ func main() {
 			newArgs = append([]string{"--start-at-task", startAtTask}, newArgs...)
 		}
 
+		// Rebuilt synchronously, same place/reasoning as state.Reset()
+		// just above - tags/skip-tags/hosts (and --start-at-task) can all
+		// change on a rerun, so the previous generation's own skeleton
+		// (if any) is stale the instant any of them do. --list-tasks
+		// itself ignores --start-at-task entirely (confirmed empirically -
+		// it always lists the playbook's full task set regardless), so
+		// the resulting skeleton's front few entries simply won't ever be
+		// matched - harmless, progressTracker's own bounded lookahead
+		// already treats "not found (yet)" as a no-op rather than an
+		// error, and the real run's own first task-start event is still
+		// found well within that window for any reasonably-early
+		// --start-at-task point.
+		progH.Store(newProgressTracker(buildProgressSkeleton(playbook, newArgs)))
+
 		// Recorded the same way the original invocation was at the top of
 		// main - but its own error, unlike that one, can't be printed
 		// here: the TUI's alternate screen is already active by now
@@ -514,7 +551,7 @@ func main() {
 	if roleDisplayName != "" {
 		displayName = roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)

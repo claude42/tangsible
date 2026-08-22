@@ -69,17 +69,31 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // is too narrow for everything to fit, so the heartbeat never gets
 // pushed off-screen. No tview.Escape() needed here - unlike the list,
 // this TextView never enables dynamic color tags.
-func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, width int) string {
+func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
 	}
 	mm, ss := minutesSeconds(elapsed)
+	// progressPrefix: the prototype "Task x/y" indicator (progress.go) -
+	// omitted entirely when progressTotal is 0 (no skeleton at all, e.g.
+	// the throwaway --list-tasks probe failed, or the run hasn't spawned
+	// yet during "rerun"'s own startup dialog), same "omit rather than
+	// show a misleading 0/0" convention this file already uses elsewhere.
+	// Deliberately never clamped to progressTotal even once frozen - an
+	// unmatched-to-the-end run (e.g. dynamic includes the skeleton
+	// couldn't predict) showing less than 100% here is itself useful
+	// signal about how well this prototype's matching actually tracked
+	// this run, not a bug to paper over.
+	var progressPrefix string
+	if progressTotal > 0 {
+		progressPrefix = fmt.Sprintf("Task %d/%d  ", progressPos, progressTotal)
+	}
 	var right string
 	if frozen {
-		right = fmt.Sprintf("%02d:%02d ", mm, ss)
+		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
 	} else {
-		right = fmt.Sprintf("%c %02d:%02d ", spinnerAt(elapsed), mm, ss)
+		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, spinnerAt(elapsed), mm, ss)
 	}
 
 	prefix := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: ", label, playbookName, filter.label())
@@ -571,10 +585,17 @@ func filterDialogText(active filterQuery) string {
 // design-docs/Drilldown, Resolved Values.md) see the same
 // inventory/extra-vars context the real run did. Not used for anything
 // else in this function.
-func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker]) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
+
+	// progressPosition reads whatever progressTracker the current
+	// generation has (progH.Load() is nil-safe to call Position() on -
+	// see progress.go - both before this session's very first skeleton
+	// has ever been built, and for "rerun"'s own startup dialog, where
+	// nothing has run yet at all).
+	progressPosition := func() (position, total int) { return progH.Load().Position() }
 
 	list := newTreeList() // see treelist.go - a purpose-built replacement
 	// for tview.List, needed so mouse-wheel panning can move the viewport
@@ -730,7 +751,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
-	topBar := tview.NewTextView().SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 20))
+	topBar := tview.NewTextView().SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 0, 0, 20))
 	topBar.SetTextStyle(barStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
@@ -1151,7 +1172,8 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// still match) - reused below for topBarText's own right-
 		// alignment/truncation too rather than re-deriving a second width
 		// from topBar.GetInnerRect().
-		topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, width))
+		progressPos, progressTotal := progressPosition()
+		topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, progressPos, progressTotal, width))
 
 		// One-time, right on the running-to-frozen transition: for a
 		// genuine failure (see genuineFailure - shared with statusRowText
@@ -1739,13 +1761,24 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	})
 
 	state.OnPlayAdded = func(*playNode) { rebuild() }
+	// Fires for every real play, including one whose hosts: pattern
+	// matches nothing in this run - see aggregate.go's OnPlayStarted and
+	// progressTracker.AdvanceToPlay for why this resync exists at all
+	// (an entirely-skipped play's tasks never fire a single event of
+	// their own for Advance, below, to ever match against).
+	state.OnPlayStarted = func(name string) { progH.Load().AdvanceToPlay(name) }
 	// See inheritedExpandState's own doc comment for the decision itself -
 	// this is what makes 'E' (expandAll) "sticky" for a still-running
 	// playbook: every task added afterward inherits true from whichever
 	// task was added most recently, not just the ones already on screen
 	// when 'E' was pressed.
-	state.OnTaskAdded = func(_ *playNode, task *taskNode) {
+	state.OnTaskAdded = func(play *playNode, task *taskNode) {
 		expanded[task] = inheritedExpandState(allTasks(state), expanded, startExpanded)
+		// A miss here (a handler - see progress.go's own doc comment -
+		// or any task the skeleton couldn't predict) is a silent no-op by
+		// design: progressTracker.Advance leaves its own state untouched
+		// rather than treating "not found" as a regression.
+		progH.Load().Advance(play.Name, task.Name)
 		rebuild()
 	}
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }

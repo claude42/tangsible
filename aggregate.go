@@ -152,6 +152,19 @@ type playbookState struct {
 	OnPlayAdded    func(play *playNode)
 	OnTaskAdded    func(play *playNode, task *taskNode)
 	OnHostRecorded func(task *taskNode, host string)
+	// OnPlayStarted fires on every real v2_playbook_on_play_start event,
+	// unconditionally - unlike OnPlayAdded, which only ever fires once a
+	// play gets its own first task (see the tree's own "plays with no
+	// executed tasks never appear" rule). Confirmed empirically: a play
+	// whose hosts: pattern matches zero hosts in this run's inventory
+	// still gets a real v2_playbook_on_play_start event, even though none
+	// of its tasks ever fire a single event afterward - so this is the
+	// only reliable signal that such a play (and, transitively, every
+	// task nested inside it) has been passed over entirely. progress.go's
+	// tracker uses this as a resync point precisely because of that -
+	// see NewLiveTUI's own wiring for why per-task matching alone can't
+	// recover from an entirely-skipped play on its own.
+	OnPlayStarted func(name string)
 }
 
 // Reset clears every field Apply/recordHost populate during a run, back to
@@ -175,6 +188,9 @@ func (s *playbookState) Apply(ev rawEvent) {
 	case "v2_playbook_on_play_start":
 		if ev.Play != nil {
 			s.pendingPlayName = ev.Play.Name
+			if s.OnPlayStarted != nil {
+				s.OnPlayStarted(ev.Play.Name)
+			}
 		}
 		s.currentPlay = nil
 
