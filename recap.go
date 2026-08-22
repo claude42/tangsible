@@ -352,28 +352,44 @@ func recapComputeColumnWidths(state *playbookState) recapColumnWidths {
 	return w
 }
 
+// recapSummaryFieldColor is recapHostRowText's own per-field color choice:
+// recapCategoryColor's own outcome color (green ok, yellow changed, ...,
+// pink warnings) when n is greater than zero, or grayTag - the exact same
+// dark gray already used elsewhere for a host that hasn't reported for a
+// task yet - when n is zero. A live, real-world recap experiment showed
+// six always-colored "label=N" segments read as fairly uniform "wall of
+// color" regardless of what actually happened, one field per outcome;
+// graying out the zero counts makes only the fields with something to
+// report stand out, at a glance, without reading every number.
+func recapSummaryFieldColor(label string, n int) string {
+	if n == 0 {
+		return grayTag
+	}
+	return recapCategoryColor(label)
+}
+
 // recapHostRowText renders one host's own summary line, hostname
 // left-padded and each count right-padded to w's own columns so every
 // host's line lines up - and each "label=N" segment colored via
-// recapCategoryColor (green ok, yellow changed, ..., pink warnings),
-// rather than picking one dominant color for the whole line, so the same
-// "color signals meaning" convention this app uses everywhere else
-// applies per field here too. warnings=N is a tangsible-specific
-// addition, not something real ansible-playbook's own recap line
-// includes - placed last, after the five fields that do mirror it, since
-// it's a different, cross-cutting kind of count rather than one more
-// slice of the same partition. selected inverts each segment's own color
-// to a background (black bold text on it) instead of a foreground - the
-// same "outcome color becomes a background under the cursor" convention
-// taskLabel/hostLabel already use, just applied per segment here rather
-// than per hostname. The hostname portion itself gets the plain light
-// gray "this is the identifying label" background every other selected
-// row's own title/hostname already uses. No neutral, unstyled gap
-// anywhere on the selected line - the same rule taskLabel's own selected
-// rendering already follows for its hostname segments - each segment's
-// own leading two-space gap is folded into its own color block rather
-// than left plain between tags, so the row reads as one continuous
-// highlight instead of colored blocks with visible holes between them.
+// recapSummaryFieldColor, rather than picking one dominant color for the
+// whole line, so the same "color signals meaning" convention this app
+// uses everywhere else applies per field here too. warnings=N is a
+// tangsible-specific addition, not something real ansible-playbook's own
+// recap line includes - placed last, after the five fields that do
+// mirror it, since it's a different, cross-cutting kind of count rather
+// than one more slice of the same partition. selected inverts each
+// segment's own color to a background (black bold text on it) instead of
+// a foreground - the same "outcome color becomes a background under the
+// cursor" convention taskLabel/hostLabel already use, just applied per
+// segment here rather than per hostname. The hostname portion itself
+// gets the plain light gray "this is the identifying label" background
+// every other selected row's own title/hostname already uses. No
+// neutral, unstyled gap anywhere on the selected line - the same rule
+// taskLabel's own selected rendering already follows for its hostname
+// segments - each segment's own leading two-space gap is folded into its
+// own color block rather than left plain between tags, so the row reads
+// as one continuous highlight instead of colored blocks with visible
+// holes between them.
 func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, selected bool) string {
 	hostPadded := host + strings.Repeat(" ", w.Host-len([]rune(host)))
 	if selected {
@@ -382,33 +398,33 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 		// segment) would double it up against that trailing space,
 		// visibly shifting the "ok=" column by one space compared to the
 		// unselected rendering right above/below it.
-		firstSeg := func(label string, width, n int, color string) string {
-			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", pureBlack, color, label, width, n)
+		firstSeg := func(label string, width, n int) string {
+			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", pureBlack, recapSummaryFieldColor(label, n), label, width, n)
 		}
-		seg := func(label string, width, n int, color string) string {
-			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", pureBlack, color, label, width, n)
+		seg := func(label string, width, n int) string {
+			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", pureBlack, recapSummaryFieldColor(label, n), label, width, n)
 		}
 		return fmt.Sprintf("[%s:lightgray:b]%s : [-:-:-]%s%s%s%s%s%s",
 			pureBlack, tview.Escape(hostPadded),
-			firstSeg("ok", w.OK, s.OK, recapCategoryColor("ok")),
-			seg("skipped", w.Skipped, s.Skipped, recapCategoryColor("skipped")),
-			seg("changed", w.Changed, s.Changed, recapCategoryColor("changed")),
-			seg("unreachable", w.Unreachable, s.Unreachable, recapCategoryColor("unreachable")),
-			seg("failed", w.Failed, s.Failed, recapCategoryColor("failed")),
-			seg("warnings", w.Warnings, s.Warnings, recapCategoryColor("warnings")),
+			firstSeg("ok", w.OK, s.OK),
+			seg("skipped", w.Skipped, s.Skipped),
+			seg("changed", w.Changed, s.Changed),
+			seg("unreachable", w.Unreachable, s.Unreachable),
+			seg("failed", w.Failed, s.Failed),
+			seg("warnings", w.Warnings, s.Warnings),
 		)
 	}
-	seg := func(label string, width, n int, color string) string {
-		return fmt.Sprintf("[%s]%s=%*d[-]", color, label, width, n)
+	seg := func(label string, width, n int) string {
+		return fmt.Sprintf("[%s]%s=%*d[-]", recapSummaryFieldColor(label, n), label, width, n)
 	}
 	return fmt.Sprintf("[white::b]%s[-::-] : %s  %s  %s  %s  %s  %s",
 		tview.Escape(hostPadded),
-		seg("ok", w.OK, s.OK, recapCategoryColor("ok")),
-		seg("skipped", w.Skipped, s.Skipped, recapCategoryColor("skipped")),
-		seg("changed", w.Changed, s.Changed, recapCategoryColor("changed")),
-		seg("unreachable", w.Unreachable, s.Unreachable, recapCategoryColor("unreachable")),
-		seg("failed", w.Failed, s.Failed, recapCategoryColor("failed")),
-		seg("warnings", w.Warnings, s.Warnings, recapCategoryColor("warnings")),
+		seg("ok", w.OK, s.OK),
+		seg("skipped", w.Skipped, s.Skipped),
+		seg("changed", w.Changed, s.Changed),
+		seg("unreachable", w.Unreachable, s.Unreachable),
+		seg("failed", w.Failed, s.Failed),
+		seg("warnings", w.Warnings, s.Warnings),
 	)
 }
 
