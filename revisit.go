@@ -371,7 +371,8 @@ func openRevisitEntry(e revisitEntry) {
 
 	app, applyLive = NewLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
 		sourceIndex, defaultTreeExpanded(settings), twoPaneLayoutEnabled(settings), colorEnabledByUser(settings),
-		invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, false, requestRerun, invArgs.Rest, &progH, revisitReturn)
+		invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, false, requestRerun, invArgs.Rest, &progH, revisitReturn,
+		e.Playbook, e.Role)
 
 	runErr := app.Run()
 	quitting.Store(true) // defensive: same reasoning as main.go's own

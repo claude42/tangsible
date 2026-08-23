@@ -797,7 +797,16 @@ func filterDialogText(active filterQuery) string {
 // is expected to stop app.Run() and let the caller show the run list again.
 // nil for every other verb - Esc keeps doing nothing at that level, exactly
 // as before this existed.
-func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker], revisitReturn func()) (app *tview.Application, applyLive func(rawEvent)) {
+//
+// targetPlaybook/targetRole (exactly one non-empty, mirroring
+// appendInvocation's own playbook/role parameters) is this session's own
+// target identity, exactly as recorded in state.toml - distinct from
+// playbookName, which is display-only (main.go passes it
+// filepath.Base(playbook), not the full path state.toml itself keys on).
+// Needed for design-docs/Diff.md's own 'd' key, to look up this session's
+// own history entry and filter comparison candidates against it
+// (runDiffFlow, diff.go).
+func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -2968,6 +2977,31 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 			openRerunDialog()
 			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'd':
+			// design-docs/Diff.md: only once a run has actually finished,
+			// same processDone gate 'r' already has - and only from the
+			// bare tree (this whole switch is already un-reachable while
+			// viewingOutput, a dialog is open, or a filter is active, so
+			// nothing further is needed for "d can only be pressed from
+			// the tree view"). No 'd' binding inside diff mode itself -
+			// runDiffFlow's own Application has no such case, by design.
+			//
+			// app.Suspend hands the real terminal to runDiffFlow's own
+			// nested Applications (the candidate-run list, then the diff
+			// tree) for as long as the user keeps navigating them - the
+			// same primitive already used for the output view's own 'e'
+			// (open $EDITOR) - and automatically resumes THIS Application,
+			// exactly where it left off, the moment runDiffFlow returns.
+			// No custom state save/restore needed for that "Esc/q
+			// eventually returns to the standard tree view" requirement -
+			// it falls out of Suspend's own contract for free.
+			if !processDone.Load() {
+				return nil
+			}
+			app.Suspend(func() {
+				runDiffFlow(state, targetPlaybook, targetRole, initialTags, initialHosts)
+			})
+			return nil
 		case event.Key() == tcell.KeyRight:
 			handleRight()
 			return nil
@@ -3213,7 +3247,7 @@ const taskIndent = "  "
 // branch), even though the tree pane itself stays visible and its bottomBar
 // keeps drawing - showing the normal hint text there would advertise keys
 // that currently do nothing.
-const mainBottomBarText = " p/n: prev/next task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+const mainBottomBarText = " p/n: prev/next task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  d: diff  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 const splitBottomBarText = " Esc: close drill-down to use the tree "
 
 // colorTag returns the tview style-tag foreground color name for o, per

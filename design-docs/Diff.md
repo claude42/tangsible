@@ -241,13 +241,48 @@ tab just shows that one run's own single content, same as the normal
    `diffresolve.go` - pure, fully unit-testable (alignment correctness,
    `taskDiffers`, `csvSetEqual`, candidate filtering) with zero UI. Same
    shape as Revisit's own Phase 1.
-2. **Diff tree view.** The `d` key, the candidate-run list (reusing
-   revisit's list UI), `flattenDiffRows`, underline/strikethrough
-   rendering, fuchsia chrome, Esc navigation stack. No drill-down diffing
-   yet - Enter on a host row in diff mode could fall back to the normal
-   single-run drill-down for that one run's data until phase 3 lands, or
-   simply not open anything yet, whichever proves less confusing once
-   phase 2 is actually up and visible.
+2. **Diff tree view - done.** `diff.go`. The `d` key (tui.go, right
+   alongside `r`, same `processDone` gate) runs the whole flow inside
+   `app.Suspend` - the same primitive the output view's own 'e' (open
+   $EDITOR) already uses - rather than any custom state save/restore:
+   Suspend hands the real terminal to `runDiffFlow`'s own nested
+   Applications (the candidate-run list - `runRevisitListTUI`, reused
+   as-is, just fed `resolveDiffCandidates` instead of
+   `resolveRevisitEntries` - then `runDiffTreeTUI`) and automatically
+   resumes the original live tree, exactly where it left off, the moment
+   `runDiffFlow` returns - which is what makes "Esc/q eventually returns
+   to the standard tree view" fall out for free rather than needing
+   dedicated plumbing.
+
+   One real plumbing gap this surfaced: `NewLiveTUI` never actually knew
+   its own session's target identity (playbook path or role name) -
+   `playbookName` is display-only (`filepath.Base(playbook)` for a
+   playbook session), not what `state.toml` itself keys history on. Fixed
+   by adding `targetPlaybook, targetRole string` parameters (mirroring
+   `appendInvocation`'s own convention), threaded from both main.go and
+   revisit.go. Separately, rather than track "this session's own current
+   RunID" through the live-generation machinery (which changes across
+   reruns and would need its own cross-goroutine-synchronized tracker),
+   `lastRunID` just looks it up fresh from `state.toml` each time `d` is
+   pressed - correct because, by the time `d` is even pressable
+   (`processDone`), the current generation's own invocation record has
+   already been finalized and is necessarily the last one recorded for
+   that target.
+
+   Row rendering (`flattenDiffRows`/`diffTaskRowText`/`diffHostRowText`)
+   deliberately doesn't reuse `taskLabel`/`hostLabel`'s own shared-column-
+   width shrink algorithm - diff mode shows far fewer, more focused rows
+   than the live tree ever does, so that sophistication isn't needed; a
+   simpler, standalone renderer was faster to get right and easier to
+   verify. Confirmed live end-to-end (two real runs of a tweaked
+   playbook): only the actually-different play/task showed up, the
+   differing host was individually underlined on the collapsed row and
+   fully on its own expanded row, chrome was fuchsia, and quitting back
+   out through the list correctly resumed the original session exactly
+   where it was left, chrome back to normal, fully interactive.
+
+   Enter on a host row is a no-op for now (no drill-down yet) - decided
+   live rather than guessed at, per the plan above.
 3. **Drill-down unified diffs.** Per-tab red/green diffing via
    `buildDiffTab`'s own machinery, the Docs/Diff-tab exceptions.
 

@@ -182,19 +182,52 @@ func taskDiffers(a taskAlignment) bool {
 	if a.OldTask == nil || a.NewTask == nil {
 		return true
 	}
-	for host, newOutcome := range a.NewTask.Hosts {
-		oldOutcome, ok := a.OldTask.Hosts[host]
-		if !ok {
-			continue
-		}
-		if oldOutcome != newOutcome {
-			return true
-		}
-		if hostOutputDiffers(a.OldTask, a.NewTask, host) {
+	for host := range a.NewTask.Hosts {
+		if hostDiffers(a.OldTask, a.NewTask, host) {
 			return true
 		}
 	}
 	return false
+}
+
+// hostDiffers reports whether host's own result differs between oldTask
+// and newTask (outcome or output) - taskDiffers' own per-host building
+// block, and diff.go's own row rendering reuses it too, to decide which
+// specific hosts get underlined on a matched, differing task's row
+// (design-docs/Diff.md's "underline those hosts that are different").
+// false whenever host isn't recorded on both sides - same "host-set
+// differences don't count" rule taskDiffers itself follows.
+func hostDiffers(oldTask, newTask *taskNode, host string) bool {
+	oldOutcome, ok := oldTask.Hosts[host]
+	if !ok {
+		return false
+	}
+	newOutcome, ok := newTask.Hosts[host]
+	if !ok {
+		return false
+	}
+	if oldOutcome != newOutcome {
+		return true
+	}
+	return hostOutputDiffers(oldTask, newTask, host)
+}
+
+// differingHosts returns the set of hosts (out of NewTask.Hosts) that
+// hostDiffers reports as different for a *matched* alignment - nil for an
+// unmatched one (OldTask or NewTask nil), since there's no per-host
+// comparison to make there; the whole row is marked instead (see
+// diff.go's own diffTaskRowText).
+func differingHosts(a taskAlignment) map[string]bool {
+	if a.OldTask == nil || a.NewTask == nil {
+		return nil
+	}
+	diff := map[string]bool{}
+	for host := range a.NewTask.Hosts {
+		if hostDiffers(a.OldTask, a.NewTask, host) {
+			diff[host] = true
+		}
+	}
+	return diff
 }
 
 // hostOutputDiffers compares host's own recorded output between oldTask

@@ -507,10 +507,12 @@ func main() {
 	// role's own name is shown there in that case - design-docs/Tangsible
 	// role.md's own "loose end".
 	displayName := filepath.Base(playbook)
+	targetPlaybook, targetRole := playbook, ""
 	if roleDisplayName != "" {
 		displayName = roleDisplayName
+		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.runID, pending.first)
