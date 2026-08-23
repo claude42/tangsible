@@ -574,7 +574,9 @@ func taskVisible(t *taskNode, q filterQuery, sourceIndex taskSourceIndex, isActi
 // showOutput is called when a host row is selected (Enter), to display
 // that host's full result for that task. sourceIndex is only read by
 // taskVisible's filterSearch case, to search a task's own source text.
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, layout hostColumnLayout, allHosts []string, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string)) []row {
+// useColor is threaded straight through to each row's own taskLabel call
+// - see its doc comment (design-docs/Morehosts.md).
+func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, layout hostColumnLayout, allHosts []string, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string), useColor bool) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		var playRows []row
@@ -584,7 +586,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, l
 				continue
 			}
 			playRows = append(playRows, row{
-				text:     taskLabel(t, allHosts, layout, width, t == activeTask, frame, false),
+				text:     taskLabel(t, allHosts, layout, width, t == activeTask, frame, false, useColor),
 				id:       t,
 				selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -751,7 +753,14 @@ func filterDialogText(active filterQuery) string {
 // design-docs/Drilldown, Resolved Values.md) see the same
 // inventory/extra-vars context the real run did. Not used for anything
 // else in this function.
-func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker]) (app *tview.Application, applyLive func(rawEvent)) {
+//
+// colorEnabled is general.color's own resolved value (colorEnabledByUser,
+// resolve.go), read once by main.go before construction - one of three
+// independent inputs (alongside the terminal's own detected color
+// capability and the NO_COLOR environment variable) combined below into
+// useColor, design-docs/Morehosts.md's own gate on whether the collapsed
+// task row's per-host summary may render in color at all.
+func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker]) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -843,6 +852,12 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// same reason: showOutput (and, for bottomBar, closeOutput too) needs
 	// these identifiers in scope before their real construction further
 	// down assigns them.
+	//
+	// useColor (design-docs/Morehosts.md) is forward-declared here for the
+	// identical reason: rebuild's own body (further down still) reads it,
+	// but its real value isn't known until the terminal color-capability
+	// probe runs, right before Application.EnableMouse below.
+	var useColor bool
 	var bottomBar *tview.TextView
 	var flex, splitFlex, splitBody, treeBody *tview.Flex
 	var splitDivider *tview.Box
@@ -1493,9 +1508,9 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// selected-row re-render just below - so the cursor row always
 		// aligns to the identical column every other row uses (see
 		// computeHostColumnLayout).
-		layout := computeHostColumnLayout(state, treeAllHosts, width)
+		layout := computeHostColumnLayout(state, treeAllHosts, width, !useColor)
 
-		currentRows = flattenRows(state, expanded, width, layout, treeAllHosts, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput)
+		currentRows = flattenRows(state, expanded, width, layout, treeAllHosts, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput, useColor)
 		hasStatusRow := false
 		if frozen && everStarted {
 			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
@@ -1583,7 +1598,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		case *playNode:
 			currentRows[selectedIndex].text = playRowText(id, true)
 		case *taskNode:
-			currentRows[selectedIndex].text = taskLabel(id, treeAllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true)
+			currentRows[selectedIndex].text = taskLabel(id, treeAllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true, useColor)
 		case hostRowID:
 			currentRows[selectedIndex].text = hostLabel(id.task, id.host, true)
 		case recapHostRowID:
@@ -2218,7 +2233,38 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 11), true, false)
 	pages.AddPage("rerun", centeredModal(rerunForm, 56, 13), true, false)
 
-	app = tview.NewApplication().SetRoot(pages, true).EnableMouse(true)
+	app = tview.NewApplication().SetRoot(pages, true)
+
+	// Terminal color-capability probe, design-docs/Morehosts.md:
+	// Application.Screen() isn't available until after Run() starts, but
+	// useColor (below) is needed well before that, on every rebuild - so
+	// the tcell.Screen is created here instead and handed to Application
+	// via SetScreen() before Run() is ever called. Confirmed against
+	// tview's own source (application.go): SetScreen calls screen.Init()
+	// itself when Run() hasn't started yet ("Run() has not been called
+	// yet" branch), and Run() itself skips creating/initializing its own
+	// screen whenever one is already set ("Make a screen if there is none
+	// yet"). tcell.NewScreen() failing at all would be unexpected (this
+	// app already requires a real TTY - see CLAUDE.md's Commands section)
+	// but isn't treated as fatal here: on failure, terminalSupportsColor
+	// just defaults to true (today's assumption, unchanged) and Run()
+	// falls back to creating its own screen exactly as it always has.
+	//
+	// Ordering below matters and is the one genuinely risky part of this
+	// change: SetScreen must happen *before* EnableMouse(true), since
+	// Application.EnableMouse only actually calls screen.EnableMouse() when
+	// a.screen != nil at the moment it's called (confirmed against the
+	// same source) - calling EnableMouse(true) first, the way this used to
+	// read as one chained expression, would silently leave the mouse never
+	// enabled on a screen supplied via SetScreen afterward, since Run()'s
+	// own "make a screen" branch (the only other place EnableMouse gets
+	// applied to a screen) never runs when a.screen is already non-nil.
+	terminalSupportsColor := true
+	if screen, err := tcell.NewScreen(); err == nil {
+		app.SetScreen(screen)
+		terminalSupportsColor = screen.Colors() > 1
+	}
+	app.EnableMouse(true)
 	// Everything else falls out of tview's own defaults once mouse events
 	// are actually turned on (previously never enabled): List's/TextView's
 	// built-in mouse wheel handling already just pans the viewport without
@@ -2226,6 +2272,18 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// a row's Selected() callback on the first click - identical to Enter -
 	// so a host row's output already opens on a single click, and no
 	// custom double-click wiring is needed on top of that.
+
+	// useColor, design-docs/Morehosts.md: whether the collapsed task row's
+	// per-host summary (see computeHostColumnLayout/taskLabel) may ever
+	// render in color - all three of terminal capability, the NO_COLOR
+	// convention (https://no-color.org - presence disables color
+	// regardless of value, even ""; hence LookupEnv's ok result, not the
+	// value itself), and the user's own general.color setting must permit
+	// it. Computed once - none of the three can change mid-session -
+	// and captured by rebuild()'s closure below, the same way twoPaneLayout
+	// already is.
+	_, noColorSet := os.LookupEnv("NO_COLOR")
+	useColor = terminalSupportsColor && !noColorSet && colorEnabled
 
 	// Top-bar heartbeat ticker - the first self-driven (not event- or
 	// input-triggered) source of QueueUpdateDraw calls in this codebase.
@@ -2983,6 +3041,74 @@ func colorTag(o outcome) string {
 	}
 }
 
+// summaryFieldColor is hostSummaryColoredText's own per-field color
+// choice, design-docs/Morehosts.md - colorTag(o) when n is greater than
+// zero, or grayTag when n is zero. Same "gray out zero counts" rule the
+// recap's own recapSummaryFieldColor already established (recap.go) -
+// reused here in spirit, not by calling it directly, since that one is
+// keyed by a label string tied to its own recapColumnWidths fields
+// rather than by outcome.
+func summaryFieldColor(o outcome, n int) string {
+	if n == 0 {
+		return grayTag
+	}
+	return colorTag(o)
+}
+
+// hostSummaryPlainText renders task.counts()'s five values as
+// design-docs/Morehosts.md's own fixed-format summary string - raw,
+// untagged, unescaped text. Shared by widestSummaryWidth (for measuring)
+// and taskLabel's own selected-row rendering (which - like every other
+// selected row in this file - uses a single uniform light-gray
+// background rather than per-field color, so there's nothing to tag
+// there either).
+func hostSummaryPlainText(ok, changed, skipped, failed, unreachable int) string {
+	return fmt.Sprintf("OK:%d/Chgd:%d/Skip:%d/Fail:%d/Unrch:%d", ok, changed, skipped, failed, unreachable)
+}
+
+// hostSummaryColoredText is hostSummaryPlainText's own tagged rendering
+// for an unselected row: each field wrapped in summaryFieldColor's own
+// tag when useColor is true, or the identical plain text (escaped, no
+// tags at all) when it's false - design-docs/Morehosts.md's explicit
+// "otherwise it shall be simply an uncolored string." Labels and digits
+// are always safe, fixed literal text, never external data - no
+// tview.Escape needed on the colored branch's own tag/label/digit
+// pieces, only (defensively, consistent with this file's own discipline
+// elsewhere) on the plain-text fallback.
+func hostSummaryColoredText(ok, changed, skipped, failed, unreachable int, useColor bool) string {
+	if !useColor {
+		return tview.Escape(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))
+	}
+	seg := func(label string, o outcome, n int) string {
+		return fmt.Sprintf("[%s]%s:%d[-]", summaryFieldColor(o, n), label, n)
+	}
+	return strings.Join([]string{
+		seg("OK", outcomeOK, ok),
+		seg("Chgd", outcomeChanged, changed),
+		seg("Skip", outcomeSkipped, skipped),
+		seg("Fail", outcomeFailed, failed),
+		seg("Unrch", outcomeUnreachable, unreachable),
+	}, "/")
+}
+
+// widestSummaryWidth is the widest hostSummaryPlainText rune width across
+// every task the run has produced so far (allTasks(state), same
+// unconditional-of-expand/collapse/filter scope computeHostColumnLayout's
+// own desiredTitleWidth already uses) - what summary mode sizes
+// TitleColWidth against instead of the host list's own width, since
+// every task's counts (and so its own summary string's digit widths) can
+// differ.
+func widestSummaryWidth(state *playbookState) int {
+	widest := 0
+	for _, t := range allTasks(state) {
+		ok, changed, skipped, failed, unreachable := t.counts()
+		if w := len([]rune(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))); w > widest {
+			widest = w
+		}
+	}
+	return widest
+}
+
 const (
 	// minTaskTitleName is the floor task.Name's own text is shortened to
 	// before hostnames start getting shrunk instead (see taskLabel) - 30
@@ -3077,10 +3203,15 @@ func hostTransition(leftTag, rightTag string) string {
 // longer. HostDisplay is the (possibly globally-shrunk) display text for
 // each host in playbookState.AllHosts, same order - shared verbatim by
 // every row; only each row's per-host *color* varies (task.Hosts[host]),
-// never the text.
+// never the text. SummaryMode (design-docs/Morehosts.md) is true when
+// the per-host list should be replaced with each row's own
+// OK/Changed/Skipped/Failed/Unreachable count summary instead
+// (computeHostColumnLayout's own forceSummary/hostsTooNarrow) - taskLabel
+// ignores HostDisplay entirely in that case (left empty).
 type hostColumnLayout struct {
 	TitleColWidth int
 	HostDisplay   []string
+	SummaryMode   bool
 }
 
 // splitTreeWidth implements design-docs/TwoPanedLayout.md's growth rule for
@@ -3124,7 +3255,19 @@ func splitTreeWidth(totalWidth int) int {
 // it once is what makes the truncated host text - not just the column's
 // start - line up column-by-column down every row for free, without
 // needing a second alignment mechanism.
-func computeHostColumnLayout(state *playbookState, allHosts []string, avail int) hostColumnLayout {
+//
+// forceSummary (design-docs/Morehosts.md) is NewLiveTUI's own useColor,
+// inverted - true whenever color isn't usable at all (terminal
+// incapable, NO_COLOR set, or general.color = false), in which case the
+// per-host list is skipped entirely in favor of summary mode below,
+// regardless of whether it would actually have fit. When forceSummary is
+// false, the host-shrink loop above still runs first (color being usable
+// doesn't mean there's room) - if it needed to shrink any real host name
+// (longer than 2 runes to begin with) down to 2 runes or fewer, that's
+// Morehosts.md's own "not enough space" trigger, and this falls through
+// to summary mode too rather than returning the now-illegibly-truncated
+// host list.
+func computeHostColumnLayout(state *playbookState, allHosts []string, avail int, forceSummary bool) hostColumnLayout {
 	availContent := avail - len(taskIndent)
 	if availContent < 0 {
 		availContent = 0
@@ -3137,42 +3280,104 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int)
 		}
 	}
 
-	hostRunes := make([][]rune, len(allHosts))
-	for i, h := range allHosts {
-		hostRunes[i] = []rune(h)
-	}
-	hostsWidth := func() int {
-		w := 0
-		for i, hr := range hostRunes {
-			w += len(hr)
-			if i > 0 {
-				w++ // fixed 1-space separator between adjacent host names -
-				// not itself a shrink target, same as before.
-			}
-		}
-		return w
-	}
-
 	if len(allHosts) == 0 {
 		// Nothing to align to yet (true run-wide, briefly, before the very
 		// first host of the entire run has reported anything at all) - the
 		// column has no meaning without hosts; taskLabel's own !haveHosts
 		// path ignores TitleColWidth entirely in this case, so its exact
-		// value here doesn't matter.
+		// value here doesn't matter. Also too early to know whether summary
+		// mode will even be needed once hosts do show up, so this never
+		// forces it just from being empty.
 		return hostColumnLayout{TitleColWidth: desiredTitleWidth}
 	}
 
-	fits := func(colWidth int) bool {
-		return colWidth+titleHostGapFloor+hostsWidth() <= availContent
+	if !forceSummary {
+		hostRunes := make([][]rune, len(allHosts))
+		for i, h := range allHosts {
+			hostRunes[i] = []rune(h)
+		}
+		hostsWidth := func() int {
+			w := 0
+			for i, hr := range hostRunes {
+				w += len(hr)
+				if i > 0 {
+					w++ // fixed 1-space separator between adjacent host names -
+					// not itself a shrink target, same as before.
+				}
+			}
+			return w
+		}
+
+		fits := func(colWidth int) bool {
+			return colWidth+titleHostGapFloor+hostsWidth() <= availContent
+		}
+
+		titleColWidth := desiredTitleWidth
+		if !fits(titleColWidth) {
+			floor := desiredTitleWidth
+			if floor > minTaskTitleName {
+				floor = minTaskTitleName
+			}
+			target := availContent - titleHostGapFloor - hostsWidth()
+			if target < floor {
+				target = floor
+			}
+			titleColWidth = target
+			if titleColWidth < 0 {
+				titleColWidth = 0
+			}
+		}
+
+		for !fits(titleColWidth) {
+			longest := -1
+			for i, hr := range hostRunes {
+				if len(hr) > 1 && (longest == -1 || len(hr) > len(hostRunes[longest])) {
+					longest = i
+				}
+			}
+			if longest == -1 {
+				// Every hostname is already at its 1-character floor and it
+				// still doesn't fit even alongside a column floored at
+				// minTaskTitleName. Accept the overflow, same as before.
+				break
+			}
+			hostRunes[longest] = hostRunes[longest][:len(hostRunes[longest])-1]
+		}
+
+		tooNarrow := false
+		for i, hr := range hostRunes {
+			if len(hr) <= 2 && len([]rune(allHosts[i])) > 2 {
+				tooNarrow = true
+				break
+			}
+		}
+
+		if !tooNarrow {
+			hostDisplay := make([]string, len(hostRunes))
+			for i, hr := range hostRunes {
+				hostDisplay[i] = string(hr)
+			}
+			return hostColumnLayout{TitleColWidth: titleColWidth, HostDisplay: hostDisplay}
+		}
+		// Falls through to summary mode below - the host list just
+		// computed is discarded, the whole point of switching being to
+		// stop needing it.
 	}
 
+	// Summary mode: TitleColWidth is sized against the widest
+	// OK/Changed/Skipped/Failed/Unreachable summary string across every
+	// task instead of the host list's own width - same shrink-to-
+	// minTaskTitleName-then-accept-overflow pattern as above, just against
+	// a different, much narrower and hostname-count-independent content
+	// width.
+	summaryWidth := widestSummaryWidth(state)
 	titleColWidth := desiredTitleWidth
-	if !fits(titleColWidth) {
+	if titleColWidth+titleHostGapFloor+summaryWidth > availContent {
 		floor := desiredTitleWidth
 		if floor > minTaskTitleName {
 			floor = minTaskTitleName
 		}
-		target := availContent - titleHostGapFloor - hostsWidth()
+		target := availContent - titleHostGapFloor - summaryWidth
 		if target < floor {
 			target = floor
 		}
@@ -3181,28 +3386,7 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int)
 			titleColWidth = 0
 		}
 	}
-
-	for !fits(titleColWidth) {
-		longest := -1
-		for i, hr := range hostRunes {
-			if len(hr) > 1 && (longest == -1 || len(hr) > len(hostRunes[longest])) {
-				longest = i
-			}
-		}
-		if longest == -1 {
-			// Every hostname is already at its 1-character floor and it
-			// still doesn't fit even alongside a column floored at
-			// minTaskTitleName. Accept the overflow, same as before.
-			break
-		}
-		hostRunes[longest] = hostRunes[longest][:len(hostRunes[longest])-1]
-	}
-
-	hostDisplay := make([]string, len(hostRunes))
-	for i, hr := range hostRunes {
-		hostDisplay[i] = string(hr)
-	}
-	return hostColumnLayout{TitleColWidth: titleColWidth, HostDisplay: hostDisplay}
+	return hostColumnLayout{TitleColWidth: titleColWidth, SummaryMode: true}
 }
 
 // taskLabel builds one TASK row's full text, including its leading indent.
@@ -3264,7 +3448,14 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int)
 // black bold text on a light gray background, and each hostname gets black
 // bold text on its own outcome color as a background instead of a
 // foreground - the inverse of the normal rendering below.
-func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool) string {
+//
+// useColor (design-docs/Morehosts.md) only ever matters when
+// layout.SummaryMode is true - it decides whether that row's own
+// OK/Changed/Skipped/Failed/Unreachable summary renders in color
+// (hostSummaryColoredText) or not; the per-host list's own coloring
+// (below) is untouched by it, since Morehosts.md scopes this feature to
+// summary mode alone, not a whole-app monochrome option.
+func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
 	// One prefix fills taskIndent's single slot (see its own doc comment) -
 	// the active spinner takes priority; otherwise a warningColor ⚠ if the
 	// task has finished with at least one host's warning recorded; plain
@@ -3353,6 +3544,23 @@ func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail
 	// nameWidth == TitleColWidth there), plus titleHostGapFloor more -
 	// the minimum gap every row gets, per TUI.md.
 	padding := layout.TitleColWidth - nameWidth + titleHostGapFloor
+
+	if layout.SummaryMode {
+		ok, changed, skipped, failed, unreachable := task.counts()
+		if selected {
+			// Same uniform light-gray-background treatment as the
+			// !haveHosts fallback above, applied to title+string as one
+			// block, rather than per-field color-as-background segments
+			// the way the host-list branch below does - there's no
+			// established blending convention for a handful of short
+			// label:count fields the way there is for hostnames, and
+			// Morehosts.md doesn't ask for one.
+			plain := tview.Escape(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))
+			return prefix + "[" + pureBlack + ":lightgray:b]" + title + strings.Repeat(" ", padding) + plain + "[-:-:-]"
+		}
+		styledTitle := "[silver::-]" + title + "[-::-]"
+		return prefix + styledTitle + strings.Repeat(" ", padding) + hostSummaryColoredText(ok, changed, skipped, failed, unreachable, useColor)
+	}
 
 	if selected {
 		// No neutral/uncolored cells anywhere: the gray title background

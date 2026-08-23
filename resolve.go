@@ -74,6 +74,15 @@ type settingsConfig struct {
 		// since there's no third named value to give the unset case its own
 		// meaning.
 		TwoPaneLayout *bool `toml:"two_pane_layout"`
+		// Color governs whether the collapsed task row's per-host color
+		// list may render in color at all - design-docs/Morehosts.md.
+		// Same *bool/nil-means-true shape as TwoPaneLayout, for the same
+		// reason. "color = false" here is one of Morehosts.md's three
+		// independent triggers (alongside insufficient width and the
+		// terminal's own detected color capability) for switching that row
+		// to a plain OK/Changed/Skipped/Failed/Unreachable count summary
+		// instead - see tui.go's colorEnabledByUser callers.
+		Color *bool `toml:"color"`
 	} `toml:"general"`
 }
 
@@ -94,6 +103,18 @@ func defaultTreeExpanded(cfg settingsConfig) bool {
 // enabled; only an explicit "two_pane_layout = false" turns it off.
 func twoPaneLayoutEnabled(cfg settingsConfig) bool {
 	return cfg.General.TwoPaneLayout == nil || *cfg.General.TwoPaneLayout
+}
+
+// colorEnabledByUser reports whether cfg.General.Color permits coloring
+// the collapsed task row's per-host summary (design-docs/Morehosts.md).
+// Default true - an unset Color (nil, the common case) means enabled;
+// only an explicit "color = false" turns it off. This is one of three
+// independent inputs tui.go's useColor combines (alongside the
+// terminal's own detected color capability and the NO_COLOR
+// environment variable) - all three must allow color for that row to
+// ever render in color.
+func colorEnabledByUser(cfg settingsConfig) bool {
+	return cfg.General.Color == nil || *cfg.General.Color
 }
 
 // verb identifies which top-level command Tangsible was invoked with -

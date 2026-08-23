@@ -2,7 +2,7 @@
 
 ## Problem
 
-The way results are displayed reight now tangsiable is explicitely geared
+The way results are displayed right now tangsiable is explicitely geared
 toward a small number of hosts. If that number grows at some point there just
 won't benough horizontal screen real estate - depending on the terminal size
 sooner rather than later.
@@ -26,10 +26,12 @@ then
 The list of colored hostnames that visualize the state of the current task
 shall be replaced by the following string
 
-OK:xx/Chagd:xx/Skip:xx/Fail:xx/Unrch:xx
+OK:xx/Chgd:xx/Skip:xx/Fail:xx/Unrch:xx
 
 If the terminal can do colors and the user has not set color=false, then the
 elements of this strings shall be colored in the corresponding colors,
 otherwise it shall be simply an uncolored string.
+
+## Session
 
 claude --resume d5719640-c051-4d0e-8bc2-6fdb0bfc2063

@@ -422,6 +422,7 @@ func main() {
 	// through the whole program.
 	startExpanded := defaultTreeExpanded(readSettingsConfig(tangsibleConfigPath))
 	twoPaneLayout := twoPaneLayoutEnabled(readSettingsConfig(tangsibleConfigPath))
+	colorEnabled := colorEnabledByUser(readSettingsConfig(tangsibleConfigPath))
 
 	state := &playbookState{}
 	var processDone, quitting atomic.Bool
@@ -558,7 +559,7 @@ func main() {
 	if roleDisplayName != "" {
 		displayName = roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH)
 
 	if pending != nil {
 		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)
