@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -99,26 +100,60 @@ func formatRevisitTime(raw string) string {
 	return t.Local().Format("2006-01-02 15:04:05")
 }
 
-// revisitRowText renders one list row - a leading status color (green:
-// clean success; gray: user-interrupted, same ansibleUserInterruptedExitCode
-// main.go itself treats as "not a failure"; red: anything else) on the
-// timestamp, then revisitCommandText. Selected styling matches host.go's
-// own hostRowText convention (pureBlack on lightgray) rather than
-// reinventing a second one.
-func revisitRowText(e revisitEntry, selected bool) string {
+// revisitStatusLabel renders e's own exit code as a short, explicit status
+// word - "Success" (exit 0), "Aborted" (exit 99, ansibleUserInterruptedExitCode -
+// the user's own q/Ctrl-C, not a real failure - main.go treats it
+// identically), or "Failed (N)" for any other exit code, N being the
+// literal code (including -1, this app's own sentinel for "the process
+// never even started" - see spawnGeneration/newRequestRerun's own spawn-
+// failure path). Spelled out rather than left to color alone: a color-only
+// "red timestamp means it failed" turned out not to read clearly on its
+// own (live feedback) - matches this app's own existing precedent
+// elsewhere of never relying on color as the sole signal (Morehosts.md's
+// monochrome-terminal fallback for the tree's own host-color list).
+func revisitStatusLabel(exitCode int) string {
+	switch exitCode {
+	case 0:
+		return "Success"
+	case ansibleUserInterruptedExitCode:
+		return "Aborted"
+	default:
+		return fmt.Sprintf("Failed (%d)", exitCode)
+	}
+}
+
+// revisitStatusColor is revisitStatusLabel's own color, shared with the
+// selected-row case only insofar as an unselected row applies it directly
+// (a selected row uses the uniform pureBlack-on-lightgray convention
+// instead, matching host.go's own hostRowText - see revisitRowText).
+func revisitStatusColor(exitCode int) string {
+	switch {
+	case exitCode == 0:
+		return "green"
+	case exitCode == ansibleUserInterruptedExitCode:
+		return "gray"
+	default:
+		return "red"
+	}
+}
+
+// revisitRowText renders one list row: <timestamp> - <status, padded to
+// labelWidth and colored by revisitStatusColor> - <revisitCommandText>.
+// labelWidth is the widest revisitStatusLabel across the whole list
+// currently shown (computed once by runRevisitListTUI, not per row), so
+// every row's own trailing " - tangsible ..." column lines up regardless
+// of which row's own label happens to be shortest. Selected styling
+// matches host.go's own hostRowText convention (uniform pureBlack on
+// lightgray, no per-segment color) rather than reinventing a second one.
+func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
 	ts := formatRevisitTime(e.Time)
 	cmd := revisitCommandText(e)
+	label := revisitStatusLabel(e.ExitCode)
+	padded := label + strings.Repeat(" ", labelWidth-len([]rune(label)))
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s - %s[-:-:-]", pureBlack, tview.Escape(ts), tview.Escape(cmd))
+		return fmt.Sprintf("[%s:lightgray:b]%s - %s - %s[-:-:-]", pureBlack, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
 	}
-	statusColor := "green"
-	switch {
-	case e.ExitCode == ansibleUserInterruptedExitCode:
-		statusColor = "gray"
-	case e.ExitCode != 0:
-		statusColor = "red"
-	}
-	return fmt.Sprintf("[%s]%s[-] - %s", statusColor, tview.Escape(ts), tview.Escape(cmd))
+	return fmt.Sprintf("[white]%s[-] - [%s]%s[-] - %s", tview.Escape(ts), revisitStatusColor(e.ExitCode), tview.Escape(padded), tview.Escape(cmd))
 }
 
 // runRevisitListTUI shows entries (already filtered/sorted newest-first by
@@ -150,6 +185,17 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 		AddItem(list, 0, 1, true).
 		AddItem(footer, 1, 0, false)
 
+	// labelWidth is the widest status label across the whole list, computed
+	// once up front (entries is fully known already, unlike the live tree's
+	// incrementally-growing rows) so every row's own label column lines up -
+	// see revisitRowText's own doc comment.
+	labelWidth := 0
+	for _, e := range entries {
+		if w := len([]rune(revisitStatusLabel(e.ExitCode))); w > labelWidth {
+			labelWidth = w
+		}
+	}
+
 	var selected revisitEntry
 	chosen := false
 
@@ -162,7 +208,7 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 		list.Clear()
 		for i, e := range entries {
 			e := e
-			list.AddItem(revisitRowText(e, i == selectedIdx), func() {
+			list.AddItem(revisitRowText(e, labelWidth, i == selectedIdx), func() {
 				selected = e
 				chosen = true
 				app.Stop()

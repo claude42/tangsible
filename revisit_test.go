@@ -52,25 +52,56 @@ func TestFormatRevisitTime(t *testing.T) {
 	}
 }
 
+func TestRevisitStatusLabel(t *testing.T) {
+	cases := []struct {
+		exitCode int
+		want     string
+	}{
+		{0, "Success"},
+		{ansibleUserInterruptedExitCode, "Aborted"},
+		{2, "Failed (2)"},
+		{-1, "Failed (-1)"},
+		{255, "Failed (255)"},
+	}
+	for _, c := range cases {
+		if got := revisitStatusLabel(c.exitCode); got != c.want {
+			t.Errorf("revisitStatusLabel(%d) = %q, want %q", c.exitCode, got, c.want)
+		}
+	}
+}
+
 func TestRevisitRowTextStatusColor(t *testing.T) {
-	success := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 0}, false)
-	if !strings.Contains(success, "[green]") {
-		t.Errorf("revisitRowText(exit 0) = %q, want a [green] status color", success)
+	success := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 0}, 7, false)
+	if !strings.Contains(success, "[green]") || !strings.Contains(success, "Success") {
+		t.Errorf("revisitRowText(exit 0) = %q, want a [green] \"Success\" label", success)
 	}
 
-	interrupted := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: ansibleUserInterruptedExitCode}, false)
-	if !strings.Contains(interrupted, "[gray]") {
-		t.Errorf("revisitRowText(exit 99) = %q, want a [gray] status color", interrupted)
+	interrupted := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: ansibleUserInterruptedExitCode}, 7, false)
+	if !strings.Contains(interrupted, "[gray]") || !strings.Contains(interrupted, "Aborted") {
+		t.Errorf("revisitRowText(exit 99) = %q, want a [gray] \"Aborted\" label", interrupted)
 	}
 
-	failed := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 2}, false)
-	if !strings.Contains(failed, "[red]") {
-		t.Errorf("revisitRowText(exit 2) = %q, want a [red] status color", failed)
+	failed := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 2}, 14, false)
+	if !strings.Contains(failed, "[red]") || !strings.Contains(failed, "Failed (2)") {
+		t.Errorf("revisitRowText(exit 2) = %q, want a [red] \"Failed (2)\" label", failed)
+	}
+
+	// The timestamp itself is plain/uncolored - only the status label
+	// carries the color, per your own request.
+	if strings.Contains(failed, "[white]2026-08-23") == false {
+		t.Errorf("revisitRowText(exit 2) = %q, want the timestamp wrapped in a plain [white] tag", failed)
+	}
+
+	// labelWidth pads the label out so the trailing " - tangsible ..."
+	// column lines up across rows with differently-sized labels.
+	wantPadded := "Failed (2)" + strings.Repeat(" ", 14-len("Failed (2)"))
+	if !strings.Contains(failed, wantPadded) {
+		t.Errorf("revisitRowText(exit 2, labelWidth=14) = %q, want %q padded out to 14 runes", failed, wantPadded)
 	}
 
 	// Selected rendering uses the shared pureBlack-on-lightgray convention,
 	// not a per-status color - same as host.go's own hostRowText.
-	selected := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 2}, true)
+	selected := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 2}, 10, true)
 	if !strings.Contains(selected, "lightgray") {
 		t.Errorf("revisitRowText(selected) = %q, want the shared selected-row styling", selected)
 	}
