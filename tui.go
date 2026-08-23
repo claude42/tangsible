@@ -2999,7 +2999,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 				return nil
 			}
 			app.Suspend(func() {
-				runDiffFlow(state, targetPlaybook, targetRole, initialTags, initialHosts)
+				runDiffFlow(state, targetPlaybook, targetRole, initialTags, initialHosts, sourceIndex)
 			})
 			return nil
 		case event.Key() == tcell.KeyRight:
@@ -4888,11 +4888,24 @@ func unifiedDiffText(d map[string]interface{}) string {
 	beforeLines := diffLinesWithMarker(diffFieldText(d["before"]))
 	afterLines := diffLinesWithMarker(diffFieldText(d["after"]))
 
+	return colorizedUnifiedDiff(beforeLines, afterLines, beforeHeader, afterHeader)
+}
+
+// colorizedUnifiedDiff computes a's vs b's own unified diff
+// (difflib.GetUnifiedDiffString) and colorizes it the same way real
+// `diff -u` output reads: green "+" lines, red "-" lines, teal "@@" hunk
+// headers, everything else (context lines) plain - "" if a and b produce
+// no hunks at all (identical). Shared by unifiedDiffText above (ansible's
+// own before/after, within one run's own Diff tab) and design-docs/
+// Diff.md's own drill-down tab diffing (diff.go, between two separate
+// runs) - the exact same rendering convention, reused rather than
+// reinvented, per your own "similar to how other diff utils do it."
+func colorizedUnifiedDiff(a, b []string, fromFile, toFile string) string {
 	text, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-		A:        beforeLines,
-		FromFile: beforeHeader,
-		B:        afterLines,
-		ToFile:   afterHeader,
+		A:        a,
+		FromFile: fromFile,
+		B:        b,
+		ToFile:   toFile,
 		Context:  3,
 	})
 	if err != nil || text == "" {

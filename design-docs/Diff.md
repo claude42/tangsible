@@ -283,6 +283,263 @@ tab just shows that one run's own single content, same as the normal
 
    Enter on a host row is a no-op for now (no drill-down yet) - decided
    live rather than guessed at, per the plan above.
-3. **Drill-down unified diffs.** Per-tab red/green diffing via
-   `buildDiffTab`'s own machinery, the Docs/Diff-tab exceptions.
+3. **Drill-down unified diffs - done.** Enter on a host row in diff mode
+   now opens a real drill-down (`showDiffOutput`/`buildDiffOutputTabs`,
+   diff.go): for a matched pair, Task/Output/Task definition/Details are
+   each unified-diffed (`diffTwoTexts` - reuses `colorizedUnifiedDiff`,
+   pulled out of `buildDiffTab`'s own `unifiedDiffText` as a shared
+   helper rather than reimplemented), a tab silently omitted whenever
+   that side's content is identical (same "nothing to show" convention
+   `buildOutputTabs`' own `add()` already uses); Docs is shown once,
+   undiffed; Diff (ansible's own before/after) is dropped entirely, for
+   both a matched and an unmatched task alike. An unmatched (old-only/
+   new-only) task falls back to `singleRunTabs` - that one run's own
+   normal tabs, nothing to diff against.
+
+   One thing this needed that wasn't obvious up front:
+   `buildTaskTab`/`buildOutputTab`/etc. all return tview-tag-decorated
+   text meant for direct display, not plain content - diffing that as-is
+   would treat a pure color change (e.g. an outcome going from green to
+   red) as a text difference, which is noise the tree's own underline
+   marking already covers. `stripTags` (a regex matching tview's own tag
+   grammar, confirmed against its `util.go`) strips that back to plain
+   text before diffing, without needing plain-text variants of every tab
+   builder.
+
+   **Resolved deliberately excluded, at least for now** - flagged rather
+   than silently dropped: it isn't a genuinely per-run recorded fact in
+   the first place (design-docs/Drilldown, Resolved Values.md - it always
+   re-resolves against *current* vars, regardless of which run's task is
+   shown), so for a matched pair whose own source didn't change it would
+   just diff identically-resolved text against itself; when the source
+   *did* change, Task definition's own diff already surfaces that. Can be
+   added later if it proves genuinely wanted.
+
+   **Docs fetch is synchronous here**, unlike the live tree's own
+   async-fetch-plus-cache machinery (`docsCache`/`resolveCache`) - this
+   view has no live session to hang that off of, and is opened rarely
+   enough that a brief blocking `ansible-doc` call is an acceptable
+   simplification rather than replicating that whole apparatus.
+
+   **A pre-existing limitation surfaced live, not a new bug**: "Task
+   definition" for the *old* run's own task can come back identical to
+   the new run's, and get silently omitted, even when the playbook was
+   genuinely edited between the two runs - because `sourceIndex` (both
+   old and new) always reflects whatever the file says *right now*, never
+   a historical snapshot (source.go's own long-standing, documented
+   behavior - the same caveat revisit's own drill-down already has).
+   Output still diffs correctly regardless, since that comes from each
+   run's own recorded `Raw` JSON, not a re-read of the file.
+
+   Confirmed live end-to-end: edited a task's own `msg:` between two
+   runs, diffed them - Output tab showed the real content diff (red/green/
+   teal, matching real `diff -u` output), Task/Task definition were
+   correctly omitted (identical, per the caveat above for the latter),
+   and the full three-level Esc/q stack (drill-down → diff tree →
+   candidate list → original live session, chrome and all back to
+   normal) worked exactly as designed.
+
+## Post-Phase-3 bug fix: invisible cursor in the diff tree
+
+Reported live: after picking a comparison run, the diff tree rendered
+with no visible cursor at all (navigation still worked, expand/drill-down
+too, just nothing ever looked selected).
+
+Root cause: `runDiffTreeTUI`'s own `rebuildRows` never re-rendered the row
+under the cursor with its selected styling at all - `treeList` (unlike
+`tview.List`) has no built-in "current row" look of its own; a row's
+selected appearance is *entirely* baked into that row's own text by
+whichever code builds it (the exact mechanism the live tree's own
+`rebuild()` already relies on for the same reason). `flattenDiffRows` was
+missing that step outright in the first version of this.
+
+Fixed by threading a `selectedID any` (a row's own `id` - `*playNode`,
+`*taskNode`, or the new `diffHostRowID{task, host}`) through
+`flattenDiffRows`/`diffHostRows`, comparing it against each row's own id
+as it's built. That alone still left the very first render broken,
+though, for a subtler reason: on the first ever call, `currentID` is
+`nil` - nothing can render as selected yet, since nothing has been
+chosen - and the default row (index 0) is only discovered *after*
+that render already happened, too late to reflect it. Fixed by making
+`rebuildRows` do two passes: a cheap probe pass (existing `currentID`,
+possibly `nil`) purely to resolve which index it lands on, then a real
+pass with `currentID` now definitely pointing at that row, which is what
+actually gets displayed. Confirmed live: the cursor is now visible from
+the very first frame, and stays correctly synced through navigation,
+expand/collapse, and opening/closing the drill-down.
+
+## Post-Phase-3 bug fix: task rows unindented, hosts not column-aligned
+
+Reported live, on a real multi-play playbook with many differing tasks:
+play and task rows both sat flush at column 0, and each task row's own
+host list started immediately after THAT row's own title - a different
+column per row - rather than one shared column. "The text content itself
+looks ok, but the formatting is totally off."
+
+Two separate gaps in the first version of this, both real: task rows
+were never given `taskIndent` at all (the same prefix the live tree's own
+`taskLabel` uses to set a task apart from a play's own column-0 title),
+and there was no shared title-column computation - `diffTaskLine` just
+put two spaces after whatever length that one row's own title happened to
+be, so shorter/longer titles never lined up against each other.
+
+Fixed by adding `taskIndent` to `diffTaskLine`'s own output, and a new
+`diffTitleColWidth(alignments)` - the widest title among every row
+`flattenDiffRows` would currently show, computed once per rebuild and
+threaded into every `diffTaskRowText` call so every task row pads its own
+title out to that same shared width (plus `titleHostGapFloor`, the same
+constant the live tree's own `taskLabel` uses) before the host list
+begins. Deliberately simpler than the live tree's own
+`computeHostColumnLayout`: no shrink-to-fit pass for a narrow terminal or
+an especially long title - just the padding that actually caused the
+reported problem. Confirmed live on a synthetic multi-play, multi-length-
+title playbook: task rows now sit indented under their own play, and
+hostnames land at the identical column across rows regardless of title
+length.
+
+## Post-Phase-3 bug fix: crash opening an old-only task's own host
+
+Reported live, reproducible every time: some tasks in the diff tree had
+no visible underline/strikethrough at all - "look like normal tasks."
+Expanding one of those and pressing Enter on its host row crashed
+tangsible with a nil pointer dereference.
+
+The "looks like a normal task" tasks were old-only (strikethrough-marked)
+ones - strikethrough is a much subtler visual cue than underline in a lot
+of terminals, easy to miss entirely at a glance, which is exactly why
+they read as unmarked rather than as a rendering bug of their own. The
+real bug was in what pressing Enter on one of their host rows actually
+did: `buildDiffOutputTabs` called `taskAction(a.NewTask, host)`
+*unconditionally*, before ever reaching its own `a.NewTask == nil` check
+a few lines below - `a.NewTask` is nil by definition for an old-only
+task, and `taskAction`'s own `t.Raw[host]` is a nil pointer dereference
+on a nil `t`.
+
+Fixed by checking which side is actually present *before* calling
+`taskAction` at all, rather than calling it speculatively and only
+correcting course afterward. Added
+`TestBuildDiffOutputTabsOldOnlyDoesNotPanic` - confirmed it reproduces
+the exact panic against the unfixed code (same nil-dereference stack
+trace) and passes against the fix. The earlier
+`TestBuildDiffOutputTabsUnmatchedFallsBackToSingleRun` only ever
+exercised the *new*-only side of "unmatched," which is why it hadn't
+already caught this - worth remembering for "unmatched" test coverage
+generally in this feature: the two sides need to be tested separately,
+not assumed symmetric just because the code looks symmetric.
+
+## Post-Phase-3 bug fix: unmatched tasks drilled into looked like "no differences"
+
+Reported live against two real saved runs: a task shown in the diff tree
+(strikethrough-marked, so correctly detected as unmatched) read, once
+drilled into, as if the feature had failed to find anything - every tab
+just showed that one run's own ordinary content, with no diff markup
+anywhere, since there was nothing to diff against. Confirmed against the
+user's own two jsonl files (`grep`) that the specific task named -
+`postfix : Run newaliases` - was genuinely, entirely absent from the
+newer run's event stream, and that its start event was
+`v2_playbook_on_handler_task_start`, not `v2_playbook_on_task_start`:
+an Ansible handler, only invoked via `notify:` when a preceding task in
+that run actually reports `changed`. The older run's own postfix
+configuration task changed something and notified it; the newer run was
+idempotent and never did - a legitimate, structural difference between
+the two runs' own event streams, not a matching/detection bug at all.
+`alignTasks`/`playAlignmentHasDifferences` were already doing the right
+thing: an unmatched task is exactly what a task that only exists on one
+side *should* produce.
+
+The actual bug was purely in how `singleRunTabs` communicated that: it
+rendered a completely normal, single-run drill-down with nothing at all
+saying *why* there's nothing to diff, so a reasonable user reads "no
+diff markup" as "no differences found" rather than "this task didn't run
+on the other side, which is itself the difference."
+
+Fixed by threading a `side string` ("old"/"new") through
+`singleRunTabs`'s three call sites in `buildDiffOutputTabs`, and
+prepending `unmatchedTaskNote(side)` - a short, explicit callout - to the
+Task tab's own content whenever `side != ""`. The third call site (the
+`!oldOK || !newOK` decode-failure fallback, where the task genuinely
+exists on *both* sides but one side's result failed to decode)
+deliberately passes `side: ""` - the task isn't actually unmatched there,
+so the note would be actively wrong; a dedicated regression test
+(`TestBuildDiffOutputTabsDecodeFailureFallbackOmitsUnmatchedNote`)
+pins that it stays silent. `TestBuildDiffOutputTabsUnmatchedFallsBackToSingleRun`/
+`TestBuildDiffOutputTabsOldOnlyDoesNotPanic` were both extended to assert
+the note's own text appears. Verified live against the user's own two
+provided runs (via a throwaway `.tangsible/state.toml` + `runs/`
+pointing at them): drilling into `postfix : Run newaliases` now leads
+with the note before the usual Name/Action/Role/Host/Status block,
+rendered in yellow, matching `sectionLabel`'s own section-color
+convention rather than colliding with any outcome color.
+
+The note's own wording went through one more round after this: the
+first version ("Only present in the {old/new} run - this task did not
+run at all in the {other} run - possibly a handler that wasn't notified
+there. That absence is itself the difference; there is nothing else to
+compare against.") was cut down, per live feedback, to a single
+terse line - `"Task only present in the {old/new} run."` - once it was
+established (see "strikethrough not rendering" below) that the note's
+real job is just to confirm what the tree row is already trying to say,
+not to re-explain the whole mechanism inline.
+
+### Strikethrough not rendering - a terminal/mosh issue, not a Tangsible bug
+
+Live report: the strikethrough marking on an old-only/new-only task row
+wasn't visible at all - "look like normal tasks." Checked directly via
+`tmux capture-pane -e` against real output: `diffTaskLine` does emit the
+correct ANSI SGR 9 (`\x1b[9m`) around both the title and the hostname for
+exactly these rows - not a rendering bug in this codebase. Narrowed down
+live, by the user testing several terminals directly: plain `ssh` renders
+it correctly; the same session over `mosh` does not, in iTerm2 and in
+macOS's own Terminal.app alike - `mosh`'s own terminal emulation is the
+common factor, not any particular terminal emulator, and not tmux either
+(tmux's own well-known SGR-9-passthrough gap, which requires an explicit
+`terminal-overrides` entry, was ruled out separately - the non-tmux mosh
+sessions failed identically). A `mosh` limitation is outside this project's own control, but the tree
+row's own signal was worth making robust anyway - see the fix below.
+
+### Follow-up fix: italic + a plain-text marker, alongside strikethrough
+
+Live-tested (a raw `printf '\x1b[3mitalic...'`, in the user's own mosh
+session) that italic *does* render there where strikethrough doesn't.
+Rather than swap one for the other, both are now applied together to an
+old-only task's whole line - `wholeLineFlag` went from `"s"` to `"si"`
+(tview's tag grammar accepts multiple attribute letters combined, e.g.
+`[silver::si]` - confirmed directly against `tview`'s own tag parser,
+`strings.go`, which just ORs each recognized letter's own `tcell.AttrMask`
+in turn). Rationale, direct from the user: strikethrough still reads as
+"something's gone" wherever it renders, so it's worth keeping for
+terminals that support it; italic is what survives on the ones (like
+`mosh`) that don't. New-only tasks are unaffected - underline ("u") was
+never reported broken, so it's untouched.
+
+On top of that, `unmatchedMarker(a taskAlignment) string` adds a third,
+completely attribute-independent signal: a literal `" (old only)"`/`"
+(new only)"` suffix rendered right after the task's own title, inside the
+same styled span (so it inherits `wholeLineFlag`'s own color/attributes
+too, rather than looking like a separate, differently-styled annotation).
+Unlike strikethrough/italic/underline, plain text needs no terminal SGR
+support at all - guaranteed visible everywhere. Threaded through
+`diffTaskLine`'s new `marker` parameter and `diffTaskDisplayWidth` (used
+by both `diffTitleColWidth`, so the shared host column still accounts for
+the marker's own width on every row that carries one, and `diffTaskLine`
+itself, so a task's own padding calculation matches). Not added to the
+expanded host rows (`diffHostRowText`) - those sit directly under an
+already-marked collapsed task row and don't repeat the task's own name,
+so there's nothing natural to hang a marker off of there; the
+strikethrough+italic/underline flag alone still applies per host as
+before.
+
+Verified live again against the user's own two saved runs (same
+throwaway `.tangsible/state.toml`/`runs/` setup as the earlier fix):
+`postfix : Run newaliases` now renders as
+`postfix : Run newaliases (old only)` with `\x1b[3;9m` (italic +
+strikethrough combined) confirmed via `tmux capture-pane -e`, and the
+shared host column still lines up correctly across every row in the
+play, marked and unmarked alike. `TestDiffTaskRowTextUnmatchedOldOnly`/
+`TestDiffTaskRowTextUnmatchedNewOnly` were extended to assert the
+marker text and the combined `si` flag; `TestDiffTitleColWidth`/
+`TestDiffTaskRowTextIndentedAndPaddedToSharedColumn` were updated to
+size their expected/shared column width via the new
+`diffTaskDisplayWidth` instead of a bare title length, since the marker
+is now part of what has to line up.
 
