@@ -303,6 +303,35 @@ A few things I don't think I should just decide unilaterally:
    `bottomBar.SetText(currentMainBottomBarText())` in that same revert
    block.
 
+4. **Scroll position on open - fixed a Phase-2-introduced regression.**
+   Reported: opening a revisit entry showed only the last line or two of
+   the tree, then Summary/recap, then a lot of empty terminal below the
+   recap - on a playbook long enough to overflow one screen, this got much
+   worse (a handful of lines near the *middle* of the tree, nowhere near
+   the top or the recap). Root cause: Phase 2's own "render immediately
+   instead of waiting ~200ms for the heartbeat's first tick" optimization
+   (an explicit `rebuild()` call before `app.Run()`) ran while `list` had
+   no real rect yet - `ensureVisible`/the existing "reveal trailing status
+   rows" scroll-to-bottom logic (both inside `rebuild()`, unchanged by any
+   of this) computed against a bogus size, landing `itemOffset` somewhere
+   wrong. The *next* `rebuild()` (the heartbeat's one tick, by which point
+   `list` has a real rect) saw an unchanged `selectedIndex` and took the
+   `restoreCurrentItem` path - which deliberately never touches
+   `itemOffset` - so nothing ever corrected the bogus position on its own;
+   only a genuine terminal resize (forcing the resize-watcher's own
+   `rebuild()` down a different path) ever did.
+
+   Fixed by simply removing that early `rebuild()` call - a revisit
+   session now waits for the heartbeat's first tick like every other verb
+   already does (a brief blank flash, same startup experience `run`/
+   `rerun`/`role` already have), rather than trying to skip it. With that
+   removed, the *existing* "reveal trailing status rows" mechanism
+   (already in `rebuild()`, built for exactly this "keep the tail visible"
+   requirement, not something new written for revisit) does the right
+   thing on its own: recap fully visible at the bottom when content
+   overflows, or shown from the top with empty space below when it
+   doesn't - confirmed live both ways.
+
 (Surfacing captured stderr in the UI itself is explicitly separate, per
 your note above - not part of this feature's phasing at all.)
 

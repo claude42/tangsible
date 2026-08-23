@@ -2448,15 +2448,25 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 		}()
 	}
-	if revisitActive {
-		// A revisit session's state/processDone/exitCode are already fully
-		// populated by the time this constructor runs (see revisit.go) -
-		// there's nothing left to wait for the heartbeat ticker's first
-		// tick (spinnerInterval away) to reveal, unlike a genuinely-empty
-		// run/rerun/role start. Render it immediately instead of a
-		// momentary blank screen.
-		rebuild()
-	}
+	// Deliberately no early, pre-Run() rebuild() call for a revisit session,
+	// even though its state/processDone/exitCode are already fully
+	// populated by this point (see revisit.go) and there'd be real content
+	// to show immediately, sparing the ~200ms blank flash before the
+	// heartbeat ticker's own first tick below. Tried exactly that and
+	// reverted it - a real, reported bug: list has no genuine rect yet at
+	// this point (app.Run() hasn't started laying anything out), so
+	// ensureVisible/the "reveal trailing status rows" scroll-to-bottom
+	// logic inside rebuild() (both below) compute against a bogus size,
+	// landing itemOffset somewhere wrong - and since the very next
+	// rebuild() (the heartbeat's one tick, once Run() has given list a
+	// real rect) sees an unchanged selectedIndex, it takes the
+	// restoreCurrentItem path, which deliberately never touches itemOffset
+	// - so nothing ever corrects the bogus position on its own, unlike a
+	// live run/rerun/role session (which only ever calls rebuild() after
+	// Run() has already given every widget a real size). A brief blank
+	// flash before the heartbeat's first tick - the same startup
+	// experience every other verb already has - is the trade worth making
+	// here, not a real regression.
 	// Placed after `app` is assigned: the go statement inside
 	// startHeartbeat's closure body has a happens-before edge (Go memory
 	// model) with this very call, which itself runs after `app` was
