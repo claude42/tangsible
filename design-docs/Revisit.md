@@ -271,14 +271,37 @@ A few things I don't think I should just decide unilaterally:
      list itself* exits the program outright. Left as-is for now per your
      own note - you'll try it live and decide whether it should instead
      skip the list and exit outright.
-3. **Re-run from within revisit.** Wiring a real `requestRerun` in (today
-   it's passed as `nil`, which is exactly why the 'r' key/hint are already
-   quietly disabled for a revisit session - see `openRevisitEntry`), plus
-   the revert-to-live behavior described above (already implemented in
-   `submitRerun`/`SetInputCapture`, just unreachable with a nil
-   `requestRerun`). Small on top of phase 2, but kept separate since it's
-   the one part with real behavioral judgment calls rather than just
-   plumbing. Next up.
+3. **Re-run from within revisit - done.** `requestRerun`/`runGeneration`'s
+   actual mechanism was pulled out of `main()`'s own body into
+   `generation.go` (`runOneGeneration`/`newRequestRerun`) - the same "one
+   shared funnel" pattern `spawnGeneration`/`appendInvocation`/
+   `finalizeInvocation` already established for starting/recording a
+   generation, extended here to running one, so `openRevisitEntry` reuses
+   it rather than forking its own copy. main.go itself is otherwise
+   unchanged behaviorally - confirmed live (`run` then `r` twice in a row,
+   two distinct saved generations, correct exit codes/files) before
+   touching revisit.go at all.
+
+   `openRevisitEntry` now builds a real `requestRerun`, and - for a role-
+   originated entry - eagerly regenerates a stub via `startRoleSession`
+   (unconditionally, even if 'r' never gets pressed - cheap, and it's what
+   `sourceIndex` gets built from too, so a *rerun's* own fresh tasks get a
+   working "Task definition" tab even though the historical replay itself
+   still can't, per the accepted gap above). Confirmed live for both a
+   plain playbook and a role entry: chrome/clock correctly revert to
+   normal, Esc stops returning to the list, the new generation gets its
+   own saved run-log and shows up in the list on the next loop - and, for
+   the role case, the rerun's own tasks do get real Task-definition source
+   now.
+
+   One more live-only bug, same shape as Phase 2's top-bar one: reverting
+   `revisitActive` in `submitRerun` reset every chrome bar's *style*
+   correctly, but `bottomBar`'s "Esc: back to list" hint stayed in its
+   *text* - unlike `topBar`/`splitHeader`, `bottomBar`'s text is a plain
+   string baked in once (construction/`closeOutput`/split-mode toggle),
+   never otherwise refreshed. Fixed by also calling
+   `bottomBar.SetText(currentMainBottomBarText())` in that same revert
+   block.
 
 (Surfacing captured stderr in the UI itself is explicitly separate, per
 your note above - not part of this feature's phasing at all.)

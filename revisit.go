@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -207,14 +208,26 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 // (processDone pre-true, exitCode/HadUnreachable already exactly what they
 // were for the original run), with revisitReturn wired so Esc at the bare
 // tree level closes this Application and returns control to
-// runRevisitVerb's own loop. Blocks until that happens (or the user quits
-// outright, q/Ctrl-C, which closes the whole program - see tui.go's
-// SetInputCapture, unchanged by any of this).
+// runRevisitVerb's own loop, unless a real rerun (Phase 3, below) is
+// confirmed first - once that happens (submitRerun/SetInputCapture, tui.go)
+// this session is no longer "old data" in any sense: chrome/clock revert to
+// normal and Esc stops meaning "back to the list." q/Ctrl-C's own meaning is
+// unchanged either way, before or after a rerun: it closes THIS Application
+// once processDone (same as tui.go's own SetInputCapture always does),
+// which - here, unlike main.go's own top-level session - still just returns
+// control to runRevisitVerb's own loop, showing the list again rather than
+// exiting the program outright. Only q/Ctrl-C *at the list itself* does
+// that (runRevisitListTUI). Deliberate for now, not yet settled - see
+// design-docs/Revisit.md's own open note on this.
 //
-// requestRerun is passed as nil - Phase 2 doesn't wire up re-run-from-
-// revisit yet (design-docs/Revisit.md's own phasing); NewLiveTUI's own 'r'
-// key handler already no-ops when requestRerun is nil, and
-// currentMainBottomBarText already drops the "r: re-run" hint to match.
+// requestRerun is a real newRequestRerun (generation.go) - the same
+// mechanism main.go's own run/rerun/role session uses, reused rather than
+// duplicated. A role-originated entry gets a freshly generated stub
+// (startRoleSession) up front, reused for every rerun within this one
+// session exactly as any other role session's own stub is - see the
+// "playbook" local's own doc comment below for why this is built
+// unconditionally, and what it does/doesn't fix about the historical
+// drill-down's own source lookup.
 func openRevisitEntry(e revisitEntry) {
 	jsonlPath, _ := runLogPaths(tangsibleStatePath, e.RunID)
 	f, err := os.Open(jsonlPath)
@@ -231,21 +244,35 @@ func openRevisitEntry(e revisitEntry) {
 	}
 	f.Close()
 
-	// A role-originated entry's own task.Path points at the role session's
-	// generated stub playbook, deleted once that session ended - there's
-	// no source left to index, and no path to index it from either (a
-	// role name isn't a file path). Left as taskSourceIndex's own zero
-	// value (nil map): source.go's existing "a miss just means no TASK:
-	// section, never an error" convention already covers this gracefully,
-	// same as any other lookup miss. Accepted gap, not chased further -
-	// design-docs/Revisit.md's own "Open questions."
-	var sourceIndex taskSourceIndex
+	// playbook is what a rerun (Phase 3, below) would actually spawn -
+	// e.Playbook itself for a plain playbook entry, or a freshly generated
+	// stub for a role entry, exactly as "tangsible role"/"tangsible rerun
+	// <role>" already do at their own session's start (startRoleSession) -
+	// a role session's stub is only ever reused for reruns *within* one
+	// process's lifetime, never persisted, so there's no way to reopen the
+	// *original* one here regardless. Built unconditionally (even if the
+	// user never actually presses 'r') - cheap (a single small file
+	// write, not an ansible invocation) and consistent with how eagerly
+	// every other role session already does this.
+	//
+	// The replayed events' own task.Path values, in contrast, still point
+	// at that original, already-deleted stub - a fresh one's path can't
+	// retroactively fix that lookup, so sourceIndex built from THIS stub
+	// only ever benefits a *rerun's* own fresh tasks, not the historical
+	// ones already on screen. The historical drill-down's own "no TASK:
+	// section for a role entry" gap (design-docs/Revisit.md's own "Open
+	// questions") is accepted, unchanged by any of this.
+	playbook := e.Playbook
 	displayName := filepath.Base(e.Playbook)
+	var cleanup func()
 	if e.Role != "" {
+		playbook, cleanup = startRoleSession(e.Role)
 		displayName = e.Role
-	} else {
-		sourceIndex = buildTaskSourceIndex(e.Playbook)
 	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	sourceIndex := buildTaskSourceIndex(playbook)
 
 	settings := readSettingsConfig(tangsibleConfigPath)
 	invArgs := parsePassthroughArgs(historyStringToArgs(e.Args))
@@ -260,20 +287,71 @@ func openRevisitEntry(e revisitEntry) {
 	progH.Store(newProgressTracker(nil)) // nothing to preview for a run
 	// that already happened - Position() reporting (0,0) is exactly what
 	// makes the frozen top bar's fill snap straight to 100%, same as any
-	// other frozen session.
+	// other frozen session. Rebuilt for real (buildProgressSkeleton) by
+	// newRequestRerun below, the moment a real rerun actually starts -
+	// same as any other session.
+
+	var outcomesMu sync.Mutex
+	var outcomes []generationOutcome // one appended per rerun triggered
+	// from this entry's own session, if any - printed once this
+	// session's own app.Run() returns, below. Unlike main.go's own
+	// top-level accumulation (kept for the whole process's lifetime),
+	// this is scoped to just one entry-viewing session: the terminal is
+	// genuinely back in normal mode between this Application's Run()
+	// returning and runRevisitVerb's own next list Application starting
+	// (tview's own Screen.Fini(), same as between any two sequential
+	// Application lifetimes), so printing here is exactly as safe as
+	// main.go's own equivalent, just scoped one level down.
 
 	var app *tview.Application
+	var applyLive func(rawEvent)
+	apply := func(item streamItem) {
+		if item.isEvent && !quitting.Load() {
+			applyLive(item.ev)
+		}
+	}
+	recordOutcome := func(o generationOutcome) {
+		outcomesMu.Lock()
+		outcomes = append(outcomes, o)
+		outcomesMu.Unlock()
+	}
+	requestRerun := newRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome)
+
 	revisitReturn := func() {
 		quitting.Store(true) // before Stop() - same race note as main.go's
 		// own top-level quitting.Store(true) after app.Run() returns.
 		app.Stop()
 	}
 
-	app, _ = NewLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
+	app, applyLive = NewLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
 		sourceIndex, defaultTreeExpanded(settings), twoPaneLayoutEnabled(settings), colorEnabledByUser(settings),
-		invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, false, nil, invArgs.Rest, &progH, revisitReturn)
+		invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, false, requestRerun, invArgs.Rest, &progH, revisitReturn)
 
-	if err := app.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "TUI error:", err)
+	runErr := app.Run()
+	quitting.Store(true) // defensive: same reasoning as main.go's own
+	// post-Run() store - stop the streamer/heartbeat/resize-watcher
+	// goroutines if Run() ever returns for a reason other than our own
+	// Stop() calls (revisitReturn, or plain q/Ctrl-C once processDone).
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "TUI error:", runErr)
+	}
+
+	// Same suppression main.go's own top-level printing applies: a 99
+	// exit means the user asked (via q/Ctrl-C) to interrupt a rerun
+	// triggered from this session, not a failure - nothing useful to
+	// report about that. Unlike main.go, a genuine failure here doesn't
+	// change this program's own exit status - a failed rerun while
+	// browsing history shouldn't take the whole "revisit" session down;
+	// the failure is already visible in the tree itself, and the user can
+	// navigate back to the list normally.
+	outcomesMu.Lock()
+	all := outcomes
+	outcomesMu.Unlock()
+	for _, o := range all {
+		if o.exitCode != ansibleUserInterruptedExitCode {
+			for _, l := range o.childStderr {
+				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
+			}
+		}
 	}
 }

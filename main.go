@@ -480,131 +480,26 @@ func main() {
 		}
 	}
 
-	// runGeneration drains one generation's stdout to completion - from
-	// whatever's already been peeked off it (peeked, "run"'s pre-flight
-	// gate only), through channel close - waits for its process, and
-	// records its outcome. Shared by "run"'s own first invocation below
-	// and every rerun since, for both verbs (see requestRerun) - so
-	// there's exactly one place that knows how a generation finishes.
-	//
-	// runID (spawnGeneration's own return value for this generation, ""
-	// if nothing was ever actually saved for it) is what finalizeInvocation
-	// records against this generation's own invocation-history entry,
-	// alongside its exit code, once both are known - see
-	// invocationRecord's own doc comment (history.go) for why that can't
-	// happen any earlier than this. roleDisplayName/playbook are read
-	// directly from the enclosing closure rather than passed in: a
-	// session's role-ness and playbook never change mid-session (a rerun
-	// reuses the same stub/playbook throughout - see startRoleSession),
-	// so whichever was true for this generation's own appendInvocation
-	// call is still true now.
-	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, runID string, peeked ...streamItem) {
-		for _, item := range peeked {
-			apply(item)
-		}
-		for item := range stdoutCh {
-			apply(item)
-		}
-		childStderr := <-stderrLines // wait for stderr to fully drain before Wait()
-		waitErr := cmd.Wait()
-		code := exitCodeOf(waitErr)
-		exitCode.Store(int32(code)) // before processDone below - tui.go's
-		// rebuild() only ever reads exitCode once it observes processDone
-		// true, and Go's atomics are sequentially consistent as a whole
-		// program (not just per-variable), so this ordering is what makes
-		// that store visible there.
+	// recordOutcome accumulates one generation's outcome for later printing,
+	// once app.Run() finally returns and the real terminal is restored -
+	// shared by runGeneration below and by newRequestRerun's own spawn
+	// failure path.
+	recordOutcome := func(o generationOutcome) {
 		outcomesMu.Lock()
-		outcomes = append(outcomes, generationOutcome{exitCode: code, waitErr: waitErr, childStderr: childStderr})
+		outcomes = append(outcomes, o)
 		outcomesMu.Unlock()
-		writeRunStderr(tangsibleStatePath, runID, childStderr)
-		if roleDisplayName != "" {
-			_ = finalizeInvocation(tangsibleStatePath, "", roleDisplayName, code, runID)
-		} else {
-			_ = finalizeInvocation(tangsibleStatePath, playbook, "", code, runID)
-		}
-		processDone.Store(true)
 	}
 
-	// requestRerun is tui.go's hook for starting a new generation mid-
-	// session (Rerun.md) - passed into NewLiveTUI below, called once the
-	// re-run dialog is confirmed. startAtTask, if non-empty, is prepended
-	// as --start-at-task; tags/hosts replace the original invocation's own
-	// (originalArgs.Rest is always carried forward unedited alongside
-	// them).
-	requestRerun := func(startAtTask, tags, skipTags, hosts string) {
-		// Reset synchronously, on whatever goroutine calls this (tview's
-		// event-loop goroutine, from the re-run dialog's Enter handler) -
-		// by the time this returns, a QueueUpdateDraw-driven rebuild()
-		// already sees a running, empty generation, matching the
-		// view-state reset tui.go does right alongside calling this.
-		state.Reset()
-		exitCode.Store(0)
-		processDone.Store(false)
-
-		newArgs := parsedPassthroughArgs{Tags: tags, SkipTags: skipTags, Hosts: hosts, Rest: originalArgs.Rest}.Reassemble()
-		if startAtTask != "" {
-			newArgs = append([]string{"--start-at-task", startAtTask}, newArgs...)
-		}
-
-		// Rebuilt synchronously, same place/reasoning as state.Reset()
-		// just above - tags/skip-tags/hosts (and --start-at-task) can all
-		// change on a rerun, so the previous generation's own skeleton
-		// (if any) is stale the instant any of them do. --list-tasks
-		// itself ignores --start-at-task entirely (confirmed empirically -
-		// it always lists the playbook's full task set regardless), so
-		// the resulting skeleton's front few entries simply won't ever be
-		// matched - harmless, progressTracker's own bounded lookahead
-		// already treats "not found (yet)" as a no-op rather than an
-		// error, and the real run's own first task-start event is still
-		// found well within that window for any reasonably-early
-		// --start-at-task point.
-		progH.Store(newProgressTracker(buildProgressSkeleton(playbook, newArgs)))
-
-		// Recorded the same way the original invocation was at the top of
-		// main - but its own error, unlike that one, can't be printed
-		// here: the TUI's alternate screen is already active by now
-		// (unlike the top-level call, which always runs before it exists),
-		// and printing directly to the terminal while it's up would
-		// corrupt the display. Silently dropped instead - non-fatal, same
-		// reasoning as the top-level call: losing the ability to pre-fill
-		// a *future* rerun is never worth disrupting the one the user just
-		// asked for. roleDisplayName, captured once up front and constant
-		// for the rest of the process's lifetime, decides whether this
-		// generation (like every other one this session ever spawns) gets
-		// recorded under playbook or under role - a role session's
-		// playbook local holds its generated stub's own path, never
-		// meaningful to record or to rerun from directly (see
-		// startRoleSession).
-		if roleDisplayName != "" {
-			_ = appendInvocation(tangsibleStatePath, "", roleDisplayName, argsToHistoryString(newArgs))
-		} else {
-			_ = appendInvocation(tangsibleStatePath, playbook, "", argsToHistoryString(newArgs))
-		}
-
-		go func() {
-			cmd, stdoutCh, stderrLines, runID, err := spawnGeneration(playbook, newArgs, &procH)
-			if err != nil {
-				// Rare (ansible-playbook vanished, pipes failed, ...) and,
-				// unlike the same failure on the very first invocation,
-				// not fatal to the whole program - the TUI already exists
-				// and the user is mid-session. Recorded as this one
-				// generation's own failed outcome instead; genuineFailure
-				// below renders it the same as any other failed run.
-				exitCode.Store(-1)
-				outcomesMu.Lock()
-				outcomes = append(outcomes, generationOutcome{exitCode: -1, waitErr: err})
-				outcomesMu.Unlock()
-				if roleDisplayName != "" {
-					_ = finalizeInvocation(tangsibleStatePath, "", roleDisplayName, -1, "")
-				} else {
-					_ = finalizeInvocation(tangsibleStatePath, playbook, "", -1, "")
-				}
-				processDone.Store(true)
-				return
-			}
-			runGeneration(cmd, stdoutCh, stderrLines, runID)
-		}()
+	// runGeneration/requestRerun are thin, session-local wrappers around
+	// runOneGeneration/newRequestRerun (generation.go) - the actual
+	// mechanism is shared with revisit.go's own rerun-from-within-
+	// "revisit" (design-docs/Revisit.md's Phase 3); this session's own
+	// playbook/roleDisplayName/state/procH/processDone/exitCode/progH/
+	// apply/recordOutcome are just what it closes over here.
+	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, runID string, peeked ...streamItem) {
+		runOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, &exitCode, &processDone, recordOutcome, peeked...)
 	}
+	requestRerun := newRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome)
 
 	// displayName is what the TUI's top bar shows - normally the resolved
 	// playbook's own filename, but a role session's playbook local holds

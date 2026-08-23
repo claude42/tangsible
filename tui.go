@@ -2558,6 +2558,18 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			splitHeader.SetTextStyle(barStyle)
 			bottomBar.SetTextStyle(barStyle)
 			splitDivider.SetBackgroundColor(tcell.ColorNavy)
+			// Style alone isn't enough for bottomBar: unlike topBar/
+			// splitHeader (whose visible text is rebuilt from scratch
+			// on every rebuild() call, always reading chromeColorName/
+			// showElapsed/revisitActive fresh), bottomBar's own text is
+			// a plain string baked in once at whichever point last set
+			// it (construction, closeOutput, or rebuild's own split-
+			// mode toggle) and never otherwise refreshed - a real bug
+			// caught live: without this, "Esc: back to list" kept
+			// showing (with the right style/color!) even after a
+			// revisit session was promoted to a real rerun and Esc
+			// had already stopped doing that.
+			bottomBar.SetText(currentMainBottomBarText())
 		}
 		startedAt = time.Now()
 		rebuild() // clear the previous run's rows immediately, rather than
