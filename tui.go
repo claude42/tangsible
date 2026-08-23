@@ -1542,12 +1542,32 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 		}
 
-		_, _, width, _ := list.GetInnerRect()
-		// Belt-and-suspenders only: tview.Box's own zero-value width is 15
-		// (never 0), and QueueUpdateDraw can't run this closure before
-		// Run()'s first real-size draw pass anyway - taskLabel is also
-		// panic-safe for any width - but clamp defensively in case that
-		// ordering assumption ever changes.
+		// width is derived from totalWidth/splitMode (both already decided
+		// just above, from pages' own rect - always accurate regardless of
+		// which page is frontmost), not list.GetInnerRect() directly - a
+		// real, reported bug: tview only updates a primitive's own rect
+		// during its next Draw() pass, which hasn't happened yet at this
+		// point in rebuild() whenever THIS very call is what just changed
+		// which page is frontmost (e.g. closeOutput's own
+		// switchPage("main") followed immediately by rebuild()) - so
+		// list.GetInnerRect() would still report whatever narrower width
+		// it had as part of splitBody a moment ago. Reported live: closing
+		// a two-pane drill-down left the host-column-shrink algorithm
+		// (computeHostColumnLayout/flattenRows below) rendering far too
+		// narrow, only correcting itself once some *other* event (a real
+		// terminal resize) forced a genuine Draw() pass first. list fills
+		// its own outer Flex row's entire width whenever "main" is
+		// frontmost (same "topBar shares list's own width" reasoning just
+		// below), so totalWidth itself already *is* list's own eventual
+		// width in that case - deriving it directly sidesteps the stale-
+		// rect problem entirely rather than working around it.
+		width := totalWidth
+		if splitMode {
+			width = splitTreeWidth(totalWidth)
+		}
+		// Belt-and-suspenders only: taskLabel is panic-safe for any width,
+		// but clamp defensively in case totalWidth is ever unexpectedly
+		// tiny (e.g. before Run()'s first real-size draw pass).
 		if width < 20 {
 			width = 20
 		}
