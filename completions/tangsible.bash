@@ -9,15 +9,15 @@
 #       source /path/to/tangsible/completions/tangsible.bash
 #
 # Covers tangsible's own verbs and positionals (resolve.go/role.go/
-# template.go/host.go) plus every flag `ansible-playbook --help` lists,
-# since tangsible passes those straight through unchanged. Positional
-# tracking below only recognizes the leading one or two arguments each
-# verb itself gives meaning to (mirroring what tangsible's own arg
-# parsers do) - anything after that falls back to plain filename
+# template.go/host.go/revisit.go) plus every flag `ansible-playbook
+# --help` lists, since tangsible passes those straight through unchanged.
+# Positional tracking below only recognizes the leading one or two
+# arguments each verb itself gives meaning to (mirroring what tangsible's
+# own arg parsers do) - anything after that falls back to plain filename
 # completion, the same "good enough, not chased further" heuristic
 # tangsible's own source uses for similar judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts"
+_tangsible_verbs="run rerun role template host hosts revisit"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards
@@ -139,8 +139,10 @@ _tangsible()
 	done
 
 	case "$verb" in
-	run | rerun | hosts)
+	run | rerun | hosts | revisit)
 		# tangsible <playbook.yml> [ansible-playbook args...]
+		# revisit's own positional is optional too (falls back to the most
+		# recently revisitable target), same shape as run/rerun/hosts.
 		if [ "$pos" -eq 0 ]; then
 			_tangsible_ymlfiles "$cur"
 		else

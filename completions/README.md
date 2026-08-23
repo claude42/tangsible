@@ -1,8 +1,9 @@
 # Shell completion
 
 Completion scripts for `tangsible`'s own verbs (`run`, `rerun`, `role`,
-`template`, `host`, `hosts`) and playbook/role positionals, plus every
-`ansible-playbook` flag Tangsible passes through, live in `completions/`.
+`template`, `host`, `hosts`, `revisit`) and playbook/role positionals,
+plus every `ansible-playbook` flag Tangsible passes through, live in
+`completions/`.
 
 **Bash** (needs the `bash-completion` package for the automatic directory):
 

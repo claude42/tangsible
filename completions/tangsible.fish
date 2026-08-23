@@ -7,8 +7,8 @@
 # system-wide install) - picked up automatically, no sourcing needed.
 #
 # Covers tangsible's own verbs and positionals (resolve.go/role.go/
-# template.go/host.go) plus every flag `ansible-playbook --help` lists,
-# since tangsible passes those straight through unchanged.
+# template.go/host.go/revisit.go) plus every flag `ansible-playbook
+# --help` lists, since tangsible passes those straight through unchanged.
 
 # Disable fish's default path completion so every completion offered here
 # is a deliberate choice below, not an accidental fallback.
@@ -40,11 +40,14 @@ complete -c tangsible -n '__fish_is_nth_token 1' -a role -d 'Run a single role i
 complete -c tangsible -n '__fish_is_nth_token 1' -a template -d 'Debug a Jinja2 template against a host'
 complete -c tangsible -n '__fish_is_nth_token 1' -a host -d 'Inspect one inventory host'
 complete -c tangsible -n '__fish_is_nth_token 1' -a hosts -d 'List inventory hosts, then inspect one'
+complete -c tangsible -n '__fish_is_nth_token 1' -a revisit -d 'Browse and reopen a previous run'
 
 # --- Verb-specific positionals ---
 
-# run/rerun/hosts: tangsible <playbook.yml> [ansible-playbook args...]
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun hosts; and __fish_is_nth_token 2' \
+# run/rerun/hosts/revisit: tangsible <playbook.yml> [ansible-playbook args...]
+# revisit's own positional is optional too (falls back to the most
+# recently revisitable target), same shape as run/rerun/hosts.
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun hosts revisit; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 
 # role: tangsible role <role_name> [ansible-playbook args...]
@@ -70,7 +73,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from host; and __fish_is_nth_to
 # straight through regardless of which one), from ansible-playbook's own
 # --help output.
 
-set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts'
+set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts revisit'
 
 complete -c tangsible -n $__tangsible_has_verb -l help -d 'Show ansible-playbook help and exit'
 complete -c tangsible -n $__tangsible_has_verb -l version -d 'Show ansible-playbook version info and exit'
