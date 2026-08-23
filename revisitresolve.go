@@ -72,33 +72,46 @@ func resolveRevisitEntries(args []string, cfg stateConfig) []revisitEntry {
 			if filter.Tags != "" && !csvOverlap(filter.Tags, invArgs.Tags) {
 				continue
 			}
-			code := 0
-			if inv.ExitCode != nil {
-				code = *inv.ExitCode
-			}
-			entries = append(entries, revisitEntry{
-				Playbook: h.Playbook,
-				Role:     h.Role,
-				Args:     inv.Args,
-				Time:     inv.Time,
-				ExitCode: code,
-				RunID:    inv.RunID,
-			})
+			entries = append(entries, newRevisitEntry(h, inv))
 		}
 	}
 
-	// A Time that fails to parse (shouldn't happen for anything
-	// appendInvocation itself ever wrote, but not trusted blindly - same
-	// caveat this project applies to every other event-derived field)
-	// falls back to time.Time's own zero value, which naturally sorts to
-	// the end of a newest-first ordering - no separate fallback branch
-	// needed.
+	sortRevisitEntriesNewestFirst(entries)
+	return entries
+}
+
+// newRevisitEntry builds one revisitEntry from a playbookHistory entry and
+// one of its own invocationRecords - shared by resolveRevisitEntries and
+// design-docs/Diff.md's own resolveDiffCandidates (diffresolve.go), so the
+// two can't silently drift on what a revisitEntry's fields mean.
+func newRevisitEntry(h playbookHistory, inv invocationRecord) revisitEntry {
+	code := 0
+	if inv.ExitCode != nil {
+		code = *inv.ExitCode
+	}
+	return revisitEntry{
+		Playbook: h.Playbook,
+		Role:     h.Role,
+		Args:     inv.Args,
+		Time:     inv.Time,
+		ExitCode: code,
+		RunID:    inv.RunID,
+	}
+}
+
+// sortRevisitEntriesNewestFirst sorts entries in place, newest Time first -
+// shared by resolveRevisitEntries and resolveDiffCandidates. A Time that
+// fails to parse (shouldn't happen for anything appendInvocation itself
+// ever wrote, but not trusted blindly - same caveat this project applies
+// to every other event-derived field) falls back to time.Time's own zero
+// value, which naturally sorts to the end - no separate fallback branch
+// needed.
+func sortRevisitEntriesNewestFirst(entries []revisitEntry) {
 	sort.SliceStable(entries, func(i, j int) bool {
 		ti, _ := time.Parse(time.RFC3339, entries[i].Time)
 		tj, _ := time.Parse(time.RFC3339, entries[j].Time)
 		return ti.After(tj)
 	})
-	return entries
 }
 
 // csvOverlap reports whether any comma-separated value in want also
