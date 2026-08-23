@@ -89,6 +89,7 @@ Tangsible is designed around the development loop of finding something wrong, ch
 - **Edit tags and hosts** before rerunning.
 - **`tangsible rerun`** — open the same rerun workflow directly from the command
   line, pre-filled from the previous invocation.
+- **Revisit** all results and outputs of a previous runs and compare differences between two runs.
 
 ### Develop Ansible
 
@@ -96,9 +97,8 @@ Tangsible provides a couple of shortcuts for common development tasks that
 normally require writing temporary playbooks.
 
 - **Run / test a role in isolation** with `tangsible role <role>`.
-- **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own
-  templating against a real inventory host. Press `e` to edit the template and
-  automatically render it again after saving.
+- **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
+- A **host-centric view** about every relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, groups, plays, host_vars
 
 ## Requirements
 
@@ -176,6 +176,17 @@ The same workflow is available from the command line:
 tangsible rerun [playbook.yml] [ansible-playbook args...]
 ```
 
+## Revisit and compare previous runs
+
+Pick a previous run with
+```
+tangsible revisit
+```
+
+and analyze / drill down into all results and outcomes in the same ways as if it just ran.
+
+Press `d` after a run or revisit to get a visuall diff of its outcomes compared to a previous run.
+
 ## Running a role in isolation
 
 Normally, `ansible-playbook` runs playbooks rather than individual roles.
@@ -213,6 +224,24 @@ that role's variables available automatically.
 
 Press `e` to open the template in `$VISUAL` / `$EDITOR` and render it again
 after saving.
+
+## Analyze hosts
+
+```
+tangsible host hostname [playbook.yml] [ansible-playbook args...]
+```
+
+Provides in-depth information about a particular:
+- FQDN, IP addresses, OS, architecture, etc.
+- All groups a host belongs to (directly or indirectly) - i.e. a host-centric view compared to the group-centric view of inventory.yml
+- All plays that will be executed for that host
+- host_vars
+- all collected facts
+
+Browse through all hosts with
+```
+tangsible hosts
+```
 
 ## Keyboard shortcuts
 
