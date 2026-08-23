@@ -30,7 +30,7 @@ func TestResolveRerun(t *testing.T) {
 	t.Run("no playbook given, resolves from General.Last", func(t *testing.T) {
 		cfg := cfgWithHistory("site.yml", playbookHistory{
 			Playbook:    "site.yml",
-			Invocations: []string{"-l somehost --tags foo,bar --skip-tags skip1,skip2"},
+			Invocations: []invocationRecord{{Args: "-l somehost --tags foo,bar --skip-tags skip1,skip2"}},
 		})
 		res, ok := resolveRerun(nil, cfg)
 		if !ok {
@@ -51,7 +51,7 @@ func TestResolveRerun(t *testing.T) {
 	t.Run("explicit playbook wins over General.Last", func(t *testing.T) {
 		cfg := cfgWithHistory("other.yml", playbookHistory{
 			Playbook:    "site.yml",
-			Invocations: []string{"-l somehost"},
+			Invocations: []invocationRecord{{Args: "-l somehost"}},
 		})
 		res, ok := resolveRerun([]string{"site.yml"}, cfg)
 		if !ok || res.Playbook != "site.yml" || res.Hosts != "somehost" {
@@ -73,7 +73,7 @@ func TestResolveRerun(t *testing.T) {
 	t.Run("CLI --tags/--skip-tags/-l override history's own values", func(t *testing.T) {
 		cfg := cfgWithHistory("site.yml", playbookHistory{
 			Playbook:    "site.yml",
-			Invocations: []string{"-l fromhistory --tags fromhistory --skip-tags fromhistory"},
+			Invocations: []invocationRecord{{Args: "-l fromhistory --tags fromhistory --skip-tags fromhistory"}},
 		})
 		res, ok := resolveRerun([]string{"-l", "clihost", "--tags", "clitag", "--skip-tags", "cliskip"}, cfg)
 		if !ok || res.Tags != "clitag" || res.SkipTags != "cliskip" || res.Hosts != "clihost" {
@@ -84,7 +84,7 @@ func TestResolveRerun(t *testing.T) {
 	t.Run("CLI extra rest args replace history's Rest outright", func(t *testing.T) {
 		cfg := cfgWithHistory("site.yml", playbookHistory{
 			Playbook:    "site.yml",
-			Invocations: []string{"-i old-inventory.ini -l somehost"},
+			Invocations: []invocationRecord{{Args: "-i old-inventory.ini -l somehost"}},
 		})
 		res, ok := resolveRerun([]string{"-i", "new-inventory.ini"}, cfg)
 		if !ok {
@@ -104,7 +104,7 @@ func TestResolveRerun(t *testing.T) {
 	t.Run("no CLI rest args at all - history's Rest carries forward", func(t *testing.T) {
 		cfg := cfgWithHistory("site.yml", playbookHistory{
 			Playbook:    "site.yml",
-			Invocations: []string{"-i inventory.ini -e x=1"},
+			Invocations: []invocationRecord{{Args: "-i inventory.ini -e x=1"}},
 		})
 		res, ok := resolveRerun(nil, cfg)
 		if !ok {
@@ -118,7 +118,7 @@ func TestResolveRerun(t *testing.T) {
 	t.Run("no playbook given, last invocation was a role - resolves to Role, not Playbook", func(t *testing.T) {
 		cfg := cfgWithHistory("myrole", playbookHistory{
 			Role:        "myrole",
-			Invocations: []string{"-l nirvana --tags foo"},
+			Invocations: []invocationRecord{{Args: "-l nirvana --tags foo"}},
 		})
 		res, ok := resolveRerun(nil, cfg)
 		if !ok {
@@ -136,7 +136,7 @@ func TestResolveRerun(t *testing.T) {
 		// record happened to be a role.
 		cfg := cfgWithHistory("myrole", playbookHistory{
 			Role:        "myrole",
-			Invocations: []string{"-l nirvana"},
+			Invocations: []invocationRecord{{Args: "-l nirvana"}},
 		})
 		res, ok := resolveRerun([]string{"site.yml"}, cfg)
 		if !ok || res.Playbook != "site.yml" || res.Role != "" {
@@ -171,7 +171,7 @@ func TestLastTarget(t *testing.T) {
 		// entries exist, general.last doesn't - real case, not
 		// hypothetical.
 		var cfg stateConfig
-		cfg.History = []playbookHistory{{Playbook: "site.yml", Invocations: []string{"--tags foo"}}}
+		cfg.History = []playbookHistory{{Playbook: "site.yml", Invocations: []invocationRecord{{Args: "--tags foo"}}}}
 		entry, ok := lastTarget(cfg)
 		if !ok || entry.Playbook != "site.yml" {
 			t.Errorf("lastTarget() = (%+v, %v), want (Playbook=\"site.yml\", true)", entry, ok)
@@ -181,8 +181,8 @@ func TestLastTarget(t *testing.T) {
 		// Genuinely ambiguous: History's order is first-seen, not recency.
 		var cfg stateConfig
 		cfg.History = []playbookHistory{
-			{Playbook: "site.yml", Invocations: []string{"--tags foo"}},
-			{Role: "myrole", Invocations: []string{"-l host"}},
+			{Playbook: "site.yml", Invocations: []invocationRecord{{Args: "--tags foo"}}},
+			{Role: "myrole", Invocations: []invocationRecord{{Args: "-l host"}}},
 		}
 		if _, ok := lastTarget(cfg); ok {
 			t.Error("lastTarget() ok = true, want false when multiple entries exist with no General.Last to disambiguate")

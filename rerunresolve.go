@@ -83,7 +83,7 @@ func resolveRerun(args []string, cfg stateConfig) (res rerunResolution, ok bool)
 		res.Role = entry.Role
 		var hist string
 		if len(entry.Invocations) > 0 {
-			hist = entry.Invocations[len(entry.Invocations)-1]
+			hist = entry.Invocations[len(entry.Invocations)-1].Args
 		}
 		histParsed = parsePassthroughArgs(historyStringToArgs(hist))
 	}

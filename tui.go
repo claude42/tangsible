@@ -33,6 +33,16 @@ import (
 // the output drill-down page's own top/bottom bars) - white on blue, bold.
 var barStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorNavy).Bold(true)
 
+// replayBarStyle is design-docs/Revisit.md's own chrome for a revisited
+// (historical) run - the same bars barStyle normally covers, plus the
+// two-pane divider's own background (see NewLiveTUI's chromeStyle/chromeBg
+// locals), switch to this instead for as long as the session is showing
+// replayed data rather than a live/finished one. tcell.ColorPurple, not a
+// hex value - a fixed base-16 ANSI palette slot, same reasoning as maroon
+// (not brown/darkred) elsewhere in this file: reliable across terminal
+// themes rather than RGB-approximated. See design-docs/Colors.md.
+var replayBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorPurple).Bold(true)
+
 const spinnerInterval = 200 * time.Millisecond
 
 var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
@@ -77,10 +87,10 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // wrapper - split mode uses its own, separately-composed
 // composeSplitHeaderLine instead of this one (see its own doc comment
 // for why a shared tree-only composer isn't reused there).
-func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
+func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int, bgColorName string, showElapsed bool) string {
 	return progressFillLine(
-		composeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, progressPos, progressTotal, width),
-		progressPos, progressTotal, frozen)
+		composeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, progressPos, progressTotal, width, showElapsed),
+		progressPos, progressTotal, frozen, bgColorName)
 }
 
 // composeTopBarLine builds the top bar's own plain, unfilled, already-
@@ -90,7 +100,16 @@ func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.D
 // own fill boundary against something else (split mode's own tree-bar +
 // divider + drill-down-bar alignment, in rebuild) can do so without
 // duplicating this composition logic.
-func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
+//
+// showElapsed false (design-docs/Revisit.md: a revisit session, where
+// elapsed is always ~0 - Phase 1 only ever saved a run's start time, never
+// its duration, so there's nothing real to show) drops the spinner/mm:ss
+// clock entirely rather than displaying a value that would just read as
+// wrong - "Task x/y" alone still shows if there's a progressPrefix to show
+// (never the case for a revisit session in practice, since replay never
+// builds a progress skeleton either, but this function doesn't assume
+// that - the two are independent knobs).
+func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
@@ -107,9 +126,12 @@ func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 		progressPrefix = fmt.Sprintf("Task %d/%d  ", progressPos, progressTotal)
 	}
 	var right string
-	if frozen {
+	switch {
+	case !showElapsed:
+		right = progressPrefix
+	case frozen:
 		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
-	} else {
+	default:
 		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, spinnerAt(elapsed), mm, ss)
 	}
 
@@ -149,7 +171,7 @@ func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 // own host list is), then - flush right, same as topBarText's own right
 // side - the "Task x/y" progress indicator and the heartbeat (spinner +
 // elapsed, or just elapsed once frozen).
-func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int) string {
+func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
@@ -160,9 +182,12 @@ func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string
 		progressPrefix = fmt.Sprintf("Task %d/%d  ", progressPos, progressTotal)
 	}
 	var right string
-	if frozen {
+	switch {
+	case !showElapsed:
+		right = progressPrefix
+	case frozen:
 		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
-	} else {
+	default:
 		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, spinnerAt(elapsed), mm, ss)
 	}
 
@@ -205,7 +230,7 @@ func progressFillWidth(totalWidth, progressPos, progressTotal int, frozen bool) 
 // an explicit, already-decided fillWidth rather than computing its own
 // proportionally from progressPos/progressTotal - the building block
 // progressFillLine itself uses internally.
-func progressFillLineAt(line string, fillWidth int) string {
+func progressFillLineAt(line string, fillWidth int, bgColorName string) string {
 	runes := []rune(line)
 	if fillWidth > len(runes) {
 		fillWidth = len(runes)
@@ -214,19 +239,21 @@ func progressFillLineAt(line string, fillWidth int) string {
 		fillWidth = 0
 	}
 	filled, unfilled := string(runes[:fillWidth]), string(runes[fillWidth:])
-	return fmt.Sprintf("[white:%s:b]%s[-:-:-][white:navy:b]%s[-:-:-]", progressFillColor, tview.Escape(filled), tview.Escape(unfilled))
+	return fmt.Sprintf("[white:%s:b]%s[-:-:-][white:%s:b]%s[-:-:-]", progressFillColor, tview.Escape(filled), bgColorName, tview.Escape(unfilled))
 }
 
 // progressFillLine wraps an already-composed, already-width-padded plain
 // bar line with the progress-fill background (design-docs' own "the
 // headline as a progress bar" idea): progressFillColor from the left
 // edge up to whatever fraction of progressPos/progressTotal the line's
-// own length represents (progressFillWidth), and plain navy for the
+// own length represents (progressFillWidth), and bgColorName (plain
+// "navy", except during a revisit session - design-docs/Revisit.md - where
+// NewLiveTUI's own chromeColorName passes "purple" instead) for the
 // remainder - sweeping across whatever content the line holds, rather
 // than being confined to some reserved strip.
 //
 // No fill/color effect at all (the line renders exactly as plain
-// white-on-navy text always has) when progressTotal is 0 - no skeleton
+// white-on-bgColorName text always has) when progressTotal is 0 - no skeleton
 // at all, e.g. the throwaway --list-tasks probe failed, or the run
 // hasn't spawned yet during "rerun"'s own startup dialog - same "omit
 // rather than show something misleading" convention this file already
@@ -245,11 +272,11 @@ func progressFillLineAt(line string, fillWidth int) string {
 // place within whichever half it's applied to, which cannot shift
 // anything in the OTHER half or retroactively invalidate the split point
 // already computed against the unescaped line.
-func progressFillLine(line string, progressPos, progressTotal int, frozen bool) string {
+func progressFillLine(line string, progressPos, progressTotal int, frozen bool, bgColorName string) string {
 	if progressTotal <= 0 {
-		return fmt.Sprintf("[white:navy:b]%s[-:-:-]", tview.Escape(line))
+		return fmt.Sprintf("[white:%s:b]%s[-:-:-]", bgColorName, tview.Escape(line))
 	}
-	return progressFillLineAt(line, progressFillWidth(len([]rune(line)), progressPos, progressTotal, frozen))
+	return progressFillLineAt(line, progressFillWidth(len([]rune(line)), progressPos, progressTotal, frozen), bgColorName)
 }
 
 // truncateHostsList renders hosts as a comma-separated list, shortened to
@@ -760,7 +787,17 @@ func filterDialogText(active filterQuery) string {
 // capability and the NO_COLOR environment variable) combined below into
 // useColor, design-docs/Morehosts.md's own gate on whether the collapsed
 // task row's per-host summary may render in color at all.
-func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker]) (app *tview.Application, applyLive func(rawEvent)) {
+// revisitReturn, if non-nil, marks this session as design-docs/Revisit.md's
+// "revisit" verb showing a replayed (historical) run rather than a live
+// run/rerun/role session: state/processDone/exitCode are already fully
+// populated by the time this constructor is called (see revisit.go), chrome
+// switches to replayBarStyle for as long as revisitActive stays true, and
+// pressing Esc at the bare tree level (not in a dialog, not viewing output -
+// nothing else has ever claimed that key there) calls revisitReturn, which
+// is expected to stop app.Run() and let the caller show the run list again.
+// nil for every other verb - Esc keeps doing nothing at that level, exactly
+// as before this existed.
+func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker], revisitReturn func()) (app *tview.Application, applyLive func(rawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -811,6 +848,12 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// even though nothing has actually run, which would otherwise make
 	// rebuild() render a "Playbook completed successfully" status row
 	// before anything ever happened.
+	revisitActive := revisitReturn != nil // true for the whole lifetime of
+	// a revisit session until a real rerun is confirmed (submitRerun) -
+	// once that happens there's a live/finished generation of its own on
+	// screen, no longer "old data," so chrome reverts to normal and Esc
+	// stops meaning "back to the list" (see submitRerun/SetInputCapture
+	// below).
 	var failureCursorPlaced bool // latches true the first time rebuild()
 	// observes the run frozen - guards the one-time "jump to the failed
 	// host" placement below so it fires exactly once on the
@@ -946,11 +989,79 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		}
 	}
 
+	// chromeStyle/chromeBg pick the initial look for every chrome bar/the
+	// two-pane divider below - replayBarStyle/purple for a revisit session,
+	// barStyle/navy for everything else. Mutable local, not a const choice:
+	// submitRerun resets both bars and splitDivider back to barStyle/navy
+	// directly once revisitActive goes false, so these two only ever matter
+	// for how things start out, not as an ongoing source of truth.
+	chromeStyle := barStyle
+	chromeBg := tcell.ColorNavy
+	if revisitActive {
+		chromeStyle = replayBarStyle
+		chromeBg = tcell.ColorPurple
+	}
+
+	// currentMainBottomBarText appends the revisit-only "Esc: back to
+	// list" hint onto mainBottomBarText for as long as revisitActive stays
+	// true - reads it fresh on every call rather than being decided once,
+	// same reasoning chromeStyle/chromeBg above don't need (those are only
+	// ever applied at construction, with submitRerun resetting the actual
+	// widgets directly afterward) - bottomBar's text, unlike its style, is
+	// legitimately re-set many times over a session's life (closeOutput,
+	// rebuild's own split-mode toggle), and each of those call sites should
+	// see revisitActive's current value, not a snapshot from construction.
+	currentMainBottomBarText := func() string {
+		text := mainBottomBarText
+		if requestRerun == nil {
+			// Matches SetInputCapture's own 'r' guard below: nothing to
+			// advertise a key that's a guaranteed no-op right now (a
+			// Phase 2 revisit session, per design-docs/Revisit.md, before
+			// rerun-from-revisit exists).
+			text = strings.Replace(text, "r: re-run  ", "", 1)
+		}
+		if revisitActive {
+			text += " Esc: back to list "
+		}
+		return text
+	}
+
+	// chromeColorName is chromeBg's own tag-name equivalent - "navy"/
+	// "purple" - for the progress-fill lines (topBarText/
+	// composeSplitHeaderLine/outputTopBar's own plain fill, all below),
+	// which bake their unfilled-portion background into inline
+	// [white:<name>:b] tags rather than reading it from the TextView's own
+	// SetTextStyle the way every other chrome bar does (see chromeStyle
+	// above) - a single tcell.Style can't vary per-column the way a
+	// sweeping fill needs to. Read fresh on every call, same reasoning as
+	// currentMainBottomBarText just above: these are called from within
+	// rebuild() on every redraw, not just once at construction, so this
+	// needs to see revisitActive's current value each time, not a
+	// snapshot - discovered the hard way, live: chromeStyle/chromeBg alone
+	// left the top/split/output bars still showing plain navy under their
+	// own progress-fill text, since SetTextStyle never actually painted
+	// those characters at all.
+	chromeColorName := func() string {
+		if revisitActive {
+			return "purple"
+		}
+		return "navy"
+	}
+
+	// showElapsed suppresses the top/split bars' own spinner/mm:ss clock
+	// for as long as revisitActive stays true - a revisit session's
+	// elapsed is always ~0 (design-docs/Revisit.md: only a run's start
+	// time was ever saved, never its duration), and showing that would
+	// read as "this just finished in no time" rather than as the honest
+	// "we don't know" it actually is. Read fresh on every call, same
+	// reasoning as chromeColorName/currentMainBottomBarText just above.
+	showElapsed := func() bool { return !revisitActive }
+
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
 	topBar := tview.NewTextView().SetDynamicColors(true).
-		SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 0, 0, 20))
-	topBar.SetTextStyle(barStyle)
+		SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 0, 0, 20, chromeColorName(), showElapsed()))
+	topBar.SetTextStyle(chromeStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
 	// text on a per-outcome colored background for each hostname - see
@@ -982,10 +1093,10 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// (both external content) need escaping, handled once by
 	// progressFillLine itself rather than here.
 	outputTopBar := tview.NewTextView().SetDynamicColors(true)
-	outputTopBar.SetTextStyle(barStyle)
+	outputTopBar.SetTextStyle(chromeStyle)
 
 	outputBottomBar := tview.NewTextView().SetText(" tab/shift-tab: switch tab  n/p: prev/next task  ←/→: prev/next host  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
-	outputBottomBar.SetTextStyle(barStyle)
+	outputBottomBar.SetTextStyle(chromeStyle)
 
 	outputFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -1005,7 +1116,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// trivially agrees with itself, which is what actually fixes that
 	// class of bug rather than chasing its exact cause further.
 	splitHeader = tview.NewTextView().SetDynamicColors(true)
-	splitHeader.SetTextStyle(barStyle)
+	splitHeader.SetTextStyle(chromeStyle)
 
 	pages := tview.NewPages()
 
@@ -1382,7 +1493,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 				bottomBar.SetText(splitBottomBarText)
 				switchPage("split")
 			} else {
-				bottomBar.SetText(mainBottomBarText)
+				bottomBar.SetText(currentMainBottomBarText())
 				switchPage("output")
 			}
 
@@ -1415,8 +1526,8 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 					hostAndTask = outputHost + "   " + outputTask.Name
 				}
 				splitHeader.SetText(progressFillLine(
-					composeSplitHeaderLine(playbookName, isRole, hostAndTask, elapsed, frozen, currentFilter, progressPos, progressTotal, totalWidth),
-					progressPos, progressTotal, frozen))
+					composeSplitHeaderLine(playbookName, isRole, hostAndTask, elapsed, frozen, currentFilter, progressPos, progressTotal, totalWidth, showElapsed()),
+					progressPos, progressTotal, frozen, chromeColorName()))
 			} else {
 				// Padded to the full terminal width before the fill is
 				// applied (same reason composeTopBarLine pads its own
@@ -1427,7 +1538,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 				if gap := totalWidth - len([]rune(full)); gap > 0 {
 					full += strings.Repeat(" ", gap)
 				}
-				outputTopBar.SetText(progressFillLine(full, progressPos, progressTotal, frozen))
+				outputTopBar.SetText(progressFillLine(full, progressPos, progressTotal, frozen, chromeColorName()))
 			}
 		}
 
@@ -1449,7 +1560,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			// mode, where splitHeader (above) shows this same information
 			// instead - topBar itself sits unused, off-page, for the
 			// duration of a split session.
-			topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, progressPos, progressTotal, width))
+			topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, progressPos, progressTotal, width, chromeColorName(), showElapsed()))
 		}
 
 		// One-time, right on the running-to-frozen transition: for a
@@ -2138,8 +2249,8 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	}
 	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
 
-	bottomBar = tview.NewTextView().SetText(mainBottomBarText)
-	bottomBar.SetTextStyle(barStyle)
+	bottomBar = tview.NewTextView().SetText(currentMainBottomBarText())
+	bottomBar.SetTextStyle(chromeStyle)
 
 	flex = tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -2188,7 +2299,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// this divider, in the header row, should participate in the header's
 	// own fill exactly like every other character there, not read as part
 	// of the (fixed, unfilled) separator below it.
-	splitDivider = tview.NewBox().SetBackgroundColor(tcell.ColorNavy)
+	splitDivider = tview.NewBox().SetBackgroundColor(chromeBg)
 
 	// treeBody/outputBody are the tree pane's/drill-down pane's own
 	// bodies with their individual header rows carved out - list/
@@ -2317,6 +2428,15 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			}
 		}()
 	}
+	if revisitActive {
+		// A revisit session's state/processDone/exitCode are already fully
+		// populated by the time this constructor runs (see revisit.go) -
+		// there's nothing left to wait for the heartbeat ticker's first
+		// tick (spinnerInterval away) to reveal, unlike a genuinely-empty
+		// run/rerun/role start. Render it immediately instead of a
+		// momentary blank screen.
+		rebuild()
+	}
 	// Placed after `app` is assigned: the go statement inside
 	// startHeartbeat's closure body has a happens-before edge (Go memory
 	// model) with this very call, which itself runs after `app` was
@@ -2424,6 +2544,21 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// this fires for the "rerun" verb's startup dialog (see
 		// startWithRerunDialog) - a harmless no-op reassignment every time
 		// after that, since it's already true for every other case.
+		if revisitActive {
+			// A real generation is starting - this session is no longer
+			// showing "old data," so the revisit chrome and the Esc-back-
+			// to-the-list binding both go away, for good, for the rest of
+			// this session (design-docs/Revisit.md). Reset directly on the
+			// already-constructed widgets rather than via chromeStyle/
+			// chromeBg (those only ever governed how things started out).
+			revisitActive = false
+			topBar.SetTextStyle(barStyle)
+			outputTopBar.SetTextStyle(barStyle)
+			outputBottomBar.SetTextStyle(barStyle)
+			splitHeader.SetTextStyle(barStyle)
+			bottomBar.SetTextStyle(barStyle)
+			splitDivider.SetBackgroundColor(tcell.ColorNavy)
+		}
 		startedAt = time.Now()
 		rebuild() // clear the previous run's rows immediately, rather than
 		// leaving them on screen until the new generation's first event
@@ -2472,7 +2607,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	closeOutput := func() {
 		viewingOutput = false
 		splitMode = false
-		bottomBar.SetText(mainBottomBarText)
+		bottomBar.SetText(currentMainBottomBarText())
 		switchPage("main")
 		rebuild() // list's own row text was last baked while viewingOutput
 		// was still true - possibly at the tree pane's own (narrower,
@@ -2602,6 +2737,19 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			} else {
 				_ = procH.Load().Signal(os.Interrupt) // best-effort; child may race-exit
 			}
+			return nil
+		}
+
+		// Esc at the bare tree level (no dialog open - both already
+		// returned above - and not viewing a drill-down, which has its own
+		// Esc meaning further down) has never meant anything here before
+		// revisitReturn existed. design-docs/Revisit.md: back out to the
+		// run list. quitting is deliberately NOT set here, unlike isQuit
+		// above - this doesn't stop app.Run() itself, it stops THIS
+		// session's Application (see revisit.go), so the process as a
+		// whole keeps going.
+		if !viewingOutput && revisitActive && event.Key() == tcell.KeyEscape {
+			revisitReturn()
 			return nil
 		}
 
@@ -2766,7 +2914,14 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			// Rerun.md: only once a run has actually finished - a no-op
 			// while ansible-playbook is still going, same "processDone
 			// gates it" convention as the failure auto-jump above.
-			if !processDone.Load() {
+			// requestRerun == nil is a second, independent reason to no-op
+			// here (design-docs/Revisit.md's Phase 2: a replay session
+			// with rerun-from-revisit not yet wired up passes nil rather
+			// than a real closure - submitRerun would otherwise nil-panic
+			// calling it) - currentMainBottomBarText already drops the
+			// "r: re-run" hint whenever this is the case, so there's
+			// nothing advertised for this to silently fail to do.
+			if !processDone.Load() || requestRerun == nil {
 				return nil
 			}
 			openRerunDialog()

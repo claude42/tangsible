@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -33,19 +34,45 @@ var tangsibleStatePath = filepath.Join(tangsibleDir, "state.toml")
 // useful without growing the file forever").
 const maxHistoryPerPlaybook = 20
 
+// invocationRecord is one recorded invocation of a playbook or role - one
+// entry in playbookHistory.Invocations. Args is unchanged from before
+// design-docs/Revisit.md: the single space-joined string form of that run's
+// passthrough args (see argsToHistoryString/historyStringToArgs in
+// rerunargs.go), the same shape the user would have typed after the
+// playbook name (or role name) on the command line, including an empty
+// string for "no extra args at all" - still all `rerun`'s own pre-fill
+// (lastInvocation) ever reads.
+//
+// Time/ExitCode/RunID exist for design-docs/Revisit.md's "revisit" verb.
+// appendInvocation sets Args and Time (RFC3339, this generation's own start)
+// immediately, before the generation is even spawned - "an invocation is an
+// invocation," same reasoning as before this existed, independent of
+// whether the run goes on to succeed, fail, or gets killed outright.
+// ExitCode/RunID are only known once the generation actually finishes, so
+// they start unset and are filled in later by finalizeInvocation - ExitCode
+// is a pointer specifically so "not finished yet" (nil) can never be
+// confused with "finished, exit code 0" (the two would be indistinguishable
+// as a plain int, and revisit's own list view needs to tell them apart:
+// see design-docs/Revisit.md's list-building pruning). RunID names the
+// sibling .tangsible/runs/<RunID>.jsonl/.stderr files this generation's own
+// raw event log and stderr were saved under (runlog.go) - empty if that
+// save was never attempted, never succeeded, or (later) if revisit's own
+// pruning found the files gone and cleared it back out.
+type invocationRecord struct {
+	Args     string `toml:"args"`
+	Time     string `toml:"time,omitempty"`
+	ExitCode *int   `toml:"exit_code,omitempty"`
+	RunID    string `toml:"run_id,omitempty"`
+}
+
 // playbookHistory is one [[history]] entry in state.toml: either a
 // playbook path or a role name (design-docs/Tangsible role.md) - exactly
 // one of Playbook/Role is ever set on a given entry, never both - and its
-// past invocations, oldest first. Each entry in Invocations is the single
-// space-joined string form of that run's passthrough args (see
-// argsToHistoryString/historyStringToArgs in rerunargs.go) - the same
-// shape the user would have typed after the playbook name (or role name)
-// on the command line, including an empty string for "no extra args at
-// all".
+// past invocations, oldest first.
 type playbookHistory struct {
-	Playbook    string   `toml:"playbook,omitempty"`
-	Role        string   `toml:"role,omitempty"`
-	Invocations []string `toml:"invocations"`
+	Playbook    string             `toml:"playbook,omitempty"`
+	Role        string             `toml:"role,omitempty"`
+	Invocations []invocationRecord `toml:"invocations"`
 }
 
 // stateConfig is the shape of .tangsible/state.toml - entirely app-owned:
@@ -138,28 +165,38 @@ func readState(path string) stateConfig {
 // appendInvocation records one new invocation (argsString, as produced by
 // argsToHistoryString) under the matching [[history]] entry in path,
 // creating that entry if it doesn't exist yet, and capping it at
-// maxHistoryPerPlaybook (dropping the oldest once that's exceeded).
-// Exactly one of playbook/role is expected non-empty, matching
-// playbookHistory's own shape - a plain "tangsible run"/"tangsible rerun"
-// of a playbook passes (playbook, "") and "tangsible role" (or a rerun
-// that resolves to one - see resolveRerun) passes ("", role). Also updates
-// General.Last to whichever of the two was given - every invocation of
-// every verb funnels through here, which is what makes this the single
-// place that keeps it current (see stateConfig's own doc comment). Reads
-// the file fresh and writes the whole thing back - state.toml isn't
-// expected to be edited concurrently by more than one tangsible process at
-// this project's target scale, so no locking is attempted. Unlike before
-// the config/state split, this function (and writeState under it) is now
-// the only thing in this program that ever writes to disk under
-// .tangsible/ at all.
+// maxHistoryPerPlaybook (dropping the oldest once that's exceeded - see
+// appendCapped, which also reports what got dropped so this can delete any
+// saved run-log files, runlog.go, that go with it). Exactly one of
+// playbook/role is expected non-empty, matching playbookHistory's own shape
+// - a plain "tangsible run"/"tangsible rerun" of a playbook passes
+// (playbook, "") and "tangsible role" (or a rerun that resolves to one -
+// see resolveRerun) passes ("", role). Also updates General.Last to
+// whichever of the two was given - every invocation of every verb funnels
+// through here, which is what makes this the single place that keeps it
+// current (see stateConfig's own doc comment). Reads the file fresh and
+// writes the whole thing back - state.toml isn't expected to be edited
+// concurrently by more than one tangsible process at this project's target
+// scale, so no locking is attempted.
+//
+// The new record's own Time is stamped here (RFC3339, this generation's own
+// start) rather than threaded in from the caller - every call site wants
+// "now," so there's nothing a parameter would add. ExitCode/RunID start
+// unset; see finalizeInvocation for when those are filled in.
 func appendInvocation(path, playbook, role, argsString string) error {
 	cfg := readState(path)
+
+	next := invocationRecord{Args: argsString, Time: time.Now().UTC().Format(time.RFC3339)}
 
 	found := false
 	for i := range cfg.History {
 		h := &cfg.History[i]
 		if (playbook != "" && h.Playbook == playbook) || (role != "" && h.Role == role) {
-			h.Invocations = appendCapped(h.Invocations, argsString, maxHistoryPerPlaybook)
+			var evicted []invocationRecord
+			h.Invocations, evicted = appendCapped(h.Invocations, next, maxHistoryPerPlaybook)
+			for _, e := range evicted {
+				deleteRunLog(path, e.RunID)
+			}
 			found = true
 			break
 		}
@@ -168,13 +205,46 @@ func appendInvocation(path, playbook, role, argsString string) error {
 		cfg.History = append(cfg.History, playbookHistory{
 			Playbook:    playbook,
 			Role:        role,
-			Invocations: []string{argsString},
+			Invocations: []invocationRecord{next},
 		})
 	}
 	if playbook != "" {
 		cfg.General.Last = playbook
 	} else {
 		cfg.General.Last = role
+	}
+
+	return writeState(path, cfg)
+}
+
+// finalizeInvocation fills in the two fields appendInvocation's own call
+// (always made first, right before that generation was spawned) couldn't
+// know yet: the process's actual exit code, and runID - the id of the
+// sibling .tangsible/runs/<runID>.{jsonl,stderr} files this generation's
+// raw event log and stderr were saved under (runlog.go), or "" if that save
+// was never attempted or didn't succeed. Updates the *last* invocation
+// recorded for playbook/role, which is always the one this call is meant
+// for: only one generation is ever in flight for a given playbook/role at a
+// time, and nothing else appends to that same target's history between this
+// generation's own appendInvocation call and it actually finishing.
+//
+// Best-effort, same tolerance appendInvocation itself has for its own
+// failures: a write failure here just means this one generation's history
+// entry keeps an unset exit code and isn't revisitable, never fatal to the
+// run itself.
+func finalizeInvocation(path, playbook, role string, exitCode int, runID string) error {
+	cfg := readState(path)
+
+	for i := range cfg.History {
+		h := &cfg.History[i]
+		if (playbook != "" && h.Playbook == playbook) || (role != "" && h.Role == role) {
+			if n := len(h.Invocations); n > 0 {
+				code := exitCode
+				h.Invocations[n-1].ExitCode = &code
+				h.Invocations[n-1].RunID = runID
+			}
+			break
+		}
 	}
 
 	return writeState(path, cfg)
@@ -231,18 +301,22 @@ func lastTarget(cfg stateConfig) (playbookHistory, bool) {
 }
 
 // appendCapped appends next to existing, dropping from the front (oldest
-// first) until the result is at most max entries long.
-func appendCapped(existing []string, next string, max int) []string {
+// first) until the result is at most max entries long. evicted is whatever
+// got dropped, oldest first, so a caller with side effects to clean up
+// per-entry (appendInvocation deleting a dropped entry's own saved run-log
+// files) has something to iterate.
+func appendCapped(existing []invocationRecord, next invocationRecord, max int) (result, evicted []invocationRecord) {
 	out := append(existing, next)
 	if len(out) > max {
+		evicted = out[:len(out)-max]
 		out = out[len(out)-max:]
 	}
-	return out
+	return out, evicted
 }
 
-// lastInvocation returns the most recently recorded invocation string for
-// playbook out of cfg, and false if there's no history entry for it (or
-// that entry has no invocations recorded).
+// lastInvocation returns the most recently recorded invocation string
+// (invocationRecord.Args) for playbook out of cfg, and false if there's no
+// history entry for it (or that entry has no invocations recorded).
 func lastInvocation(cfg stateConfig, playbook string) (string, bool) {
 	for _, h := range cfg.History {
 		if h.Playbook != playbook {
@@ -251,7 +325,49 @@ func lastInvocation(cfg stateConfig, playbook string) (string, bool) {
 		if len(h.Invocations) == 0 {
 			return "", false
 		}
-		return h.Invocations[len(h.Invocations)-1], true
+		return h.Invocations[len(h.Invocations)-1].Args, true
 	}
 	return "", false
+}
+
+// pruneMissingRunLogs reads path (state.toml), clears the RunID of every
+// invocationRecord whose saved .jsonl file (runlog.go's runLogPaths) no
+// longer exists on disk, writes the result back if anything changed, and
+// returns the resulting cfg either way - design-docs/Revisit.md's own
+// answer to "what if the manifest says a run is revisitable but its data
+// is actually gone" (hand-deleted, disk cleanup, ...): rather than showing
+// an error when the user picks such an entry, it's simply never offered in
+// the first place, self-healing on every "revisit" invocation. Only the
+// .jsonl file is checked - .stderr is supplementary (not yet surfaced
+// anywhere - see writeRunStderr's own doc comment), so its absence alone
+// doesn't disqualify an otherwise-good entry.
+//
+// Deliberately clears RunID only, leaving Args/Time/ExitCode in place: that
+// same Invocations list also feeds "rerun"'s own tags/hosts pre-fill
+// (lastInvocation), a use that has nothing to do with whether this run's
+// saved *data* still exists - clearing the whole record would quietly
+// degrade that unrelated feature as a side effect.
+func pruneMissingRunLogs(path string) (stateConfig, error) {
+	cfg := readState(path)
+
+	changed := false
+	for i := range cfg.History {
+		h := &cfg.History[i]
+		for j := range h.Invocations {
+			inv := &h.Invocations[j]
+			if inv.RunID == "" {
+				continue
+			}
+			jsonlPath, _ := runLogPaths(path, inv.RunID)
+			if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
+				inv.RunID = ""
+				changed = true
+			}
+		}
+	}
+
+	if !changed {
+		return cfg, nil
+	}
+	return cfg, writeState(path, cfg)
 }

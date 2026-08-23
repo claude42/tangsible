@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ansibleUserInterruptedExitCode is ansible-playbook's documented exit code
@@ -83,6 +84,7 @@ type pendingGeneration struct {
 	stdoutCh    <-chan streamItem
 	stderrLines <-chan []string
 	first       streamItem
+	runID       string
 }
 
 // generationOutcome is one ansible-playbook invocation's result. main
@@ -105,7 +107,12 @@ type generationOutcome struct {
 // which only ever applies to the first invocation - a rerun's own
 // pre-flight failure has nowhere to hide the already-visible TUI from, so
 // it just renders as a failed generation like any other, no gate needed).
-func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, err error) {
+//
+// runID names this generation's own saved run data (design-docs/
+// Revisit.md, runlog.go) - "" if createRunLog couldn't actually open
+// anything to save it to, so a caller never records a RunID (via
+// finalizeInvocation) that no file backs.
+func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, runID string, err error) {
 	// --diff is always appended to the actual subprocess argv (never to
 	// args itself, which is also what's reassembled into .tangsible's
 	// history/rerun args) so the drill-down view's Diff tab
@@ -127,22 +134,28 @@ func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *ex
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to attach stdout: %w", err)
+		return nil, nil, nil, "", fmt.Errorf("failed to attach stdout: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to attach stderr: %w", err)
+		return nil, nil, nil, "", fmt.Errorf("failed to attach stderr: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to start ansible-playbook: %w", err)
+		return nil, nil, nil, "", fmt.Errorf("failed to start ansible-playbook: %w", err)
 	}
 	procH.Store(cmd.Process)
 
-	stdoutCh = scanEvents(stdout)
+	runID = newRunID(time.Now())
+	logFile := createRunLog(tangsibleStatePath, runID)
+	if logFile == nil {
+		runID = ""
+	}
+
+	stdoutCh = scanEvents(stdout, logFile)
 	lines := make(chan []string, 1)
 	go func() { lines <- streamStderr(stderr) }()
 
-	return cmd, stdoutCh, lines, nil
+	return cmd, stdoutCh, lines, runID, nil
 }
 
 // startFirstGeneration spawns playbook+rest as this session's first
@@ -158,12 +171,19 @@ func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *ex
 // function can take, and is expected to also be wired by the caller (via
 // defer) to run on its own eventual return - "run" passes nil (nothing to
 // clean up), "role" passes a func that removes its own stub playbook.
-func startFirstGeneration(playbook string, rest []string, procH *procHandle, cleanup func()) (pending *pendingGeneration, showTUI bool) {
+//
+// histPlaybook/histRole (exactly one non-empty, mirroring appendInvocation's
+// own playbook/role parameters) are what this generation's invocation
+// history entry was recorded under - needed here only for the pre-flight-
+// failure branch below, which finalizes that entry itself (exitCode, and a
+// RunID if anything was actually saved) since it bypasses main's own
+// runGeneration entirely.
+func startFirstGeneration(playbook string, rest []string, procH *procHandle, histPlaybook, histRole string, cleanup func()) (pending *pendingGeneration, showTUI bool) {
 	if cleanup == nil {
 		cleanup = func() {}
 	}
 
-	cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, rest, procH)
+	cmd, stdoutCh, stderrLines, runID, err := spawnGeneration(playbook, rest, procH)
 	if err != nil {
 		cleanup()
 		fmt.Fprintln(os.Stderr, err)
@@ -191,6 +211,12 @@ func startFirstGeneration(playbook string, rest []string, procH *procHandle, cle
 		cleanup()
 		childStderr := <-stderrLines
 		waitErr := cmd.Wait()
+		writeRunStderr(tangsibleStatePath, runID, childStderr)
+		if histRole != "" {
+			_ = finalizeInvocation(tangsibleStatePath, "", histRole, exitCodeOf(waitErr), runID)
+		} else {
+			_ = finalizeInvocation(tangsibleStatePath, histPlaybook, "", exitCodeOf(waitErr), runID)
+		}
 		for _, l := range childStderr {
 			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 		}
@@ -200,22 +226,26 @@ func startFirstGeneration(playbook string, rest []string, procH *procHandle, cle
 		}
 		return nil, false
 	}
-	return &pendingGeneration{cmd: cmd, stdoutCh: stdoutCh, stderrLines: stderrLines, first: first}, true
+	return &pendingGeneration{cmd: cmd, stdoutCh: stdoutCh, stderrLines: stderrLines, first: first, runID: runID}, true
 }
 
 func main() {
 	v, args, ok := parseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|template|host|hosts> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
 	}
 
-	// "template" (design-docs/Tangsible template.md) and "host"/"hosts"
-	// (design-docs/HostVerb.md) are each standalone, single-view programs -
-	// they share none of run/rerun/role's own tree-building machinery below
-	// (procH, playbook resolution, the live jsonl pipeline, NewLiveTUI, ...),
-	// so they're split off here before any of that gets set up, rather than
-	// threaded through the switch below.
+	// "template" (design-docs/Tangsible template.md), "host"/"hosts"
+	// (design-docs/HostVerb.md), and "revisit" (design-docs/Revisit.md) are
+	// each standalone programs - they share none of run/rerun/role's own
+	// tree-building machinery below (procH, playbook resolution, the live
+	// jsonl pipeline, NewLiveTUI's own construction, ...), so they're split
+	// off here before any of that gets set up, rather than threaded through
+	// the switch below. "revisit" does still end up inside NewLiveTUI for
+	// its own detail view (unlike the other three) - but only once per
+	// selected entry, each its own fresh call with a freshly replayed
+	// state, never sharing this function's own run/rerun/role setup.
 	if v == verbTemplate {
 		os.Exit(runTemplateVerb(args))
 	}
@@ -224,6 +254,9 @@ func main() {
 	}
 	if v == verbHosts {
 		os.Exit(runHostsVerb(args))
+	}
+	if v == verbRevisit {
+		os.Exit(runRevisitVerb(args))
 	}
 
 	var procH procHandle
@@ -303,7 +336,7 @@ func main() {
 		originalArgs = parsePassthroughArgs(rest)
 
 		var showTUI bool
-		pending, showTUI = startFirstGeneration(playbook, rest, &procH, nil)
+		pending, showTUI = startFirstGeneration(playbook, rest, &procH, playbook, "", nil)
 		if !showTUI {
 			return
 		}
@@ -336,7 +369,7 @@ func main() {
 		originalArgs = parsePassthroughArgs(rest)
 
 		var showTUI bool
-		pending, showTUI = startFirstGeneration(playbook, rest, &procH, cleanup)
+		pending, showTUI = startFirstGeneration(playbook, rest, &procH, "", roleName, cleanup)
 		if !showTUI {
 			return
 		}
@@ -453,7 +486,19 @@ func main() {
 	// records its outcome. Shared by "run"'s own first invocation below
 	// and every rerun since, for both verbs (see requestRerun) - so
 	// there's exactly one place that knows how a generation finishes.
-	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, peeked ...streamItem) {
+	//
+	// runID (spawnGeneration's own return value for this generation, ""
+	// if nothing was ever actually saved for it) is what finalizeInvocation
+	// records against this generation's own invocation-history entry,
+	// alongside its exit code, once both are known - see
+	// invocationRecord's own doc comment (history.go) for why that can't
+	// happen any earlier than this. roleDisplayName/playbook are read
+	// directly from the enclosing closure rather than passed in: a
+	// session's role-ness and playbook never change mid-session (a rerun
+	// reuses the same stub/playbook throughout - see startRoleSession),
+	// so whichever was true for this generation's own appendInvocation
+	// call is still true now.
+	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, runID string, peeked ...streamItem) {
 		for _, item := range peeked {
 			apply(item)
 		}
@@ -471,6 +516,12 @@ func main() {
 		outcomesMu.Lock()
 		outcomes = append(outcomes, generationOutcome{exitCode: code, waitErr: waitErr, childStderr: childStderr})
 		outcomesMu.Unlock()
+		writeRunStderr(tangsibleStatePath, runID, childStderr)
+		if roleDisplayName != "" {
+			_ = finalizeInvocation(tangsibleStatePath, "", roleDisplayName, code, runID)
+		} else {
+			_ = finalizeInvocation(tangsibleStatePath, playbook, "", code, runID)
+		}
 		processDone.Store(true)
 	}
 
@@ -531,7 +582,7 @@ func main() {
 		}
 
 		go func() {
-			cmd, stdoutCh, stderrLines, err := spawnGeneration(playbook, newArgs, &procH)
+			cmd, stdoutCh, stderrLines, runID, err := spawnGeneration(playbook, newArgs, &procH)
 			if err != nil {
 				// Rare (ansible-playbook vanished, pipes failed, ...) and,
 				// unlike the same failure on the very first invocation,
@@ -543,10 +594,15 @@ func main() {
 				outcomesMu.Lock()
 				outcomes = append(outcomes, generationOutcome{exitCode: -1, waitErr: err})
 				outcomesMu.Unlock()
+				if roleDisplayName != "" {
+					_ = finalizeInvocation(tangsibleStatePath, "", roleDisplayName, -1, "")
+				} else {
+					_ = finalizeInvocation(tangsibleStatePath, playbook, "", -1, "")
+				}
 				processDone.Store(true)
 				return
 			}
-			runGeneration(cmd, stdoutCh, stderrLines)
+			runGeneration(cmd, stdoutCh, stderrLines, runID)
 		}()
 	}
 
@@ -559,10 +615,10 @@ func main() {
 	if roleDisplayName != "" {
 		displayName = roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil)
 
 	if pending != nil {
-		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.first)
+		go runGeneration(pending.cmd, pending.stdoutCh, pending.stderrLines, pending.runID, pending.first)
 	}
 
 	runErr := app.Run()
@@ -652,16 +708,38 @@ type streamItem struct {
 // because ansible-playbook produces zero stdout output for pre-flight
 // failures (bad playbook path, parse errors, missing inventory, ...),
 // reporting those solely via stderr + a nonzero exit code.
-func scanEvents(r io.Reader) <-chan streamItem {
+//
+// logFile, if non-nil (see runlog.go's createRunLog), gets every raw line
+// teed into it verbatim, byte-identical to what ansible-playbook actually
+// emitted - before trimming/decoding, so a malformed or blank line is saved
+// too, same as a real one. This is design-docs/Revisit.md's own save
+// mechanism: byte-identical means "revisit" can later replay a saved file
+// through this exact same scan-and-decode logic, just pointed at a file
+// instead of a live pipe, rather than needing a second, parallel
+// serialization format to stay in sync with this one. Writes are
+// best-effort (errors ignored) - same tolerance every other piece of this
+// feature has for its own I/O failures, never worth disrupting the live
+// event stream over. Closed once scanning ends, right alongside the
+// channel.
+func scanEvents(r io.Reader, logFile *os.File) <-chan streamItem {
 	ch := make(chan streamItem, 64)
 	go func() {
 		defer close(ch)
+		if logFile != nil {
+			defer logFile.Close()
+		}
 
 		scanner := bufio.NewScanner(r)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
+			raw := scanner.Bytes()
+			if logFile != nil {
+				logFile.Write(raw)
+				logFile.Write([]byte{'\n'})
+			}
+
+			line := strings.TrimSpace(string(raw))
 			if line == "" {
 				continue
 			}

@@ -31,6 +31,13 @@ profile.cov
 # (often desirable) to commit and share across a team.
 /.tangsible/state.toml
 
+# Per-generation saved run data (design-docs/Revisit.md) - each
+# ansible-playbook generation's raw jsonl stdout and collected stderr,
+# referenced by RunID from state.toml above. Same reasoning as
+# state.toml itself: local, app-written, and can carry real command
+# output/hostnames.
+/.tangsible/runs/
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 

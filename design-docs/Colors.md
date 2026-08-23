@@ -194,6 +194,28 @@ cross-reference between the two meanings in the code.
   named "blue," so the divider reads as the same chrome rather than a
   clashing second shade.
 
+## Chrome: purple (proposed, design-docs/Revisit.md)
+
+`purple` — `tcell.ColorWhite` text on `tcell.ColorPurple` — is proposed
+as the chrome color for a revisited (historical) run: the top bar, the
+bottom bar, and the two-pane drill-down's vertical divider all switch
+from `barStyle`'s navy to this instead, for the duration of viewing
+saved data, so the "this isn't live" distinction is visible everywhere
+the chrome itself appears, not just in one spot. Reverts to ordinary
+navy the moment a real re-run is kicked off from within a revisited
+session — from that point on there's a live process again, not archived
+data.
+
+`purple` (not a hex literal) for the same reason `maroon` was chosen
+over `brown`/`darkred` elsewhere in this doc: it's one of the fixed
+base-16 ANSI palette slots, so it renders reliably across terminal
+themes rather than being approximated from RGB. Picked over the other
+unused base-16 names (`fuchsia`, `olive`, `lime`) for being close enough
+in tone to navy to still read as "chrome," while being unambiguously a
+different hue at a glance — the same "clearly chrome, clearly not the
+same chrome" balance the divider's own navy-vs-brighter-blue reasoning
+above already goes for.
+
 ## Halfblock blending — not a color, a mechanism
 
 `halfBlock` (U+258C LEFT HALF BLOCK) isn't a color of its own — it's how
@@ -250,3 +272,4 @@ theme/palette remapping.
 | Status line: user-interrupted / generic failure | red | Yes |
 | Active tab | navy on white | Yes |
 | Two-pane divider | navy | Yes |
+| Revisit chrome (top/bottom bars, divider) — proposed | purple | Yes |

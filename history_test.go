@@ -23,32 +23,39 @@ import (
 )
 
 func TestAppendCapped(t *testing.T) {
+	rec := func(s string) invocationRecord { return invocationRecord{Args: s} }
 	cases := []struct {
-		name     string
-		existing []string
-		next     string
-		max      int
-		want     []string
+		name        string
+		existing    []invocationRecord
+		next        invocationRecord
+		max         int
+		want        []invocationRecord
+		wantEvicted []invocationRecord
 	}{
 		{
 			name:     "under the cap just appends",
-			existing: []string{"a", "b"},
-			next:     "c",
+			existing: []invocationRecord{rec("a"), rec("b")},
+			next:     rec("c"),
 			max:      5,
-			want:     []string{"a", "b", "c"},
+			want:     []invocationRecord{rec("a"), rec("b"), rec("c")},
 		},
 		{
-			name:     "at the cap drops the oldest",
-			existing: []string{"a", "b", "c"},
-			next:     "d",
-			max:      3,
-			want:     []string{"b", "c", "d"},
+			name:        "at the cap drops the oldest",
+			existing:    []invocationRecord{rec("a"), rec("b"), rec("c")},
+			next:        rec("d"),
+			max:         3,
+			want:        []invocationRecord{rec("b"), rec("c"), rec("d")},
+			wantEvicted: []invocationRecord{rec("a")},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := appendCapped(c.existing, c.next, c.max); !slices.Equal(got, c.want) {
-				t.Errorf("appendCapped(%v, %q, %d) = %v, want %v", c.existing, c.next, c.max, got, c.want)
+			got, evicted := appendCapped(c.existing, c.next, c.max)
+			if !slices.Equal(got, c.want) {
+				t.Errorf("appendCapped() result = %v, want %v", got, c.want)
+			}
+			if !slices.Equal(evicted, c.wantEvicted) {
+				t.Errorf("appendCapped() evicted = %v, want %v", evicted, c.wantEvicted)
 			}
 		})
 	}
@@ -181,7 +188,7 @@ func TestAppendInvocationCapsAtMaxHistoryPerPlaybook(t *testing.T) {
 	}
 	// The very first invocation ("a") should have been dropped as the
 	// oldest, in favor of the 5 later ones pushing it out.
-	if entry.Invocations[0] == "a" {
+	if entry.Invocations[0].Args == "a" {
 		t.Error("oldest invocation was not dropped once the cap was exceeded")
 	}
 }
@@ -225,5 +232,162 @@ func TestLastInvocationEntryWithNoInvocations(t *testing.T) {
 	cfg := stateConfig{History: []playbookHistory{{Playbook: "site.yml"}}}
 	if _, ok := lastInvocation(cfg, "site.yml"); ok {
 		t.Error("lastInvocation() on an entry with no Invocations, ok = true, want false")
+	}
+}
+
+// TestFinalizeInvocation covers design-docs/Revisit.md's two-phase record:
+// appendInvocation stamps Args/Time up front (before a generation is even
+// spawned); finalizeInvocation fills in ExitCode/RunID once it's actually
+// known, on the same (necessarily last) entry - without disturbing Args/
+// Time, or any other target's own history.
+func TestFinalizeInvocation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+
+	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+		t.Fatalf("appendInvocation(): %v", err)
+	}
+	if err := appendInvocation(path, "", "myrole", "-l nirvana"); err != nil {
+		t.Fatalf("appendInvocation() for a role: %v", err)
+	}
+
+	if err := finalizeInvocation(path, "site.yml", "", 0, "20260823T150000.000000000Z"); err != nil {
+		t.Fatalf("finalizeInvocation(): %v", err)
+	}
+
+	cfg := readState(path)
+	var site, role *playbookHistory
+	for i := range cfg.History {
+		switch cfg.History[i].Playbook {
+		case "site.yml":
+			site = &cfg.History[i]
+		}
+		if cfg.History[i].Role == "myrole" {
+			role = &cfg.History[i]
+		}
+	}
+	if site == nil || len(site.Invocations) != 1 {
+		t.Fatalf("site.yml entry = %+v, want exactly one invocation", site)
+	}
+	got := site.Invocations[0]
+	if got.Args != "-l somehost" {
+		t.Errorf("finalizeInvocation() touched Args: got %q, want unchanged %q", got.Args, "-l somehost")
+	}
+	if got.Time == "" {
+		t.Error("finalizeInvocation() cleared Time, want it left untouched")
+	}
+	if got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Errorf("got.ExitCode = %v, want a pointer to 0", got.ExitCode)
+	}
+	if got.RunID != "20260823T150000.000000000Z" {
+		t.Errorf("got.RunID = %q, want the id passed to finalizeInvocation()", got.RunID)
+	}
+
+	// myrole's own entry must be untouched - finalizeInvocation only ever
+	// updates the target it was called for.
+	if role == nil || len(role.Invocations) != 1 {
+		t.Fatalf("myrole entry = %+v, want exactly one invocation", role)
+	}
+	if role.Invocations[0].ExitCode != nil || role.Invocations[0].RunID != "" {
+		t.Errorf("myrole's own invocation = %+v, want ExitCode/RunID still unset", role.Invocations[0])
+	}
+}
+
+// TestAppendInvocationEvictionDeletesRunLogFiles proves
+// design-docs/Revisit.md's own retention story: when the
+// maxHistoryPerPlaybook cap drops an old invocationRecord, any saved run-log
+// files it references (runlog.go) are deleted right alongside it, so
+// .tangsible/runs/ doesn't accumulate orphans forever.
+func TestAppendInvocationEvictionDeletesRunLogFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+
+	if err := appendInvocation(path, "site.yml", "", "first"); err != nil {
+		t.Fatalf("appendInvocation() first call: %v", err)
+	}
+	runID := "20260823T150000.000000000Z"
+	if err := finalizeInvocation(path, "site.yml", "", 0, runID); err != nil {
+		t.Fatalf("finalizeInvocation(): %v", err)
+	}
+	jsonlPath, stderrPath := runLogPaths(path, runID)
+	mustWriteFile(t, jsonlPath, `{"_event":"v2_playbook_on_play_start"}`+"\n")
+	mustWriteFile(t, stderrPath, "some stderr\n")
+
+	// maxHistoryPerPlaybook more invocations for the same playbook push the
+	// very first one (the only one with a RunID/saved files) out of the cap.
+	for i := 0; i < maxHistoryPerPlaybook; i++ {
+		if err := appendInvocation(path, "site.yml", "", "later"); err != nil {
+			t.Fatalf("appendInvocation() call %d: %v", i, err)
+		}
+	}
+
+	if _, err := os.Stat(jsonlPath); !os.IsNotExist(err) {
+		t.Errorf("jsonl file for the evicted entry still exists (err=%v), want it deleted", err)
+	}
+	if _, err := os.Stat(stderrPath); !os.IsNotExist(err) {
+		t.Errorf("stderr file for the evicted entry still exists (err=%v), want it deleted", err)
+	}
+}
+
+// TestPruneMissingRunLogsClearsDanglingRunIDs covers design-docs/Revisit.md's
+// own self-healing story: a RunID whose .jsonl file has gone missing (hand-
+// deleted, disk cleanup, ...) gets cleared - and only that field - so the
+// entry drops out of the revisit list without the write ever being able to
+// happen again, while Args/Time/ExitCode (and any OTHER entry's own RunID)
+// stay untouched.
+func TestPruneMissingRunLogsClearsDanglingRunIDs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+
+	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+		t.Fatalf("appendInvocation() first: %v", err)
+	}
+	if err := finalizeInvocation(path, "site.yml", "", 0, "dangling-run"); err != nil {
+		t.Fatalf("finalizeInvocation() first: %v", err)
+	}
+	if err := appendInvocation(path, "site.yml", "", "--tags foo"); err != nil {
+		t.Fatalf("appendInvocation() second: %v", err)
+	}
+	realRunID := "real-run"
+	if err := finalizeInvocation(path, "site.yml", "", 0, realRunID); err != nil {
+		t.Fatalf("finalizeInvocation() second: %v", err)
+	}
+	jsonlPath, _ := runLogPaths(path, realRunID)
+	mustWriteFile(t, jsonlPath, `{"_event":"v2_playbook_on_play_start"}`+"\n")
+	// Deliberately no file written for "dangling-run" - that's the one
+	// meant to be pruned.
+
+	cfg, err := pruneMissingRunLogs(path)
+	if err != nil {
+		t.Fatalf("pruneMissingRunLogs(): %v", err)
+	}
+	if len(cfg.History) != 1 || len(cfg.History[0].Invocations) != 2 {
+		t.Fatalf("cfg.History = %+v, want one entry with both invocations still present", cfg.History)
+	}
+	first, second := cfg.History[0].Invocations[0], cfg.History[0].Invocations[1]
+	if first.RunID != "" {
+		t.Errorf("first invocation's RunID = %q, want cleared (its file is missing)", first.RunID)
+	}
+	if first.Args != "-l somehost" || first.ExitCode == nil || *first.ExitCode != 0 {
+		t.Errorf("first invocation = %+v, want Args/ExitCode left untouched by pruning", first)
+	}
+	if second.RunID != realRunID {
+		t.Errorf("second invocation's RunID = %q, want %q (its file exists, must survive)", second.RunID, realRunID)
+	}
+
+	// Re-reading from disk confirms the prune was actually persisted, not
+	// just returned in-memory.
+	reread := readState(path)
+	if reread.History[0].Invocations[0].RunID != "" {
+		t.Error("pruneMissingRunLogs() didn't persist the cleared RunID to disk")
+	}
+}
+
+func TestPruneMissingRunLogsNoOpWhenNothingIsMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	if err := appendInvocation(path, "site.yml", "", ""); err != nil {
+		t.Fatalf("appendInvocation(): %v", err)
+	}
+	// No RunID was ever set on this entry, so there's nothing for
+	// pruneMissingRunLogs to check or clear - must not error either way.
+	if _, err := pruneMissingRunLogs(path); err != nil {
+		t.Errorf("pruneMissingRunLogs() on an entry with no RunID at all: %v", err)
 	}
 }

@@ -136,6 +136,7 @@ const (
 	verbTemplate verb = "template"
 	verbHost     verb = "host"
 	verbHosts    verb = "hosts"
+	verbRevisit  verb = "revisit"
 )
 
 // parseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
@@ -146,7 +147,7 @@ func parseVerb(args []string) (v verb, rest []string, ok bool) {
 		return "", nil, false
 	}
 	switch verb(args[0]) {
-	case verbRun, verbRerun, verbRole, verbTemplate, verbHost, verbHosts:
+	case verbRun, verbRerun, verbRole, verbTemplate, verbHost, verbHosts, verbRevisit:
 		return verb(args[0]), args[1:], true
 	default:
 		return "", nil, false

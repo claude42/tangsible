@@ -16,7 +16,9 @@ package main
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -81,7 +83,7 @@ func TestScanEvents(t *testing.T) {
 	t.Run("valid JSON line then a garbage line", func(t *testing.T) {
 		input := `{"_event":"v2_playbook_on_play_start","play":{"name":"my play"}}` + "\n" +
 			"not valid json at all\n"
-		ch := scanEvents(strings.NewReader(input))
+		ch := scanEvents(strings.NewReader(input), nil)
 
 		first := <-ch
 		if !first.isEvent || first.ev.Event != "v2_playbook_on_play_start" {
@@ -100,7 +102,7 @@ func TestScanEvents(t *testing.T) {
 
 	t.Run("v2_playbook_on_stats decodes like any other event", func(t *testing.T) {
 		input := `{"_event":"v2_playbook_on_stats","stats":{"web1":{"ok":1}}}` + "\n"
-		ch := scanEvents(strings.NewReader(input))
+		ch := scanEvents(strings.NewReader(input), nil)
 
 		item := <-ch
 		if !item.isEvent || item.ev.Event != "v2_playbook_on_stats" {
@@ -109,9 +111,39 @@ func TestScanEvents(t *testing.T) {
 	})
 
 	t.Run("empty reader closes the channel immediately", func(t *testing.T) {
-		ch := scanEvents(strings.NewReader(""))
+		ch := scanEvents(strings.NewReader(""), nil)
 		if _, ok := <-ch; ok {
 			t.Error("expected the channel to close with no items for an empty reader")
 		}
 	})
+}
+
+// TestScanEventsTeesRawLinesToLogFile covers design-docs/Revisit.md's own
+// save mechanism: every line scanEvents reads is written to logFile
+// byte-identical to the input, including a malformed line - before any
+// trimming/decoding - so a saved run can later be replayed through this
+// exact same scan-and-decode logic.
+func TestScanEventsTeesRawLinesToLogFile(t *testing.T) {
+	input := `{"_event":"v2_playbook_on_play_start","play":{"name":"my play"}}` + "\n" +
+		"not valid json at all\n"
+
+	logPath := filepath.Join(t.TempDir(), "run.jsonl")
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		t.Fatalf("creating log file: %v", err)
+	}
+
+	ch := scanEvents(strings.NewReader(input), logFile)
+	for range ch {
+		// Drain fully - scanEvents closes logFile itself once done, so
+		// the file below isn't safe to read until the channel closes.
+	}
+
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading back the tee'd log file: %v", err)
+	}
+	if string(got) != input {
+		t.Errorf("logged content = %q, want byte-identical to input %q", got, input)
+	}
 }
