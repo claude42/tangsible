@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Implements the "revisit" verb (design-docs/Revisit.md, Phase 2): browse
+// Implements the "revisit" Verb (design-docs/Revisit.md, Phase 2): browse
 // previous tangsible runs and reopen one, with the full tree/drill-down
 // view (but not yet re-run - see requestRerun's own nil below - that's
 // Phase 3). Two entirely separate tview.Application lifetimes, run
@@ -34,7 +34,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/role"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -50,9 +52,9 @@ import (
 func runRevisitVerb(args []string) int {
 	shownAnything := false
 	for {
-		cfg, err := pruneMissingRunLogs(tangsibleStatePath)
+		cfg, err := config.PruneMissingRunLogs(config.TangsibleStatePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't update invocation history in %s: %v\n", tangsibleStatePath, err)
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't update invocation history in %s: %v\n", config.TangsibleStatePath, err)
 		}
 		entries := resolveRevisitEntries(args, cfg)
 		if len(entries) == 0 {
@@ -78,19 +80,19 @@ func runRevisitVerb(args []string) int {
 // conversation this implements), since an unfiltered list can otherwise mix
 // entries for different targets with no way to tell them apart.
 func revisitCommandText(e revisitEntry) string {
-	verb, target := "run", e.Playbook
+	Verb, target := "run", e.Playbook
 	if e.Role != "" {
-		verb, target = "role", e.Role
+		Verb, target = "role", e.Role
 	}
-	cmd := fmt.Sprintf("tangsible %s %s", verb, target)
+	cmd := fmt.Sprintf("tangsible %s %s", Verb, target)
 	if e.Args != "" {
 		cmd += " " + e.Args
 	}
 	return cmd
 }
 
-// formatRevisitTime renders invocationRecord.Time (RFC3339 UTC, as
-// appendInvocation stamps it) in the local zone, readably - falling back to
+// formatRevisitTime renders InvocationRecord.Time (RFC3339 UTC, as
+// AppendInvocation stamps it) in the local zone, readably - falling back to
 // the raw stored string on a parse failure (shouldn't happen for anything
 // this program itself ever wrote, but not trusted blindly, same caveat
 // applied to every other stored/event-derived field elsewhere).
@@ -271,13 +273,13 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 // requestRerun is a real newRequestRerun (generation.go) - the same
 // mechanism main.go's own run/rerun/role session uses, reused rather than
 // duplicated. A role-originated entry gets a freshly generated stub
-// (startRoleSession) up front, reused for every rerun within this one
+// (StartRoleSession) up front, reused for every rerun within this one
 // session exactly as any other role session's own stub is - see the
 // "playbook" local's own doc comment below for why this is built
 // unconditionally, and what it does/doesn't fix about the historical
 // drill-down's own source lookup.
 func openRevisitEntry(e revisitEntry) {
-	jsonlPath, _ := runLogPaths(tangsibleStatePath, e.RunID)
+	jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, e.RunID)
 	f, err := os.Open(jsonlPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't open saved run data: %v\n", err)
@@ -295,7 +297,7 @@ func openRevisitEntry(e revisitEntry) {
 	// playbook is what a rerun (Phase 3, below) would actually spawn -
 	// e.Playbook itself for a plain playbook entry, or a freshly generated
 	// stub for a role entry, exactly as "tangsible role"/"tangsible rerun
-	// <role>" already do at their own session's start (startRoleSession) -
+	// <role>" already do at their own session's start (StartRoleSession) -
 	// a role session's stub is only ever reused for reruns *within* one
 	// process's lifetime, never persisted, so there's no way to reopen the
 	// *original* one here regardless. Built unconditionally (even if the
@@ -314,7 +316,7 @@ func openRevisitEntry(e revisitEntry) {
 	displayName := filepath.Base(e.Playbook)
 	var cleanup func()
 	if e.Role != "" {
-		playbook, cleanup = startRoleSession(e.Role)
+		playbook, cleanup = role.StartRoleSession(e.Role)
 		displayName = e.Role
 	}
 	if cleanup != nil {
@@ -322,8 +324,8 @@ func openRevisitEntry(e revisitEntry) {
 	}
 	sourceIndex := buildTaskSourceIndex(playbook)
 
-	settings := readSettingsConfig(tangsibleConfigPath)
-	invArgs := parsePassthroughArgs(historyStringToArgs(e.Args))
+	settings := config.ReadSettingsConfig(config.TangsibleConfigPath)
+	invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(e.Args))
 
 	var procH procHandle
 	var processDone, quitting atomic.Bool
@@ -372,7 +374,7 @@ func openRevisitEntry(e revisitEntry) {
 	}
 
 	app, applyLive = NewLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
-		sourceIndex, defaultTreeExpanded(settings), twoPaneLayoutEnabled(settings), colorEnabledByUser(settings),
+		sourceIndex, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
 		invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, false, requestRerun, invArgs.Rest, &progH, revisitReturn,
 		e.Playbook, e.Role)
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package config
 
 import (
 	"os"
@@ -23,7 +23,7 @@ import (
 
 func TestNewRunIDFormatAndUniqueness(t *testing.T) {
 	t1 := time.Date(2026, 8, 23, 15, 0, 0, 123456789, time.UTC)
-	got := newRunID(t1)
+	got := NewRunID(t1)
 	want := "20260823T150000.123456789Z"
 	if got != want {
 		t.Errorf("newRunID() = %q, want %q", got, want)
@@ -40,13 +40,13 @@ func TestNewRunIDFormatAndUniqueness(t *testing.T) {
 	// - the realistic gap between two generations in the same session -
 	// never collide.
 	t2 := t1.Add(1)
-	if newRunID(t2) == got {
+	if NewRunID(t2) == got {
 		t.Error("newRunID() produced the same id for two distinct nanosecond timestamps")
 	}
 }
 
 func TestRunsDirIsSiblingOfStatePath(t *testing.T) {
-	got := runsDir(filepath.Join("project", ".tangsible", "state.toml"))
+	got := RunsDir(filepath.Join("project", ".tangsible", "state.toml"))
 	want := filepath.Join("project", ".tangsible", "runs")
 	if got != want {
 		t.Errorf("runsDir() = %q, want %q", got, want)
@@ -57,7 +57,7 @@ func TestCreateRunLogWriteReadDelete(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 	runID := "20260823T150000.000000000Z"
 
-	f := createRunLog(statePath, runID)
+	f := CreateRunLog(statePath, runID)
 	if f == nil {
 		t.Fatal("createRunLog() = nil, want a real file")
 	}
@@ -66,7 +66,7 @@ func TestCreateRunLogWriteReadDelete(t *testing.T) {
 	}
 	f.Close()
 
-	jsonlPath, stderrPath := runLogPaths(statePath, runID)
+	jsonlPath, stderrPath := RunLogPaths(statePath, runID)
 	got, err := os.ReadFile(jsonlPath)
 	if err != nil {
 		t.Fatalf("reading back the jsonl file: %v", err)
@@ -75,7 +75,7 @@ func TestCreateRunLogWriteReadDelete(t *testing.T) {
 		t.Errorf("jsonl content = %q, want %q", got, "hello\n")
 	}
 
-	writeRunStderr(statePath, runID, []string{"line one", "line two"})
+	WriteRunStderr(statePath, runID, []string{"line one", "line two"})
 	gotStderr, err := os.ReadFile(stderrPath)
 	if err != nil {
 		t.Fatalf("reading back the stderr file: %v", err)
@@ -84,7 +84,7 @@ func TestCreateRunLogWriteReadDelete(t *testing.T) {
 		t.Errorf("stderr content = %q, want %q", gotStderr, "line one\nline two")
 	}
 
-	deleteRunLog(statePath, runID)
+	DeleteRunLog(statePath, runID)
 	if _, err := os.Stat(jsonlPath); !os.IsNotExist(err) {
 		t.Errorf("jsonl file still exists after deleteRunLog() (stat err=%v)", err)
 	}
@@ -102,10 +102,10 @@ func TestRunLogEmptyRunIDIsANoOp(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
 	// Neither call should panic or create anything under runsDir.
-	writeRunStderr(statePath, "", []string{"should never be written"})
-	deleteRunLog(statePath, "")
+	WriteRunStderr(statePath, "", []string{"should never be written"})
+	DeleteRunLog(statePath, "")
 
-	if _, err := os.Stat(runsDir(statePath)); !os.IsNotExist(err) {
+	if _, err := os.Stat(RunsDir(statePath)); !os.IsNotExist(err) {
 		t.Errorf("runsDir() was created despite an empty runID (stat err=%v)", err)
 	}
 }
@@ -114,5 +114,5 @@ func TestDeleteRunLogMissingFilesIsHarmless(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 	// Nothing was ever created for this runID - deleteRunLog must not
 	// error out or panic on a plain "file doesn't exist."
-	deleteRunLog(statePath, "20260823T150000.000000000Z")
+	DeleteRunLog(statePath, "20260823T150000.000000000Z")
 }

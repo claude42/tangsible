@@ -104,7 +104,7 @@ func jinjaStringLiteral(s string) string {
 // interactive host-switching. rest is the current generation's own
 // passthrough args (importantly -i/-e, so the stub sees the same
 // inventory/extra-vars context the real run did) - never contains
-// -l/--limit itself (parsePassthroughArgs already extracts that
+// -l/--limit itself (ParsePassthroughArgs already extracts that
 // separately), so there's no risk of it conflicting with this function's
 // own hosts: line.
 //

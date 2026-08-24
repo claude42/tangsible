@@ -179,6 +179,33 @@ importable packages worth protecting from some hypothetical future
 second binary in this module, not just `package main` renamed for its
 own sake.
 
+**Revised once checked directly (grep, not assumed) before starting -
+this scope turned out optimistic in two ways:**
+- `host.go`/`template.go` are a genuine two-way cycle - both call each
+  other's inventory-JSON-parsing helpers (`flattenInventoryHosts`/
+  `ansibleInventoryGroup` from `host.go`, `listInventoryHosts` from
+  `template.go`). Can't become two independent packages as proposed
+  without either merging them or extracting the shared inventory logic
+  into a third package both depend on - not decided yet, see Status.
+- `main.go` isn't just an entrypoint - it owns process-lifecycle
+  plumbing (`procHandle`/`streamItem`/`generationOutcome`/`exitCodeOf`/
+  `ansibleUserInterruptedExitCode`/`scanEvents`/`spawnGeneration`/
+  `streamStderr`), plus `progress.go`'s tracker and `source.go`'s
+  `taskSourceIndex`, that `diff.go`/`revisit.go`/`generation.go` call
+  *directly*, not via callback. Since `package main` can never be
+  imported, none of that can stay main-only once those three files
+  move out - it needs its own package(s), not named in this phase's
+  original scope above. `revisit.go`'s `openRevisitEntry` also calls
+  `NewLiveTUI` (`tui.go`, staying `package main` until Phase 3) directly
+  - that one has to become an injected callback, the same pattern
+  `requestRerun`/`revisitReturn` already use elsewhere in this codebase.
+  Not decided yet either - see Status.
+
+Given the scope growth, this phase is now being done incrementally
+rather than as one pass - safe, confirmed-zero-back-reference clusters
+first, the harder two (above) once there's a concrete proposal for
+them. See Status for what's done and what's still open.
+
 ### Phase 5 - thin root `main.go` (trivial, any time once Phase 4 exists)
 
 `main.go` (`package main`) at the repo root, importing whatever
@@ -335,8 +362,56 @@ never actually a cycle - only Phase 4 (splitting `diff.go` into its own
 package) would make it one, and that's the point at which the
 `requestRerun`/`revisitReturn`-style callback-injection fix belongs.
 
-Phase 3 (break `NewLiveTUI` itself apart) or Phase 4 (group the verb
-files into their own packages, now with `internal/uikit`/`internal/
-playbook` to depend on) are the proposed next steps whenever this gets
-picked back up - see each phase's own section above for what's
-involved.
+Phase 4 started, incrementally, after research (grep, not assumed)
+found its original 6-group scope had two real problems - see that
+phase's own revised note above. Decision made: do the two confirmed-
+clean clusters first, come back with a concrete proposal for the other
+two once those are done and verified, rather than redesigning all ~9
+eventual packages up front.
+
+**`internal/config`** (`resolve.go`/`history.go`/`rerunargs.go`/
+`rerunresolve.go`/`runlog.go`) done - confirmed zero back-references
+into anything else before starting (stdlib + `github.com/BurntSushi/
+toml` only), so this moved exactly as cleanly as the doc assumed. Every
+cross-file symbol exported (`SettingsConfig`, `StateConfig`, `Verb`/
+`VerbRun`/etc., `ResolvePlaybook`, `AppendInvocation`, `ResolveRerun`,
+~45 more) - struct fields (`InvocationRecord`/`PlaybookHistory`/
+`ParsedPassthroughArgs`/`RerunResolution`) were already exported before
+this phase, so no field-level renaming was needed here the way Phase 1
+needed for `Row`/`HostRowID`/`FilterQuery`. No import-alias collision
+despite "config" being about as common a word as "playbook" was in
+Phase 2 - checked directly (grepped for `config` as an actual local-
+variable declaration, not just the substring inside `configPath`/
+`config.toml`) and found none.
+
+**`internal/role`** (`role.go`) done, and turned out even smaller than
+expected: only `StartRoleSession` is ever called from outside the file
+(`main.go`, `revisit.go`) - `WriteRoleStub`/`RoleFoundNearby`/
+`RoleStubFilename` stay effectively private (still exported, per this
+phase's "export everything in the moved file" policy from Phase 1, but
+with zero outside callers) since `StartRoleSession` is the only thing
+that calls them. Zero dependency on the config cluster despite the
+doc's own earlier "role -> config" flag from initial research - that
+turned out to be `main.go` calling into *both* packages side by side,
+not `role.go` itself depending on `config`.
+
+Mechanics for both: identical to Phases 1-2 - `gorename` in place
+first, then move + `goimports`, verified after each cluster before
+starting the next (config fully moved and re-verified before role's own
+qualifying pass ran, since the qualifier needs semantic resolution and
+`role.go` doesn't reference anything in `config` anyway, but doing them
+strictly in sequence rather than batching both avoided finding that out
+the hard way). `go build`/`go vet`/`gofmt -l`/`go test ./...`/
+`go test -tags e2e ./...` all pass on all five packages now.
+
+Still open, no proposal yet: the `host.go`/`template.go` cycle, and
+where `main.go`'s process-lifecycle plumbing (plus `progress.go`/
+`source.go`) ends up so `diff`/`revisit`+`generation` can become real
+packages too. `diff.go`/`revisit.go`/`revisitresolve.go`/`generation.go`
+stay in `package main` for now, unaffected by this round other than the
+`config.`/`role.` qualification their existing calls into those two
+clusters now need.
+
+Phase 3 (break `NewLiveTUI` itself apart) stays deferred per its own
+section above - Phase 4's remaining two clusters are the proposed next
+step whenever this gets picked back up.

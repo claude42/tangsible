@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package config
 
 import (
 	"fmt"
@@ -23,21 +23,21 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// tangsibleDir is the project-local directory Tangsible reads its settings
+// TangsibleDir is the project-local directory Tangsible reads its settings
 // from and writes its state to - see settingsConfig/stateConfig below for
 // the split and why it exists (design-docs/Dottangsible-directory.md).
 // Replaces the single flat .tangsible file this project used before that
 // split.
-const tangsibleDir = ".tangsible"
+const TangsibleDir = ".tangsible"
 
-// tangsibleConfigPath is .tangsible/config.toml - see settingsConfig's own
+// TangsibleConfigPath is .tangsible/config.toml - see settingsConfig's own
 // doc comment. Shared by resolvePlaybook's read and main's
 // defaultTreeExpanded caller. A var, not a const, since it's built via
 // filepath.Join (same style as configHome below) for cross-platform
 // correctness.
-var tangsibleConfigPath = filepath.Join(tangsibleDir, "config.toml")
+var TangsibleConfigPath = filepath.Join(TangsibleDir, "config.toml")
 
-// settingsConfig is the shape of Tangsible's user-authored settings files -
+// SettingsConfig is the shape of Tangsible's user-authored settings files -
 // the project-local .tangsible/config.toml (tangsibleConfigPath) and the
 // global $XDG_CONFIG_HOME/tangsible/config.toml (resolved via configHome)
 // - both read-only from Tangsible's own point of view: nothing in this
@@ -54,7 +54,7 @@ var tangsibleConfigPath = filepath.Join(tangsibleDir, "config.toml")
 // State that Tangsible itself owns and writes - invocation history, and
 // which target ran most recently - lives in the separate stateConfig
 // (history.go), local-only, never in this type.
-type settingsConfig struct {
+type SettingsConfig struct {
 	General struct {
 		DefaultPlaybook string `toml:"default_playbook"`
 		// DefaultTreeState governs whether a freshly-started run's very
@@ -86,26 +86,26 @@ type settingsConfig struct {
 	} `toml:"general"`
 }
 
-// defaultTreeExpanded reports whether cfg.General.DefaultTreeState says a
+// DefaultTreeExpanded reports whether cfg.General.DefaultTreeState says a
 // freshly-started run's first task should start expanded - true only for
 // "expanded" (case-insensitive); everything else, including an unset or
 // unrecognized value, means collapsed - the documented default, applied
 // silently rather than warning on a typo, consistent with this project's
 // general "swallow and fall back" convention for config values elsewhere
 // (readDefaultPlaybook, DecodeHostResult).
-func defaultTreeExpanded(cfg settingsConfig) bool {
+func DefaultTreeExpanded(cfg SettingsConfig) bool {
 	return strings.EqualFold(cfg.General.DefaultTreeState, "expanded")
 }
 
-// twoPaneLayoutEnabled reports whether the two-pane drill-down
+// TwoPaneLayoutEnabled reports whether the two-pane drill-down
 // (design-docs/TwoPanedLayout.md) should be used. Default true - an unset
 // TwoPaneLayout (nil, the common case: most users never set this) means
 // enabled; only an explicit "two_pane_layout = false" turns it off.
-func twoPaneLayoutEnabled(cfg settingsConfig) bool {
+func TwoPaneLayoutEnabled(cfg SettingsConfig) bool {
 	return cfg.General.TwoPaneLayout == nil || *cfg.General.TwoPaneLayout
 }
 
-// colorEnabledByUser reports whether cfg.General.Color permits coloring
+// ColorEnabledByUser reports whether cfg.General.Color permits coloring
 // the collapsed task row's per-host summary (design-docs/Morehosts.md).
 // Default true - an unset Color (nil, the common case) means enabled;
 // only an explicit "color = false" turns it off. This is one of three
@@ -113,48 +113,48 @@ func twoPaneLayoutEnabled(cfg settingsConfig) bool {
 // terminal's own detected color capability and the NO_COLOR
 // environment variable) - all three must allow color for that row to
 // ever render in color.
-func colorEnabledByUser(cfg settingsConfig) bool {
+func ColorEnabledByUser(cfg SettingsConfig) bool {
 	return cfg.General.Color == nil || *cfg.General.Color
 }
 
-// verb identifies which top-level command Tangsible was invoked with -
+// Verb identifies which top-level command Tangsible was invoked with -
 // "run" (the direct successor of the original bare-playbook invocation),
 // "rerun" (see Rerun.md), "role" (see design-docs/Tangsible role.md),
 // "template" (see design-docs/Tangsible template.md), or "host"/"hosts"
-// (see design-docs/HostVerb.md). A verb is now mandatory: unlike the
-// playbook argument, there's no shape-based way to tell "no verb given"
-// from "verb given" (every verb looks like a plain word, same as a
+// (see design-docs/HostVerb.md). A Verb is now mandatory: unlike the
+// playbook argument, there's no shape-based way to tell "no Verb given"
+// from "Verb given" (every Verb looks like a plain word, same as a
 // playbook path), and more verbs were expected to follow Rerun.md's own
 // rationale for introducing this - so requiring one explicitly, as a
 // breaking change, is simpler than trying to keep guessing.
-type verb string
+type Verb string
 
 const (
-	verbRun      verb = "run"
-	verbRerun    verb = "rerun"
-	verbRole     verb = "role"
-	verbTemplate verb = "template"
-	verbHost     verb = "host"
-	verbHosts    verb = "hosts"
-	verbRevisit  verb = "revisit"
+	VerbRun      Verb = "run"
+	VerbRerun    Verb = "rerun"
+	VerbRole     Verb = "role"
+	VerbTemplate Verb = "template"
+	VerbHost     Verb = "host"
+	VerbHosts    Verb = "hosts"
+	VerbRevisit  Verb = "revisit"
 )
 
-// parseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
+// ParseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
 // with. ok is false if args is empty or its first element isn't a
 // recognized verb - the caller treats that as a usage error.
-func parseVerb(args []string) (v verb, rest []string, ok bool) {
+func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 	if len(args) == 0 {
 		return "", nil, false
 	}
-	switch verb(args[0]) {
-	case verbRun, verbRerun, verbRole, verbTemplate, verbHost, verbHosts, verbRevisit:
-		return verb(args[0]), args[1:], true
+	switch Verb(args[0]) {
+	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbRevisit:
+		return Verb(args[0]), args[1:], true
 	default:
 		return "", nil, false
 	}
 }
 
-// splitPlaybookArgs splits args (everything after the verb) into the playbook path and
+// SplitPlaybookArgs splits args (everything after the verb) into the playbook path and
 // the remaining ansible-playbook passthrough args. Tangsible's calling
 // convention has always put the playbook first, with everything after it
 // passed straight through - so the only way to tell "no playbook given"
@@ -162,18 +162,18 @@ func parseVerb(args []string) (v verb, rest []string, ok bool) {
 // its first element looks like a flag (starts with '-'), no playbook was
 // given positionally, and the whole of args is passthrough; otherwise
 // args[0] is the playbook, exactly as before this feature existed.
-func splitPlaybookArgs(args []string) (playbook string, rest []string, explicit bool) {
+func SplitPlaybookArgs(args []string) (playbook string, rest []string, explicit bool) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		return args[0], args[1:], true
 	}
 	return "", args, false
 }
 
-// configHome implements the XDG Base Directory Specification's rule for
+// ConfigHome implements the XDG Base Directory Specification's rule for
 // this exact case: $XDG_CONFIG_HOME if set and non-empty, else
 // $HOME/.config. Returns "" if neither can be determined (no HOME set),
 // in which case resolvePlaybook simply skips that source.
-func configHome() string {
+func ConfigHome() string {
 	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
 		return v
 	}
@@ -184,7 +184,7 @@ func configHome() string {
 	return filepath.Join(home, ".config")
 }
 
-// readTOMLFile decodes path as TOML into a T, returning T's zero value if
+// ReadTOMLFile decodes path as TOML into a T, returning T's zero value if
 // the file doesn't exist (silently - the common case for most of
 // resolvePlaybook's sources, not worth a warning) or can't be parsed (a
 // warning is printed to stderr - an existing-but-broken file shouldn't
@@ -194,7 +194,7 @@ func configHome() string {
 // ever reads from disk - so there's exactly one place that knows the
 // stat/decode/warn dance, even though what it decodes into now differs
 // between config.toml and state.toml.
-func readTOMLFile[T any](path string) T {
+func ReadTOMLFile[T any](path string) T {
 	var v T
 	if _, err := os.Stat(path); err != nil {
 		return v
@@ -207,20 +207,20 @@ func readTOMLFile[T any](path string) T {
 	return v
 }
 
-// readSettingsConfig reads path (a config.toml, local or global - see
+// ReadSettingsConfig reads path (a config.toml, local or global - see
 // settingsConfig's own doc comment) via readTOMLFile.
-func readSettingsConfig(path string) settingsConfig {
-	return readTOMLFile[settingsConfig](path)
+func ReadSettingsConfig(path string) SettingsConfig {
+	return ReadTOMLFile[SettingsConfig](path)
 }
 
-// readDefaultPlaybook returns path's general.default_playbook value - ""
+// ReadDefaultPlaybook returns path's general.default_playbook value - ""
 // if the file doesn't exist, can't be parsed, or simply doesn't set that
 // key. See readTOMLFile for the shared read/warn behavior.
-func readDefaultPlaybook(path string) string {
-	return readSettingsConfig(path).General.DefaultPlaybook
+func ReadDefaultPlaybook(path string) string {
+	return ReadSettingsConfig(path).General.DefaultPlaybook
 }
 
-// resolvePlaybook determines which playbook to run when none was given
+// ResolvePlaybook determines which playbook to run when none was given
 // explicitly on the command line, trying each source in order and
 // returning the first hit along with a short description of where it
 // came from (for the startup note main prints to stderr). Returns
@@ -232,16 +232,16 @@ func readDefaultPlaybook(path string) string {
 // passed straight through exactly like an explicit command-line argument
 // always has been; ansible-playbook (and buildTaskSourceIndex) resolve a
 // relative path against Tangsible's own cwd on their own, same as today.
-func resolvePlaybook() (path, source string) {
+func ResolvePlaybook() (path, source string) {
 	if v := os.Getenv("TANGSIBLE_PLAYBOOK"); v != "" {
 		return v, "TANGSIBLE_PLAYBOOK"
 	}
-	if v := readDefaultPlaybook(tangsibleConfigPath); v != "" {
+	if v := ReadDefaultPlaybook(TangsibleConfigPath); v != "" {
 		return v, "./.tangsible/config.toml"
 	}
-	if home := configHome(); home != "" {
+	if home := ConfigHome(); home != "" {
 		configPath := filepath.Join(home, "tangsible", "config.toml")
-		if v := readDefaultPlaybook(configPath); v != "" {
+		if v := ReadDefaultPlaybook(configPath); v != "" {
 			return v, configPath
 		}
 	}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package role
 
 import (
 	"os"
@@ -22,7 +22,7 @@ import (
 )
 
 func TestRoleStubFilename(t *testing.T) {
-	if got, want := roleStubFilename("myrole"), ".tangsible-role-myrole.yml"; got != want {
+	if got, want := RoleStubFilename("myrole"), ".tangsible-role-myrole.yml"; got != want {
 		t.Errorf("roleStubFilename(myrole) = %q, want %q", got, want)
 	}
 }
@@ -30,7 +30,7 @@ func TestRoleStubFilename(t *testing.T) {
 func TestWriteRoleStub(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	path, err := writeRoleStub("myrole")
+	path, err := WriteRoleStub("myrole")
 	if err != nil {
 		t.Fatalf("writeRoleStub() error: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestWriteRoleStub(t *testing.T) {
 		if err := os.WriteFile(path, []byte("stale content"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := writeRoleStub("myrole"); err != nil {
+		if _, err := WriteRoleStub("myrole"); err != nil {
 			t.Fatalf("writeRoleStub() error on overwrite: %v", err)
 		}
 		data, err := os.ReadFile(path)
@@ -70,14 +70,14 @@ func TestWriteRoleStub(t *testing.T) {
 func TestRoleFoundNearby(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if roleFoundNearby("myrole") {
+	if RoleFoundNearby("myrole") {
 		t.Error("roleFoundNearby(myrole) = true before ./roles/myrole exists, want false")
 	}
 
 	if err := os.MkdirAll(filepath.Join("roles", "myrole", "tasks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if !roleFoundNearby("myrole") {
+	if !RoleFoundNearby("myrole") {
 		t.Error("roleFoundNearby(myrole) = false after creating ./roles/myrole, want true")
 	}
 
@@ -85,7 +85,7 @@ func TestRoleFoundNearby(t *testing.T) {
 	if err := os.WriteFile(filepath.Join("roles", "notadir"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if roleFoundNearby("notadir") {
+	if RoleFoundNearby("notadir") {
 		t.Error("roleFoundNearby(notadir) = true for a plain file, want false")
 	}
 }

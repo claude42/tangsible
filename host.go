@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Implements the "host" verb (design-docs/HostVerb.md): a standalone,
+// Implements the "host" Verb (design-docs/HostVerb.md): a standalone,
 // five-tab program showing everything Tangsible can determine about one
 // host - live gathered facts, inventory group membership, which plays
 // would run for it, its own host_vars files, and the raw
@@ -32,13 +32,14 @@ import (
 	"sort"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-// parseHostArgs splits args (everything after the "host" verb) into the
+// parseHostArgs splits args (everything after the "host" Verb) into the
 // required hostname, an optional playbook, and everything else as
 // passthrough args - "tangsible host <hostname> [<playbook>] [-i ...]
 // [-e ...]" (design-docs/HostVerb.md), the same shape parseTemplateArgs
@@ -76,7 +77,7 @@ func runHostVerb(args []string) int {
 	}
 	playbook := playbookArg
 	if playbook == "" {
-		playbook, _ = resolvePlaybook()
+		playbook, _ = config.ResolvePlaybook()
 	}
 
 	stubPath, err := writeHostSummaryStub()
@@ -95,10 +96,10 @@ func runHostVerb(args []string) int {
 // same call template.go's resolveInventoryHost already makes for its own
 // single-host resolution) and shows the list-then-detail flow.
 func runHostsVerb(args []string) int {
-	playbookArg, rest, _ := splitPlaybookArgs(args)
+	playbookArg, rest, _ := config.SplitPlaybookArgs(args)
 	playbook := playbookArg
 	if playbook == "" {
-		playbook, _ = resolvePlaybook()
+		playbook, _ = config.ResolvePlaybook()
 	}
 
 	hosts, err := listInventoryHosts(rest)
@@ -124,7 +125,7 @@ func runHostsVerb(args []string) int {
 
 // listInventoryHosts runs `ansible-inventory --list`, forwarding
 // passthroughArgs verbatim, and returns every host it finds
-// (flattenInventoryHosts, template.go) - shared by the "hosts" verb's own
+// (flattenInventoryHosts, template.go) - shared by the "hosts" Verb's own
 // full listing and, via resolveInventoryHost, "template"'s single-host
 // resolution.
 func listInventoryHosts(passthroughArgs []string) ([]string, error) {
@@ -296,7 +297,7 @@ func fetchHostGroups(hostname string, rest []string) (string, error) {
 
 // extractInventoryDirs pulls every -i/--inventory value out of rest
 // (both "--flag value" and "--flag=value" long forms, same convention
-// parsePassthroughArgs uses in rerunargs.go for --tags/--limit) and
+// ParsePassthroughArgs uses in rerunargs.go for --tags/--limit) and
 // returns the directory each one lives in, for any that resolve to a
 // real file or directory on disk - silently skipping anything else (a
 // bare comma-list like "web1,web2,", a nonexistent path) since neither has
@@ -546,16 +547,16 @@ func fetchHostEverythingKnown(hostname string, rest []string) (string, error) {
 // itself. This still benefits from a configured fact cache exactly as
 // intended, just at the module's own internal level (a fresh `setup` run
 // still writes/reads the cache) rather than by skipping the task
-// pre-emptively. ignore_unreachable matches the "template" verb's own
+// pre-emptively. ignore_unreachable matches the "template" Verb's own
 // stub (template.go/writeTemplateStub) - moot in practice since --limit
 // always narrows this to exactly one host, but harmless and consistent.
 const hostSummaryStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: gather facts\n      ansible.builtin.setup:\n"
 
 // writeHostSummaryStub writes hostSummaryStubYAML to a fresh temp file -
 // reused, unchanged, across every host summary fetch in one tangsible
-// session (the "hosts" verb's own list-then-detail flow can view many
+// session (the "hosts" Verb's own list-then-detail flow can view many
 // hosts one after another), same "one stable scratch file for the whole
-// session" convention as the "template" verb's own stub/output pair.
+// session" convention as the "template" Verb's own stub/output pair.
 func writeHostSummaryStub() (string, error) {
 	f, err := os.CreateTemp("", "tangsible-host-summary-*.yml")
 	if err != nil {
@@ -979,9 +980,9 @@ func tabIndexByName(names []string, name string) int {
 
 // buildHostDetailPrimitive builds design-docs/HostVerb.md's five-tab host
 // detail view - a thin header (hostname + playbook, mirroring the
-// "template" verb's own header pattern) and a five-tab body (TabbedPane,
-// tabs.go) - shared unchanged between the standalone "host <name>" verb
-// (runHostDetailStandalone) and the "hosts" verb's own list-then-detail
+// "template" Verb's own header pattern) and a five-tab body (TabbedPane,
+// tabs.go) - shared unchanged between the standalone "host <name>" Verb
+// (runHostDetailStandalone) and the "hosts" Verb's own list-then-detail
 // flow (runHostsListTUI); the two differ only in what Esc does, which the
 // caller wires itself via its own SetInputCapture, not this function.
 // Returns the built Flex alongside the TabbedPane/header/footer so the
@@ -1054,7 +1055,7 @@ func buildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 // own standalone program (design-docs/HostVerb.md) - a single
 // tview.Application showing exactly one host's detail view for the
 // process's entire lifetime, no list to go back to. Esc is deliberately
-// inert here, same reasoning and precedent as the "template" verb's own
+// inert here, same reasoning and precedent as the "template" Verb's own
 // view (template.go/runTemplateTUI): only q/Ctrl-C quit, so idly browsing
 // tabs can never close the whole thing by reflex.
 func runHostDetailStandalone(hostname, playbook string, rest []string, stubPath string) {

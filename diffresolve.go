@@ -14,7 +14,11 @@
 
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"code.aw.net/claude/tangsible/internal/config"
+)
 
 // csvSetEqual reports whether a and b represent the same SET of comma-
 // separated values (whitespace-trimmed per entry, order-insensitive,
@@ -57,9 +61,9 @@ func csvSetEqual(a, b string) bool {
 // itself. Deliberately ignores every other passthrough arg (-e, -i, -vvv,
 // ...) - only playbook/role and tags/hosts are checked, per design-docs/
 // Diff.md's own answer. Same "has a RunID" revisitability precondition and
-// newest-first ordering as resolveRevisitEntries - pruneMissingRunLogs is
+// newest-first ordering as resolveRevisitEntries - PruneMissingRunLogs is
 // expected to have already run; this function has no I/O of its own.
-func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHosts, excludeRunID string, cfg stateConfig) []revisitEntry {
+func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHosts, excludeRunID string, cfg config.StateConfig) []revisitEntry {
 	var entries []revisitEntry
 	for _, h := range cfg.History {
 		if h.Playbook != currentPlaybook || h.Role != currentRole {
@@ -69,7 +73,7 @@ func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHos
 			if inv.RunID == "" || inv.RunID == excludeRunID {
 				continue
 			}
-			invArgs := parsePassthroughArgs(historyStringToArgs(inv.Args))
+			invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(inv.Args))
 			if !csvSetEqual(invArgs.Tags, currentTags) || !csvSetEqual(invArgs.Hosts, currentHosts) {
 				continue
 			}

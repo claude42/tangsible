@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package config
 
-// rerunResolution is what the "rerun" verb (Rerun.md) needs before it can
+// RerunResolution is what the "rerun" verb (Rerun.md) needs before it can
 // construct anything: which playbook to run - or, when the most recent
 // invocation in this project was "tangsible role" rather than "tangsible
 // run" (design-docs/Tangsible role.md), which role to regenerate a stub
@@ -28,7 +28,7 @@ package main
 // rerun is only ever reached via the bare, no-argument case falling back
 // to history), so Role is only ever set when Playbook wasn't explicitly
 // given and the last invocation on record happens to have been a role.
-type rerunResolution struct {
+type RerunResolution struct {
 	Playbook string
 	Role     string
 	Tags     string
@@ -37,7 +37,7 @@ type rerunResolution struct {
 	Rest     []string
 }
 
-// resolveRerun computes a rerunResolution from the "rerun" verb's own args
+// ResolveRerun computes a rerunResolution from the "rerun" verb's own args
 // (everything after the verb - possibly an explicit playbook, possibly
 // -l/--tags/other passthrough args) and cfg, the already-loaded
 // .tangsible/state.toml (see readState). ok is false only if no playbook or
@@ -65,19 +65,19 @@ type rerunResolution struct {
 // no arguments if never run for this playbook" - which falls out for free
 // here, no special-casing needed: historyStringToArgs("") is nil, and
 // parsePassthroughArgs(nil) is the zero parsedPassthroughArgs.
-func resolveRerun(args []string, cfg stateConfig) (res rerunResolution, ok bool) {
-	playbook, cliRest, explicit := splitPlaybookArgs(args)
-	cliParsed := parsePassthroughArgs(cliRest)
+func ResolveRerun(args []string, cfg StateConfig) (res RerunResolution, ok bool) {
+	playbook, cliRest, explicit := SplitPlaybookArgs(args)
+	cliParsed := ParsePassthroughArgs(cliRest)
 
-	var histParsed parsedPassthroughArgs
+	var histParsed ParsedPassthroughArgs
 	if explicit {
 		res.Playbook = playbook
-		hist, _ := lastInvocation(cfg, playbook)
-		histParsed = parsePassthroughArgs(historyStringToArgs(hist))
+		hist, _ := LastInvocation(cfg, playbook)
+		histParsed = ParsePassthroughArgs(HistoryStringToArgs(hist))
 	} else {
-		entry, has := lastTarget(cfg)
+		entry, has := LastTarget(cfg)
 		if !has {
-			return rerunResolution{}, false
+			return RerunResolution{}, false
 		}
 		res.Playbook = entry.Playbook
 		res.Role = entry.Role
@@ -85,7 +85,7 @@ func resolveRerun(args []string, cfg stateConfig) (res rerunResolution, ok bool)
 		if len(entry.Invocations) > 0 {
 			hist = entry.Invocations[len(entry.Invocations)-1].Args
 		}
-		histParsed = parsePassthroughArgs(historyStringToArgs(hist))
+		histParsed = ParsePassthroughArgs(HistoryStringToArgs(hist))
 	}
 
 	res.Tags = histParsed.Tags

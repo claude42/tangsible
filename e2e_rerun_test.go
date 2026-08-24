@@ -333,7 +333,7 @@ func TestE2E_RerunDialog_ClearedFieldStaysCleared(t *testing.T) {
 // TestE2E_CLIRerun_ShowsDialogBeforeRunning covers Phase D's own distinct
 // code path (no generation started until the dialog is confirmed,
 // everStarted gating the status row) with a real subprocess/file boundary
-// - not just resolveRerun's own unit tests, which never touch the TUI or
+// - not just ResolveRerun's own unit tests, which never touch the TUI or
 // .tangsible/state.toml at all.
 func TestE2E_CLIRerun_ShowsDialogBeforeRunning(t *testing.T) {
 	requireE2ETools(t)

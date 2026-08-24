@@ -19,7 +19,7 @@
 // references them. Phase 1 (this file) only ever writes and deletes these
 // files - nothing yet reads them back; that's the "revisit" verb itself, a
 // later phase.
-package main
+package config
 
 import (
 	"os"
@@ -28,33 +28,33 @@ import (
 	"time"
 )
 
-// runsDir returns the runs/ directory sibling to statePath's own directory
+// RunsDir returns the runs/ directory sibling to statePath's own directory
 // (typically .tangsible/state.toml -> .tangsible/runs). Derived from
 // statePath itself rather than a fixed global (unlike tangsibleStatePath,
 // which every real call site does pass through unchanged) so a caller that
 // passes a test-local state.toml path gets an isolated, test-local runs/
 // dir too - exactly like state.toml itself already is via readState/
 // writeState.
-func runsDir(statePath string) string {
+func RunsDir(statePath string) string {
 	return filepath.Join(filepath.Dir(statePath), "runs")
 }
 
-// newRunID names one generation's saved run data - nanosecond-precision so
+// NewRunID names one generation's saved run data - nanosecond-precision so
 // collisions are a non-issue at this app's own scale (a handful of
 // generations per session, one project worked in at a time). No colons or
 // other path-hostile characters, so it doubles directly as a filename stem.
-func newRunID(t time.Time) string {
+func NewRunID(t time.Time) string {
 	return t.UTC().Format("20060102T150405.000000000") + "Z"
 }
 
-// runLogPaths returns the two file paths a generation's saved run data
+// RunLogPaths returns the two file paths a generation's saved run data
 // lives in for the given runID, under statePath's own runsDir.
-func runLogPaths(statePath, runID string) (jsonlPath, stderrPath string) {
-	dir := runsDir(statePath)
+func RunLogPaths(statePath, runID string) (jsonlPath, stderrPath string) {
+	dir := RunsDir(statePath)
 	return filepath.Join(dir, runID+".jsonl"), filepath.Join(dir, runID+".stderr")
 }
 
-// createRunLog creates statePath's runsDir (if needed) and opens
+// CreateRunLog creates statePath's runsDir (if needed) and opens
 // <runID>.jsonl for writing - the file spawnGeneration passes to
 // scanEvents so it can tee each raw stdout line as the generation runs.
 // Best-effort: returns nil on any failure (directory couldn't be created,
@@ -62,9 +62,9 @@ func runLogPaths(statePath, runID string) (jsonlPath, stderrPath string) {
 // always "this generation just isn't revisitable," never anything that
 // should interrupt the run itself, same tolerance appendInvocation already
 // has for its own failures.
-func createRunLog(statePath, runID string) *os.File {
-	jsonlPath, _ := runLogPaths(statePath, runID)
-	if err := ensureParentDir(jsonlPath); err != nil {
+func CreateRunLog(statePath, runID string) *os.File {
+	jsonlPath, _ := RunLogPaths(statePath, runID)
+	if err := EnsureParentDir(jsonlPath); err != nil {
 		return nil
 	}
 	f, err := os.Create(jsonlPath)
@@ -74,36 +74,36 @@ func createRunLog(statePath, runID string) *os.File {
 	return f
 }
 
-// writeRunStderr saves lines (already fully collected by runGeneration, via
+// WriteRunStderr saves lines (already fully collected by runGeneration, via
 // streamStderr) to <runID>.stderr, one per line - a plain text file,
 // sibling to the same generation's .jsonl. A no-op if runID is empty (this
 // generation's own createRunLog never succeeded, so there's nowhere for
 // stderr to live either). Best-effort, same reasoning as createRunLog - a
 // failure here doesn't invalidate the jsonl side, so it isn't gated on this
 // succeeding.
-func writeRunStderr(statePath, runID string, lines []string) {
+func WriteRunStderr(statePath, runID string, lines []string) {
 	if runID == "" {
 		return
 	}
-	_, stderrPath := runLogPaths(statePath, runID)
-	if err := ensureParentDir(stderrPath); err != nil {
+	_, stderrPath := RunLogPaths(statePath, runID)
+	if err := EnsureParentDir(stderrPath); err != nil {
 		return
 	}
 	_ = os.WriteFile(stderrPath, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
-// deleteRunLog removes a generation's saved .jsonl/.stderr files, if any -
+// DeleteRunLog removes a generation's saved .jsonl/.stderr files, if any -
 // called by appendInvocation when the invocationRecord referencing them is
 // evicted from history (the maxHistoryPerPlaybook cap). A no-op if runID is
 // empty (nothing was ever saved for that entry). Best-effort: errors
 // (including "file doesn't exist," e.g. a save that only partially
 // succeeded) are ignored - a leftover file from a failed delete is no worse
 // than one this program never knew to try deleting in the first place.
-func deleteRunLog(statePath, runID string) {
+func DeleteRunLog(statePath, runID string) {
 	if runID == "" {
 		return
 	}
-	jsonlPath, stderrPath := runLogPaths(statePath, runID)
+	jsonlPath, stderrPath := RunLogPaths(statePath, runID)
 	_ = os.Remove(jsonlPath)
 	_ = os.Remove(stderrPath)
 }

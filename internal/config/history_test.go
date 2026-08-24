@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package config
 
 import (
 	"os"
@@ -23,34 +23,34 @@ import (
 )
 
 func TestAppendCapped(t *testing.T) {
-	rec := func(s string) invocationRecord { return invocationRecord{Args: s} }
+	rec := func(s string) InvocationRecord { return InvocationRecord{Args: s} }
 	cases := []struct {
 		name        string
-		existing    []invocationRecord
-		next        invocationRecord
+		existing    []InvocationRecord
+		next        InvocationRecord
 		max         int
-		want        []invocationRecord
-		wantEvicted []invocationRecord
+		want        []InvocationRecord
+		wantEvicted []InvocationRecord
 	}{
 		{
 			name:     "under the cap just appends",
-			existing: []invocationRecord{rec("a"), rec("b")},
+			existing: []InvocationRecord{rec("a"), rec("b")},
 			next:     rec("c"),
 			max:      5,
-			want:     []invocationRecord{rec("a"), rec("b"), rec("c")},
+			want:     []InvocationRecord{rec("a"), rec("b"), rec("c")},
 		},
 		{
 			name:        "at the cap drops the oldest",
-			existing:    []invocationRecord{rec("a"), rec("b"), rec("c")},
+			existing:    []InvocationRecord{rec("a"), rec("b"), rec("c")},
 			next:        rec("d"),
 			max:         3,
-			want:        []invocationRecord{rec("b"), rec("c"), rec("d")},
-			wantEvicted: []invocationRecord{rec("a")},
+			want:        []InvocationRecord{rec("b"), rec("c"), rec("d")},
+			wantEvicted: []InvocationRecord{rec("a")},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, evicted := appendCapped(c.existing, c.next, c.max)
+			got, evicted := AppendCapped(c.existing, c.next, c.max)
 			if !slices.Equal(got, c.want) {
 				t.Errorf("appendCapped() result = %v, want %v", got, c.want)
 			}
@@ -64,32 +64,32 @@ func TestAppendCapped(t *testing.T) {
 func TestAppendInvocationAndLastInvocation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
-	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
 		t.Fatalf("appendInvocation() first call: %v", err)
 	}
-	if err := appendInvocation(path, "site.yml", "", "--tags foo,bar"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "--tags foo,bar"); err != nil {
 		t.Fatalf("appendInvocation() second call: %v", err)
 	}
-	if err := appendInvocation(path, "other.yml", "", "-l otherhost"); err != nil {
+	if err := AppendInvocation(path, "other.yml", "", "-l otherhost"); err != nil {
 		t.Fatalf("appendInvocation() for a second playbook: %v", err)
 	}
 
-	cfg := readState(path)
+	cfg := ReadState(path)
 
-	if got, ok := lastInvocation(cfg, "site.yml"); !ok || got != "--tags foo,bar" {
+	if got, ok := LastInvocation(cfg, "site.yml"); !ok || got != "--tags foo,bar" {
 		t.Errorf("lastInvocation(site.yml) = (%q, %v), want (%q, true)", got, ok, "--tags foo,bar")
 	}
-	if got, ok := lastInvocation(cfg, "other.yml"); !ok || got != "-l otherhost" {
+	if got, ok := LastInvocation(cfg, "other.yml"); !ok || got != "-l otherhost" {
 		t.Errorf("lastInvocation(other.yml) = (%q, %v), want (%q, true)", got, ok, "-l otherhost")
 	}
-	if _, ok := lastInvocation(cfg, "unknown.yml"); ok {
+	if _, ok := LastInvocation(cfg, "unknown.yml"); ok {
 		t.Error("lastInvocation(unknown.yml) ok = true, want false")
 	}
 	// other.yml was the most recent of the three appendInvocation calls
 	// above, regardless of it being a different playbook than the first
 	// two - General.Last tracks invocation recency, not History's own
 	// per-playbook insertion order.
-	if entry, ok := lastTarget(cfg); !ok || entry.Playbook != "other.yml" {
+	if entry, ok := LastTarget(cfg); !ok || entry.Playbook != "other.yml" {
 		t.Errorf("lastTarget() = (%+v, %v), want (Playbook=\"other.yml\", true)", entry, ok)
 	}
 }
@@ -113,7 +113,7 @@ func TestAppendInvocationNeverTouchesConfigFile(t *testing.T) {
 	mustWriteFile(t, configPath, configContent)
 
 	for i := 0; i < 3; i++ {
-		if err := appendInvocation(statePath, "site.yml", "", "-l somehost"); err != nil {
+		if err := AppendInvocation(statePath, "site.yml", "", "-l somehost"); err != nil {
 			t.Fatalf("appendInvocation() call %d: %v", i, err)
 		}
 	}
@@ -125,7 +125,7 @@ func TestAppendInvocationNeverTouchesConfigFile(t *testing.T) {
 	if string(got) != configContent {
 		t.Errorf("config.toml was modified by appendInvocation:\n got: %q\nwant: %q", got, configContent)
 	}
-	if readDefaultPlaybook(configPath) != "site.yml" {
+	if ReadDefaultPlaybook(configPath) != "site.yml" {
 		t.Error("config.toml's own settings are no longer readable after appendInvocation")
 	}
 }
@@ -141,7 +141,7 @@ func TestAppendInvocationCreatesTangsibleDirCollision(t *testing.T) {
 	mustWriteFile(t, staleFile, "[general]\ndefault_playbook = \"site.yml\"\n")
 
 	statePath := filepath.Join(staleFile, "state.toml")
-	err := appendInvocation(statePath, "site.yml", "", "")
+	err := AppendInvocation(statePath, "site.yml", "", "")
 	if err == nil {
 		t.Fatal("appendInvocation() with a stale .tangsible file in the way, err = nil, want an error")
 	}
@@ -156,10 +156,10 @@ func TestAppendInvocationCreatesTangsibleDirCollision(t *testing.T) {
 func TestReadStateWithNoConfigFile(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
-	if err := appendInvocation(statePath, "site.yml", "", "-l somehost"); err != nil {
+	if err := AppendInvocation(statePath, "site.yml", "", "-l somehost"); err != nil {
 		t.Fatalf("appendInvocation() with no sibling config.toml: %v", err)
 	}
-	if got, ok := lastInvocation(readState(statePath), "site.yml"); !ok || got != "-l somehost" {
+	if got, ok := LastInvocation(ReadState(statePath), "site.yml"); !ok || got != "-l somehost" {
 		t.Errorf("lastInvocation(site.yml) = (%q, %v), want (%q, true)", got, ok, "-l somehost")
 	}
 }
@@ -167,14 +167,14 @@ func TestReadStateWithNoConfigFile(t *testing.T) {
 func TestAppendInvocationCapsAtMaxHistoryPerPlaybook(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
-	for i := 0; i < maxHistoryPerPlaybook+5; i++ {
-		if err := appendInvocation(path, "site.yml", "", string(rune('a'+i%26))); err != nil {
+	for i := 0; i < MaxHistoryPerPlaybook+5; i++ {
+		if err := AppendInvocation(path, "site.yml", "", string(rune('a'+i%26))); err != nil {
 			t.Fatalf("appendInvocation() call %d: %v", i, err)
 		}
 	}
 
-	cfg := readState(path)
-	var entry *playbookHistory
+	cfg := ReadState(path)
+	var entry *PlaybookHistory
 	for i := range cfg.History {
 		if cfg.History[i].Playbook == "site.yml" {
 			entry = &cfg.History[i]
@@ -183,8 +183,8 @@ func TestAppendInvocationCapsAtMaxHistoryPerPlaybook(t *testing.T) {
 	if entry == nil {
 		t.Fatal("no history entry for site.yml")
 	}
-	if len(entry.Invocations) != maxHistoryPerPlaybook {
-		t.Errorf("len(Invocations) = %d, want %d", len(entry.Invocations), maxHistoryPerPlaybook)
+	if len(entry.Invocations) != MaxHistoryPerPlaybook {
+		t.Errorf("len(Invocations) = %d, want %d", len(entry.Invocations), MaxHistoryPerPlaybook)
 	}
 	// The very first invocation ("a") should have been dropped as the
 	// oldest, in favor of the 5 later ones pushing it out.
@@ -196,41 +196,41 @@ func TestAppendInvocationCapsAtMaxHistoryPerPlaybook(t *testing.T) {
 func TestAppendInvocationForRoleAndLastTarget(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
-	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
 		t.Fatalf("appendInvocation() for a playbook: %v", err)
 	}
-	if err := appendInvocation(path, "", "myrole", "-l nirvana"); err != nil {
+	if err := AppendInvocation(path, "", "myrole", "-l nirvana"); err != nil {
 		t.Fatalf("appendInvocation() for a role: %v", err)
 	}
 
-	cfg := readState(path)
+	cfg := ReadState(path)
 
 	// myrole was the most recent of the two calls above - lastTarget
 	// should resolve to it, reporting it as a role (Role set, Playbook
 	// empty) rather than a playbook.
-	entry, ok := lastTarget(cfg)
+	entry, ok := LastTarget(cfg)
 	if !ok || entry.Role != "myrole" || entry.Playbook != "" {
 		t.Errorf("lastTarget() = (%+v, %v), want (Role=\"myrole\" Playbook=\"\", true)", entry, ok)
 	}
 
 	// Recording a playbook invocation afterward moves General.Last back
 	// to it, without disturbing myrole's own history entry.
-	if err := appendInvocation(path, "site.yml", "", "--tags again"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "--tags again"); err != nil {
 		t.Fatalf("appendInvocation() for the playbook again: %v", err)
 	}
-	cfg = readState(path)
-	entry, ok = lastTarget(cfg)
+	cfg = ReadState(path)
+	entry, ok = LastTarget(cfg)
 	if !ok || entry.Playbook != "site.yml" || entry.Role != "" {
 		t.Errorf("lastTarget() after re-running the playbook = (%+v, %v), want (Playbook=\"site.yml\" Role=\"\", true)", entry, ok)
 	}
-	if got, ok := lastInvocation(cfg, "site.yml"); !ok || got != "--tags again" {
+	if got, ok := LastInvocation(cfg, "site.yml"); !ok || got != "--tags again" {
 		t.Errorf("lastInvocation(site.yml) = (%q, %v), want (%q, true)", got, ok, "--tags again")
 	}
 }
 
 func TestLastInvocationEntryWithNoInvocations(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{{Playbook: "site.yml"}}}
-	if _, ok := lastInvocation(cfg, "site.yml"); ok {
+	cfg := StateConfig{History: []PlaybookHistory{{Playbook: "site.yml"}}}
+	if _, ok := LastInvocation(cfg, "site.yml"); ok {
 		t.Error("lastInvocation() on an entry with no Invocations, ok = true, want false")
 	}
 }
@@ -243,19 +243,19 @@ func TestLastInvocationEntryWithNoInvocations(t *testing.T) {
 func TestFinalizeInvocation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
-	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
 		t.Fatalf("appendInvocation(): %v", err)
 	}
-	if err := appendInvocation(path, "", "myrole", "-l nirvana"); err != nil {
+	if err := AppendInvocation(path, "", "myrole", "-l nirvana"); err != nil {
 		t.Fatalf("appendInvocation() for a role: %v", err)
 	}
 
-	if err := finalizeInvocation(path, "site.yml", "", 0, "20260823T150000.000000000Z"); err != nil {
+	if err := FinalizeInvocation(path, "site.yml", "", 0, "20260823T150000.000000000Z"); err != nil {
 		t.Fatalf("finalizeInvocation(): %v", err)
 	}
 
-	cfg := readState(path)
-	var site, role *playbookHistory
+	cfg := ReadState(path)
+	var site, role *PlaybookHistory
 	for i := range cfg.History {
 		switch cfg.History[i].Playbook {
 		case "site.yml":
@@ -300,21 +300,21 @@ func TestFinalizeInvocation(t *testing.T) {
 func TestAppendInvocationEvictionDeletesRunLogFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
-	if err := appendInvocation(path, "site.yml", "", "first"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "first"); err != nil {
 		t.Fatalf("appendInvocation() first call: %v", err)
 	}
 	runID := "20260823T150000.000000000Z"
-	if err := finalizeInvocation(path, "site.yml", "", 0, runID); err != nil {
+	if err := FinalizeInvocation(path, "site.yml", "", 0, runID); err != nil {
 		t.Fatalf("finalizeInvocation(): %v", err)
 	}
-	jsonlPath, stderrPath := runLogPaths(path, runID)
+	jsonlPath, stderrPath := RunLogPaths(path, runID)
 	mustWriteFile(t, jsonlPath, `{"_event":"v2_playbook_on_play_start"}`+"\n")
 	mustWriteFile(t, stderrPath, "some stderr\n")
 
 	// maxHistoryPerPlaybook more invocations for the same playbook push the
 	// very first one (the only one with a RunID/saved files) out of the cap.
-	for i := 0; i < maxHistoryPerPlaybook; i++ {
-		if err := appendInvocation(path, "site.yml", "", "later"); err != nil {
+	for i := 0; i < MaxHistoryPerPlaybook; i++ {
+		if err := AppendInvocation(path, "site.yml", "", "later"); err != nil {
 			t.Fatalf("appendInvocation() call %d: %v", i, err)
 		}
 	}
@@ -336,25 +336,25 @@ func TestAppendInvocationEvictionDeletesRunLogFiles(t *testing.T) {
 func TestPruneMissingRunLogsClearsDanglingRunIDs(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 
-	if err := appendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
 		t.Fatalf("appendInvocation() first: %v", err)
 	}
-	if err := finalizeInvocation(path, "site.yml", "", 0, "dangling-run"); err != nil {
+	if err := FinalizeInvocation(path, "site.yml", "", 0, "dangling-run"); err != nil {
 		t.Fatalf("finalizeInvocation() first: %v", err)
 	}
-	if err := appendInvocation(path, "site.yml", "", "--tags foo"); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", "--tags foo"); err != nil {
 		t.Fatalf("appendInvocation() second: %v", err)
 	}
 	realRunID := "real-run"
-	if err := finalizeInvocation(path, "site.yml", "", 0, realRunID); err != nil {
+	if err := FinalizeInvocation(path, "site.yml", "", 0, realRunID); err != nil {
 		t.Fatalf("finalizeInvocation() second: %v", err)
 	}
-	jsonlPath, _ := runLogPaths(path, realRunID)
+	jsonlPath, _ := RunLogPaths(path, realRunID)
 	mustWriteFile(t, jsonlPath, `{"_event":"v2_playbook_on_play_start"}`+"\n")
 	// Deliberately no file written for "dangling-run" - that's the one
 	// meant to be pruned.
 
-	cfg, err := pruneMissingRunLogs(path)
+	cfg, err := PruneMissingRunLogs(path)
 	if err != nil {
 		t.Fatalf("pruneMissingRunLogs(): %v", err)
 	}
@@ -374,7 +374,7 @@ func TestPruneMissingRunLogsClearsDanglingRunIDs(t *testing.T) {
 
 	// Re-reading from disk confirms the prune was actually persisted, not
 	// just returned in-memory.
-	reread := readState(path)
+	reread := ReadState(path)
 	if reread.History[0].Invocations[0].RunID != "" {
 		t.Error("pruneMissingRunLogs() didn't persist the cleared RunID to disk")
 	}
@@ -382,12 +382,12 @@ func TestPruneMissingRunLogsClearsDanglingRunIDs(t *testing.T) {
 
 func TestPruneMissingRunLogsNoOpWhenNothingIsMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
-	if err := appendInvocation(path, "site.yml", "", ""); err != nil {
+	if err := AppendInvocation(path, "site.yml", "", ""); err != nil {
 		t.Fatalf("appendInvocation(): %v", err)
 	}
 	// No RunID was ever set on this entry, so there's nothing for
 	// pruneMissingRunLogs to check or clear - must not error either way.
-	if _, err := pruneMissingRunLogs(path); err != nil {
+	if _, err := PruneMissingRunLogs(path); err != nil {
 		t.Errorf("pruneMissingRunLogs() on an entry with no RunID at all: %v", err)
 	}
 }

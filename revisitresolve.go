@@ -18,12 +18,14 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"code.aw.net/claude/tangsible/internal/config"
 )
 
-// revisitEntry is one flattened, revisitable invocationRecord - one
-// generation whose saved run data still exists (see invocationRecord's own
+// revisitEntry is one flattened, revisitable InvocationRecord - one
+// generation whose saved run data still exists (see InvocationRecord's own
 // doc comment, history.go: RunID is only ever non-empty when it does).
-// Exactly one of Playbook/Role is set, mirroring playbookHistory's own
+// Exactly one of Playbook/Role is set, mirroring PlaybookHistory's own
 // shape.
 type revisitEntry struct {
 	Playbook string
@@ -35,26 +37,26 @@ type revisitEntry struct {
 }
 
 // resolveRevisitEntries flattens every revisitable invocation across cfg's
-// whole history into one list, filtered by the "revisit" verb's own args
+// whole history into one list, filtered by the "revisit" Verb's own args
 // (design-docs/Revisit.md: an optional positional playbook/role, and/or
 // -l/--tags) and sorted newest-first. Pure - no I/O of its own, so directly
 // testable. The actual pruning of entries whose saved files have gone
-// missing (turning a once-real RunID back to "" - see invocationRecord's
-// own doc comment) happens earlier, in pruneMissingRunLogs (history.go),
+// missing (turning a once-real RunID back to "" - see InvocationRecord's
+// own doc comment) happens earlier, in PruneMissingRunLogs (history.go),
 // which is what makes "has a RunID" alone a reliable revisitability filter
 // here, with no filesystem access needed in this function at all.
 //
 // Filtering: an explicit positional playbook/role (same shape
-// splitPlaybookArgs already uses for "run") keeps only that one target's
-// own history. -l/--tags, parsed the same way parsePassthroughArgs already
+// SplitPlaybookArgs already uses for "run") keeps only that one target's
+// own history. -l/--tags, parsed the same way ParsePassthroughArgs already
 // does elsewhere, keep only entries whose own recorded Args overlap - at
 // least one requested host, or one requested tag, is also present in that
 // entry's own comma-separated set (csvOverlap) - matching ansible's own
 // --tags/-l OR semantics for a comma list, not a strict subset requirement.
 // Everything unset (a bare "tangsible revisit") means no filtering at all.
-func resolveRevisitEntries(args []string, cfg stateConfig) []revisitEntry {
-	target, rest, explicit := splitPlaybookArgs(args)
-	filter := parsePassthroughArgs(rest)
+func resolveRevisitEntries(args []string, cfg config.StateConfig) []revisitEntry {
+	target, rest, explicit := config.SplitPlaybookArgs(args)
+	filter := config.ParsePassthroughArgs(rest)
 
 	var entries []revisitEntry
 	for _, h := range cfg.History {
@@ -63,9 +65,9 @@ func resolveRevisitEntries(args []string, cfg stateConfig) []revisitEntry {
 		}
 		for _, inv := range h.Invocations {
 			if inv.RunID == "" {
-				continue // nothing left to revisit - see pruneMissingRunLogs
+				continue // nothing left to revisit - see PruneMissingRunLogs
 			}
-			invArgs := parsePassthroughArgs(historyStringToArgs(inv.Args))
+			invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(inv.Args))
 			if filter.Hosts != "" && !csvOverlap(filter.Hosts, invArgs.Hosts) {
 				continue
 			}
@@ -80,11 +82,11 @@ func resolveRevisitEntries(args []string, cfg stateConfig) []revisitEntry {
 	return entries
 }
 
-// newRevisitEntry builds one revisitEntry from a playbookHistory entry and
+// newRevisitEntry builds one revisitEntry from a PlaybookHistory entry and
 // one of its own invocationRecords - shared by resolveRevisitEntries and
 // design-docs/Diff.md's own resolveDiffCandidates (diffresolve.go), so the
 // two can't silently drift on what a revisitEntry's fields mean.
-func newRevisitEntry(h playbookHistory, inv invocationRecord) revisitEntry {
+func newRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) revisitEntry {
 	code := 0
 	if inv.ExitCode != nil {
 		code = *inv.ExitCode
@@ -101,7 +103,7 @@ func newRevisitEntry(h playbookHistory, inv invocationRecord) revisitEntry {
 
 // sortRevisitEntriesNewestFirst sorts entries in place, newest Time first -
 // shared by resolveRevisitEntries and resolveDiffCandidates. A Time that
-// fails to parse (shouldn't happen for anything appendInvocation itself
+// fails to parse (shouldn't happen for anything AppendInvocation itself
 // ever wrote, but not trusted blindly - same caveat this project applies
 // to every other event-derived field) falls back to time.Time's own zero
 // value, which naturally sorts to the end - no separate fallback branch

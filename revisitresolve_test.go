@@ -14,16 +14,20 @@
 
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"code.aw.net/claude/tangsible/internal/config"
+)
 
 func exitCodePtr(n int) *int { return &n }
 
 func TestResolveRevisitEntriesFiltersEntriesWithNoRunID(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Args: "never saved", Time: "2026-08-23T10:00:00Z"},                                     // no RunID at all
 			{Args: "saved", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"}, // revisitable
-			{Args: "pruned", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: ""},     // RunID cleared by pruneMissingRunLogs
+			{Args: "pruned", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: ""},     // RunID cleared by PruneMissingRunLogs
 		}},
 	}}
 	got := resolveRevisitEntries(nil, cfg)
@@ -33,8 +37,8 @@ func TestResolveRevisitEntriesFiltersEntriesWithNoRunID(t *testing.T) {
 }
 
 func TestResolveRevisitEntriesSortsNewestFirst(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Args: "oldest", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"},
 			{Args: "newest", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
 			{Args: "middle", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-3"},
@@ -47,8 +51,8 @@ func TestResolveRevisitEntriesSortsNewestFirst(t *testing.T) {
 }
 
 func TestResolveRevisitEntriesUnparseableTimeSortsLast(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Args: "bad time", Time: "not a real timestamp", ExitCode: exitCodePtr(0), RunID: "run-1"},
 			{Args: "good time", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
 		}},
@@ -60,11 +64,11 @@ func TestResolveRevisitEntriesUnparseableTimeSortsLast(t *testing.T) {
 }
 
 func TestResolveRevisitEntriesFiltersByExplicitTarget(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Args: "", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"},
 		}},
-		{Role: "myrole", Invocations: []invocationRecord{
+		{Role: "myrole", Invocations: []config.InvocationRecord{
 			{Args: "", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
 		}},
 	}}
@@ -79,8 +83,8 @@ func TestResolveRevisitEntriesFiltersByExplicitTarget(t *testing.T) {
 }
 
 func TestResolveRevisitEntriesFiltersByHostsAndTags(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Args: "-l zen --tags foo,bar", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"},
 			{Args: "-l other --tags baz", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
 		}},
@@ -100,9 +104,9 @@ func TestResolveRevisitEntriesFiltersByHostsAndTags(t *testing.T) {
 }
 
 func TestResolveRevisitEntriesNoArgsMeansNoFiltering(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "a.yml", Invocations: []invocationRecord{{Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"}}},
-		{Playbook: "b.yml", Invocations: []invocationRecord{{Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"}}},
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "a.yml", Invocations: []config.InvocationRecord{{Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"}}},
+		{Playbook: "b.yml", Invocations: []config.InvocationRecord{{Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"}}},
 	}}
 	if got := resolveRevisitEntries(nil, cfg); len(got) != 2 {
 		t.Errorf("resolveRevisitEntries(nil) = %+v, want both entries with no filter applied", got)

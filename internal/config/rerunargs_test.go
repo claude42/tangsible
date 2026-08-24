@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package config
 
 import (
 	"slices"
@@ -98,7 +98,7 @@ func TestParsePassthroughArgs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := parsePassthroughArgs(c.args)
+			got := ParsePassthroughArgs(c.args)
 			if got.Tags != c.wantTags || got.SkipTags != c.wantSkipTags || got.Hosts != c.wantHosts || !slices.Equal(got.Rest, c.wantRest) {
 				t.Errorf("parsePassthroughArgs(%v) = %+v, want Tags=%q SkipTags=%q Hosts=%q Rest=%v",
 					c.args, got, c.wantTags, c.wantSkipTags, c.wantHosts, c.wantRest)
@@ -110,22 +110,22 @@ func TestParsePassthroughArgs(t *testing.T) {
 func TestParsedPassthroughArgsReassemble(t *testing.T) {
 	cases := []struct {
 		name string
-		p    parsedPassthroughArgs
+		p    ParsedPassthroughArgs
 		want []string
 	}{
 		{
 			name: "tags, skip tags, hosts and rest all present",
-			p:    parsedPassthroughArgs{Tags: "foo,bar", SkipTags: "baz", Hosts: "h1,h2", Rest: []string{"-i", "inv.ini"}},
+			p:    ParsedPassthroughArgs{Tags: "foo,bar", SkipTags: "baz", Hosts: "h1,h2", Rest: []string{"-i", "inv.ini"}},
 			want: []string{"--tags", "foo,bar", "--skip-tags", "baz", "--limit", "h1,h2", "-i", "inv.ini"},
 		},
 		{
 			name: "only rest",
-			p:    parsedPassthroughArgs{Rest: []string{"-i", "inv.ini"}},
+			p:    ParsedPassthroughArgs{Rest: []string{"-i", "inv.ini"}},
 			want: []string{"-i", "inv.ini"},
 		},
 		{
 			name: "all empty",
-			p:    parsedPassthroughArgs{},
+			p:    ParsedPassthroughArgs{},
 			want: nil,
 		},
 	}
@@ -140,7 +140,7 @@ func TestParsedPassthroughArgsReassemble(t *testing.T) {
 
 func TestParsePassthroughArgsReassembleRoundTrip(t *testing.T) {
 	args := []string{"--tags", "foo,bar", "--skip-tags", "baz", "--limit", "host1,host2", "-i", "inv.ini", "-e", "x=1"}
-	got := parsePassthroughArgs(args).Reassemble()
+	got := ParsePassthroughArgs(args).Reassemble()
 	if !slices.Equal(got, args) {
 		t.Errorf("round trip = %v, want %v", got, args)
 	}
@@ -159,8 +159,8 @@ func TestArgsToHistoryStringRoundTrip(t *testing.T) {
 		{""},
 	}
 	for _, args := range cases {
-		s := argsToHistoryString(args)
-		got := historyStringToArgs(s)
+		s := ArgsToHistoryString(args)
+		got := HistoryStringToArgs(s)
 		want := args
 		if len(want) == 0 {
 			want = nil
@@ -172,16 +172,16 @@ func TestArgsToHistoryStringRoundTrip(t *testing.T) {
 }
 
 func TestArgsToHistoryStringExactForm(t *testing.T) {
-	if got := argsToHistoryString(nil); got != "" {
+	if got := ArgsToHistoryString(nil); got != "" {
 		t.Errorf("argsToHistoryString(nil) = %q, want empty string", got)
 	}
-	if got := argsToHistoryString([]string{"-l", "somehost"}); got != "-l somehost" {
+	if got := ArgsToHistoryString([]string{"-l", "somehost"}); got != "-l somehost" {
 		t.Errorf("argsToHistoryString([-l somehost]) = %q, want %q", got, "-l somehost")
 	}
 }
 
 func TestHistoryStringToArgsEmptyString(t *testing.T) {
-	if got := historyStringToArgs(""); got != nil {
+	if got := HistoryStringToArgs(""); got != nil {
 		t.Errorf("historyStringToArgs(\"\") = %v, want nil", got)
 	}
 }

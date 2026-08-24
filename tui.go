@@ -49,7 +49,7 @@ import (
 // after, until the user edits them - the dialog's own fields, once opened,
 // keep whatever the user last left in them across repeated 'r' presses) -
 // the --tags/--skip-tags/--limit values this process was itself invoked
-// with, parsed out by main.go via parsePassthroughArgs (Rerun.md's "if
+// with, parsed out by main.go via ParsePassthroughArgs (Rerun.md's "if
 // tags were already specified in the previous run... pre-filled").
 //
 // requestRerun is called once the re-run dialog is confirmed (Enter), to
@@ -70,13 +70,13 @@ import (
 //
 // startExpanded governs the very first task row's own initial
 // expand/collapse state (`.tangsible`'s general.default_tree_state - see
-// defaultTreeExpanded, resolve.go), read once by main.go before
+// DefaultTreeExpanded, resolve.go), read once by main.go before
 // construction. Every task after the first inherits whatever the
 // previous task's current expand state is at the moment it's added - see
 // state.OnTaskAdded below - so this value only ever actually governs one
 // row per generation (the very first task added since the last Reset()).
 //
-// startWithRerunDialog is true only for the "rerun" verb's own startup
+// startWithRerunDialog is true only for the "rerun" Verb's own startup
 // (Rerun.md): no ansible-playbook invocation exists yet at all - not even
 // a first one in flight, unlike every other case this function handles -
 // so the re-run dialog opens immediately instead of waiting for 'r', and
@@ -89,31 +89,31 @@ import (
 // rather than "a run finished."
 // passthroughArgs is this session's own current-generation passthrough
 // args (main.go's originalArgs.Rest - importantly -i/-e, never
-// -l/--limit, which parsePassthroughArgs already extracts separately) -
+// -l/--limit, which ParsePassthroughArgs already extracts separately) -
 // threaded through only so showOutput's own resolveTaskValues calls (see
 // design-docs/Drilldown, Resolved Values.md) see the same
 // inventory/extra-vars context the real run did. Not used for anything
 // else in this function.
 //
-// colorEnabled is general.color's own resolved value (colorEnabledByUser,
+// colorEnabled is general.color's own resolved value (ColorEnabledByUser,
 // resolve.go), read once by main.go before construction - one of three
 // independent inputs (alongside the terminal's own detected color
 // capability and the NO_COLOR environment variable) combined below into
 // useColor, design-docs/Morehosts.md's own gate on whether the collapsed
 // task row's per-host summary may render in color at all.
 // revisitReturn, if non-nil, marks this session as design-docs/Revisit.md's
-// "revisit" verb showing a replayed (historical) run rather than a live
+// "revisit" Verb showing a replayed (historical) run rather than a live
 // run/rerun/role session: state/processDone/exitCode are already fully
 // populated by the time this constructor is called (see revisit.go), chrome
 // switches to ReplayBarStyle for as long as revisitActive stays true, and
 // pressing Esc at the bare tree level (not in a dialog, not viewing output -
 // nothing else has ever claimed that key there) calls revisitReturn, which
 // is expected to stop app.Run() and let the caller show the run list again.
-// nil for every other verb - Esc keeps doing nothing at that level, exactly
+// nil for every other Verb - Esc keeps doing nothing at that level, exactly
 // as before this existed.
 //
 // targetPlaybook/targetRole (exactly one non-empty, mirroring
-// appendInvocation's own playbook/role parameters) is this session's own
+// AppendInvocation's own playbook/role parameters) is this session's own
 // target identity, exactly as recorded in state.toml - distinct from
 // playbookName, which is display-only (main.go passes it
 // filepath.Base(playbook), not the full path state.toml itself keys on).
@@ -165,7 +165,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	following := true                    // auto-follow the newest row until the user navigates away
 	var jumpingToEnd bool                // true only while our own 'F' handler drives SetCurrentItem
 	everStarted := !startWithRerunDialog // false only for the "rerun"
-	// verb's startup dialog, until submitRerun's first-ever call flips it
+	// Verb's startup dialog, until submitRerun's first-ever call flips it
 	// true - see rebuild()'s own use of it below: processDone starts true
 	// in that one case (see startWithRerunDialog's own doc comment above)
 	// even though nothing has actually run, which would otherwise make
@@ -1788,7 +1788,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// live run/rerun/role session (which only ever calls rebuild() after
 	// Run() has already given every widget a real size). A brief blank
 	// flash before the heartbeat's first tick - the same startup
-	// experience every other verb already has - is the trade worth making
+	// experience every other Verb already has - is the trade worth making
 	// here, not a real regression.
 	// Placed after `app` is assigned: the go statement inside
 	// startHeartbeat's closure body has a happens-before edge (Go memory
@@ -1894,7 +1894,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// means new vars/facts - any cached "Resolved" render is for a
 		// previous generation's own values and must not linger.
 		everStarted = true // only a real transition the very first time
-		// this fires for the "rerun" verb's startup dialog (see
+		// this fires for the "rerun" Verb's startup dialog (see
 		// startWithRerunDialog) - a harmless no-op reassignment every time
 		// after that, since it's already true for every other case.
 		if revisitActive {
@@ -2235,9 +2235,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				// Opens the file the currently displayed task's own source
 				// came from, per source.go's taskSourceIndex/task.Path -
 				// same app.Suspend + $VISUAL/$EDITOR/vi mechanism the
-				// template verb's own 'e' binding already uses
+				// template Verb's own 'e' binding already uses
 				// (template.go's preferredEditor). Deliberately does NOT
-				// refresh anything afterward, unlike the template verb -
+				// refresh anything afterward, unlike the template Verb -
 				// there's no live render to redo here, and this view's own
 				// content (the task's already-recorded result) can't
 				// change by editing the source after the fact.
@@ -2531,7 +2531,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 	if startWithRerunDialog {
 		openRerunDialog() // no 'r' keypress to wait for - this is the
-		// "rerun" verb's own startup (Rerun.md): nothing has run yet, so
+		// "rerun" Verb's own startup (Rerun.md): nothing has run yet, so
 		// the dialog IS the first thing the user sees.
 	}
 

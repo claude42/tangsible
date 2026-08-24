@@ -47,7 +47,7 @@ type taskAlignment struct {
 // task no longer exists" and cascade into spurious mismatches for
 // everything after the edit point. Worse, a role-originated session's own
 // task.Path points at a freshly generated stub every single time
-// (startRoleSession) - path-matching would never match anything at all
+// (StartRoleSession) - path-matching would never match anything at all
 // for a role diff, even with zero real changes. Name-based matching risks
 // the opposite failure - two same-named tasks in one play misaligning -
 // but SequenceMatcher's own alignment leans on surrounding position, not

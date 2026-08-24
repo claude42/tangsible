@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package config
 
 import "strings"
 
-// parsedPassthroughArgs splits a tokenized ansible-playbook passthrough arg
+// ParsedPassthroughArgs splits a tokenized ansible-playbook passthrough arg
 // list (the same shape splitPlaybookArgs already produces) into the
 // values the re-run dialog needs to pre-fill - Tags, SkipTags, and Hosts -
 // plus everything else, carried forward verbatim and in original order.
@@ -27,20 +27,20 @@ import "strings"
 // project's own invocation patterns, not chased further - same
 // "documented heuristic" style as TaskLabel's truncation or
 // PrimaryOutputField's stdout-vs-msg choice.
-type parsedPassthroughArgs struct {
+type ParsedPassthroughArgs struct {
 	Tags     string
 	SkipTags string
 	Hosts    string
 	Rest     []string
 }
 
-// parsePassthroughArgs parses args into a parsedPassthroughArgs. Multiple
+// ParsePassthroughArgs parses args into a parsedPassthroughArgs. Multiple
 // --tags/-t (or --skip-tags, or --limit/-l) occurrences are all collected
 // and comma-joined into one Tags (or SkipTags, or Hosts) value - this
 // doesn't attempt to replicate ansible-playbook's own per-flag
 // merge-vs-override semantics, just gives a single value to show and edit
 // in one dialog field.
-func parsePassthroughArgs(args []string) parsedPassthroughArgs {
+func ParsePassthroughArgs(args []string) ParsedPassthroughArgs {
 	var tags, skipTags, hosts []string
 	var rest []string
 
@@ -83,7 +83,7 @@ func parsePassthroughArgs(args []string) parsedPassthroughArgs {
 		}
 	}
 
-	return parsedPassthroughArgs{
+	return ParsedPassthroughArgs{
 		Tags:     strings.Join(tags, ","),
 		SkipTags: strings.Join(skipTags, ","),
 		Hosts:    strings.Join(hosts, ","),
@@ -97,7 +97,7 @@ func parsePassthroughArgs(args []string) parsedPassthroughArgs {
 // long-form "--tags"/"--skip-tags"/"--limit" flags regardless of which
 // form the original invocation used - round-tripping the exact original
 // spelling isn't worth tracking separately.
-func (p parsedPassthroughArgs) Reassemble() []string {
+func (p ParsedPassthroughArgs) Reassemble() []string {
 	var out []string
 	if p.Tags != "" {
 		out = append(out, "--tags", p.Tags)
@@ -112,22 +112,22 @@ func (p parsedPassthroughArgs) Reassemble() []string {
 	return out
 }
 
-// argsToHistoryString joins args into the single space-separated string
+// ArgsToHistoryString joins args into the single space-separated string
 // stored in .tangsible's history - the same shape the user would type
 // after the playbook name on the command line. Any argument containing
 // whitespace, a quote character, a backslash, or that's empty is
 // double-quoted (with internal '"'/'\' backslash-escaped) so
 // historyStringToArgs can split it back out unambiguously; a plain token
 // round-trips as-is, unquoted.
-func argsToHistoryString(args []string) string {
+func ArgsToHistoryString(args []string) string {
 	parts := make([]string, len(args))
 	for i, a := range args {
-		parts[i] = quoteHistoryArg(a)
+		parts[i] = QuoteHistoryArg(a)
 	}
 	return strings.Join(parts, " ")
 }
 
-func quoteHistoryArg(s string) string {
+func QuoteHistoryArg(s string) string {
 	if s != "" && !strings.ContainsAny(s, " \t\"\\") {
 		return s
 	}
@@ -143,14 +143,14 @@ func quoteHistoryArg(s string) string {
 	return b.String()
 }
 
-// historyStringToArgs splits a string previously produced by
+// HistoryStringToArgs splits a string previously produced by
 // argsToHistoryString back into its original argument list: a minimal,
 // POSIX-ish tokenizer supporting single/double-quoted spans (with
 // backslash escaping only inside double quotes and unquoted text) - enough
 // to round-trip anything argsToHistoryString itself produces, not a
 // general shell parser (no variable expansion, no command substitution -
 // neither is meaningful for a stored, literal argument list).
-func historyStringToArgs(s string) []string {
+func HistoryStringToArgs(s string) []string {
 	var args []string
 	var cur strings.Builder
 	hasCur := false

@@ -14,7 +14,11 @@
 
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"code.aw.net/claude/tangsible/internal/config"
+)
 
 func TestCsvSetEqual(t *testing.T) {
 	cases := []struct {
@@ -38,8 +42,8 @@ func TestCsvSetEqual(t *testing.T) {
 }
 
 func TestResolveDiffCandidatesExactTagsAndHosts(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Args: "-l zen --tags foo,bar", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "exact-match"},
 			{Args: "-l zen --tags foo", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "partial-tags"},
 			{Args: "-l zen,other --tags foo,bar", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "different-hosts"},
@@ -52,8 +56,8 @@ func TestResolveDiffCandidatesExactTagsAndHosts(t *testing.T) {
 }
 
 func TestResolveDiffCandidatesExcludesCurrentRun(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Args: "", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "self"},
 			{Args: "", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "other"},
 		}},
@@ -65,10 +69,10 @@ func TestResolveDiffCandidatesExcludesCurrentRun(t *testing.T) {
 }
 
 func TestResolveDiffCandidatesDifferentTargetExcluded(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{{Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "site"}}},
-		{Role: "myrole", Invocations: []invocationRecord{{Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "role"}}},
-		{Playbook: "other.yml", Invocations: []invocationRecord{{Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "other"}}},
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{{Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "site"}}},
+		{Role: "myrole", Invocations: []config.InvocationRecord{{Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "role"}}},
+		{Playbook: "other.yml", Invocations: []config.InvocationRecord{{Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "other"}}},
 	}}
 	got := resolveDiffCandidates("site.yml", "", "", "", "", cfg)
 	if len(got) != 1 || got[0].RunID != "site" {
@@ -77,8 +81,8 @@ func TestResolveDiffCandidatesDifferentTargetExcluded(t *testing.T) {
 }
 
 func TestResolveDiffCandidatesIgnoresEntriesWithNoRunID(t *testing.T) {
-	cfg := stateConfig{History: []playbookHistory{
-		{Playbook: "site.yml", Invocations: []invocationRecord{
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
 			{Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: ""},
 		}},
 	}}

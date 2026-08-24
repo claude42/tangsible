@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Implements the "template" verb (design-docs/Tangsible template.md): a
+// Implements the "template" Verb (design-docs/Tangsible template.md): a
 // standalone, single-view program for interactively debugging a Jinja2
 // template, entirely separate from the run/rerun/role verbs' own live
 // tree UI - there's no tree to browse here, and no live jsonl-streaming
@@ -37,7 +37,7 @@ import (
 	"github.com/rivo/tview"
 )
 
-// parseTemplateArgs splits args (everything after the "template" verb)
+// parseTemplateArgs splits args (everything after the "template" Verb)
 // into the required template path, an optional hostname, and everything
 // else as passthrough args - per design-docs/Tangsible template.md's own
 // syntax, "tangsible template <path to template> [<hostname>] [-e...]":
@@ -121,7 +121,7 @@ func flattenInventoryHosts(raw map[string]json.RawMessage) []string {
 // tangsible trying to filter the list itself), and returns the first host
 // per flattenInventoryHosts' own deterministic ordering. listInventoryHosts
 // (host.go) does the actual invocation and JSON parsing - shared with the
-// "hosts" verb's own full host listing (design-docs/HostVerb.md).
+// "hosts" Verb's own full host listing (design-docs/HostVerb.md).
 func resolveInventoryHost(passthroughArgs []string) (string, error) {
 	hosts, err := listInventoryHosts(passthroughArgs)
 	if err != nil {
@@ -167,10 +167,10 @@ func roleVarsFiles(templatePath string) []string {
 
 // writeTemplateStub generates a minimal playbook rendering templatePath to
 // outputPath, and writes it to a fresh file in the system temp directory -
-// unlike the "role" verb's own stub, this one needs no special placement
+// unlike the "role" Verb's own stub, this one needs no special placement
 // (there's no tree/drill-down source lookup happening here to find), so a
 // real temp file is fine. gather_facts is left at ansible's own default
-// (unset here), same reasoning as the "role" verb's stub: templates
+// (unset here), same reasoning as the "role" Verb's stub: templates
 // commonly reference ansible_facts, and there's no reason to disable that;
 // ignore_unreachable: true means a host that can't be reached for fact
 // gathering doesn't abort the play - the delegated template task (below)
@@ -334,7 +334,7 @@ func preferredEditor() string {
 	return "vi"
 }
 
-// runTemplateVerb is main.go's entry point for the "template" verb.
+// runTemplateVerb is main.go's entry point for the "template" Verb.
 // Returns the process exit code rather than calling os.Exit itself, so
 // its own deferred cleanup (the stub playbook and the rendered-output
 // scratch file, per design-docs/Tangsible template.md's Cleanup section)

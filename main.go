@@ -30,7 +30,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/role"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
@@ -76,11 +78,11 @@ type procHandle struct {
 func (h *procHandle) Store(p *os.Process) { h.p.Store(p) }
 func (h *procHandle) Load() *os.Process   { return h.p.Load() }
 
-// pendingGeneration is the "run" verb's own first generation - already
+// pendingGeneration is the "run" Verb's own first generation - already
 // spawned and past the pre-flight gate by the time the TUI exists, unlike
-// every rerun since (including, for the "rerun" verb, its very first one -
+// every rerun since (including, for the "rerun" Verb, its very first one -
 // see requestRerun) which only ever starts once a re-run dialog is
-// confirmed. nil for the "rerun" verb: nothing has been spawned yet when
+// confirmed. nil for the "rerun" Verb: nothing has been spawned yet when
 // the TUI is constructed for it.
 type pendingGeneration struct {
 	cmd         *exec.Cmd
@@ -112,9 +114,9 @@ type generationOutcome struct {
 // it just renders as a failed generation like any other, no gate needed).
 //
 // runID names this generation's own saved run data (design-docs/
-// Revisit.md, runlog.go) - "" if createRunLog couldn't actually open
+// Revisit.md, runlog.go) - "" if CreateRunLog couldn't actually open
 // anything to save it to, so a caller never records a RunID (via
-// finalizeInvocation) that no file backs.
+// FinalizeInvocation) that no file backs.
 func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, runID string, err error) {
 	// --diff is always appended to the actual subprocess argv (never to
 	// args itself, which is also what's reassembled into .tangsible's
@@ -148,8 +150,8 @@ func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *ex
 	}
 	procH.Store(cmd.Process)
 
-	runID = newRunID(time.Now())
-	logFile := createRunLog(tangsibleStatePath, runID)
+	runID = config.NewRunID(time.Now())
+	logFile := config.CreateRunLog(config.TangsibleStatePath, runID)
 	if logFile == nil {
 		runID = ""
 	}
@@ -175,7 +177,7 @@ func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *ex
 // defer) to run on its own eventual return - "run" passes nil (nothing to
 // clean up), "role" passes a func that removes its own stub playbook.
 //
-// histPlaybook/histRole (exactly one non-empty, mirroring appendInvocation's
+// histPlaybook/histRole (exactly one non-empty, mirroring AppendInvocation's
 // own playbook/role parameters) are what this generation's invocation
 // history entry was recorded under - needed here only for the pre-flight-
 // failure branch below, which finalizes that entry itself (exitCode, and a
@@ -214,11 +216,11 @@ func startFirstGeneration(playbook string, rest []string, procH *procHandle, his
 		cleanup()
 		childStderr := <-stderrLines
 		waitErr := cmd.Wait()
-		writeRunStderr(tangsibleStatePath, runID, childStderr)
+		config.WriteRunStderr(config.TangsibleStatePath, runID, childStderr)
 		if histRole != "" {
-			_ = finalizeInvocation(tangsibleStatePath, "", histRole, exitCodeOf(waitErr), runID)
+			_ = config.FinalizeInvocation(config.TangsibleStatePath, "", histRole, exitCodeOf(waitErr), runID)
 		} else {
-			_ = finalizeInvocation(tangsibleStatePath, histPlaybook, "", exitCodeOf(waitErr), runID)
+			_ = config.FinalizeInvocation(config.TangsibleStatePath, histPlaybook, "", exitCodeOf(waitErr), runID)
 		}
 		for _, l := range childStderr {
 			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
@@ -233,7 +235,7 @@ func startFirstGeneration(playbook string, rest []string, procH *procHandle, his
 }
 
 func main() {
-	v, args, ok := parseVerb(os.Args[1:])
+	v, args, ok := config.ParseVerb(os.Args[1:])
 	if !ok {
 		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
@@ -249,16 +251,16 @@ func main() {
 	// its own detail view (unlike the other three) - but only once per
 	// selected entry, each its own fresh call with a freshly replayed
 	// state, never sharing this function's own run/rerun/role setup.
-	if v == verbTemplate {
+	if v == config.VerbTemplate {
 		os.Exit(runTemplateVerb(args))
 	}
-	if v == verbHost {
+	if v == config.VerbHost {
 		os.Exit(runHostVerb(args))
 	}
-	if v == verbHosts {
+	if v == config.VerbHosts {
 		os.Exit(runHostsVerb(args))
 	}
-	if v == verbRevisit {
+	if v == config.VerbRevisit {
 		os.Exit(runRevisitVerb(args))
 	}
 
@@ -298,25 +300,25 @@ func main() {
 	// previous run... pre-filled") and Rest - everything else (inventory,
 	// extra-vars, verbosity, ...), which every rerun since carries forward
 	// unedited, since the dialog only ever exposes Task/Tags/Hosts. Set by
-	// whichever verb's branch below runs; read the same way by both.
-	var originalArgs parsedPassthroughArgs
+	// whichever Verb's branch below runs; read the same way by both.
+	var originalArgs config.ParsedPassthroughArgs
 	// pending is non-nil only for "run" and "role" - see pendingGeneration's
 	// own doc comment.
 	var pending *pendingGeneration
 
 	switch v {
-	case verbRun:
+	case config.VerbRun:
 		// The playbook is normally args[0] (i.e. os.Args[2], after the
-		// verb), but doesn't have to be - splitPlaybookArgs treats a
+		// Verb), but doesn't have to be - SplitPlaybookArgs treats a
 		// missing or flag-shaped first argument as "none given
-		// positionally" and resolvePlaybook takes over (see resolve.go for
+		// positionally" and ResolvePlaybook takes over (see resolve.go for
 		// the full TANGSIBLE_PLAYBOOK/.tangsible/config.toml/
 		// $XDG_CONFIG_HOME/site.yml cascade).
 		var rest []string
 		var explicit bool
-		playbook, rest, explicit = splitPlaybookArgs(args)
+		playbook, rest, explicit = config.SplitPlaybookArgs(args)
 		if !explicit {
-			playbook, _ = resolvePlaybook()
+			playbook, _ = config.ResolvePlaybook()
 			if playbook == "" {
 				fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 				fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible/config.toml, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
@@ -333,10 +335,10 @@ func main() {
 		// actually asked for. Unlike "rerun" (see below), "run" always
 		// records immediately - there's no confirmation step to wait for,
 		// the invocation already happened by definition.
-		if err := appendInvocation(tangsibleStatePath, playbook, "", argsToHistoryString(rest)); err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleStatePath, err)
+		if err := config.AppendInvocation(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(rest)); err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
 		}
-		originalArgs = parsePassthroughArgs(rest)
+		originalArgs = config.ParsePassthroughArgs(rest)
 
 		var showTUI bool
 		pending, showTUI = startFirstGeneration(playbook, rest, &procH, playbook, "", nil)
@@ -344,21 +346,21 @@ func main() {
 			return
 		}
 
-	case verbRole:
+	case config.VerbRole:
 		// The role name is always required, positionally - unlike "run"'s
 		// playbook, there's no config/env fallback cascade for it
 		// (design-docs/Tangsible role.md only ever specifies
-		// "tangsible role <role_name>"). splitPlaybookArgs's own
+		// "tangsible role <role_name>"). SplitPlaybookArgs's own
 		// shape-based rule (a missing or flag-shaped first argument means
 		// nothing was given) applies identically here - a role name can't
 		// start with '-' in practice either.
-		roleName, rest, explicit := splitPlaybookArgs(args)
+		roleName, rest, explicit := config.SplitPlaybookArgs(args)
 		if !explicit {
 			fmt.Fprintf(os.Stderr, "usage: %s role <role_name> [ansible-playbook args...]\n", os.Args[0])
 			os.Exit(2)
 		}
 
-		playbook, cleanup = startRoleSession(roleName)
+		playbook, cleanup = role.StartRoleSession(roleName)
 		roleDisplayName = roleName
 
 		// Recorded unconditionally, before ansible-playbook is even
@@ -366,10 +368,10 @@ func main() {
 		// already has, and for the same reason: losing the ability to
 		// pre-fill a future rerun is never worth aborting the run the user
 		// actually asked for.
-		if err := appendInvocation(tangsibleStatePath, "", roleName, argsToHistoryString(rest)); err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", tangsibleStatePath, err)
+		if err := config.AppendInvocation(config.TangsibleStatePath, "", roleName, config.ArgsToHistoryString(rest)); err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
 		}
-		originalArgs = parsePassthroughArgs(rest)
+		originalArgs = config.ParsePassthroughArgs(rest)
 
 		var showTUI bool
 		pending, showTUI = startFirstGeneration(playbook, rest, &procH, "", roleName, cleanup)
@@ -377,14 +379,14 @@ func main() {
 			return
 		}
 
-	case verbRerun:
+	case config.VerbRerun:
 		// No history/CLI-args resolution happens for "run" (its playbook
 		// argument is passed straight through, verbatim, same as always) -
 		// this is entirely new machinery, see rerunresolve.go. Read fresh
 		// rather than threaded through from anywhere else, since this is
 		// the only place in "rerun"'s own flow that needs it.
-		cfg := readState(tangsibleStatePath)
-		res, resolved := resolveRerun(args, cfg)
+		cfg := config.ReadState(config.TangsibleStatePath)
+		res, resolved := config.ResolveRerun(args, cfg)
 		if !resolved {
 			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 			fmt.Fprintln(os.Stderr, "no playbook or role given, and nothing has ever been run in this project to rerun")
@@ -393,20 +395,20 @@ func main() {
 		// res.Role set (rather than res.Playbook) means the most recent
 		// invocation in this project was "tangsible role", not
 		// "tangsible run" (design-docs/Tangsible role.md) - only possible
-		// when no playbook was given explicitly (see rerunResolution's own
+		// when no playbook was given explicitly (see RerunResolution's own
 		// doc comment: an explicit positional argument to "rerun" always
 		// means a playbook, there's no "tangsible rerun <role>" form). A
 		// role rerun always starts from a brand new stub - the previous
 		// session's own was already deleted when that process exited -
 		// exactly like "tangsible role" itself, via the same
-		// startRoleSession helper.
+		// StartRoleSession helper.
 		if res.Role != "" {
-			playbook, cleanup = startRoleSession(res.Role)
+			playbook, cleanup = role.StartRoleSession(res.Role)
 			roleDisplayName = res.Role
 		} else {
 			playbook = res.Playbook
 		}
-		originalArgs = parsedPassthroughArgs{Tags: res.Tags, SkipTags: res.SkipTags, Hosts: res.Hosts, Rest: res.Rest}
+		originalArgs = config.ParsedPassthroughArgs{Tags: res.Tags, SkipTags: res.SkipTags, Hosts: res.Hosts, Rest: res.Rest}
 		// pending stays nil: unlike "run"/"role", nothing is spawned yet -
 		// the re-run dialog opens immediately instead (NewLiveTUI's
 		// startWithRerunDialog below), and the very first generation only
@@ -451,14 +453,14 @@ func main() {
 
 	// Read fresh here rather than threading through the "rerun" branch's
 	// own cfg local (which is scoped to that switch case, and is now a
-	// stateConfig rather than the settingsConfig this needs anyway) - a
+	// StateConfig rather than the SettingsConfig this needs anyway) - a
 	// second read of a small, local TOML file is cheap and consistent with
-	// how resolvePlaybook/readDefaultPlaybook already re-read it
+	// how ResolvePlaybook/ReadDefaultPlaybook already re-read it
 	// independently elsewhere, rather than passing one shared value
 	// through the whole program.
-	startExpanded := defaultTreeExpanded(readSettingsConfig(tangsibleConfigPath))
-	twoPaneLayout := twoPaneLayoutEnabled(readSettingsConfig(tangsibleConfigPath))
-	colorEnabled := colorEnabledByUser(readSettingsConfig(tangsibleConfigPath))
+	startExpanded := config.DefaultTreeExpanded(config.ReadSettingsConfig(config.TangsibleConfigPath))
+	twoPaneLayout := config.TwoPaneLayoutEnabled(config.ReadSettingsConfig(config.TangsibleConfigPath))
+	colorEnabled := config.ColorEnabledByUser(config.ReadSettingsConfig(config.TangsibleConfigPath))
 
 	state := &pb.PlaybookState{}
 	var processDone, quitting atomic.Bool
@@ -609,7 +611,7 @@ type streamItem struct {
 // failures (bad playbook path, parse errors, missing inventory, ...),
 // reporting those solely via stderr + a nonzero exit code.
 //
-// logFile, if non-nil (see runlog.go's createRunLog), gets every raw line
+// logFile, if non-nil (see runlog.go's CreateRunLog), gets every raw line
 // teed into it verbatim, byte-identical to what ansible-playbook actually
 // emitted - before trimming/decoding, so a malformed or blank line is saved
 // too, same as a real one. This is design-docs/Revisit.md's own save

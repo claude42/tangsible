@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
@@ -49,7 +50,7 @@ var diffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background
 // uses for showing a revisited run, reused here for diff mode's own
 // comparison ("old") run.
 func replayRun(runID string) (*playbook.PlaybookState, error) {
-	jsonlPath, _ := runLogPaths(tangsibleStatePath, runID)
+	jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, runID)
 	f, err := os.Open(jsonlPath)
 	if err != nil {
 		return nil, err
@@ -72,10 +73,10 @@ func replayRun(runID string) (*playbook.PlaybookState, error) {
 // its own cross-goroutine-synchronized tracker to stay correct). Safe
 // because, by the time 'd' is even pressable (processDone), the current
 // generation's own invocation record has already been finalized
-// (finalizeInvocation) and is the last entry recorded for this target -
+// (FinalizeInvocation) and is the last entry recorded for this target -
 // nothing else can have appended after it without the user having done
 // something else in a separate session concurrently.
-func lastRunID(cfg stateConfig, playbook, role string) string {
+func lastRunID(cfg config.StateConfig, playbook, role string) string {
 	for _, h := range cfg.History {
 		if h.Playbook != playbook || h.Role != role {
 			continue
@@ -99,7 +100,7 @@ func lastRunID(cfg stateConfig, playbook, role string) string {
 // of a full live NewLiveTUI).
 func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRole, currentTags, currentHosts string, currentSourceIndex taskSourceIndex) {
 	for {
-		cfg, _ := pruneMissingRunLogs(tangsibleStatePath)
+		cfg, _ := config.PruneMissingRunLogs(config.TangsibleStatePath)
 		currentRunID := lastRunID(cfg, targetPlaybook, targetRole)
 		candidates := resolveDiffCandidates(targetPlaybook, targetRole, currentTags, currentHosts, currentRunID, cfg)
 		if len(candidates) == 0 {

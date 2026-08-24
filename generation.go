@@ -18,7 +18,7 @@
 // inline in main()'s own body; pulled out here once design-docs/
 // Revisit.md's Phase 3 needed the identical mechanism for rerun-from-
 // within-"revisit" (revisit.go) - matching the same "one shared funnel"
-// philosophy spawnGeneration/appendInvocation/finalizeInvocation already
+// philosophy spawnGeneration/AppendInvocation/FinalizeInvocation already
 // established for the start/record side of a generation's life, extended
 // here to the run/rerun side. main.go's own run/rerun/role session is
 // still the only caller with a whole-process exit status to decide (see
@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"sync/atomic"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
@@ -43,12 +44,12 @@ import (
 // does with a finished generation's stderr - main.go prints it once
 // app.Run() finally returns; revisit.go's openRevisitEntry does the same,
 // just scoped to one entry-viewing session), the saved run-log's stderr
-// file (writeRunStderr), and this generation's own invocation-history
-// entry (finalizeInvocation). playbook/roleDisplayName decide which of
+// file (WriteRunStderr), and this generation's own invocation-history
+// entry (FinalizeInvocation). playbook/roleDisplayName decide which of
 // those an entry belongs under - a session's role-ness/playbook never
 // changes mid-session (a rerun reuses the same stub/playbook throughout -
-// see startRoleSession), so whichever was true for this generation's own
-// appendInvocation call (in newRequestRerun, or the caller's own first-
+// see StartRoleSession), so whichever was true for this generation's own
+// AppendInvocation call (in newRequestRerun, or the caller's own first-
 // generation recording) is still true now.
 func runOneGeneration(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-chan []string, runID string, playbook, roleDisplayName string, apply func(streamItem), exitCode *atomic.Int32, processDone *atomic.Bool, recordOutcome func(generationOutcome), peeked ...streamItem) {
 	for _, item := range peeked {
@@ -66,11 +67,11 @@ func runOneGeneration(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-c
 	// program (not just per-variable), so this ordering is what makes
 	// that store visible there.
 	recordOutcome(generationOutcome{exitCode: code, waitErr: waitErr, childStderr: childStderr})
-	writeRunStderr(tangsibleStatePath, runID, childStderr)
+	config.WriteRunStderr(config.TangsibleStatePath, runID, childStderr)
 	if roleDisplayName != "" {
-		_ = finalizeInvocation(tangsibleStatePath, "", roleDisplayName, code, runID)
+		_ = config.FinalizeInvocation(config.TangsibleStatePath, "", roleDisplayName, code, runID)
 	} else {
-		_ = finalizeInvocation(tangsibleStatePath, playbook, "", code, runID)
+		_ = config.FinalizeInvocation(config.TangsibleStatePath, playbook, "", code, runID)
 	}
 	processDone.Store(true)
 }
@@ -84,7 +85,7 @@ func runOneGeneration(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-c
 //
 // startAtTask, if non-empty, is prepended as --start-at-task; tags/hosts
 // replace the original invocation's own (originalRest is always carried
-// forward unedited alongside them - see parsedPassthroughArgs.Reassemble).
+// forward unedited alongside them - see ParsedPassthroughArgs.Reassemble).
 func newRequestRerun(playbook, roleDisplayName string, originalRest []string, state *playbook.PlaybookState, procH *procHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[progressTracker], apply func(streamItem), recordOutcome func(generationOutcome)) func(startAtTask, tags, skipTags, hosts string) {
 	return func(startAtTask, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
@@ -96,7 +97,7 @@ func newRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		exitCode.Store(0)
 		processDone.Store(false)
 
-		newArgs := parsedPassthroughArgs{Tags: tags, SkipTags: skipTags, Hosts: hosts, Rest: originalRest}.Reassemble()
+		newArgs := config.ParsedPassthroughArgs{Tags: tags, SkipTags: skipTags, Hosts: hosts, Rest: originalRest}.Reassemble()
 		if startAtTask != "" {
 			newArgs = append([]string{"--start-at-task", startAtTask}, newArgs...)
 		}
@@ -125,9 +126,9 @@ func newRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		// call: losing the ability to pre-fill a *future* rerun is never
 		// worth disrupting the one the user just asked for.
 		if roleDisplayName != "" {
-			_ = appendInvocation(tangsibleStatePath, "", roleDisplayName, argsToHistoryString(newArgs))
+			_ = config.AppendInvocation(config.TangsibleStatePath, "", roleDisplayName, config.ArgsToHistoryString(newArgs))
 		} else {
-			_ = appendInvocation(tangsibleStatePath, playbook, "", argsToHistoryString(newArgs))
+			_ = config.AppendInvocation(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(newArgs))
 		}
 
 		go func() {
@@ -143,9 +144,9 @@ func newRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 				exitCode.Store(-1)
 				recordOutcome(generationOutcome{exitCode: -1, waitErr: err})
 				if roleDisplayName != "" {
-					_ = finalizeInvocation(tangsibleStatePath, "", roleDisplayName, -1, "")
+					_ = config.FinalizeInvocation(config.TangsibleStatePath, "", roleDisplayName, -1, "")
 				} else {
-					_ = finalizeInvocation(tangsibleStatePath, playbook, "", -1, "")
+					_ = config.FinalizeInvocation(config.TangsibleStatePath, playbook, "", -1, "")
 				}
 				processDone.Store(true)
 				return

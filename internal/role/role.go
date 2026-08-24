@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package role
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 )
 
-// roleStubFilename returns the dot-prefixed stub playbook filename
+// RoleStubFilename returns the dot-prefixed stub playbook filename
 // design-docs/Tangsible role.md specifies for role - written into the
 // current working directory, never a system temp directory. That matters
 // beyond tidiness: source.go's buildTaskSourceIndex finds a task's own
@@ -33,11 +33,11 @@ import (
 // .gitignore'd (not done automatically - same "don't reach beyond the
 // project's own files uninvited" restraint writeState already exercises
 // for .tangsible/state.toml itself).
-func roleStubFilename(role string) string {
+func RoleStubFilename(role string) string {
 	return ".tangsible-role-" + role + ".yml"
 }
 
-// writeRoleStub generates a minimal playbook referencing role - hosts:
+// WriteRoleStub generates a minimal playbook referencing role - hosts:
 // all, per design-docs/Tangsible role.md (roles are generally
 // host-agnostic; the actual target is narrowed the normal way, via -l/-i
 // passthrough args) - and writes it to roleStubFilename(role) in the
@@ -46,8 +46,8 @@ func roleStubFilename(role string) string {
 // name - the same "not expected to be edited concurrently by more than
 // one tangsible process, best effort" tradeoff .tangsible's own read/write
 // already accepts (see history.go's appendInvocation).
-func writeRoleStub(role string) (path string, err error) {
-	path = roleStubFilename(role)
+func WriteRoleStub(role string) (path string, err error) {
+	path = RoleStubFilename(role)
 	content := fmt.Sprintf("- hosts: all\n  roles:\n    - %s\n", role)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", err
@@ -55,7 +55,7 @@ func writeRoleStub(role string) (path string, err error) {
 	return path, nil
 }
 
-// roleFoundNearby is a best-effort check for whether role's own directory
+// RoleFoundNearby is a best-effort check for whether role's own directory
 // is actually discoverable under the current working directory (the
 // standard ./roles/<name> layout) - purely informational, used to warn the
 // user up front rather than to gate anything: per design-docs/Tangsible
@@ -68,12 +68,12 @@ func writeRoleStub(role string) (path string, err error) {
 // found by buildTaskSourceIndex's own walk, so checking places the walk
 // could never reach anyway would just be dead code, not a more thorough
 // check.
-func roleFoundNearby(role string) bool {
+func RoleFoundNearby(role string) bool {
 	info, err := os.Stat(filepath.Join("roles", role))
 	return err == nil && info.IsDir()
 }
 
-// startRoleSession generates a fresh stub playbook for role and returns
+// StartRoleSession generates a fresh stub playbook for role and returns
 // its path plus a cleanup func that removes it - shared by "tangsible
 // role" itself and by "tangsible rerun" when it resolves to a role
 // (design-docs/Tangsible role.md): a role rerun always starts from a brand
@@ -83,13 +83,13 @@ func roleFoundNearby(role string) bool {
 // cleanup has anything to do yet (nothing was created) - same "not worth a
 // recoverable error path" treatment spawnGeneration's own construction-time
 // failures already get for "run".
-func startRoleSession(role string) (stubPath string, cleanup func()) {
-	path, err := writeRoleStub(role)
+func StartRoleSession(role string) (stubPath string, cleanup func()) {
+	path, err := WriteRoleStub(role)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook for role %q: %v\n", role, err)
 		os.Exit(1)
 	}
-	if !roleFoundNearby(role) {
+	if !RoleFoundNearby(role) {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't find ./roles/%s - ansible-playbook will still try to resolve it, but the drill-down view's Task definition section won't be available for it\n", role)
 	}
 	return path, func() { os.Remove(path) }
