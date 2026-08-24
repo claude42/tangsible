@@ -25,7 +25,7 @@
 // per-task JSON - confirmed by reading ansible.posix.jsonl's own source
 // directly), and were explicitly descoped rather than shown as
 // count-only fields with no drill-down to back them up.
-package main
+package session
 
 import (
 	"fmt"

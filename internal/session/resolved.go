@@ -22,7 +22,7 @@
 // undocumented internals no supported plugin API exposes - confirmed live
 // in the design conversation this follows from that even a custom
 // callback plugin doesn't get handed the VariableManager either).
-package main
+package session
 
 import (
 	"bufio"
