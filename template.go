@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -134,7 +135,7 @@ func resolveInventoryHost(passthroughArgs []string) (string, error) {
 
 // roleVarsFiles returns the existing defaults/main.yml and vars/main.yml
 // paths (in that order, skipping whichever doesn't exist on disk) for the
-// role templatePath belongs to, per rolePathPattern (tui.go) - nil if
+// role templatePath belongs to, per RolePathPattern (tui.go) - nil if
 // templatePath isn't role-owned at all. Deliberately doesn't invoke the
 // role itself (roles: [name] in the stub) - confirmed live that doing so
 // would run every task in the role's own tasks/main.yml as a side effect,
@@ -145,7 +146,7 @@ func roleVarsFiles(templatePath string) []string {
 	if err != nil {
 		return nil
 	}
-	loc := rolePathPattern.FindStringSubmatchIndex(abs)
+	loc := uikit.RolePathPattern.FindStringSubmatchIndex(abs)
 	if loc == nil {
 		return nil
 	}
@@ -242,7 +243,7 @@ func writeTemplateStub(templatePath, outputPath string) (stubPath string, err er
 // templateResult is one render's own outcome - either Content (the
 // rendered file, read back from disk) or, if the task itself failed,
 // ErrMsg (extracted from the task's own result the same way
-// primaryOutputField already does for the drill-down view - reused
+// PrimaryOutputField already does for the drill-down view - reused
 // directly, not reimplemented).
 type templateResult struct {
 	Content string
@@ -307,7 +308,7 @@ func renderTemplate(stubPath, outputPath, hostname string, rest []string) (templ
 	if decoded.Failed || decoded.Unreachable {
 		var full map[string]interface{}
 		_ = json.Unmarshal(raw, &full)
-		_, msg := primaryOutputField(full)
+		_, msg := uikit.PrimaryOutputField(full)
 		if msg == "" {
 			msg = decoded.Msg
 		}
@@ -395,17 +396,17 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	app.EnableMouse(true)
 
 	header := tview.NewTextView().SetDynamicColors(true)
-	header.SetTextStyle(barStyle)
+	header.SetTextStyle(uikit.BarStyle)
 
 	sourceView := tview.NewTextView().SetDynamicColors(true)
 	renderedView := tview.NewTextView().SetDynamicColors(true)
 
-	tabs := newTabbedPane()
+	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs([]string{"Rendered", "Source"}, []tview.Primitive{renderedView, sourceView})
 
 	footer := tview.NewTextView().SetDynamicColors(true).
 		SetText(" tab/shift-tab: switch tab  e: edit template  h: change host  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
-	footer.SetTextStyle(barStyle)
+	footer.SetTextStyle(uikit.BarStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
@@ -460,7 +461,7 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	}
 	go render()
 
-	// Host-switch dialog: a single-field modal, same centeredModal/Pages
+	// Host-switch dialog: a single-field modal, same CenteredModal/Pages
 	// overlay pattern NewLiveTUI's own filter/search dialogs use - first
 	// iteration is plain text entry, per design-docs/Tangsible
 	// template.md's own "Changing hosts" section (a picker list gleaned
@@ -477,7 +478,7 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		AddItem(tview.NewBox(), 1, 0, false). // top margin
 		AddItem(hostInput, 1, 0, true)
 	hostFlex.SetBorder(true).SetTitle(" Change host (enter: apply, esc: cancel) ")
-	pages.AddPage("host", centeredModal(hostFlex, 50, 7), true, false)
+	pages.AddPage("host", uikit.CenteredModal(hostFlex, 50, 7), true, false)
 
 	hostDialogOpen := false
 	openHostDialog := func() {
@@ -630,7 +631,7 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 			// can't leak through to the tab bar underneath (same
 			// reasoning as tui.go's own dialog handling in
 			// SetMouseCapture).
-			if x, y := event.Position(); inRect(x, y, hostFlex) {
+			if x, y := event.Position(); uikit.InRect(x, y, hostFlex) {
 				return event, action
 			}
 			return nil, action
@@ -642,7 +643,7 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		// issue as tui.go's topBar/bottomBar/outputTopBar/
 		// outputBottomBar - confirmed live there that Escape/Enter/arrow
 		// navigation then silently stop reaching the real content).
-		if x, y := event.Position(); inRect(x, y, header) || inRect(x, y, footer) {
+		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, footer) {
 			return nil, action
 		}
 		if action == tview.MouseLeftClick {

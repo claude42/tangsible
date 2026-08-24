@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"strings"
@@ -30,7 +30,7 @@ func primitives(n int) []tview.Primitive {
 }
 
 func TestTabbedPaneSetTabsAndActiveName(t *testing.T) {
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	if got := p.ActiveName(); got != "" {
 		t.Errorf("ActiveName() on an empty pane = %q, want \"\"", got)
 	}
@@ -42,7 +42,7 @@ func TestTabbedPaneSetTabsAndActiveName(t *testing.T) {
 }
 
 func TestTabbedPaneSetTabsPreservesActiveByName(t *testing.T) {
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	p.SetTabs([]string{"Task", "Output", "Details"}, primitives(3))
 	p.Next() // -> Output
 	if got := p.ActiveName(); got != "Output" {
@@ -59,7 +59,7 @@ func TestTabbedPaneSetTabsPreservesActiveByName(t *testing.T) {
 }
 
 func TestTabbedPaneSetTabsFallsBackWhenActiveNameGone(t *testing.T) {
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	p.SetTabs([]string{"Task", "Output", "Details"}, primitives(3))
 	p.Next() // -> Output
 	if got := p.ActiveName(); got != "Output" {
@@ -76,7 +76,7 @@ func TestTabbedPaneSetTabsFallsBackWhenActiveNameGone(t *testing.T) {
 }
 
 func TestTabbedPaneNextPrevWrap(t *testing.T) {
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	p.SetTabs([]string{"A", "B", "C"}, primitives(3))
 
 	if got := p.ActiveName(); got != "A" {
@@ -98,7 +98,7 @@ func TestTabbedPaneNextPrevWrap(t *testing.T) {
 }
 
 func TestTabbedPaneNextPrevOnEmptyPane(t *testing.T) {
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	// Must not panic with no tabs at all.
 	p.Next()
 	p.Prev()
@@ -113,12 +113,12 @@ func TestTabbedPaneSetTabsPanicsOnLengthMismatch(t *testing.T) {
 			t.Error("SetTabs with mismatched lengths did not panic")
 		}
 	}()
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	p.SetTabs([]string{"A", "B"}, primitives(1))
 }
 
 func TestTabbedPaneHandleClick(t *testing.T) {
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	p.SetTabs([]string{"Task", "Output", "Details"}, primitives(3))
 	// header is at row 0 in this pane's own root Flex; give it a rect
 	// exactly as the real layout would during Draw(), without needing an
@@ -155,7 +155,7 @@ func TestTabbedPaneHandleClick(t *testing.T) {
 }
 
 func TestTabbedPaneRenderHeaderHighlightsActiveTab(t *testing.T) {
-	p := newTabbedPane()
+	p := NewTabbedPane()
 	p.SetTabs([]string{"Task", "Output"}, primitives(2))
 	got := p.header.GetText(false)
 	// Every color fully specified per-segment, not left to inherit an

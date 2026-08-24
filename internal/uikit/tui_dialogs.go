@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"fmt"
@@ -20,12 +20,12 @@ import (
 	"github.com/rivo/tview"
 )
 
-// centeredModal wraps p in nested Flexes so it renders as a fixed-size box
+// CenteredModal wraps p in nested Flexes so it renders as a fixed-size box
 // centered within whatever space its container gives it, instead of
 // filling all of it - the standard tview pattern for a page that overlays
 // only part of the screen (see tview's own Pages wiki example). Used for
 // the filter dialog (see NewLiveTUI).
-func centeredModal(p tview.Primitive, width, height int) tview.Primitive {
+func CenteredModal(p tview.Primitive, width, height int) tview.Primitive {
 	return tview.NewFlex().
 		AddItem(nil, 0, 1, false).
 		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
@@ -35,7 +35,7 @@ func centeredModal(p tview.Primitive, width, height int) tview.Primitive {
 		AddItem(nil, 0, 1, false)
 }
 
-// inRect reports whether (x, y) falls within p's own last-drawn rect - the
+// InRect reports whether (x, y) falls within p's own last-drawn rect - the
 // padding Flex items centeredModal wraps a dialog's content in don't touch
 // that content's own rect, so this is exactly "is (x, y) inside the
 // visible dialog box" for anything built via centeredModal. Used at the
@@ -46,12 +46,12 @@ func centeredModal(p tview.Primitive, width, height int) tview.Primitive {
 // against tview's own Pages.MouseHandler: it tries every visible page,
 // topmost first, so an unswallowed click outside the dialog's own box
 // would otherwise fall through to the page underneath).
-func inRect(x, y int, p tview.Primitive) bool {
+func InRect(x, y int, p tview.Primitive) bool {
 	rx, ry, rw, rh := p.GetRect()
 	return x >= rx && x < rx+rw && y >= ry && y < ry+rh
 }
 
-// filterDialogText renders the filter dialog's body - a headline and the
+// FilterDialogText renders the filter dialog's body - a headline and the
 // three filters this dialog itself offers (All/Changed/Failed - the search
 // filter is a separate dialog, see NewLiveTUI's searchDialog), each with a
 // small marker next to whichever one is currently active. No marker shown
@@ -64,9 +64,9 @@ func inRect(x, y int, p tview.Primitive) bool {
 // Cancel button in filterFlex (see NewLiveTUI) - Esc/q still work as
 // keyboard shortcuts too, but no longer need a text hint now that there's a
 // clickable affordance for the same action.
-func filterDialogText(active filterQuery) string {
-	mark := func(mode filterMode) string {
-		if mode == active.mode {
+func FilterDialogText(active FilterQuery) string {
+	mark := func(mode FilterMode) string {
+		if mode == active.Mode {
 			return "[aqua]*[-]"
 		}
 		return " "
@@ -76,6 +76,6 @@ func filterDialogText(active filterQuery) string {
 			" %s A - Show all\n"+
 			" %s C - Show changed (includes failed)\n"+
 			" %s F - Show only failed tasks",
-		mark(filterAll), mark(filterChanged), mark(filterFailed),
+		mark(FilterAll), mark(FilterChanged), mark(FilterFailed),
 	)
 }

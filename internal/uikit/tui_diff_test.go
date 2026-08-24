@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"strings"
@@ -22,7 +22,7 @@ import (
 )
 
 func TestBuildDiffTabNoDiffKey(t *testing.T) {
-	if got := buildDiffTab(map[string]interface{}{"changed": true}); got != "" {
+	if got := BuildDiffTab(map[string]interface{}{"changed": true}); got != "" {
 		t.Errorf("buildDiffTab() = %q, want empty (no diff key at all)", got)
 	}
 }
@@ -39,7 +39,7 @@ func TestBuildDiffTabEmptyDiff(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			decoded := map[string]interface{}{"diff": c.diff}
-			if got := buildDiffTab(decoded); got != "" {
+			if got := BuildDiffTab(decoded); got != "" {
 				t.Errorf("buildDiffTab() = %q, want empty", got)
 			}
 		})
@@ -53,7 +53,7 @@ func TestBuildDiffTabSimpleChange(t *testing.T) {
 			"after":  "line one\nline three\n",
 		},
 	}
-	got := buildDiffTab(decoded)
+	got := BuildDiffTab(decoded)
 	if got == "" {
 		t.Fatal("buildDiffTab() = empty, want a rendered diff")
 	}
@@ -75,7 +75,7 @@ func TestBuildDiffTabIdenticalBeforeAfter(t *testing.T) {
 			"after":  "same\n",
 		},
 	}
-	if got := buildDiffTab(decoded); got != "" {
+	if got := BuildDiffTab(decoded); got != "" {
 		t.Errorf("buildDiffTab() = %q, want empty (no real change)", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestBuildDiffTabMissingAndNilFields(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			decoded := map[string]interface{}{"diff": c.diff}
 			// Must not panic; content doesn't matter for these cases.
-			_ = buildDiffTab(decoded)
+			_ = BuildDiffTab(decoded)
 		})
 	}
 }
@@ -103,7 +103,7 @@ func TestBuildDiffTabBinaryNotice(t *testing.T) {
 			"dst_binary": 1.0,
 		},
 	}
-	got := buildDiffTab(decoded)
+	got := BuildDiffTab(decoded)
 	if !strings.Contains(got, "destination file appears to be binary") {
 		t.Errorf("buildDiffTab() = %q, want a binary-skip notice", got)
 	}
@@ -116,7 +116,7 @@ func TestBuildDiffTabListOfEntries(t *testing.T) {
 			map[string]interface{}{"before": "c\n", "after": "d\n"},
 		},
 	}
-	got := buildDiffTab(decoded)
+	got := BuildDiffTab(decoded)
 	if !strings.Contains(got, "-a") || !strings.Contains(got, "+b") {
 		t.Errorf("buildDiffTab() = %q, missing first entry's diff", got)
 	}
@@ -131,7 +131,7 @@ func TestBuildDiffTabPrepared(t *testing.T) {
 			"prepared": "--- literal preformatted diff text ---",
 		},
 	}
-	got := buildDiffTab(decoded)
+	got := BuildDiffTab(decoded)
 	if !strings.Contains(got, "literal preformatted diff text") {
 		t.Errorf("buildDiffTab() = %q, want the prepared text verbatim", got)
 	}
@@ -144,7 +144,7 @@ func TestBuildDiffTabNonStringBeforeAfter(t *testing.T) {
 			"after":  map[string]interface{}{"mode": "0755"},
 		},
 	}
-	got := buildDiffTab(decoded)
+	got := BuildDiffTab(decoded)
 	if !strings.Contains(got, "0644") || !strings.Contains(got, "0755") {
 		t.Errorf("buildDiffTab() = %q, want both JSON-rendered mode values present", got)
 	}
@@ -157,7 +157,7 @@ func TestBuildDiffTabEscapesBrackets(t *testing.T) {
 			"after":  "tags: [a, b, c]\n",
 		},
 	}
-	got := buildDiffTab(decoded)
+	got := BuildDiffTab(decoded)
 	if strings.Contains(got, "[a, b, c]") {
 		t.Errorf("buildDiffTab() = %q, want the literal bracket escaped, not left as an unescaped tag", got)
 	}

@@ -47,12 +47,12 @@ var ansiCSI = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 // deliberately, not -s's compact playbook-syntax form - live use showed
 // it read better for this tab (design-docs/Ideas.md). action is exactly
 // whatever the task's own "action" result field reported (see tui.go's
-// taskAction) - ansible-doc resolves both a bare module name ("copy") and
+// TaskAction) - ansible-doc resolves both a bare module name ("copy") and
 // its FQCN ("ansible.builtin.copy") on its own, so no normalization is
 // needed here. A nonzero exit (module not found, ansible-doc missing from
 // PATH, etc.) is reported as an error built from stderr - real
 // information the Docs tab shows rather than hides (see tui.go's
-// docsTabHidden).
+// DocsTabHidden).
 func fetchAnsibleDoc(action string) (string, error) {
 	cmd := exec.Command("ansible-doc", action)
 	var stderr bytes.Buffer

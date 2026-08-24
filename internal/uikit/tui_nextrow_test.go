@@ -12,48 +12,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import "testing"
 
 func TestNextInteractiveRow(t *testing.T) {
 	interactive := func() {}
-	rows := []row{
-		{selected: interactive}, // 0
-		{selected: interactive}, // 1
-		{selected: nil},         // 2 - decorative (e.g. status divider)
-		{selected: nil},         // 3 - decorative (e.g. status text)
-		{selected: nil},         // 4 - decorative (recap heading)
-		{selected: interactive}, // 5 - first recap host line
-		{selected: interactive}, // 6
+	rows := []Row{
+		{Selected: interactive}, // 0
+		{Selected: interactive}, // 1
+		{Selected: nil},         // 2 - decorative (e.g. status divider)
+		{Selected: nil},         // 3 - decorative (e.g. status text)
+		{Selected: nil},         // 4 - decorative (recap heading)
+		{Selected: interactive}, // 5 - first recap host line
+		{Selected: interactive}, // 6
 	}
 
 	t.Run("skips a whole run of decorative rows going down", func(t *testing.T) {
-		if got := nextInteractiveRow(rows, 1, 1); got != 5 {
+		if got := NextInteractiveRow(rows, 1, 1); got != 5 {
 			t.Errorf("nextInteractiveRow(1, +1) = %d, want 5", got)
 		}
 	})
 
 	t.Run("skips the same run going up", func(t *testing.T) {
-		if got := nextInteractiveRow(rows, 5, -1); got != 1 {
+		if got := NextInteractiveRow(rows, 5, -1); got != 1 {
 			t.Errorf("nextInteractiveRow(5, -1) = %d, want 1", got)
 		}
 	})
 
 	t.Run("no wraparound past the last row", func(t *testing.T) {
-		if got := nextInteractiveRow(rows, 6, 1); got != -1 {
+		if got := NextInteractiveRow(rows, 6, 1); got != -1 {
 			t.Errorf("nextInteractiveRow(6, +1) = %d, want -1", got)
 		}
 	})
 
 	t.Run("no wraparound past the first row", func(t *testing.T) {
-		if got := nextInteractiveRow(rows, 0, -1); got != -1 {
+		if got := NextInteractiveRow(rows, 0, -1); got != -1 {
 			t.Errorf("nextInteractiveRow(0, -1) = %d, want -1", got)
 		}
 	})
 
 	t.Run("a normal one-row step when neighbors are both interactive", func(t *testing.T) {
-		if got := nextInteractiveRow(rows, 0, 1); got != 1 {
+		if got := NextInteractiveRow(rows, 0, 1); got != 1 {
 			t.Errorf("nextInteractiveRow(0, +1) = %d, want 1", got)
 		}
 	})

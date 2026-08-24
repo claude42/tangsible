@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"testing"
@@ -27,7 +27,7 @@ func TestInheritedExpandState(t *testing.T) {
 
 	t.Run("very first task of a generation falls back to startExpanded", func(t *testing.T) {
 		for _, startExpanded := range []bool{true, false} {
-			got := inheritedExpandState([]*playbook.TaskNode{taskA}, map[*playbook.TaskNode]bool{}, startExpanded)
+			got := InheritedExpandState([]*playbook.TaskNode{taskA}, map[*playbook.TaskNode]bool{}, startExpanded)
 			if got != startExpanded {
 				t.Errorf("inheritedExpandState(single task, startExpanded=%v) = %v, want %v", startExpanded, got, startExpanded)
 			}
@@ -36,7 +36,7 @@ func TestInheritedExpandState(t *testing.T) {
 
 	t.Run("inherits the previously-added task's current state - expanded", func(t *testing.T) {
 		expanded := map[*playbook.TaskNode]bool{taskA: true}
-		got := inheritedExpandState([]*playbook.TaskNode{taskA, taskB}, expanded, false)
+		got := InheritedExpandState([]*playbook.TaskNode{taskA, taskB}, expanded, false)
 		if !got {
 			t.Error("inheritedExpandState() = false, want true (inherited from taskA)")
 		}
@@ -44,14 +44,14 @@ func TestInheritedExpandState(t *testing.T) {
 
 	t.Run("inherits the previously-added task's current state - collapsed", func(t *testing.T) {
 		expanded := map[*playbook.TaskNode]bool{taskA: false}
-		got := inheritedExpandState([]*playbook.TaskNode{taskA, taskB}, expanded, true)
+		got := InheritedExpandState([]*playbook.TaskNode{taskA, taskB}, expanded, true)
 		if got {
 			t.Error("inheritedExpandState() = true, want false (inherited from taskA)")
 		}
 	})
 
 	t.Run("missing map entry for the previous task means collapsed, same as any Go zero value", func(t *testing.T) {
-		got := inheritedExpandState([]*playbook.TaskNode{taskA, taskB}, map[*playbook.TaskNode]bool{}, true)
+		got := InheritedExpandState([]*playbook.TaskNode{taskA, taskB}, map[*playbook.TaskNode]bool{}, true)
 		if got {
 			t.Error("inheritedExpandState() = true, want false (taskA has no explicit entry)")
 		}
@@ -62,7 +62,7 @@ func TestInheritedExpandState(t *testing.T) {
 		// OnTaskAdded's own contract); taskB is "the task added right
 		// before it" - taskA's own state must be ignored here.
 		expanded := map[*playbook.TaskNode]bool{taskA: true, taskB: false}
-		got := inheritedExpandState([]*playbook.TaskNode{taskA, taskB, taskC}, expanded, true)
+		got := InheritedExpandState([]*playbook.TaskNode{taskA, taskB, taskC}, expanded, true)
 		if got {
 			t.Error("inheritedExpandState() = true, want false (should inherit from taskB, the second-to-last, not taskA)")
 		}

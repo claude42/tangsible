@@ -28,7 +28,7 @@
 // key/mouse override: at the Application level (SetInputCapture/
 // SetMouseCapture), not inside a custom widget's own InputHandler/
 // MouseHandler.
-package main
+package uikit
 
 import (
 	"fmt"
@@ -37,11 +37,11 @@ import (
 	"github.com/rivo/tview"
 )
 
-// tabbedPane is a small, reusable "named content panels with a tab bar
+// TabbedPane is a small, reusable "named content panels with a tab bar
 // header" component. root is what a caller actually adds to its own
 // layout; Next/Prev/HandleClick/SetTabs are the only things a caller
 // needs to drive it.
-type tabbedPane struct {
+type TabbedPane struct {
 	header *tview.TextView
 	pages  *tview.Pages
 	root   *tview.Flex
@@ -49,11 +49,11 @@ type tabbedPane struct {
 	active int
 }
 
-// newTabbedPane constructs an empty pane - call SetTabs before it has
+// NewTabbedPane constructs an empty pane - call SetTabs before it has
 // anything to show.
-func newTabbedPane() *tabbedPane {
+func NewTabbedPane() *TabbedPane {
 	header := tview.NewTextView().SetDynamicColors(true)
-	header.SetTextStyle(barStyle)
+	header.SetTextStyle(BarStyle)
 
 	pages := tview.NewPages()
 
@@ -61,13 +61,13 @@ func newTabbedPane() *tabbedPane {
 		AddItem(header, 1, 0, false).
 		AddItem(pages, 0, 1, true)
 
-	return &tabbedPane{header: header, pages: pages, root: root}
+	return &TabbedPane{header: header, pages: pages, root: root}
 }
 
 // Primitive returns the pane's own root, for embedding in a caller's
 // layout - the pane itself is not a tview.Primitive (see this file's own
 // doc comment for why that's deliberate).
-func (p *tabbedPane) Primitive() tview.Primitive {
+func (p *TabbedPane) Primitive() tview.Primitive {
 	return p.root
 }
 
@@ -81,7 +81,7 @@ func (p *tabbedPane) Primitive() tview.Primitive {
 // first one just because the set of tabs available elsewhere changed;
 // staying on e.g. "Output" while stepping through several hosts in
 // sequence is the more useful default.
-func (p *tabbedPane) SetTabs(names []string, content []tview.Primitive) {
+func (p *TabbedPane) SetTabs(names []string, content []tview.Primitive) {
 	if len(names) != len(content) {
 		panic("tabbedPane.SetTabs: names and content must be the same length")
 	}
@@ -113,7 +113,7 @@ func (p *tabbedPane) SetTabs(names []string, content []tview.Primitive) {
 
 // ActiveName returns the currently active tab's own name, or "" if there
 // are no tabs at all.
-func (p *tabbedPane) ActiveName() string {
+func (p *TabbedPane) ActiveName() string {
 	if p.active < 0 || p.active >= len(p.names) {
 		return ""
 	}
@@ -125,10 +125,10 @@ func (p *tabbedPane) ActiveName() string {
 // rows) is exactly the case where wraparound is the expected, natural
 // gesture (the same way Ctrl-Tab cycles in a browser), unlike the tree's
 // own deliberate no-wraparound row navigation.
-func (p *tabbedPane) Next() { p.setActive(p.active + 1) }
-func (p *tabbedPane) Prev() { p.setActive(p.active - 1) }
+func (p *TabbedPane) Next() { p.setActive(p.active + 1) }
+func (p *TabbedPane) Prev() { p.setActive(p.active - 1) }
 
-func (p *tabbedPane) setActive(index int) {
+func (p *TabbedPane) setActive(index int) {
 	if len(p.names) == 0 {
 		p.active = 0
 		p.header.SetText("")
@@ -153,7 +153,7 @@ func (p *tabbedPane) setActive(index int) {
 // it renders in a different, inverted style per design-docs/Tabbed UI.md.
 // HandleClick's own hit-testing math below must stay in exact lockstep
 // with the padding/gap widths used here.
-func (p *tabbedPane) renderHeader() {
+func (p *TabbedPane) renderHeader() {
 	var b strings.Builder
 	for i, name := range p.names {
 		if i > 0 {
@@ -179,7 +179,7 @@ func (p *tabbedPane) renderHeader() {
 // renderHeader's own " name " padding - shared by renderHeader's own
 // implicit layout and HandleClick's hit-testing so the two can never
 // drift apart.
-func (p *tabbedPane) tabWidth(i int) int {
+func (p *TabbedPane) tabWidth(i int) int {
 	return len([]rune(p.names[i])) + 2
 }
 
@@ -188,7 +188,7 @@ func (p *tabbedPane) tabWidth(i int) int {
 // (event consumed). Callers (via app.SetMouseCapture) should let the
 // event through normally when this returns false, so it still reaches
 // e.g. the active tab's own content for scroll-wheel handling.
-func (p *tabbedPane) HandleClick(x, y int) bool {
+func (p *TabbedPane) HandleClick(x, y int) bool {
 	hx, hy, hw, hh := p.header.GetRect()
 	if y < hy || y >= hy+hh || x < hx || x >= hx+hw {
 		return false

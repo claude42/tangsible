@@ -35,6 +35,7 @@ import (
 	"time"
 
 	pb "code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -125,7 +126,7 @@ func revisitStatusLabel(exitCode int) string {
 
 // revisitStatusColor is revisitStatusLabel's own color, shared with the
 // selected-row case only insofar as an unselected row applies it directly
-// (a selected row uses the uniform pureBlack-on-lightgray convention
+// (a selected row uses the uniform PureBlack-on-lightgray convention
 // instead, matching host.go's own hostRowText - see revisitRowText).
 func revisitStatusColor(exitCode int) string {
 	switch {
@@ -144,7 +145,7 @@ func revisitStatusColor(exitCode int) string {
 // currently shown (computed once by runRevisitListTUI, not per row), so
 // every row's own trailing " - tangsible ..." column lines up regardless
 // of which row's own label happens to be shortest. Selected styling
-// matches host.go's own hostRowText convention (uniform pureBlack on
+// matches host.go's own hostRowText convention (uniform PureBlack on
 // lightgray, no per-segment color) rather than reinventing a second one.
 func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
 	ts := formatRevisitTime(e.Time)
@@ -152,7 +153,7 @@ func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
 	label := revisitStatusLabel(e.ExitCode)
 	padded := label + strings.Repeat(" ", labelWidth-len([]rune(label)))
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s - %s - %s[-:-:-]", pureBlack, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
+		return fmt.Sprintf("[%s:lightgray:b]%s - %s - %s[-:-:-]", uikit.PureBlack, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
 	}
 	return fmt.Sprintf("[white]%s[-] - [%s]%s[-] - %s", tview.Escape(ts), revisitStatusColor(e.ExitCode), tview.Escape(padded), tview.Escape(cmd))
 }
@@ -165,21 +166,21 @@ func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
 //
 // The cursor-highlighting/rebuild-on-change structure (selectedIdx,
 // rebuilding, rebuildRows) is a direct copy of runHostsListTUI's own
-// (host.go) - treeList has no built-in "current row" look of its own (see
+// (host.go) - TreeList has no built-in "current row" look of its own (see
 // that function's own doc comment for why), so every list built on it needs
 // this same small amount of bookkeeping.
 func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
-	list := newTreeList()
+	list := uikit.NewTreeList()
 
 	header := tview.NewTextView().SetDynamicColors(true).
 		SetText(fmt.Sprintf(" %d previous run(s) - tangsible revisit ", len(entries)))
-	header.SetTextStyle(barStyle)
+	header.SetTextStyle(uikit.BarStyle)
 	footer := tview.NewTextView().SetDynamicColors(true).
 		SetText(" enter: open  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
-	footer.SetTextStyle(barStyle)
+	footer.SetTextStyle(uikit.BarStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).

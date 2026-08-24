@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Implements a first-prototype "Task x/y" progress indicator (top bar,
-// tui.go's topBarText). There is no event in the jsonl stream that tells
+// tui.go's TopBarText). There is no event in the jsonl stream that tells
 // us upfront how many tasks a run will execute (CLAUDE.md's own
 // Aggregation section: plays/tasks are only ever discovered as they
 // start), so this predicts a task sequence ahead of time from a second,
@@ -101,7 +101,7 @@ type progressEntry struct {
 //
 // This is a human-readable summary, not a documented machine format, so
 // treat it the same as this project's other "documented heuristic, not
-// chased to 100%" text-scraping (e.g. colorizeYAML) - a line that
+// chased to 100%" text-scraping (e.g. ColorizeYAML) - a line that
 // doesn't match any recognized pattern (a future ansible-core version's
 // reformatted output) is silently skipped, never an error.
 var (

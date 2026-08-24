@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-// treeList is a minimal, purpose-built stand-in for tview.List, written
+// TreeList is a minimal, purpose-built stand-in for tview.List, written
 // specifically to decouple the viewport's scroll position from the cursor
 // (currentItem) - something tview.List cannot do. tview.List.Draw()
 // unconditionally re-clamps its scroll offset to keep currentItem visible
@@ -40,7 +40,7 @@ import (
 // the exported tview.Print, the same tag-parsing entry point List's own
 // rendering uses internally, so every existing [color]...[-] row-text
 // producer (playRowText/taskLabel/hostLabel) needs no changes.
-type treeList struct {
+type TreeList struct {
 	*tview.Box
 
 	rows        []treeListRow
@@ -57,8 +57,8 @@ type treeListRow struct {
 	selected func()
 }
 
-func newTreeList() *treeList {
-	return &treeList{
+func NewTreeList() *TreeList {
+	return &TreeList{
 		Box:         tview.NewBox(),
 		currentItem: -1,
 	}
@@ -68,7 +68,7 @@ func newTreeList() *treeList {
 // in tui.go immediately repopulates via AddItem and then calls
 // SetCurrentItem before the next Draw, mirroring how tview.List's own
 // Clear()+refill dance already worked.
-func (t *treeList) Clear() *treeList {
+func (t *TreeList) Clear() *TreeList {
 	t.rows = nil
 	t.currentItem = -1
 	return t
@@ -78,7 +78,7 @@ func (t *treeList) Clear() *treeList {
 // is activated (Enter/Space on it, or a click) - the equivalent of
 // tview.List's own per-item Selected callback, minus the shortcut/
 // secondary-text parameters this app never used.
-func (t *treeList) AddItem(text string, selected func()) *treeList {
+func (t *TreeList) AddItem(text string, selected func()) *TreeList {
 	t.rows = append(t.rows, treeListRow{text: text, selected: selected})
 	if t.currentItem == -1 {
 		t.currentItem = 0
@@ -86,11 +86,11 @@ func (t *treeList) AddItem(text string, selected func()) *treeList {
 	return t
 }
 
-func (t *treeList) GetItemCount() int {
+func (t *TreeList) GetItemCount() int {
 	return len(t.rows)
 }
 
-func (t *treeList) GetCurrentItem() int {
+func (t *TreeList) GetCurrentItem() int {
 	return t.currentItem
 }
 
@@ -99,7 +99,7 @@ func (t *treeList) GetCurrentItem() int {
 // Mirrors tview.List.SetChangedFunc's own contract of only firing on a
 // genuine change, which tui.go's rebuild()/rebuilding-guard machinery
 // already depends on (see NewLiveTUI).
-func (t *treeList) SetChangedFunc(handler func(index int)) *treeList {
+func (t *TreeList) SetChangedFunc(handler func(index int)) *TreeList {
 	t.changed = handler
 	return t
 }
@@ -119,10 +119,10 @@ func (t *treeList) SetChangedFunc(handler func(index int)) *treeList {
 // selection change apart from rebuild() simply reasserting the same
 // logical row after a data-only change (e.g. a new host result arriving).
 // tui.go's rebuild() is the one that actually makes that distinction (via
-// lastAppliedSelectedIndex) and calls restoreCurrentItem instead of this
+// lastAppliedSelectedIndex) and calls RestoreCurrentItem instead of this
 // method when nothing really changed - see rebuild() and
-// restoreCurrentItem's own doc comment.
-func (t *treeList) SetCurrentItem(index int) *treeList {
+// RestoreCurrentItem's own doc comment.
+func (t *TreeList) SetCurrentItem(index int) *TreeList {
 	if len(t.rows) == 0 {
 		t.currentItem = -1
 		return t
@@ -143,7 +143,7 @@ func (t *treeList) SetCurrentItem(index int) *treeList {
 	return t
 }
 
-// restoreCurrentItem re-establishes the selected index after a
+// RestoreCurrentItem re-establishes the selected index after a
 // Clear()/AddItem() repopulation (which resets currentItem, see AddItem),
 // without invoking ensureVisible or the changed callback - unlike
 // SetCurrentItem, this is for reasserting a selection that hasn't actually
@@ -152,7 +152,7 @@ func (t *treeList) SetCurrentItem(index int) *treeList {
 // caller and the bug this exists to fix (a periodic rebuild - e.g. the
 // heartbeat ticker while a run is still live - silently re-clamping the
 // mouse-panned viewport back to the cursor every tick).
-func (t *treeList) restoreCurrentItem(index int) {
+func (t *TreeList) RestoreCurrentItem(index int) {
 	if len(t.rows) == 0 {
 		t.currentItem = -1
 		return
@@ -167,7 +167,7 @@ func (t *treeList) restoreCurrentItem(index int) {
 }
 
 // GetOffset returns the index of the first visible row.
-func (t *treeList) GetOffset() int {
+func (t *TreeList) GetOffset() int {
 	return t.itemOffset
 }
 
@@ -175,7 +175,7 @@ func (t *treeList) GetOffset() int {
 // relation to currentItem - the mechanism both revealExpandedTask and the
 // mouse wheel handler use to scroll the viewport without touching
 // selection at all.
-func (t *treeList) SetOffset(offset int) *treeList {
+func (t *TreeList) SetOffset(offset int) *TreeList {
 	t.itemOffset = offset
 	return t
 }
@@ -187,7 +187,7 @@ func (t *treeList) SetOffset(offset int) *treeList {
 // change) and from keyboard navigation below, rather than from Draw()
 // itself, is what makes plain viewport panning possible at all - the whole
 // point of this type.
-func (t *treeList) ensureVisible() {
+func (t *TreeList) ensureVisible() {
 	_, _, _, height := t.GetInnerRect()
 	if height <= 0 {
 		return
@@ -208,7 +208,7 @@ func (t *treeList) ensureVisible() {
 // having drifted past the end of a since-shrunk row list (e.g. collapsing
 // a task removes its host rows), which would otherwise render a blank
 // screen rather than snapping back to the last valid page.
-func (t *treeList) Draw(screen tcell.Screen) {
+func (t *TreeList) Draw(screen tcell.Screen) {
 	t.Box.DrawForSubclass(screen, t)
 
 	x, y, width, height := t.GetInnerRect()
@@ -230,7 +230,7 @@ func (t *treeList) Draw(screen tcell.Screen) {
 
 // activate invokes the row's own selected callback, if any - the
 // equivalent of tview.List calling a listItem's Selected() function.
-func (t *treeList) activate(index int) {
+func (t *TreeList) activate(index int) {
 	if index < 0 || index >= len(t.rows) {
 		return
 	}
@@ -252,7 +252,7 @@ func (t *treeList) activate(index int) {
 // so this widget's own behavior stays correct and self-contained on its
 // own terms, independent of whatever the app wiring above it does with a
 // given key.
-func (t *treeList) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+func (t *TreeList) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return t.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 		if len(t.rows) == 0 {
 			return
@@ -284,7 +284,7 @@ func (t *treeList) InputHandler() func(event *tcell.EventKey, setFocus func(p tv
 // indexAtPoint returns the row index under screen position (x, y), or -1
 // if there is none - single-line rows only, unlike List's own
 // secondary-text-aware version.
-func (t *treeList) indexAtPoint(x, y int) int {
+func (t *TreeList) indexAtPoint(x, y int) int {
 	rectX, rectY, width, height := t.GetInnerRect()
 	if x < rectX || x >= rectX+width || y < rectY || y >= rectY+height {
 		return -1
@@ -302,7 +302,7 @@ func (t *treeList) indexAtPoint(x, y int) int {
 // currentItem at all. That last part is the point of this whole type: see
 // NewLiveTUI's mouse-wheel comment for why driving currentItem from the
 // wheel (tried first) was wrong.
-func (t *treeList) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (bool, tview.Primitive) {
+func (t *TreeList) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (bool, tview.Primitive) {
 	return t.WrapMouseHandler(func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
 		x, y := event.Position()
 		if !t.InRect(x, y) {

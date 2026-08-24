@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
 func TestStripTags(t *testing.T) {
@@ -83,7 +84,7 @@ func TestSingleRunTabsDropsDiffAndResolvedTabs(t *testing.T) {
 	task.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hello"})
 	task.Hosts["web1"] = playbook.OutcomeOK
 
-	names, contents := singleRunTabs(task, "web1", nil, resolvedRender{}, "")
+	names, contents := singleRunTabs(task, "web1", nil, uikit.ResolvedRender{}, "")
 	if len(names) != len(contents) {
 		t.Fatalf("singleRunTabs() names/contents length mismatch: %d vs %d", len(names), len(contents))
 	}
@@ -143,7 +144,7 @@ func taskTabContent(t *testing.T, names, contents []string) string {
 // TestBuildDiffOutputTabsOldOnlyDoesNotPanic is a regression test for a
 // crash reported live, reproducible every time: expanding an old-only
 // (strikethrough) task and opening one of its hosts panicked with a nil
-// pointer dereference - buildDiffOutputTabs called taskAction(a.NewTask,
+// pointer dereference - buildDiffOutputTabs called TaskAction(a.NewTask,
 // host) unconditionally, before ever checking a.NewTask == nil, and
 // a.NewTask is nil for exactly this (OldTask-only) case. The earlier
 // TestBuildDiffOutputTabsUnmatchedFallsBackToSingleRun only ever
@@ -345,8 +346,8 @@ func TestDiffTaskRowTextIndentedAndPaddedToSharedColumn(t *testing.T) {
 	shortText := diffTaskRowText(taskAlignment{NewTask: short}, titleColWidth, false)
 	longText := diffTaskRowText(taskAlignment{NewTask: long}, titleColWidth, false)
 
-	if !strings.HasPrefix(shortText, taskIndent) || !strings.HasPrefix(longText, taskIndent) {
-		t.Errorf("diffTaskRowText() = %q / %q, want both to start with taskIndent %q", shortText, longText, taskIndent)
+	if !strings.HasPrefix(shortText, uikit.TaskIndent) || !strings.HasPrefix(longText, uikit.TaskIndent) {
+		t.Errorf("diffTaskRowText() = %q / %q, want both to start with TaskIndent %q", shortText, longText, uikit.TaskIndent)
 	}
 
 	// Tag markup itself varies in length (embedded text differs), so
@@ -412,7 +413,7 @@ func TestFlattenDiffRowsOnlyShowsDifferingPlaysAndTasks(t *testing.T) {
 
 	var texts []string
 	for _, r := range rows {
-		texts = append(texts, r.text)
+		texts = append(texts, r.Text)
 	}
 	joined := strings.Join(texts, "\n")
 	if strings.Contains(joined, "quiet") {
@@ -452,8 +453,8 @@ func TestFlattenDiffRowsExpandsHostRowsWhenToggled(t *testing.T) {
 	if len(got) != 3 { // play row + task row + one host row
 		t.Fatalf("flattenDiffRows() expanded = %d rows, want 3 (play, task, host)", len(got))
 	}
-	if !strings.Contains(got[2].text, "web1") {
-		t.Errorf("flattenDiffRows() expanded host row = %q, want it to mention web1", got[2].text)
+	if !strings.Contains(got[2].Text, "web1") {
+		t.Errorf("flattenDiffRows() expanded host row = %q, want it to mention web1", got[2].Text)
 	}
 }
 
@@ -485,21 +486,21 @@ func TestFlattenDiffRowsExpandsOnlyDifferingHostRows(t *testing.T) {
 	if len(got) != 3 { // play row + task row + one host row (web1 only)
 		t.Fatalf("flattenDiffRows() expanded = %d rows, want 3 (play, task, web1 only); got %#v", len(got), got)
 	}
-	if !strings.Contains(got[2].text, "web1") {
-		t.Errorf("flattenDiffRows() expanded host row = %q, want it to mention web1", got[2].text)
+	if !strings.Contains(got[2].Text, "web1") {
+		t.Errorf("flattenDiffRows() expanded host row = %q, want it to mention web1", got[2].Text)
 	}
-	if strings.Contains(got[2].text, "web2") {
-		t.Errorf("flattenDiffRows() expanded host row = %q, want web2 (unchanged) omitted", got[2].text)
+	if strings.Contains(got[2].Text, "web2") {
+		t.Errorf("flattenDiffRows() expanded host row = %q, want web2 (unchanged) omitted", got[2].Text)
 	}
 }
 
 // TestFlattenDiffRowsRendersTheSelectedRow is a regression test for a bug
 // reported live: no row was ever rendered with its own selected styling,
-// leaving the cursor completely invisible - treeList (unlike tview.List)
+// leaving the cursor completely invisible - TreeList (unlike tview.List)
 // has no built-in "current row" look of its own, so flattenDiffRows
 // re-rendering exactly the row matching selectedID is the ENTIRE
 // highlighting mechanism, the same way it is for the live tree's own
-// flattenRows.
+// FlattenRows.
 func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 	oldTask := namedTask("t")
 	oldTask.HostOrder = []string{"web1"}
@@ -514,17 +515,17 @@ func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 	}
 
 	// Selecting the task row (id == newTask, per diffTaskKey) must render
-	// THAT row with the selected (pureBlack-on-lightgray) styling, and
+	// THAT row with the selected (PureBlack-on-lightgray) styling, and
 	// leave the play row unselected.
 	rows := flattenDiffRows([]playAlignment{pa}, map[*playbook.TaskNode]bool{}, newTask, func(taskAlignment, string) {})
 	if len(rows) != 2 {
 		t.Fatalf("flattenDiffRows() = %d rows, want 2 (play, task)", len(rows))
 	}
-	if !strings.Contains(rows[1].text, "lightgray") {
-		t.Errorf("flattenDiffRows() task row (selected) = %q, want the selected pureBlack:lightgray styling", rows[1].text)
+	if !strings.Contains(rows[1].Text, "lightgray") {
+		t.Errorf("flattenDiffRows() task row (selected) = %q, want the selected PureBlack:lightgray styling", rows[1].Text)
 	}
-	if strings.Contains(rows[0].text, "lightgray") {
-		t.Errorf("flattenDiffRows() play row (not selected) = %q, want no selected styling", rows[0].text)
+	if strings.Contains(rows[0].Text, "lightgray") {
+		t.Errorf("flattenDiffRows() play row (not selected) = %q, want no selected styling", rows[0].Text)
 	}
 
 	// Selecting an expanded host row instead.
@@ -534,11 +535,11 @@ func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("flattenDiffRows() = %d rows, want 3 (play, task, host)", len(rows))
 	}
-	if !strings.Contains(rows[2].text, "lightgray") {
-		t.Errorf("flattenDiffRows() host row (selected) = %q, want the selected pureBlack:lightgray styling", rows[2].text)
+	if !strings.Contains(rows[2].Text, "lightgray") {
+		t.Errorf("flattenDiffRows() host row (selected) = %q, want the selected PureBlack:lightgray styling", rows[2].Text)
 	}
-	if strings.Contains(rows[1].text, "lightgray") {
-		t.Errorf("flattenDiffRows() task row (not selected, host is) = %q, want no selected styling", rows[1].text)
+	if strings.Contains(rows[1].Text, "lightgray") {
+		t.Errorf("flattenDiffRows() task row (not selected, host is) = %q, want no selected styling", rows[1].Text)
 	}
 }
 

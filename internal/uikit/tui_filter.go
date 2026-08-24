@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"encoding/json"
@@ -22,18 +22,18 @@ import (
 	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
-// filterMode is one of the main tree's row filter kinds (Filters.md). The
+// FilterMode is one of the main tree's row filter kinds (Filters.md). The
 // zero value, filterAll, is the default - no filtering at all.
-type filterMode int
+type FilterMode int
 
 const (
-	filterAll filterMode = iota
-	filterChanged
-	filterFailed
-	filterSearch // Filters.md's "Contents"/M filter - see filterQuery.search
+	FilterAll FilterMode = iota
+	FilterChanged
+	FilterFailed
+	FilterSearch // Filters.md's "Contents"/M filter - see filterQuery.search
 )
 
-// filterQuery is the main tree's complete currently active filter: the
+// FilterQuery is the main tree's complete currently active filter: the
 // kind, plus the search term filterSearch matches against (meaningless for
 // the other three kinds). Kept as one comparable value (both fields are,
 // so switching filters can be detected with a plain !=) rather than
@@ -45,29 +45,29 @@ const (
 // it's a map, which isn't comparable, so it's threaded as its own
 // parameter everywhere instead - the same parameter NewLiveTUI itself
 // already receives and passes to formatHostOutput.
-type filterQuery struct {
-	mode   filterMode
-	search string
+type FilterQuery struct {
+	Mode   FilterMode
+	Search string
 }
 
 // label is q's own display name, used by the top bar and the filter
 // dialog.
-func (q filterQuery) label() string {
-	switch q.mode {
-	case filterChanged:
+func (q FilterQuery) label() string {
+	switch q.Mode {
+	case FilterChanged:
 		return "Changed"
-	case filterFailed:
+	case FilterFailed:
 		return "Failed"
-	case filterSearch:
-		return fmt.Sprintf("Search: %q", q.search)
+	case FilterSearch:
+		return fmt.Sprintf("Search: %q", q.Search)
 	default:
 		return "All"
 	}
 }
 
-// taskHasAnyOutcome reports whether any of t's hosts currently have one of
+// TaskHasAnyOutcome reports whether any of t's hosts currently have one of
 // the given outcomes.
-func taskHasAnyOutcome(t *playbook.TaskNode, outcomes ...playbook.Outcome) bool {
+func TaskHasAnyOutcome(t *playbook.TaskNode, outcomes ...playbook.Outcome) bool {
 	for _, o := range t.Hosts {
 		for _, want := range outcomes {
 			if o == want {
@@ -78,13 +78,13 @@ func taskHasAnyOutcome(t *playbook.TaskNode, outcomes ...playbook.Outcome) bool 
 	return false
 }
 
-// taskOutputText returns primaryOutputField's text for host's result on
+// TaskOutputText returns primaryOutputField's text for host's result on
 // task, or "" if there's none (no result recorded yet, undecodable, or the
 // module simply didn't report stdout/msg) - shared support for the search
 // filter's "Output" criterion below, reusing exactly the same decode-then-
 // primaryOutputField path outputSummary/formatHostOutput already use, so
 // "the output" means the same thing everywhere in this app.
-func taskOutputText(t *playbook.TaskNode, host string) string {
+func TaskOutputText(t *playbook.TaskNode, host string) string {
 	raw, ok := t.Raw[host]
 	if !ok {
 		return ""
@@ -93,17 +93,17 @@ func taskOutputText(t *playbook.TaskNode, host string) string {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return ""
 	}
-	_, text := primaryOutputField(decoded)
+	_, text := PrimaryOutputField(decoded)
 	return text
 }
 
-// taskAction returns host's own "action" result field on task - the
+// TaskAction returns host's own "action" result field on task - the
 // module's name exactly as Ansible reported it (its FQCN when the task
 // was written that way, e.g. "ansible.builtin.copy") - or "" if there's
 // no result recorded yet, it's undecodable, or the result simply has no
 // action field. Backs the Docs tab's ansible-doc lookup (showOutput),
 // same decode-then-extract shape as taskOutputText above.
-func taskAction(t *playbook.TaskNode, host string) string {
+func TaskAction(t *playbook.TaskNode, host string) string {
 	raw, ok := t.Raw[host]
 	if !ok {
 		return ""
@@ -116,7 +116,7 @@ func taskAction(t *playbook.TaskNode, host string) string {
 	return action
 }
 
-// taskMatchesSearch reports whether t matches the "Contents" search filter
+// TaskMatchesSearch reports whether t matches the "Contents" search filter
 // (Filters.md's "Contents"/M filter): term found in the task's own title,
 // its source ("ansible command" - the same TASK: section source text
 // formatHostOutput shows, from sourceIndex/source.go), or any host's
@@ -129,7 +129,7 @@ func taskAction(t *playbook.TaskNode, host string) string {
 // regex/fuzzy matching) - matches this project's existing "documented
 // heuristic, not chased further" style elsewhere (taskLabel's truncation,
 // primaryOutputField's own stdout-vs-msg choice).
-func taskMatchesSearch(t *playbook.TaskNode, term string, sourceIndex taskSourceIndex) bool {
+func TaskMatchesSearch(t *playbook.TaskNode, term string, sourceIndex map[string]string) bool {
 	if term == "" {
 		return true
 	}
@@ -141,14 +141,14 @@ func taskMatchesSearch(t *playbook.TaskNode, term string, sourceIndex taskSource
 		return true
 	}
 	for host := range t.Hosts {
-		if strings.Contains(strings.ToLower(taskOutputText(t, host)), term) {
+		if strings.Contains(strings.ToLower(TaskOutputText(t, host)), term) {
 			return true
 		}
 	}
 	return false
 }
 
-// taskVisible reports whether t should get a row under q - see Filters.md's
+// TaskVisible reports whether t should get a row under q - see Filters.md's
 // Acceptance criteria. A task's status for filtering purposes is
 // host-level: it matches "Changed"/"Failed" if *at least one* of its hosts
 // has that outcome (a task can have hosts in different states), and when
@@ -160,26 +160,26 @@ func taskMatchesSearch(t *playbook.TaskNode, term string, sourceIndex taskSource
 // regardless of filter, since it may simply not have recorded any host
 // outcome yet (and, for filterSearch specifically, wouldn't have any
 // output to search yet either).
-func taskVisible(t *playbook.TaskNode, q filterQuery, sourceIndex taskSourceIndex, isActive bool) bool {
-	if isActive || q.mode == filterAll {
+func TaskVisible(t *playbook.TaskNode, q FilterQuery, sourceIndex map[string]string, isActive bool) bool {
+	if isActive || q.Mode == FilterAll {
 		return true
 	}
-	failed := taskHasAnyOutcome(t, playbook.OutcomeFailed, playbook.OutcomeUnreachable)
-	switch q.mode {
-	case filterFailed:
+	failed := TaskHasAnyOutcome(t, playbook.OutcomeFailed, playbook.OutcomeUnreachable)
+	switch q.Mode {
+	case FilterFailed:
 		return failed
-	case filterSearch:
-		return taskMatchesSearch(t, q.search, sourceIndex)
+	case FilterSearch:
+		return TaskMatchesSearch(t, q.Search, sourceIndex)
 	default: // filterChanged
-		return failed || taskHasAnyOutcome(t, playbook.OutcomeChanged)
+		return failed || TaskHasAnyOutcome(t, playbook.OutcomeChanged)
 	}
 }
 
-// allTasks returns every task across every play, in run order (play order,
+// AllTasks returns every task across every play, in run order (play order,
 // then task order within each play) - the host-agnostic sibling of
 // tasksForHost below, backing the main tree's n/p task-hop and E (expand
 // all) shortcuts.
-func allTasks(state *playbook.PlaybookState) []*playbook.TaskNode {
+func AllTasks(state *playbook.PlaybookState) []*playbook.TaskNode {
 	var tasks []*playbook.TaskNode
 	for _, play := range state.Plays {
 		tasks = append(tasks, play.Tasks...)
@@ -187,7 +187,7 @@ func allTasks(state *playbook.PlaybookState) []*playbook.TaskNode {
 	return tasks
 }
 
-// inheritedExpandState is state.OnTaskAdded's own decision, pulled out as
+// InheritedExpandState is state.OnTaskAdded's own decision, pulled out as
 // a pure function so it's testable without constructing a whole
 // NewLiveTUI: a newly-added task inherits whatever expand state the task
 // added immediately before it currently has in expanded (present tense -
@@ -199,19 +199,19 @@ func allTasks(state *playbook.PlaybookState) []*playbook.TaskNode {
 // element (state.OnTaskAdded fires after task has already been appended
 // to its play, and that play to state.Plays) - the second-to-last is "the
 // task added right before it."
-func inheritedExpandState(all []*playbook.TaskNode, expanded map[*playbook.TaskNode]bool, startExpanded bool) bool {
+func InheritedExpandState(all []*playbook.TaskNode, expanded map[*playbook.TaskNode]bool, startExpanded bool) bool {
 	if len(all) < 2 {
 		return startExpanded
 	}
 	return expanded[all[len(all)-2]]
 }
 
-// tasksForHost returns, in run order (play order, then task order within
+// TasksForHost returns, in run order (play order, then task order within
 // each play), every task that has recorded a result for host - used by the
 // output drill-down view's prev/next-task navigation (see NewLiveTUI's
 // navigateOutputTask) to step through one host's results across tasks,
 // skipping tasks that host wasn't part of.
-func tasksForHost(state *playbook.PlaybookState, host string) []*playbook.TaskNode {
+func TasksForHost(state *playbook.PlaybookState, host string) []*playbook.TaskNode {
 	var tasks []*playbook.TaskNode
 	for _, play := range state.Plays {
 		for _, t := range play.Tasks {
@@ -223,38 +223,38 @@ func tasksForHost(state *playbook.PlaybookState, host string) []*playbook.TaskNo
 	return tasks
 }
 
-// visibleTasks is allTasks' filtered sibling - every task that gets a row
+// VisibleTasks is allTasks' filtered sibling - every task that gets a row
 // under filter (see taskVisible), in the same run order. Used by
 // navigateMainTask (n/p) and the filter-switch cursor fallback so neither
 // ever targets a task flattenRows wouldn't actually have rendered a row
 // for.
-func visibleTasks(state *playbook.PlaybookState, filter filterQuery, sourceIndex taskSourceIndex, activeTask *playbook.TaskNode) []*playbook.TaskNode {
+func VisibleTasks(state *playbook.PlaybookState, filter FilterQuery, sourceIndex map[string]string, activeTask *playbook.TaskNode) []*playbook.TaskNode {
 	var tasks []*playbook.TaskNode
-	for _, t := range allTasks(state) {
-		if taskVisible(t, filter, sourceIndex, t == activeTask) {
+	for _, t := range AllTasks(state) {
+		if TaskVisible(t, filter, sourceIndex, t == activeTask) {
 			tasks = append(tasks, t)
 		}
 	}
 	return tasks
 }
 
-// visibleTasksForHost is tasksForHost's filtered sibling, for the output
+// VisibleTasksForHost is tasksForHost's filtered sibling, for the output
 // drill-down view's prev/next-task navigation (see navigateOutputTask).
-func visibleTasksForHost(state *playbook.PlaybookState, host string, filter filterQuery, sourceIndex taskSourceIndex, activeTask *playbook.TaskNode) []*playbook.TaskNode {
+func VisibleTasksForHost(state *playbook.PlaybookState, host string, filter FilterQuery, sourceIndex map[string]string, activeTask *playbook.TaskNode) []*playbook.TaskNode {
 	var tasks []*playbook.TaskNode
-	for _, t := range tasksForHost(state, host) {
-		if taskVisible(t, filter, sourceIndex, t == activeTask) {
+	for _, t := range TasksForHost(state, host) {
+		if TaskVisible(t, filter, sourceIndex, t == activeTask) {
 			tasks = append(tasks, t)
 		}
 	}
 	return tasks
 }
 
-// taskSet turns a task slice into a membership set - shared by
+// TaskSet turns a task slice into a membership set - shared by
 // nearestVisibleTask and navigateMainTask's play-row case below, both of
 // which need repeated "is this task currently visible" checks against the
 // same visibleTasks() result.
-func taskSet(tasks []*playbook.TaskNode) map[*playbook.TaskNode]bool {
+func TaskSet(tasks []*playbook.TaskNode) map[*playbook.TaskNode]bool {
 	set := make(map[*playbook.TaskNode]bool, len(tasks))
 	for _, t := range tasks {
 		set[t] = true
@@ -262,14 +262,14 @@ func taskSet(tasks []*playbook.TaskNode) map[*playbook.TaskNode]bool {
 	return set
 }
 
-// firstVisibleTask returns play's own first task that's currently visible
+// FirstVisibleTask returns play's own first task that's currently visible
 // (per the visible set, built from visibleTasks), or nil if it has none -
 // used by navigateMainTask's play-row case so "next" from a play row never
 // targets a task the active filter is hiding. Never actually returns nil in
 // practice: flattenRows only ever gives a play a row at all when it has at
 // least one visible task, and navigateMainTask only reaches this for a play
 // the cursor is currently sitting on.
-func firstVisibleTask(play *playbook.PlayNode, visible map[*playbook.TaskNode]bool) *playbook.TaskNode {
+func FirstVisibleTask(play *playbook.PlayNode, visible map[*playbook.TaskNode]bool) *playbook.TaskNode {
 	for _, t := range play.Tasks {
 		if visible[t] {
 			return t
@@ -278,7 +278,7 @@ func firstVisibleTask(play *playbook.PlayNode, visible map[*playbook.TaskNode]bo
 	return nil
 }
 
-// nearestVisibleTask finds, within visible (a filtered, order-preserving
+// NearestVisibleTask finds, within visible (a filtered, order-preserving
 // subset of all), the task closest to anchor's original position: the next
 // visible task at or after it in run order, or failing that, the last
 // visible task before it. Returns nil if visible is empty. Used when
@@ -287,11 +287,11 @@ func firstVisibleTask(play *playbook.PlayNode, visible map[*playbook.TaskNode]bo
 // Filters.md, all of its still-shown hosts) disappearing at once, never an
 // individual host row on its own, so a task is always the right granularity
 // to land on.
-func nearestVisibleTask(all []*playbook.TaskNode, anchor *playbook.TaskNode, visible []*playbook.TaskNode) *playbook.TaskNode {
+func NearestVisibleTask(all []*playbook.TaskNode, anchor *playbook.TaskNode, visible []*playbook.TaskNode) *playbook.TaskNode {
 	if len(visible) == 0 {
 		return nil
 	}
-	visibleSet := taskSet(visible)
+	visibleSet := TaskSet(visible)
 	anchorIdx := -1
 	for i, t := range all {
 		if t == anchor {

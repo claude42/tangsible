@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"strings"
@@ -25,7 +25,7 @@ import (
 // hasFill reports which shape was found.
 func extractTopBarFill(t *testing.T, s string) (filled, unfilled string, hasFill bool) {
 	t.Helper()
-	fillPrefix := "[white:" + progressFillColor + ":b]"
+	fillPrefix := "[white:" + ProgressFillColor + ":b]"
 	if !strings.HasPrefix(s, fillPrefix) {
 		const plainPrefix = "[white:navy:b]"
 		const plainSuffix = "[-:-:-]"
@@ -48,12 +48,12 @@ func extractTopBarFill(t *testing.T, s string) (filled, unfilled string, hasFill
 
 func TestTopBarTextProgressFill(t *testing.T) {
 	call := func(pos, total int, frozen bool) string {
-		return topBarText("site.yml", false, nil, 0, frozen, filterQuery{}, pos, total, 100, "navy", true)
+		return TopBarText("site.yml", false, nil, 0, frozen, FilterQuery{}, pos, total, 100, "navy", true)
 	}
 
 	t.Run("no skeleton at all: plain, no fill color used", func(t *testing.T) {
 		got := call(0, 0, false)
-		if strings.Contains(got, progressFillColor) {
+		if strings.Contains(got, ProgressFillColor) {
 			t.Errorf("topBarText() = %q, want no fill color when progressTotal is 0", got)
 		}
 		if _, _, hasFill := extractTopBarFill(t, got); hasFill {
@@ -108,7 +108,7 @@ func TestTopBarTextProgressFill(t *testing.T) {
 	})
 
 	t.Run("external content shaped like a tag is escaped, not corrupted", func(t *testing.T) {
-		got := topBarText("weird[name]", false, nil, 0, false, filterQuery{}, 0, 0, 100, "navy", true)
+		got := TopBarText("weird[name]", false, nil, 0, false, FilterQuery{}, 0, 0, 100, "navy", true)
 		if strings.Contains(got, "weird[name]") {
 			t.Errorf("topBarText() = %q, contains an un-escaped tag-shaped bracket", got)
 		}
@@ -118,14 +118,14 @@ func TestTopBarTextProgressFill(t *testing.T) {
 	})
 
 	t.Run("showElapsed false drops the clock entirely - design-docs/Revisit.md", func(t *testing.T) {
-		got := topBarText("site.yml", false, nil, 0, true, filterQuery{}, 0, 0, 100, "navy", false)
+		got := TopBarText("site.yml", false, nil, 0, true, FilterQuery{}, 0, 0, 100, "navy", false)
 		if strings.Contains(got, "00:00") {
 			t.Errorf("topBarText(showElapsed=false) = %q, want no elapsed clock at all", got)
 		}
 	})
 
 	t.Run("showElapsed false still shows a real Task x/y prefix if there is one", func(t *testing.T) {
-		got := topBarText("site.yml", false, nil, 0, true, filterQuery{}, 3, 10, 100, "navy", false)
+		got := TopBarText("site.yml", false, nil, 0, true, FilterQuery{}, 3, 10, 100, "navy", false)
 		if !strings.Contains(got, "Task 3/10") {
 			t.Errorf("topBarText(showElapsed=false) = %q, want the Task x/y prefix kept", got)
 		}

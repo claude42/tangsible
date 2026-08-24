@@ -99,7 +99,7 @@ func TestRevisitRowTextStatusColor(t *testing.T) {
 		t.Errorf("revisitRowText(exit 2, labelWidth=14) = %q, want %q padded out to 14 runes", failed, wantPadded)
 	}
 
-	// Selected rendering uses the shared pureBlack-on-lightgray convention,
+	// Selected rendering uses the shared PureBlack-on-lightgray convention,
 	// not a per-status color - same as host.go's own hostRowText.
 	selected := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 2}, 10, true)
 	if !strings.Contains(selected, "lightgray") {

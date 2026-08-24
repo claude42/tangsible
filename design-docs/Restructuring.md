@@ -239,7 +239,104 @@ and it was the only other file using them. `go build`/`go vet`/
 `gofmt -l`/`go test ./...`/`go test -tags e2e ./...` all pass on both
 packages.
 
-Phase 1 (extract a shared rendering toolkit as its own package) is the
-proposed next step whenever this gets picked back up - it can now
-proceed as originally scoped, with `internal/playbook`'s exported types
-available to depend on.
+Phase 1 done. `internal/uikit` (`package uikit`) now holds the pieces
+`diff.go`/`host.go`/`template.go`/`recap.go` reach into: `treelist.go`,
+`tabs.go`, and the whole Phase 0 grouping - `tui_style.go`,
+`tui_layout.go`, `tui_rows.go`, `tui_filter.go`, `tui_dialogs.go`,
+`tui_drilldown.go` - moved there wholesale rather than split more
+narrowly. `tui_rows.go`/`tui_filter.go` weren't in this phase's
+original named list (`treeList`/`centeredModal`/palette/`sectionLabel`/
+the tab-building family), but turned out to belong: `diff.go`/`host.go`/
+`template.go` already reach directly into `taskLabel`/`row`/`hostRowID`/
+`barStyle`/`treeList`/`tabbedPane` (confirmed by grep before starting,
+not assumed), and `FlattenRows` (`tui_rows.go`) itself calls
+`TaskVisible`/`FilterQuery` (`tui_filter.go`) directly - moving one
+without the other would have meant inventing an interface layer just to
+avoid a five-file mechanical move. `tui.go` (just `NewLiveTUI`) and
+`recap.go` are the only tree/row-rendering-adjacent files left in
+`package main`, per Phase 0's/Phase 2's own prior decisions.
+
+Every symbol another file touches was exported (~115 across the 8
+files, plus struct fields where external code constructs them: `Row`'s
+`Text`/`Selected`/`ID`, `HostRowID`'s `Task`/`Host`, `FilterQuery`'s
+`Mode`/`Search` - found by grepping for keyed/positional composite
+literals of each type from outside its own file, not guessed).
+`treeListRow`/`TabbedPane`'s and `TreeList`'s own internal fields
+(`rows`/`currentItem`/`itemOffset`/`header`/`pages`/`root`/`names`/
+`active`) stayed unexported - confirmed via the same grep that nothing
+outside `tabs.go`/`treelist.go` ever touches them directly, only through
+methods. One method needed exporting despite looking file-local at
+first glance: `TreeList.restoreCurrentItem` -> `RestoreCurrentItem`,
+called directly from `tui.go`.
+
+Two real cross-package-boundary snags, both fixed by removing the
+dependency rather than dragging more code into the toolkit:
+- `tui_rows.go`'s `StatusRowText`/`GenuineFailure` read `main.go`'s
+  `ansibleUserInterruptedExitCode` constant directly - not a rendering
+  concern this package should own. Both gained a third
+  `userInterruptedCode int` parameter instead; callers
+  (`tui.go`/`main.go`/the moved test file) pass
+  `ansibleUserInterruptedExitCode` (or a literal `99` from within the
+  test, once it no longer has access to that constant by name) at the
+  call site.
+- `FlattenRows`/`TaskVisible`/`TaskMatchesSearch`/`VisibleTasks`/
+  `VisibleTasksForHost`/`BuildOutputTabs`/`BuildSourceTab` all took
+  `source.go`'s `taskSourceIndex` (a `package main`-only named type) as
+  a parameter. Since it's just `map[string]string` with zero
+  dependencies of its own, every one of those signatures now takes
+  `map[string]string` directly instead - Go's assignability rules make
+  a `taskSourceIndex` value (or any named type with that same
+  underlying type) pass through with no conversion needed at any call
+  site, so `source.go` itself didn't have to move.
+
+Mechanics followed Phase 2's pattern: `gorename` for every in-place
+symbol/field rename (including struct fields this time - confirmed
+`-from '"pkg".Type.field'` works there too, not just for methods/types),
+verified by a full build after each file's batch; then the same
+`go/packages`+`go/types` qualifying tool from Phase 2, generalized to
+target all ~115 symbols across the 8 files at once and to skip both the
+8 production files and their corresponding 9 test files (which move
+into the new package essentially unchanged, needing no `uikit.` prefix
+of their own). One tool bug caught before it mattered: `go/packages`
+with `Tests: true` synthesizes a `_testmain.go` living under
+`$GOCACHE`, and the qualifier's first pass over "every file the loader
+returns" briefly wrote into that shared, content-addressed cache before
+this was caught - fixed by restricting writes to paths under the repo
+directory, and `go clean -cache` run once as a precaution (a build being
+slower once afterward is the only possible side effect; the cache is
+regenerated content, never inputs). Test files that constructed
+`taskSourceIndex{...}` literals or referenced `ansibleUserInterruptedExitCode`
+by name were fixed by hand before the move (literal `map[string]string{...}`/
+`99` respectively), for the same reason as the two snags above - once
+moved, neither name is reachable from `package uikit`.
+
+Stale lowercase mentions of the renamed symbols in doc comments
+(`taskLabel` -> `TaskLabel` etc.) were swept afterward across every file
+*outside* `internal/uikit`/`internal/playbook` - about 100 occurrences
+across 16 files, all comment/string text (every real code reference was
+already caught by `gorename`, exhaustively, before the move - anything
+left over could only be prose). The single ambiguous case, `row`, was
+deliberately left alone throughout: unlike Phase 2's "outcome", which
+was checked occurrence-by-occurrence and found to be 100% prose, `row`
+has ~186 hits outside the moved files and is genuinely used both ways
+often in the same sentence ("the row under the cursor") - capitalizing
+it correctly would need real per-occurrence judgment, not a blanket
+pass, and was judged not worth the effort for a case where the prose
+and code meanings coincide anyway. `go build`/`go vet`/`gofmt -l`/
+`go test ./...`/`go test -tags e2e ./...` all pass on all three
+packages.
+
+The `runDiffFlow` cross-file call (`tui.go` -> `diff.go`) noted as a
+future import-cycle risk when this doc was first written is still
+unresolved and still fine to leave that way: `diff.go` stays in
+`package main` in this phase (it's app-level "diff mode" logic, not
+generic UI machinery), so calling directly within the same package was
+never actually a cycle - only Phase 4 (splitting `diff.go` into its own
+package) would make it one, and that's the point at which the
+`requestRerun`/`revisitReturn`-style callback-injection fix belongs.
+
+Phase 3 (break `NewLiveTUI` itself apart) or Phase 4 (group the verb
+files into their own packages, now with `internal/uikit`/`internal/
+playbook` to depend on) are the proposed next steps whenever this gets
+picked back up - see each phase's own section above for what's
+involved.

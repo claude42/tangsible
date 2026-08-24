@@ -25,8 +25,8 @@ import "strings"
 // "--flag=value" form; an attached short form like "-tfoo" (no separator)
 // isn't, and falls through to Rest untouched. Good enough for this
 // project's own invocation patterns, not chased further - same
-// "documented heuristic" style as taskLabel's truncation or
-// primaryOutputField's stdout-vs-msg choice.
+// "documented heuristic" style as TaskLabel's truncation or
+// PrimaryOutputField's stdout-vs-msg choice.
 type parsedPassthroughArgs struct {
 	Tags     string
 	SkipTags string

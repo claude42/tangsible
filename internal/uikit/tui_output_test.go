@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"encoding/json"
@@ -67,7 +67,7 @@ func TestRoleFromPath(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := roleFromPath(c.path); got != c.want {
+			if got := RoleFromPath(c.path); got != c.want {
 				t.Errorf("roleFromPath(%q) = %q, want %q", c.path, got, c.want)
 			}
 		})
@@ -101,7 +101,7 @@ func TestSkipOutputText(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := skipOutputText(c.decoded); got != c.want {
+			if got := SkipOutputText(c.decoded); got != c.want {
 				t.Errorf("skipOutputText(%v) = %q, want %q", c.decoded, got, c.want)
 			}
 		})
@@ -110,7 +110,7 @@ func TestSkipOutputText(t *testing.T) {
 
 func TestLoopItemLabels(t *testing.T) {
 	t.Run("no results key at all - not a looped task", func(t *testing.T) {
-		got := loopItemLabels(map[string]interface{}{"changed": false})
+		got := LoopItemLabels(map[string]interface{}{"changed": false})
 		if got != nil {
 			t.Errorf("loopItemLabels() = %v, want nil", got)
 		}
@@ -123,7 +123,7 @@ func TestLoopItemLabels(t *testing.T) {
 				map[string]interface{}{"_ansible_item_label": "bar", "item": "bar"},
 			},
 		}
-		got := loopItemLabels(decoded)
+		got := LoopItemLabels(decoded)
 		want := []string{"foo", "bar"}
 		if !slices.Equal(got, want) {
 			t.Errorf("loopItemLabels() = %v, want %v", got, want)
@@ -139,7 +139,7 @@ func TestLoopItemLabels(t *testing.T) {
 				},
 			},
 		}
-		got := loopItemLabels(decoded)
+		got := LoopItemLabels(decoded)
 		if len(got) != 1 {
 			t.Fatalf("loopItemLabels() = %v, want exactly 1 entry", got)
 		}
@@ -154,7 +154,7 @@ func TestLoopItemLabels(t *testing.T) {
 				map[string]interface{}{"item": "onlyitem"},
 			},
 		}
-		got := loopItemLabels(decoded)
+		got := LoopItemLabels(decoded)
 		want := []string{"onlyitem"}
 		if !slices.Equal(got, want) {
 			t.Errorf("loopItemLabels() = %v, want %v", got, want)
@@ -162,7 +162,7 @@ func TestLoopItemLabels(t *testing.T) {
 	})
 
 	t.Run("empty results is not nil but also not shown", func(t *testing.T) {
-		got := loopItemLabels(map[string]interface{}{"results": []interface{}{}})
+		got := LoopItemLabels(map[string]interface{}{"results": []interface{}{}})
 		if len(got) != 0 {
 			t.Errorf("loopItemLabels() = %v, want empty", got)
 		}
@@ -187,8 +187,8 @@ func TestLoopItemDetails(t *testing.T) {
 				},
 			},
 		}
-		got := loopItemDetails(decoded)
-		want := []loopItemDetail{
+		got := LoopItemDetails(decoded)
+		want := []LoopItemDetail{
 			{Label: "fish/functions", Msg: "There was an issue creating /home/claude/.config/fish as requested: [Errno 13] Permission denied: b'/home/claude/.config/fish'"},
 			{Label: "fish/completions", Msg: ""},
 		}
@@ -198,7 +198,7 @@ func TestLoopItemDetails(t *testing.T) {
 	})
 
 	t.Run("no results key at all - not a looped task", func(t *testing.T) {
-		got := loopItemDetails(map[string]interface{}{"changed": false})
+		got := LoopItemDetails(map[string]interface{}{"changed": false})
 		if got != nil {
 			t.Errorf("loopItemDetails() = %v, want nil", got)
 		}
@@ -208,7 +208,7 @@ func TestLoopItemDetails(t *testing.T) {
 func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 	t.Run("debug msg: plain string", func(t *testing.T) {
 		decoded := map[string]interface{}{"action": "ansible.builtin.debug", "msg": "hello world"}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if text != "hello world" {
 			t.Errorf("primaryOutputField() text = %q, want %q", text, "hello world")
 		}
@@ -219,7 +219,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 			"action": "ansible.builtin.debug",
 			"msg":    []interface{}{"line one", "line two"},
 		}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if text != "line one\nline two" {
 			t.Errorf("primaryOutputField() text = %q, want %q", text, "line one\nline two")
 		}
@@ -230,7 +230,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 			"action": "ansible.builtin.debug",
 			"msg":    map[string]interface{}{"port": float64(8080)},
 		}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if !strings.Contains(text, "8080") {
 			t.Errorf("primaryOutputField() text = %q, want it to contain 8080", text)
 		}
@@ -242,7 +242,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 			"changed":     false,
 			"outer.inner": "hi",
 		}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if text != "hi" {
 			t.Errorf("primaryOutputField() text = %q, want %q", text, "hi")
 		}
@@ -254,7 +254,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 			"changed":   false,
 			"some_list": []interface{}{float64(1), float64(2), float64(3)},
 		}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if !strings.Contains(text, "1") || !strings.Contains(text, "3") {
 			t.Errorf("primaryOutputField() text = %q, want it to contain the list's own values", text)
 		}
@@ -262,7 +262,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 
 	t.Run("debug with no msg and no extra key - nothing to show, not a crash", func(t *testing.T) {
 		decoded := map[string]interface{}{"action": "ansible.builtin.debug", "changed": false}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if text != "" {
 			t.Errorf("primaryOutputField() text = %q, want empty", text)
 		}
@@ -274,7 +274,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 			"foo":    "a",
 			"bar":    "b",
 		}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if text != "" {
 			t.Errorf("primaryOutputField() text = %q, want empty (ambiguous - two candidate keys)", text)
 		}
@@ -288,7 +288,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 				map[string]interface{}{"item": "a"},
 			},
 		}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if text != "All items completed" {
 			t.Errorf("primaryOutputField() text = %q, want %q", text, "All items completed")
 		}
@@ -299,7 +299,7 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 			"action": "ansible.builtin.stat",
 			"stat":   map[string]interface{}{"exists": true},
 		}
-		_, text := primaryOutputField(decoded)
+		_, text := PrimaryOutputField(decoded)
 		if text != "" {
 			t.Errorf("primaryOutputField() text = %q, want empty - the var: heuristic is debug-only", text)
 		}
@@ -309,44 +309,44 @@ func TestPrimaryOutputFieldDebugCases(t *testing.T) {
 func TestResolvedMatchesSource(t *testing.T) {
 	cases := []struct {
 		name     string
-		resolved resolvedRender
+		resolved ResolvedRender
 		source   string
 		want     bool
 	}{
 		{
 			name:     "pending - never matches, regardless of Text",
-			resolved: resolvedRender{Pending: true, Text: "- name: hi\n"},
+			resolved: ResolvedRender{Pending: true, Text: "- name: hi\n"},
 			source:   "- name: hi\n",
 			want:     false,
 		},
 		{
 			name:     "error - never matches, even if Text happens to be set too",
-			resolved: resolvedRender{Err: "boom"},
+			resolved: ResolvedRender{Err: "boom"},
 			source:   "- name: hi\n",
 			want:     false,
 		},
 		{
 			name:     "byte-for-byte identical",
-			resolved: resolvedRender{Text: "- name: hi\n  debug:\n    msg: hi\n"},
+			resolved: ResolvedRender{Text: "- name: hi\n  debug:\n    msg: hi\n"},
 			source:   "- name: hi\n  debug:\n    msg: hi\n",
 			want:     true,
 		},
 		{
 			name:     "identical modulo one trailing newline - ansible.builtin.template's own write isn't guaranteed to agree with source.go on this",
-			resolved: resolvedRender{Text: "- name: hi\n  debug:\n    msg: hi"},
+			resolved: ResolvedRender{Text: "- name: hi\n  debug:\n    msg: hi"},
 			source:   "- name: hi\n  debug:\n    msg: hi\n",
 			want:     true,
 		},
 		{
 			name:     "genuinely different - a variable actually resolved",
-			resolved: resolvedRender{Text: "- name: hi\n  debug:\n    msg: hello world\n"},
+			resolved: ResolvedRender{Text: "- name: hi\n  debug:\n    msg: hello world\n"},
 			source:   "- name: hi\n  debug:\n    msg: '{{ greeting }}'\n",
 			want:     false,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := resolvedMatchesSource(c.resolved, c.source); got != c.want {
+			if got := ResolvedMatchesSource(c.resolved, c.source); got != c.want {
 				t.Errorf("resolvedMatchesSource(%+v, %q) = %v, want %v", c.resolved, c.source, got, c.want)
 			}
 		})
@@ -355,27 +355,27 @@ func TestResolvedMatchesSource(t *testing.T) {
 
 func TestResolvedTabHidden(t *testing.T) {
 	t.Run("no source to compare against - never hidden, even if Text happens to be empty too", func(t *testing.T) {
-		if resolvedTabHidden(resolvedRender{Text: ""}, "") {
+		if ResolvedTabHidden(ResolvedRender{Text: ""}, "") {
 			t.Error("resolvedTabHidden() = true, want false when there's no Task definition tab to compare against")
 		}
 	})
 	t.Run("source present and identical - hidden", func(t *testing.T) {
-		if !resolvedTabHidden(resolvedRender{Text: "- name: hi\n"}, "- name: hi\n") {
+		if !ResolvedTabHidden(ResolvedRender{Text: "- name: hi\n"}, "- name: hi\n") {
 			t.Error("resolvedTabHidden() = false, want true for an identical resolve")
 		}
 	})
 	t.Run("source present but different - not hidden", func(t *testing.T) {
-		if resolvedTabHidden(resolvedRender{Text: "- name: hi there\n"}, "- name: hi\n") {
+		if ResolvedTabHidden(ResolvedRender{Text: "- name: hi there\n"}, "- name: hi\n") {
 			t.Error("resolvedTabHidden() = true, want false when the resolved text actually differs")
 		}
 	})
 	t.Run("still pending - hidden, no \"Resolving...\" placeholder", func(t *testing.T) {
-		if !resolvedTabHidden(resolvedRender{Pending: true}, "- name: hi\n") {
+		if !ResolvedTabHidden(ResolvedRender{Pending: true}, "- name: hi\n") {
 			t.Error("resolvedTabHidden() = false, want true while still resolving - the tab stays entirely absent until there's something to show")
 		}
 	})
 	t.Run("still pending - hidden even with no source to compare against", func(t *testing.T) {
-		if !resolvedTabHidden(resolvedRender{Pending: true}, "") {
+		if !ResolvedTabHidden(ResolvedRender{Pending: true}, "") {
 			t.Error("resolvedTabHidden() = false, want true while still resolving, regardless of source")
 		}
 	})
@@ -391,14 +391,14 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 	}
-	sourceIndex := taskSourceIndex{path: source}
+	sourceIndex := map[string]string{path: source}
 
 	hasTab := func(names []string, name string) bool {
 		return slices.Contains(names, name)
 	}
 
 	t.Run("identical to Task definition - Resolved tab omitted", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: source}, resolvedRender{})
+		names, _ := BuildOutputTabs(task, "web1", sourceIndex, ResolvedRender{Text: source}, ResolvedRender{})
 		if hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want no Resolved tab for an identical resolve", names)
 		}
@@ -408,21 +408,21 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 	})
 
 	t.Run("genuinely different from Task definition - Resolved tab shown", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Text: "- name: hi\n  ansible.builtin.debug:\n    msg: hello world\n"}, resolvedRender{})
+		names, _ := BuildOutputTabs(task, "web1", sourceIndex, ResolvedRender{Text: "- name: hi\n  ansible.builtin.debug:\n    msg: hello world\n"}, ResolvedRender{})
 		if !hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want a Resolved tab when the resolved text differs", names)
 		}
 	})
 
 	t.Run("still pending - Resolved tab omitted, no placeholder", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Pending: true}, resolvedRender{})
+		names, _ := BuildOutputTabs(task, "web1", sourceIndex, ResolvedRender{Pending: true}, ResolvedRender{})
 		if hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want no Resolved tab while still pending", names)
 		}
 	})
 
 	t.Run("resolve errored - Resolved tab shown", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", sourceIndex, resolvedRender{Err: "ansible-playbook exploded"}, resolvedRender{})
+		names, _ := BuildOutputTabs(task, "web1", sourceIndex, ResolvedRender{Err: "ansible-playbook exploded"}, ResolvedRender{})
 		if !hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want a Resolved tab on a genuine resolve error", names)
 		}
@@ -435,7 +435,7 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 			Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 			Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 		}
-		names, _ := buildOutputTabs(noSourceTask, "web1", taskSourceIndex{}, resolvedRender{Text: ""}, resolvedRender{})
+		names, _ := BuildOutputTabs(noSourceTask, "web1", map[string]string{}, ResolvedRender{Text: ""}, ResolvedRender{})
 		if !hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want a Resolved tab when there's no Task definition tab to compare against", names)
 		}
@@ -447,22 +447,22 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 
 func TestDocsTabHidden(t *testing.T) {
 	t.Run("zero value - no action was ever looked up - hidden", func(t *testing.T) {
-		if !docsTabHidden(resolvedRender{}) {
+		if !DocsTabHidden(ResolvedRender{}) {
 			t.Error("docsTabHidden() = false, want true for the zero value (no action to look up)")
 		}
 	})
 	t.Run("still pending - hidden, no placeholder", func(t *testing.T) {
-		if !docsTabHidden(resolvedRender{Pending: true}) {
+		if !DocsTabHidden(ResolvedRender{Pending: true}) {
 			t.Error("docsTabHidden() = false, want true while still fetching")
 		}
 	})
 	t.Run("fetched successfully - shown", func(t *testing.T) {
-		if docsTabHidden(resolvedRender{Text: "- name: copy\n  description: ...\n"}) {
+		if DocsTabHidden(ResolvedRender{Text: "- name: copy\n  description: ...\n"}) {
 			t.Error("docsTabHidden() = true, want false once ansible-doc's own output is in hand")
 		}
 	})
 	t.Run("fetch errored - shown, not hidden behind the error", func(t *testing.T) {
-		if docsTabHidden(resolvedRender{Err: "[ERROR]: module some_module not found"}) {
+		if DocsTabHidden(ResolvedRender{Err: "[ERROR]: module some_module not found"}) {
 			t.Error("docsTabHidden() = true, want false on a genuine fetch error - that's real information")
 		}
 	})
@@ -480,14 +480,14 @@ func TestBuildOutputTabsDocsVisibility(t *testing.T) {
 	}
 
 	t.Run("zero value docs - Docs tab omitted", func(t *testing.T) {
-		names, _ := buildOutputTabs(task, "web1", taskSourceIndex{}, resolvedRender{}, resolvedRender{})
+		names, _ := BuildOutputTabs(task, "web1", map[string]string{}, ResolvedRender{}, ResolvedRender{})
 		if hasTab(names, "Docs") {
 			t.Errorf("names = %v, want no Docs tab when nothing was ever looked up", names)
 		}
 	})
 
 	t.Run("docs fetched - Docs tab shown with ansible-doc's own text", func(t *testing.T) {
-		names, contents := buildOutputTabs(task, "web1", taskSourceIndex{}, resolvedRender{}, resolvedRender{Text: "- copy:\n"})
+		names, contents := BuildOutputTabs(task, "web1", map[string]string{}, ResolvedRender{}, ResolvedRender{Text: "- copy:\n"})
 		idx := slices.Index(names, "Docs")
 		if idx == -1 {
 			t.Fatalf("names = %v, want a Docs tab once ansible-doc's output is in hand", names)
@@ -498,7 +498,7 @@ func TestBuildOutputTabsDocsVisibility(t *testing.T) {
 	})
 
 	t.Run("docs errored - Docs tab shown with the error", func(t *testing.T) {
-		names, contents := buildOutputTabs(task, "web1", taskSourceIndex{}, resolvedRender{}, resolvedRender{Err: "module not found"})
+		names, contents := BuildOutputTabs(task, "web1", map[string]string{}, ResolvedRender{}, ResolvedRender{Err: "module not found"})
 		idx := slices.Index(names, "Docs")
 		if idx == -1 {
 			t.Fatalf("names = %v, want a Docs tab on a genuine fetch error", names)

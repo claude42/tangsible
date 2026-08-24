@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"strings"
@@ -45,15 +45,15 @@ func TestStatusRowTextAndGenuineFailure(t *testing.T) {
 			"exit 4 with no unreachable host observed is a genuine failure (parser error)",
 			4, false, true, "failed",
 		},
-		{"user-interrupted (exit 99) is not a failure", ansibleUserInterruptedExitCode, false, false, "stopped"},
+		{"user-interrupted (exit 99) is not a failure", 99, false, false, "stopped"},
 		{"any other nonzero code is a genuine failure", 2, false, true, "failed"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := genuineFailure(c.code, c.hadUnreachable); got != c.wantFailure {
+			if got := GenuineFailure(c.code, c.hadUnreachable, 99); got != c.wantFailure {
 				t.Errorf("genuineFailure(%d, %v) = %v, want %v", c.code, c.hadUnreachable, got, c.wantFailure)
 			}
-			if got := statusRowText(c.code, c.hadUnreachable); !strings.Contains(got, c.wantContains) {
+			if got := StatusRowText(c.code, c.hadUnreachable, 99); !strings.Contains(got, c.wantContains) {
 				t.Errorf("statusRowText(%d, %v) = %q, want it to contain %q", c.code, c.hadUnreachable, got, c.wantContains)
 			}
 		})
@@ -61,7 +61,7 @@ func TestStatusRowTextAndGenuineFailure(t *testing.T) {
 
 	// The generic-failure message should also include the actual exit code
 	// number, not just the word "failed".
-	if got := statusRowText(2, false); !strings.Contains(got, "2") {
+	if got := StatusRowText(2, false, 99); !strings.Contains(got, "2") {
 		t.Errorf("statusRowText(2, false) = %q, want it to mention the exit code", got)
 	}
 }
@@ -73,7 +73,7 @@ func TestLastFailedTaskAndHost(t *testing.T) {
 				{Name: "task1", HostOrder: []string{"web1"}, Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK}},
 			}},
 		}}
-		task, host := lastFailedTaskAndHost(state)
+		task, host := LastFailedTaskAndHost(state)
 		if task != nil || host != "" {
 			t.Errorf("got (%v, %q), want (nil, \"\")", task, host)
 		}
@@ -88,7 +88,7 @@ func TestLastFailedTaskAndHost(t *testing.T) {
 			{Name: "play2", Tasks: []*playbook.TaskNode{taskB, taskC}},
 		}}
 
-		task, host := lastFailedTaskAndHost(state)
+		task, host := LastFailedTaskAndHost(state)
 		if task != taskC || host != "web3" {
 			t.Errorf("got (%v, %q), want (task C, \"web3\") - the most recent failure, not task A's earlier one", task, host)
 		}
@@ -102,7 +102,7 @@ func TestLastFailedTaskAndHost(t *testing.T) {
 		}
 		state := &playbook.PlaybookState{Plays: []*playbook.PlayNode{{Name: "play1", Tasks: []*playbook.TaskNode{task}}}}
 
-		gotTask, gotHost := lastFailedTaskAndHost(state)
+		gotTask, gotHost := LastFailedTaskAndHost(state)
 		if gotTask != task || gotHost != "web2" {
 			t.Errorf("got (%v, %q), want (task1, \"web2\") - web1 is OK, so it must be skipped", gotTask, gotHost)
 		}
@@ -112,7 +112,7 @@ func TestLastFailedTaskAndHost(t *testing.T) {
 		task := &playbook.TaskNode{Name: "task1", HostOrder: []string{"web1"}, Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeUnreachable}}
 		state := &playbook.PlaybookState{Plays: []*playbook.PlayNode{{Name: "play1", Tasks: []*playbook.TaskNode{task}}}}
 
-		gotTask, gotHost := lastFailedTaskAndHost(state)
+		gotTask, gotHost := LastFailedTaskAndHost(state)
 		if gotTask != task || gotHost != "web1" {
 			t.Errorf("got (%v, %q), want (task1, \"web1\")", gotTask, gotHost)
 		}

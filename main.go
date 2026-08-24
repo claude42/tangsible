@@ -31,6 +31,7 @@ import (
 	"time"
 
 	pb "code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
 // ansibleUserInterruptedExitCode is ansible-playbook's documented exit code
@@ -118,7 +119,7 @@ func spawnGeneration(playbook string, args []string, procH *procHandle) (cmd *ex
 	// --diff is always appended to the actual subprocess argv (never to
 	// args itself, which is also what's reassembled into .tangsible's
 	// history/rerun args) so the drill-down view's Diff tab
-	// (buildDiffTab, tui.go) has something to show whenever a module
+	// (BuildDiffTab, tui.go) has something to show whenever a module
 	// supports diff mode - unconditionally, not just when the user
 	// happens to pass --diff themselves. Harmless if they did anyway:
 	// ansible-playbook tolerates a repeated boolean flag.
@@ -427,7 +428,7 @@ func main() {
 
 	// progH holds the current (or about-to-run) generation's own
 	// "Task x/y" progress skeleton (progress.go) - an atomic.Pointer
-	// since tui.go's OnTaskAdded hook and topBarText rendering both read
+	// since tui.go's OnTaskAdded hook and TopBarText rendering both read
 	// it from whatever goroutine is running at the time (tview's event
 	// loop, same as everywhere else in this file that isn't itself
 	// mutating PlaybookState directly). Built synchronously here, same
@@ -561,13 +562,13 @@ func main() {
 	// own exit status; state.HadUnreachable likewise reflects only the
 	// current (== last) generation, since requestRerun's state.Reset()
 	// clears it at the start of every generation but the first. See
-	// tui.go's genuineFailure for exactly what counts as a real failure
+	// tui.go's GenuineFailure for exactly what counts as a real failure
 	// here (as opposed to a benign "some host(s) unreachable" run or a
 	// user-requested interrupt) - the same logic tui.go's own status row
 	// already renders, reused here rather than reimplemented so the two
 	// can't silently drift apart on what "failed" means.
 	final := all[len(all)-1]
-	if genuineFailure(final.exitCode, state.HadUnreachable) {
+	if uikit.GenuineFailure(final.exitCode, state.HadUnreachable, ansibleUserInterruptedExitCode) {
 		fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", final.waitErr)
 		exitCleanly(1)
 	}

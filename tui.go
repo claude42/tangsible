@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -104,7 +105,7 @@ import (
 // "revisit" verb showing a replayed (historical) run rather than a live
 // run/rerun/role session: state/processDone/exitCode are already fully
 // populated by the time this constructor is called (see revisit.go), chrome
-// switches to replayBarStyle for as long as revisitActive stays true, and
+// switches to ReplayBarStyle for as long as revisitActive stays true, and
 // pressing Esc at the bare tree level (not in a dialog, not viewing output -
 // nothing else has ever claimed that key there) calls revisitReturn, which
 // is expected to stop app.Run() and let the caller show the run list again.
@@ -121,7 +122,7 @@ import (
 // (runDiffFlow, diff.go).
 func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
-	// topBarText's doc comment for why this is deliberately not sourced
+	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
 
 	// progressPosition reads whatever progressTracker the current
@@ -131,7 +132,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// nothing has run yet at all).
 	progressPosition := func() (position, total int) { return progH.Load().Position() }
 
-	list := newTreeList() // see treelist.go - a purpose-built replacement
+	list := uikit.NewTreeList() // see treelist.go - a purpose-built replacement
 	// for tview.List, needed so mouse-wheel panning can move the viewport
 	// independently of the cursor (tview.List's own Draw() forces the two
 	// to stay in lockstep, with no way to disable it). No wraparound and
@@ -148,7 +149,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// tied to the tree's own default_tree_state config knob.
 	recapHostExpanded := map[string]bool{}
 	recapCategoryExpanded := map[recapCategoryRowID]bool{}
-	var currentRows []row
+	var currentRows []uikit.Row
 	var currentID any
 	var rebuilding bool
 	lastAppliedSelectedIndex := -1 // the index last genuinely applied to
@@ -160,7 +161,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// logical row again, and would re-clamp (ensureVisible) the viewport
 	// back to the cursor on every call - including the heartbeat ticker's,
 	// every 200ms, while a run is still live, fighting any mouse-wheel
-	// panning the user just did. See restoreCurrentItem's own doc comment.
+	// panning the user just did. See RestoreCurrentItem's own doc comment.
 	following := true                    // auto-follow the newest row until the user navigates away
 	var jumpingToEnd bool                // true only while our own 'F' handler drives SetCurrentItem
 	everStarted := !startWithRerunDialog // false only for the "rerun"
@@ -240,7 +241,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// while it stays open (per the design doc's own explicit call: only the
 	// panes' own internal layout reflows mid-session, the split-vs-full-
 	// screen choice itself doesn't re-decide until the next open).
-	currentFilter := filterQuery{mode: filterAll} // see Filters.md; the
+	currentFilter := uikit.FilterQuery{Mode: uikit.FilterAll} // see Filters.md; the
 	// two dialogs below are the only writers.
 	//
 	// The filter (a/c/f) and search (/) dialogs are two separate modals,
@@ -268,7 +269,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// rebuild() applies to its own activeTask local, pulled out so
 	// navigateMainTask/navigateOutputTask/applyFilter (all outside rebuild)
 	// can compute the identical thing when deciding what a filter should
-	// keep visible (see taskVisible's isActive parameter).
+	// keep visible (see TaskVisible's isActive parameter).
 	activeTaskNow := func() *playbook.TaskNode {
 		if processDone.Load() {
 			return nil
@@ -282,7 +283,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// it can - so the newly revealed host rows are actually visible,
 	// rather than landing below the bottom of the screen with no visible
 	// change. The cursor stays on the task row itself throughout, so
-	// treeList's own ensureVisible (see treelist.go - it only runs when
+	// TreeList's own ensureVisible (see treelist.go - it only runs when
 	// SetCurrentItem's index actually changes) never fires here on its
 	// own; this is the sole mechanism that scrolls to reveal a task's
 	// newly-expanded children. Only ever scrolls further down from
@@ -296,7 +297,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		}
 		taskIndex := -1
 		for i, r := range currentRows {
-			if r.id == t {
+			if r.ID == t {
 				taskIndex = i
 				break
 			}
@@ -312,20 +313,20 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	}
 
 	// chromeStyle/chromeBg pick the initial look for every chrome bar/the
-	// two-pane divider below - replayBarStyle/purple for a revisit session,
-	// barStyle/navy for everything else. Mutable local, not a const choice:
-	// submitRerun resets both bars and splitDivider back to barStyle/navy
+	// two-pane divider below - ReplayBarStyle/purple for a revisit session,
+	// BarStyle/navy for everything else. Mutable local, not a const choice:
+	// submitRerun resets both bars and splitDivider back to BarStyle/navy
 	// directly once revisitActive goes false, so these two only ever matter
 	// for how things start out, not as an ongoing source of truth.
-	chromeStyle := barStyle
+	chromeStyle := uikit.BarStyle
 	chromeBg := tcell.ColorNavy
 	if revisitActive {
-		chromeStyle = replayBarStyle
+		chromeStyle = uikit.ReplayBarStyle
 		chromeBg = tcell.ColorPurple
 	}
 
 	// currentMainBottomBarText appends the revisit-only "Esc: back to
-	// list" hint onto mainBottomBarText for as long as revisitActive stays
+	// list" hint onto MainBottomBarText for as long as revisitActive stays
 	// true - reads it fresh on every call rather than being decided once,
 	// same reasoning chromeStyle/chromeBg above don't need (those are only
 	// ever applied at construction, with submitRerun resetting the actual
@@ -334,7 +335,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// rebuild's own split-mode toggle), and each of those call sites should
 	// see revisitActive's current value, not a snapshot from construction.
 	currentMainBottomBarText := func() string {
-		text := mainBottomBarText
+		text := uikit.MainBottomBarText
 		if requestRerun == nil {
 			// Matches SetInputCapture's own 'r' guard below: nothing to
 			// advertise a key that's a guaranteed no-op right now (a
@@ -349,8 +350,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	}
 
 	// chromeColorName is chromeBg's own tag-name equivalent - "navy"/
-	// "purple" - for the progress-fill lines (topBarText/
-	// composeSplitHeaderLine/outputTopBar's own plain fill, all below),
+	// "purple" - for the progress-fill lines (TopBarText/
+	// ComposeSplitHeaderLine/outputTopBar's own plain fill, all below),
 	// which bake their unfilled-portion background into inline
 	// [white:<name>:b] tags rather than reading it from the TextView's own
 	// SetTextStyle the way every other chrome bar does (see chromeStyle
@@ -382,15 +383,15 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// Moved up here (was previously declared after rebuild/hooks) - rebuild()
 	// now updates it on every call, so it must exist first.
 	topBar := tview.NewTextView().SetDynamicColors(true).
-		SetText(topBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 0, 0, 20, chromeColorName(), showElapsed()))
+		SetText(uikit.TopBarText(playbookName, isRole, state.AllHosts, 0, false, currentFilter, 0, 0, 20, chromeColorName(), showElapsed()))
 	topBar.SetTextStyle(chromeStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
 	// text on a per-outcome colored background for each hostname - see
-	// playRowText/taskLabel/hostLabel's selected parameter) can't be
+	// PlayRowText/TaskLabel/HostLabel's selected parameter) can't be
 	// expressed as a single style applied uniformly to a row's whole text -
 	// different runs of the same row need different foreground/background
-	// combinations. treeList (treelist.go) has no built-in per-row
+	// combinations. TreeList (treelist.go) has no built-in per-row
 	// highlighting to neutralize in the first place (unlike tview.List, it
 	// just prints whatever text each row was given) - rebuild() re-renders
 	// whichever one row is currently selected with its own selected=true
@@ -398,22 +399,22 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// highlighting mechanism.
 
 	// Output drill-down page (design-docs/Tabbed UI.md): outputTabs is a
-	// tabbedPane (tabs.go) - a fresh set of tab content TextViews is built
-	// by buildOutputTabs and handed to it via SetTabs every time a host
+	// TabbedPane (tabs.go) - a fresh set of tab content TextViews is built
+	// by BuildOutputTabs and handed to it via SetTabs every time a host
 	// row is selected (see showOutput below), rather than one single,
 	// reused TextView the way this used to work. Dynamic colors are on
-	// for each tab's own TextView so buildOutputTabs' own tab builders
+	// for each tab's own TextView so BuildOutputTabs' own tab builders
 	// can color their section labels/status line - every piece of dynamic
 	// content any of them write (task source, stdout/stderr/msg, the full
 	// JSON result) is individually tview.Escape()'d before going in, so a
 	// literal "[" in real command output or YAML (e.g. "tags: [a, b]")
 	// can never be misread as a color tag.
-	outputTabs := newTabbedPane()
+	outputTabs := uikit.NewTabbedPane()
 
 	// Dynamic colors on, same reason and same escaping discipline as
-	// topBar (see progressFillLine) - its own fill makes host/task.Name
+	// topBar (see ProgressFillLine) - its own fill makes host/task.Name
 	// (both external content) need escaping, handled once by
-	// progressFillLine itself rather than here.
+	// ProgressFillLine itself rather than here.
 	outputTopBar := tview.NewTextView().SetDynamicColors(true)
 	outputTopBar.SetTextStyle(chromeStyle)
 
@@ -467,7 +468,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// "output" below - tview's Pages supports this natively via
 	// ShowPage/HidePage instead of SwitchToPage, which leave other pages'
 	// visibility alone (confirmed against pages.go) rather than hiding
-	// them, so "main" keeps being drawn underneath. centeredModal wraps
+	// them, so "main" keeps being drawn underneath. CenteredModal wraps
 	// each in nested Flexes to get a fixed-size, screen-centered box
 	// instead of filling the whole available area - the standard tview
 	// pattern for a partial-screen overlay page. Neither is added to pages
@@ -507,7 +508,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// rerunDialog (Rerun.md) - a real tview.Form, unlike the two dialogs
 	// above: it's the first multi-field input this app needs, and Form
 	// gives Tab/Backtab focus-cycling between them for free rather than
-	// hand-rolling it the way treeList replaced tview.List for the main
+	// hand-rolling it the way TreeList replaced tview.List for the main
 	// tree (that replacement was needed because List's own behavior fell
 	// short of what the tree needed; here Form's default behavior already
 	// matches). Items are built directly (not via Form's AddInputField
@@ -549,7 +550,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	var outputHost string
 	// outputTopBarPlainText is outputTopBar's own "host — task" content,
 	// unwrapped and unpadded - set once per navigation (showOutput) but
-	// re-wrapped with a fresh progressFillLine on every single rebuild()
+	// re-wrapped with a fresh ProgressFillLine on every single rebuild()
 	// call, the same live-updating treatment topBar's own text already
 	// gets, so the drill-down's own headline keeps sweeping green as the
 	// run progresses even while the user isn't actively navigating within
@@ -562,7 +563,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		task *playbook.TaskNode
 		host string
 	}
-	// resolveCache holds every (task, host) pair's own resolvedRender for
+	// resolveCache holds every (task, host) pair's own ResolvedRender for
 	// the lifetime of the current generation - cleared inside
 	// submitRerun's own view-state reset (the same place expanded/
 	// currentID/following etc. already get reset), so a stale render
@@ -571,26 +572,26 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// (showOutput directly; the background goroutine below only ever
 	// touches it from inside app.QueueUpdateDraw), so - like everything
 	// else in this file - it needs no locking of its own.
-	resolveCache := map[resolveKey]resolvedRender{}
+	resolveCache := map[resolveKey]uikit.ResolvedRender{}
 
-	// docsCache holds every module's own resolvedRender for the "Docs" tab
+	// docsCache holds every module's own ResolvedRender for the "Docs" tab
 	// (ansibledoc.go's fetchAnsibleDoc), keyed by the task's own "action"
-	// result field (taskAction) rather than by (task, host) the way
+	// result field (TaskAction) rather than by (task, host) the way
 	// resolveCache is - a module's own documentation depends on nothing
 	// about the current run (no vars, no facts, not even which host), so
 	// every task using the same module shares one entry, and - unlike
 	// resolveCache - this is deliberately *not* cleared on a rerun
 	// (submitRerun): the installed collections a rerun's ansible-doc would
 	// see are the same as before it, so there's nothing stale to flush.
-	docsCache := map[string]resolvedRender{}
+	docsCache := map[string]uikit.ResolvedRender{}
 
-	// renderOutputTabs rebuilds every tab from buildOutputTabs' own
+	// renderOutputTabs rebuilds every tab from BuildOutputTabs' own
 	// output and hands the result to outputTabs.SetTabs - which itself
 	// preserves whichever tab is currently active, by name, so repeatedly
 	// calling this while browsing (Left/Right/n/p) doesn't keep resetting
 	// the user back to the Task tab.
-	renderOutputTabs := func(task *playbook.TaskNode, host string, resolved resolvedRender, docs resolvedRender) {
-		names, contents := buildOutputTabs(task, host, sourceIndex, resolved, docs)
+	renderOutputTabs := func(task *playbook.TaskNode, host string, resolved uikit.ResolvedRender, docs uikit.ResolvedRender) {
+		names, contents := uikit.BuildOutputTabs(task, host, sourceIndex, resolved, docs)
 		prims := make([]tview.Primitive, len(names))
 		for i, content := range contents {
 			tv := tview.NewTextView().SetDynamicColors(true)
@@ -617,7 +618,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// goroutine so opening the view is never blocked on a real
 		// ansible-playbook invocation. The Resolved tab itself starts
 		// out entirely absent, not a visible "Resolving..." placeholder
-		// (resolvedTabHidden treats Pending as hidden) - an earlier
+		// (ResolvedTabHidden treats Pending as hidden) - an earlier
 		// version showed the placeholder immediately, but that made the
 		// tab a moving target: a user who tabbed onto it while it read
 		// "Resolving..." would watch it vanish out from under them the
@@ -632,11 +633,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		key := resolveKey{task, host}
 		resolved, cached := resolveCache[key]
 		if !cached {
-			resolved = resolvedRender{Pending: true}
+			resolved = uikit.ResolvedRender{Pending: true}
 			resolveCache[key] = resolved
 			go func() {
 				text, err := resolveTaskValues(task.Path, sourceIndex[task.Path], host, passthroughArgs)
-				result := resolvedRender{}
+				result := uikit.ResolvedRender{}
 				if err != nil {
 					result.Err = err.Error()
 				} else {
@@ -647,7 +648,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 					if outputTask != task || outputHost != host || !viewingOutput {
 						return
 					}
-					if !resolvedTabHidden(result, sourceIndex[task.Path]) {
+					if !uikit.ResolvedTabHidden(result, sourceIndex[task.Path]) {
 						// The tab wasn't shown at all until now (see
 						// above) - only a full renderOutputTabs can make
 						// a brand new tab appear at all, unlike the
@@ -660,7 +661,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 						// own "kicked off the moment a drill-down opens"
 						// timing), so there's realistically nothing
 						// meaningful to lose yet.
-						renderOutputTabs(task, host, result, docsCache[taskAction(task, host)])
+						renderOutputTabs(task, host, result, docsCache[uikit.TaskAction(task, host)])
 					}
 					// Otherwise the tab stays exactly as absent as it
 					// already was - nothing on screen needs to change.
@@ -675,21 +676,21 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// for every task/host that uses it (see docsCache's own comment).
 		// action == "" (no result recorded yet, or this result simply has
 		// no action field) means there's nothing to look up at all - docs
-		// stays the zero resolvedRender{}, which buildOutputTabs'
-		// docsTabHidden already treats as "omit the tab."
-		action := taskAction(task, host)
-		var docs resolvedRender
+		// stays the zero ResolvedRender{}, which BuildOutputTabs'
+		// DocsTabHidden already treats as "omit the tab."
+		action := uikit.TaskAction(task, host)
+		var docs uikit.ResolvedRender
 		docsCached := action == "" // no action to look up - stays the
 		// zero value, and there's nothing to kick off below either.
 		if action != "" {
 			docs, docsCached = docsCache[action]
 		}
 		if !docsCached {
-			docs = resolvedRender{Pending: true}
+			docs = uikit.ResolvedRender{Pending: true}
 			docsCache[action] = docs
 			go func() {
 				text, err := fetchAnsibleDoc(action)
-				result := resolvedRender{}
+				result := uikit.ResolvedRender{}
 				if err != nil {
 					result.Err = err.Error()
 				} else {
@@ -700,7 +701,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 					if outputTask != task || outputHost != host || !viewingOutput {
 						return
 					}
-					if !docsTabHidden(result) {
+					if !uikit.DocsTabHidden(result) {
 						renderOutputTabs(task, host, resolveCache[key], result)
 					}
 				})
@@ -711,7 +712,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// Every fresh tab's own TextView starts scrolled to the top
 		// already (a brand new widget), so there's nothing to reset here
 		// the way the old single-TextView version needed SetText not to
-		// reset scroll position - see tabbedPane's own "reset to top on
+		// reset scroll position - see TabbedPane's own "reset to top on
 		// every switch" behavior in tabs.go for the *within-view*
 		// equivalent of that same concern.
 		viewingOutput = true
@@ -728,10 +729,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// "follow" while a two-pane session is open. No separate scrolling
 		// code is needed to keep the new row visible even when it's off
 		// screen: rebuild()'s own SetCurrentItem call fires whenever
-		// selectedIndex genuinely changes, and treeList.ensureVisible()
+		// selectedIndex genuinely changes, and TreeList.ensureVisible()
 		// (treelist.go) already runs on exactly that.
 		expanded[task] = true
-		currentID = hostRowID{task, host}
+		currentID = uikit.HostRowID{Task: task, Host: host}
 		following = false
 		rebuild() // also decides/applies pane mode now that viewingOutput is
 		// true - see rebuild()'s own resync block.
@@ -739,7 +740,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 	// navigateOutputTask moves the output page to the previous/next task
 	// (delta -1/+1) that recorded a result for outputHost, in run order,
-	// among currently-visible tasks only (see visibleTasksForHost) - per
+	// among currently-visible tasks only (see VisibleTasksForHost) - per
 	// Filters.md, tasks the active filter is hiding are skipped here too. A
 	// no-op at either end (no wraparound, matching the main tree's own
 	// no-wraparound convention elsewhere) and before any output has been
@@ -748,7 +749,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if outputTask == nil {
 			return
 		}
-		tasks := visibleTasksForHost(state, outputHost, currentFilter, sourceIndex, activeTaskNow())
+		tasks := uikit.VisibleTasksForHost(state, outputHost, currentFilter, sourceIndex, activeTaskNow())
 		idx := -1
 		for i, t := range tasks {
 			if t == outputTask {
@@ -784,7 +785,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			elapsed = frozenElapsed
 		}
 		// Read once per rebuild and shared by both topBar and (while a
-		// drill-down is open) outputTopBar below - progressFillLine's own
+		// drill-down is open) outputTopBar below - ProgressFillLine's own
 		// fill needs the identical (progressPos, progressTotal, frozen)
 		// triple for both bars to stay in visual agreement with each
 		// other, and there's no reason to re-read the tracker twice for
@@ -809,10 +810,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// width by the resize-watcher goroutine below, to notice a resize
 		// that happened with no other event to piggyback a rebuild on.
 		if viewingOutput {
-			splitMode = twoPaneLayout && totalWidth >= splitMinTotalWidth
+			splitMode = twoPaneLayout && totalWidth >= uikit.SplitMinTotalWidth
 			if splitMode {
-				splitBody.ResizeItem(treeBody, splitTreeWidth(totalWidth), 0)
-				bottomBar.SetText(splitBottomBarText)
+				splitBody.ResizeItem(treeBody, uikit.SplitTreeWidth(totalWidth), 0)
+				bottomBar.SetText(uikit.SplitBottomBarText)
 				switchPage("split")
 			} else {
 				bottomBar.SetText(currentMainBottomBarText())
@@ -836,7 +837,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				// own, so the single column that visually sits above it
 				// just participates in the fill like any other character.
 				//
-				// composeSplitHeaderLine (not composeTopBarLine +
+				// ComposeSplitHeaderLine (not ComposeTopBarLine +
 				// outputTopBarPlainText concatenated after it - a second
 				// live report caught two real bugs in that approach at
 				// once, see its own doc comment) builds hostAndTask from
@@ -847,12 +848,12 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				if outputTask != nil {
 					hostAndTask = outputHost + "   " + outputTask.Name
 				}
-				splitHeader.SetText(progressFillLine(
-					composeSplitHeaderLine(playbookName, isRole, hostAndTask, elapsed, frozen, currentFilter, progressPos, progressTotal, totalWidth, showElapsed()),
+				splitHeader.SetText(uikit.ProgressFillLine(
+					uikit.ComposeSplitHeaderLine(playbookName, isRole, hostAndTask, elapsed, frozen, currentFilter, progressPos, progressTotal, totalWidth, showElapsed()),
 					progressPos, progressTotal, frozen, chromeColorName()))
 			} else {
 				// Padded to the full terminal width before the fill is
-				// applied (same reason composeTopBarLine pads its own
+				// applied (same reason ComposeTopBarLine pads its own
 				// line) - outputTopBar's own "host — task" text is
 				// usually much shorter than the row, and a fill tag only
 				// colors runes actually present in the string.
@@ -860,7 +861,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				if gap := totalWidth - len([]rune(full)); gap > 0 {
 					full += strings.Repeat(" ", gap)
 				}
-				outputTopBar.SetText(progressFillLine(full, progressPos, progressTotal, frozen, chromeColorName()))
+				outputTopBar.SetText(uikit.ProgressFillLine(full, progressPos, progressTotal, frozen, chromeColorName()))
 			}
 		}
 
@@ -875,7 +876,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// list.GetInnerRect() would still report whatever narrower width
 		// it had as part of splitBody a moment ago. Reported live: closing
 		// a two-pane drill-down left the host-column-shrink algorithm
-		// (computeHostColumnLayout/flattenRows below) rendering far too
+		// (ComputeHostColumnLayout/FlattenRows below) rendering far too
 		// narrow, only correcting itself once some *other* event (a real
 		// terminal resize) forced a genuine Draw() pass first. list fills
 		// its own outer Flex row's entire width whenever "main" is
@@ -885,9 +886,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// rect problem entirely rather than working around it.
 		width := totalWidth
 		if splitMode {
-			width = splitTreeWidth(totalWidth)
+			width = uikit.SplitTreeWidth(totalWidth)
 		}
-		// Belt-and-suspenders only: taskLabel is panic-safe for any width,
+		// Belt-and-suspenders only: TaskLabel is panic-safe for any width,
 		// but clamp defensively in case totalWidth is ever unexpectedly
 		// tiny (e.g. before Run()'s first real-size draw pass).
 		if width < 20 {
@@ -896,21 +897,21 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if !splitMode {
 			// topBar shares list's own width here (both are full-width
 			// children of the same outer Flex row when "main" is
-			// frontmost) - reused below for topBarText's own right-
+			// frontmost) - reused below for TopBarText's own right-
 			// alignment/truncation too rather than re-deriving a second
 			// width from topBar.GetInnerRect(). Skipped entirely in split
 			// mode, where splitHeader (above) shows this same information
 			// instead - topBar itself sits unused, off-page, for the
 			// duration of a split session.
-			topBar.SetText(topBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, progressPos, progressTotal, width, chromeColorName(), showElapsed()))
+			topBar.SetText(uikit.TopBarText(playbookName, isRole, state.AllHosts, elapsed, frozen, currentFilter, progressPos, progressTotal, width, chromeColorName(), showElapsed()))
 		}
 
 		// One-time, right on the running-to-frozen transition: for a
-		// genuine failure (see genuineFailure - shared with statusRowText
+		// genuine failure (see GenuineFailure - shared with StatusRowText
 		// below so the two can't disagree on what counts as one), jump
 		// straight to the host that actually failed, expanding its task,
 		// so a single Enter shows the drill-down with no navigation
-		// needed. Must happen before flattenRows runs below, since it
+		// needed. Must happen before FlattenRows runs below, since it
 		// reads expanded to decide which host rows to include - setting
 		// it after would miss the newly-expanded row in this same pass.
 		//
@@ -928,10 +929,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// jump.
 		if frozen && !failureCursorPlaced {
 			failureCursorPlaced = true
-			if genuineFailure(int(exitCode.Load()), state.HadUnreachable) {
-				if t, h := lastFailedTaskAndHost(state); t != nil && taskVisible(t, currentFilter, sourceIndex, false) {
+			if uikit.GenuineFailure(int(exitCode.Load()), state.HadUnreachable, ansibleUserInterruptedExitCode) {
+				if t, h := uikit.LastFailedTaskAndHost(state); t != nil && uikit.TaskVisible(t, currentFilter, sourceIndex, false) {
 					expanded[t] = true
-					currentID = hostRowID{t, h}
+					currentID = uikit.HostRowID{Task: t, Host: h}
 					following = false
 				}
 			}
@@ -943,7 +944,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// drill-down session is open (design-docs/TwoPanedLayout.md): hosts
 		// aren't shown on collapsed tree rows in that mode (the drill-down
 		// pane already shows exactly which host is selected - see
-		// showOutput's live-sync). computeHostColumnLayout/taskLabel both
+		// showOutput's live-sync). ComputeHostColumnLayout/TaskLabel both
 		// already have a documented allHosts == nil fallback - no shared
 		// column, title rendered alone against avail - normally only
 		// reachable transiently before the run's first host reports
@@ -957,25 +958,25 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		}
 
 		// Computed once per rebuild and reused for every row - both
-		// flattenRows' own per-row taskLabel calls and the standalone
+		// FlattenRows' own per-row TaskLabel calls and the standalone
 		// selected-row re-render just below - so the cursor row always
 		// aligns to the identical column every other row uses (see
-		// computeHostColumnLayout).
-		layout := computeHostColumnLayout(state, treeAllHosts, width, !useColor)
+		// ComputeHostColumnLayout).
+		layout := uikit.ComputeHostColumnLayout(state, treeAllHosts, width, !useColor)
 
-		currentRows = flattenRows(state, expanded, width, layout, treeAllHosts, activeTask, spinnerAt(elapsed), currentFilter, sourceIndex, showOutput, useColor)
+		currentRows = uikit.FlattenRows(state, expanded, width, layout, treeAllHosts, activeTask, uikit.SpinnerAt(elapsed), currentFilter, sourceIndex, showOutput, useColor)
 		hasStatusRow := false
 		if frozen && everStarted {
-			if text := statusRowText(int(exitCode.Load()), state.HadUnreachable); text != "" {
+			if text := uikit.StatusRowText(int(exitCode.Load()), state.HadUnreachable, ansibleUserInterruptedExitCode); text != "" {
 				currentRows = append(currentRows,
-					row{text: "", id: statusDividerRowID{}},
-					row{text: text, id: statusRowID{}},
+					uikit.Row{Text: "", ID: uikit.StatusDividerRowID{}},
+					uikit.Row{Text: text, ID: uikit.StatusRowID{}},
 				)
 				hasStatusRow = true
 			}
 			// Recap (design-docs/Recap.md) - appended below the status rows
 			// regardless of whether one was actually shown, so this doesn't
-			// silently disappear if statusRowText's own "always non-empty"
+			// silently disappear if StatusRowText's own "always non-empty"
 			// guarantee ever changes. Rendered as more rows in the exact
 			// same flat list the live tree already uses, not a separate
 			// page - Home/End/PageUp/PageDown/arrow navigation all already
@@ -983,12 +984,12 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// heading, its underline, and another blank spacer come first,
 			// setting the section off visually from the status line above.
 			currentRows = append(currentRows,
-				row{text: "", id: recapDividerBeforeHeading},
-				row{text: recapHeadingRowText(), id: recapHeadingRow},
-				row{text: recapHeadingUnderlineRowText(), id: recapHeadingUnderlineRow},
-				row{text: "", id: recapDividerAfterHeading},
-				row{text: recapNarrativeRowText(state, elapsed), id: recapNarrativeRow},
-				row{text: "", id: recapDividerAfterNarrative},
+				uikit.Row{Text: "", ID: recapDividerBeforeHeading},
+				uikit.Row{Text: recapHeadingRowText(), ID: recapHeadingRow},
+				uikit.Row{Text: recapHeadingUnderlineRowText(), ID: recapHeadingUnderlineRow},
+				uikit.Row{Text: "", ID: recapDividerAfterHeading},
+				uikit.Row{Text: recapNarrativeRowText(state, elapsed), ID: recapNarrativeRow},
+				uikit.Row{Text: "", ID: recapDividerAfterNarrative},
 			)
 			currentRows = append(currentRows, flattenRecapRows(state, recapHostExpanded, recapCategoryExpanded, showOutput)...)
 		}
@@ -1013,18 +1014,18 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		selectedIndex := 0
 		if following {
 			// Skip back past the trailing status/divider rows (see
-			// statusRowText) - they have no selected-row rendering
+			// StatusRowText) - they have no selected-row rendering
 			// variant (see the switch below), so following would
 			// otherwise land the cursor on a row that looks identical
 			// whether selected or not: from the user's perspective, the
 			// cursor simply vanishes once a run finishes. Landing on the
 			// last real row instead keeps the existing, visible
-			// highlight - this now always applies, since statusRowText
+			// highlight - this now always applies, since StatusRowText
 			// stopped ever returning "" for a finished run.
 			selectedIndex = len(currentRows) - 1
 			for selectedIndex > 0 {
-				_, isDivider := currentRows[selectedIndex].id.(statusDividerRowID)
-				_, isStatus := currentRows[selectedIndex].id.(statusRowID)
+				_, isDivider := currentRows[selectedIndex].ID.(uikit.StatusDividerRowID)
+				_, isStatus := currentRows[selectedIndex].ID.(uikit.StatusRowID)
 				if !isDivider && !isStatus {
 					break
 				}
@@ -1032,7 +1033,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			}
 		} else {
 			for i, r := range currentRows {
-				if r.id == currentID {
+				if r.ID == currentID {
 					selectedIndex = i
 					break
 				}
@@ -1040,55 +1041,55 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		}
 
 		// Re-render just the row under the cursor with its selected
-		// styling (see playRowText/taskLabel/hostLabel's own selected
+		// styling (see PlayRowText/TaskLabel/HostLabel's own selected
 		// parameter, and NewLiveTUI's SetSelectedStyle comment for why
 		// this is done here rather than via a single List-wide style).
-		// statusRowID/statusDividerRowID rows have no selected variant and
+		// StatusRowID/StatusDividerRowID rows have no selected variant and
 		// fall through untouched - they have no selected callback either
-		// (see flattenRows), so the cursor never deliberately lands there
+		// (see FlattenRows), so the cursor never deliberately lands there
 		// via Enter, only by navigating past them.
-		switch id := currentRows[selectedIndex].id.(type) {
+		switch id := currentRows[selectedIndex].ID.(type) {
 		case *playbook.PlayNode:
-			currentRows[selectedIndex].text = playRowText(id, true)
+			currentRows[selectedIndex].Text = uikit.PlayRowText(id, true)
 		case *playbook.TaskNode:
-			currentRows[selectedIndex].text = taskLabel(id, treeAllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true, useColor)
-		case hostRowID:
-			currentRows[selectedIndex].text = hostLabel(id.task, id.host, true)
+			currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, id == activeTask, uikit.SpinnerAt(elapsed), true, useColor)
+		case uikit.HostRowID:
+			currentRows[selectedIndex].Text = uikit.HostLabel(id.Task, id.Host, true)
 		case recapHostRowID:
-			currentRows[selectedIndex].text = recapHostRowText(string(id), recapForHost(state, string(id)), recapComputeColumnWidths(state), true)
+			currentRows[selectedIndex].Text = recapHostRowText(string(id), recapForHost(state, string(id)), recapComputeColumnWidths(state), true)
 		case recapCategoryRowID:
 			for _, cat := range recapForHost(state, id.host).Categories {
 				if cat.Label == id.label {
-					currentRows[selectedIndex].text = recapCategoryRowText(cat, true)
+					currentRows[selectedIndex].Text = recapCategoryRowText(cat, true)
 					break
 				}
 			}
 		case recapTaskRowID:
 			detail := recapTaskDetail(id.task, id.host, id.label)
-			currentRows[selectedIndex].text = recapTaskRowText(id.task, detail, recapCategoryColor(id.label), true)
+			currentRows[selectedIndex].Text = recapTaskRowText(id.task, detail, recapCategoryColor(id.label), true)
 		}
 
 		list.Clear()
 		for _, r := range currentRows {
 			r := r
 			var selected func()
-			if r.selected != nil {
+			if r.Selected != nil {
 				selected = func() {
-					r.selected()
+					r.Selected()
 					rebuild()
-					if t, ok := r.id.(*playbook.TaskNode); ok && expanded[t] {
+					if t, ok := r.ID.(*playbook.TaskNode); ok && expanded[t] {
 						revealExpandedTask(t)
 					}
 				}
 			}
-			list.AddItem(r.text, selected)
+			list.AddItem(r.Text, selected)
 		}
 		if selectedIndex == lastAppliedSelectedIndex {
 			// Same logical selection as last time - just reassert it after
 			// Clear()/AddItem() reset list's own currentItem, without
-			// re-clamping the viewport (see restoreCurrentItem's doc
+			// re-clamping the viewport (see RestoreCurrentItem's doc
 			// comment and lastAppliedSelectedIndex's above).
-			list.restoreCurrentItem(selectedIndex)
+			list.RestoreCurrentItem(selectedIndex)
 		} else {
 			list.SetCurrentItem(selectedIndex)
 			lastAppliedSelectedIndex = selectedIndex
@@ -1102,7 +1103,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// this list's currentItem throughout the run (following kept it
 		// pinned to the newest row as it streamed in) - so
 		// SetCurrentItem's index doesn't actually change here, and
-		// treeList's own ensureVisible (only runs on a genuine index
+		// TreeList's own ensureVisible (only runs on a genuine index
 		// change) never fires. Reported live: once a run's output filled
 		// more than one screen, the final "Playbook completed..." line
 		// stayed just below the bottom edge until manually scrolled to.
@@ -1152,7 +1153,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// (still visible, now collapsed) rather than letting rebuild() fall
 	// back to index 0.
 	expandAll := func() {
-		for _, t := range allTasks(state) {
+		for _, t := range uikit.AllTasks(state) {
 			expanded[t] = true
 		}
 		// Extends to the recap section too (design-docs/Recap.md), for
@@ -1168,8 +1169,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	}
 	collapseAll := func() {
 		switch id := currentID.(type) {
-		case hostRowID:
-			currentID = id.task
+		case uikit.HostRowID:
+			currentID = id.Task
 		case recapTaskRowID:
 			currentID = recapHostRowID(id.host)
 		case recapCategoryRowID:
@@ -1191,7 +1192,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if idx < 0 || idx >= len(currentRows) {
 			return
 		}
-		switch id := currentRows[idx].id.(type) {
+		switch id := currentRows[idx].ID.(type) {
 		case *playbook.TaskNode:
 			if !expanded[id] {
 				expanded[id] = true
@@ -1218,18 +1219,18 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if idx < 0 || idx >= len(currentRows) {
 			return
 		}
-		switch id := currentRows[idx].id.(type) {
+		switch id := currentRows[idx].ID.(type) {
 		case *playbook.TaskNode:
 			if expanded[id] {
 				expanded[id] = false
 				rebuild()
 			}
-		case hostRowID:
+		case uikit.HostRowID:
 			// Collapsing the parent task removes this row - move the
 			// cursor up to the task row that's left behind, per
 			// Keyboard-shortcuts.md.
-			expanded[id.task] = false
-			currentID = id.task
+			expanded[id.Task] = false
+			currentID = id.Task
 			following = false
 			rebuild()
 		case recapHostRowID:
@@ -1245,7 +1246,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		case recapTaskRowID:
 			// Collapsing the parent category removes this row - move the
 			// cursor up to the category row left behind, same reasoning
-			// as hostRowID above.
+			// as HostRowID above.
 			categoryID := recapCategoryRowID{host: id.host, label: id.label}
 			recapCategoryExpanded[categoryID] = false
 			currentID = categoryID
@@ -1257,15 +1258,15 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 	// navigateMainTask moves the cursor to the previous/next task (delta
 	// -1/+1) in run order, among currently-visible tasks only (see
-	// visibleTasks - never targets a task the active filter is hiding,
-	// since flattenRows wouldn't have given it a row to land on), expanding
+	// VisibleTasks - never targets a task the active filter is hiding,
+	// since FlattenRows wouldn't have given it a row to land on), expanding
 	// it if necessary. If the cursor was on a specific host of the current
 	// task, the same host is preserved on the destination task when that
 	// task has already recorded a result for it; otherwise the cursor lands
 	// on the destination task's own row. From a play row, "next" is that
 	// play's own first visible task; "prev" is whichever visible task comes
 	// immediately before that in the visible sequence - which, since
-	// visibleTasks skips hidden tasks (and, transitively, plays with none
+	// VisibleTasks skips hidden tasks (and, transitively, plays with none
 	// visible) entirely, naturally lands on the previous *visible* play's
 	// last visible task without needing to search play-by-play - per
 	// Keyboard-shortcuts.md.
@@ -1275,14 +1276,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			return
 		}
 
-		vis := visibleTasks(state, currentFilter, sourceIndex, activeTaskNow())
+		vis := uikit.VisibleTasks(state, currentFilter, sourceIndex, activeTaskNow())
 		var target *playbook.TaskNode
 		var host string
 		haveHost := false
 
-		switch id := currentRows[idx].id.(type) {
+		switch id := currentRows[idx].ID.(type) {
 		case *playbook.PlayNode:
-			first := firstVisibleTask(id, taskSet(vis))
+			first := uikit.FirstVisibleTask(id, uikit.TaskSet(vis))
 			if first == nil {
 				return
 			}
@@ -1307,12 +1308,12 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 					break
 				}
 			}
-		case hostRowID:
+		case uikit.HostRowID:
 			for i, t := range vis {
-				if t == id.task {
+				if t == id.Task {
 					if newIdx := i + delta; newIdx >= 0 && newIdx < len(vis) {
 						target = vis[newIdx]
-						host = id.host
+						host = id.Host
 						haveHost = true
 					}
 					break
@@ -1325,7 +1326,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		}
 		expanded[target] = true
 		if _, ok := target.Hosts[host]; haveHost && ok {
-			currentID = hostRowID{target, host}
+			currentID = uikit.HostRowID{Task: target, Host: host}
 		} else {
 			currentID = target
 		}
@@ -1340,7 +1341,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// currentFilter ever change.
 	openFilterDialog := func() {
 		filterDialogOpen = true
-		filterDialog.SetText(filterDialogText(currentFilter))
+		filterDialog.SetText(uikit.FilterDialogText(currentFilter))
 		pages.ShowPage("filter")
 	}
 	// openSearchDialog pre-fills the box with the previous term whenever
@@ -1351,8 +1352,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// search-only dialog, so there's nothing to wait for before typing.
 	openSearchDialog := func() {
 		searchDialogOpen = true
-		if currentFilter.mode == filterSearch {
-			searchInput.SetText(currentFilter.search)
+		if currentFilter.Mode == uikit.FilterSearch {
+			searchInput.SetText(currentFilter.Search)
 		} else {
 			searchInput.SetText("")
 		}
@@ -1433,7 +1434,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// the newest *visible* row every time, so there's nothing to fix up),
 	// and that row's task won't survive the new filter, this moves
 	// currentID to the nearest still-visible task first (see
-	// nearestVisibleTask) - Filters.md's "cursor moves to the nearest
+	// NearestVisibleTask) - Filters.md's "cursor moves to the nearest
 	// still-visible ancestor" requirement. A task is always the right
 	// granularity to land on here: per Filters.md, a filter can only ever
 	// hide a whole task (and, transitively, a whole play with none left) at
@@ -1441,19 +1442,19 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// task, which removes host rows one task at a time while the task's own
 	// row stays put, a filter switch never leaves a "row still there, just
 	// fall back to it" case to fall back to.
-	applyFilter := func(newFilter filterQuery) {
+	applyFilter := func(newFilter uikit.FilterQuery) {
 		if newFilter != currentFilter && !following {
 			activeTask := activeTaskNow()
 			var anchor *playbook.TaskNode
 			switch id := currentID.(type) {
 			case *playbook.TaskNode:
 				anchor = id
-			case hostRowID:
-				anchor = id.task
+			case uikit.HostRowID:
+				anchor = id.Task
 			case *playbook.PlayNode:
 				stillVisible := false
 				for _, t := range id.Tasks {
-					if taskVisible(t, newFilter, sourceIndex, t == activeTask) {
+					if uikit.TaskVisible(t, newFilter, sourceIndex, t == activeTask) {
 						stillVisible = true
 						break
 					}
@@ -1462,8 +1463,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 					anchor = id.Tasks[0]
 				}
 			}
-			if anchor != nil && !taskVisible(anchor, newFilter, sourceIndex, anchor == activeTask) {
-				if nt := nearestVisibleTask(allTasks(state), anchor, visibleTasks(state, newFilter, sourceIndex, activeTask)); nt != nil {
+			if anchor != nil && !uikit.TaskVisible(anchor, newFilter, sourceIndex, anchor == activeTask) {
+				if nt := uikit.NearestVisibleTask(uikit.AllTasks(state), anchor, uikit.VisibleTasks(state, newFilter, sourceIndex, activeTask)); nt != nil {
 					currentID = nt
 				}
 			}
@@ -1486,7 +1487,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// letter q), so it's never treated as a shortcut while typing.
 	searchInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
-			applyFilter(filterQuery{mode: filterSearch, search: searchInput.GetText()})
+			applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: searchInput.GetText()})
 		} else {
 			closeDialogs()
 		}
@@ -1509,7 +1510,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// risk for two small buttons whose keyboard path already works fully -
 	// these are click-only, not Tab-reachable.
 	searchApplyButton := tview.NewButton("Search").SetSelectedFunc(func() {
-		applyFilter(filterQuery{mode: filterSearch, search: searchInput.GetText()})
+		applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: searchInput.GetText()})
 	})
 	searchCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeDialogs)
 	// A real tview.NewBox(), not a bare nil, for every spacer item below -
@@ -1542,7 +1543,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// lastAppliedSelectedIndex) only ever reaches list.SetCurrentItem
 			// - and so only ever fires this callback - when the selection
 			// has genuinely changed since the last rebuild; a no-op
-			// reselection goes through restoreCurrentItem instead, which
+			// reselection goes through RestoreCurrentItem instead, which
 			// never calls this at all. So on a genuine change, this guard's
 			// only remaining job is to stop that same SetCurrentItem call
 			// from recursing into rebuild() again: rebuild() sets rebuilding
@@ -1553,7 +1554,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			return
 		}
 		if index >= 0 && index < len(currentRows) {
-			currentID = currentRows[index].id
+			currentID = currentRows[index].ID
 		}
 		if !jumpingToEnd {
 			following = false
@@ -1575,13 +1576,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// (an entirely-skipped play's tasks never fire a single event of
 	// their own for Advance, below, to ever match against).
 	state.OnPlayStarted = func(name string) { progH.Load().AdvanceToPlay(name) }
-	// See inheritedExpandState's own doc comment for the decision itself -
+	// See InheritedExpandState's own doc comment for the decision itself -
 	// this is what makes 'E' (expandAll) "sticky" for a still-running
 	// playbook: every task added afterward inherits true from whichever
 	// task was added most recently, not just the ones already on screen
 	// when 'E' was pressed.
 	state.OnTaskAdded = func(play *playbook.PlayNode, task *playbook.TaskNode) {
-		expanded[task] = inheritedExpandState(allTasks(state), expanded, startExpanded)
+		expanded[task] = uikit.InheritedExpandState(uikit.AllTasks(state), expanded, startExpanded)
 		// A miss here (a handler - see progress.go's own doc comment -
 		// or any task the skeleton couldn't predict) is a silent no-op by
 		// design: progressTracker.Advance leaves its own state untouched
@@ -1627,7 +1628,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// - a bare Box with no content, whose Draw() (like every tview
 	// Primitive's) unconditionally fills its own rect with its background
 	// color, so a solid column is all it takes; no text/rune content needed
-	// for a plain vertical line. Colored to match barStyle's own background
+	// for a plain vertical line. Colored to match BarStyle's own background
 	// (tcell.ColorNavy, the same blue every top/bottom bar already uses),
 	// not the brighter named "blue", so the divider reads as part of the
 	// same chrome rather than a clashing second shade. Deliberately never
@@ -1664,10 +1665,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// used to be before splitHeader existed. treeBody's own width here is
 	// just a placeholder; showOutput sets it for real via ResizeItem on
 	// every fresh drill-down open, once the terminal's actual current
-	// width is known (splitTreeWidth).
+	// width is known (SplitTreeWidth).
 	splitBody = tview.NewFlex().SetDirection(tview.FlexColumn).
-		AddItem(treeBody, splitMinTreeWidth, 0, false).
-		AddItem(splitDivider, splitDividerWidth, 0, false).
+		AddItem(treeBody, uikit.SplitMinTreeWidth, 0, false).
+		AddItem(splitDivider, uikit.SplitDividerWidth, 0, false).
 		AddItem(outputBody, 0, 1, true)
 
 	// splitFlex is design-docs/TwoPanedLayout.md's two-pane drill-down:
@@ -1682,9 +1683,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
 	pages.AddPage("split", splitFlex, true, false)
-	pages.AddPage("filter", centeredModal(filterFlex, 46, 10), true, false)
-	pages.AddPage("search", centeredModal(searchDialogFlex, 46, 11), true, false)
-	pages.AddPage("rerun", centeredModal(rerunForm, 56, 13), true, false)
+	pages.AddPage("filter", uikit.CenteredModal(filterFlex, 46, 10), true, false)
+	pages.AddPage("search", uikit.CenteredModal(searchDialogFlex, 46, 11), true, false)
+	pages.AddPage("rerun", uikit.CenteredModal(rerunForm, 56, 13), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true)
 
@@ -1727,7 +1728,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// custom double-click wiring is needed on top of that.
 
 	// useColor, design-docs/Morehosts.md: whether the collapsed task row's
-	// per-host summary (see computeHostColumnLayout/taskLabel) may ever
+	// per-host summary (see ComputeHostColumnLayout/TaskLabel) may ever
 	// render in color - all three of terminal capability, the NO_COLOR
 	// convention (https://no-color.org - presence disables color
 	// regardless of value, even ""; hence LookupEnv's ok result, not the
@@ -1748,7 +1749,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// needs a fresh one.
 	startHeartbeat := func() {
 		go func() {
-			ticker := time.NewTicker(spinnerInterval)
+			ticker := time.NewTicker(uikit.SpinnerInterval)
 			defer ticker.Stop()
 			for range ticker.C {
 				if quitting.Load() {
@@ -1782,7 +1783,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// landing itemOffset somewhere wrong - and since the very next
 	// rebuild() (the heartbeat's one tick, once Run() has given list a
 	// real rect) sees an unchanged selectedIndex, it takes the
-	// restoreCurrentItem path, which deliberately never touches itemOffset
+	// RestoreCurrentItem path, which deliberately never touches itemOffset
 	// - so nothing ever corrects the bogus position on its own, unlike a
 	// live run/rerun/role session (which only ever calls rebuild() after
 	// Run() has already given every widget a real size). A brief blank
@@ -1795,7 +1796,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// assigned - if startHeartbeat were defined or first called any
 	// earlier, reading `app` from the ticker goroutine would be a genuine
 	// data race, not just a latency curiosity, even though the first tick
-	// is spinnerInterval away.
+	// is SpinnerInterval away.
 	startHeartbeat()
 
 	// resizeWatcher: a second, permanent ticker, deliberately independent of
@@ -1806,7 +1807,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// once processDone is observed true, so nothing else is left driving a
 	// rebuild() on a terminal resize with no other incoming event. While a
 	// run is still live, startHeartbeat's own ticker already re-syncs
-	// everything within spinnerInterval regardless of resize - so this
+	// everything within SpinnerInterval regardless of resize - so this
 	// goroutine skips its own work entirely until processDone. "Everything"
 	// now includes the two-pane drill-down's own split-vs-full-screen mode
 	// and tree-pane width, not just the tree's row text/column layout - see
@@ -1815,7 +1816,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// via the same rebuild() call, just noticed by this ticker instead of
 	// startHeartbeat's.
 	go func() {
-		ticker := time.NewTicker(spinnerInterval) // reused only as a
+		ticker := time.NewTicker(uikit.SpinnerInterval) // reused only as a
 		// convenient existing interval - not tied to spinner-animation cadence.
 		defer ticker.Stop()
 		for range ticker.C {
@@ -1826,7 +1827,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			}
 			if !processDone.Load() {
 				continue // startHeartbeat's own ticker already handles this
-				// case every spinnerInterval regardless of resize.
+				// case every SpinnerInterval regardless of resize.
 			}
 			app.QueueUpdate(func() { // NOT QueueUpdateDraw - avoid forcing a
 				// real screen redraw on every tick when nothing changed.
@@ -1889,7 +1890,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		lastAppliedSelectedIndex = -1 // a fresh generation's row 0 must not
 		// be mistaken for "no change" just because it happens to match
 		// whatever index the previous generation last applied.
-		resolveCache = map[resolveKey]resolvedRender{} // a new generation
+		resolveCache = map[resolveKey]uikit.ResolvedRender{} // a new generation
 		// means new vars/facts - any cached "Resolved" render is for a
 		// previous generation's own values and must not linger.
 		everStarted = true // only a real transition the very first time
@@ -1904,11 +1905,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// already-constructed widgets rather than via chromeStyle/
 			// chromeBg (those only ever governed how things started out).
 			revisitActive = false
-			topBar.SetTextStyle(barStyle)
-			outputTopBar.SetTextStyle(barStyle)
-			outputBottomBar.SetTextStyle(barStyle)
-			splitHeader.SetTextStyle(barStyle)
-			bottomBar.SetTextStyle(barStyle)
+			topBar.SetTextStyle(uikit.BarStyle)
+			outputTopBar.SetTextStyle(uikit.BarStyle)
+			outputBottomBar.SetTextStyle(uikit.BarStyle)
+			splitHeader.SetTextStyle(uikit.BarStyle)
+			bottomBar.SetTextStyle(uikit.BarStyle)
 			splitDivider.SetBackgroundColor(tcell.ColorNavy)
 			// Style alone isn't enough for bottomBar: unlike topBar/
 			// splitHeader (whose visible text is rebuilt from scratch
@@ -2071,11 +2072,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyRune && event.Rune() == 'q':
 				closeDialogs()
 			case event.Key() == tcell.KeyRune && event.Rune() == 'a':
-				applyFilter(filterQuery{mode: filterAll})
+				applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'c':
-				applyFilter(filterQuery{mode: filterChanged})
+				applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'f':
-				applyFilter(filterQuery{mode: filterFailed})
+				applyFilter(uikit.FilterQuery{Mode: uikit.FilterFailed})
 			}
 			return nil
 		}
@@ -2120,13 +2121,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// Main tree only (not the output view, a real tview.TextView with
 		// its own unrelated meaning for these same keys): Up/Down/j/k skip
 		// straight over the trailing status/recap section's own purely
-		// decorative rows (nextInteractiveRow) instead of falling through
-		// to treeList's native one-row-at-a-time handling, which has no
+		// decorative rows (NextInteractiveRow) instead of falling through
+		// to TreeList's native one-row-at-a-time handling, which has no
 		// idea any of these rows are meant to be invisible to the cursor.
 		// Checked here, before the vim-alias translation just below, so
 		// 'j'/'k' get exactly the same treatment as the real arrow keys
 		// rather than being translated first and forwarded straight to
-		// treeList, bypassing this entirely.
+		// TreeList, bypassing this entirely.
 		if !viewingOutput {
 			var delta int
 			switch {
@@ -2140,7 +2141,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				// rebuilding) already makes list's own SetChangedFunc
 				// update currentID and clear following itself - no need to
 				// do either of those here too.
-				if next := nextInteractiveRow(currentRows, list.GetCurrentItem(), delta); next != -1 {
+				if next := uikit.NextInteractiveRow(currentRows, list.GetCurrentItem(), delta); next != -1 {
 					list.SetCurrentItem(next)
 				}
 				return nil
@@ -2166,7 +2167,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// claim unconditionally the same way 'G' already is. Space/'b' are
 		// the same idea for Page down/up (a common pager convention,
 		// e.g. `less`/`man`) - claiming Space here does mean it's no
-		// longer also an alias for Enter in the main tree (treeList's own
+		// longer also an alias for Enter in the main tree (TreeList's own
 		// native InputHandler used to activate the current row on Space,
 		// same as Enter); Enter alone still does that, so nothing is
 		// actually lost, just no longer duplicated onto this key.
@@ -2241,7 +2242,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				// content (the task's already-recorded result) can't
 				// change by editing the source after the fact.
 				if outputTask != nil {
-					if file := taskSourceFile(outputTask.Path); file != "" {
+					if file := uikit.TaskSourceFile(outputTask.Path); file != "" {
 						app.Suspend(func() {
 							cmd := exec.Command(preferredEditor(), file)
 							cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -2357,7 +2358,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// arrow-key InputHandler - so scrolling up from the very first row
 	// silently wrapped the cursor to the last row instead of stopping.
 	// Reverted per explicit request, and fixed properly rather than just
-	// reverted: list is now treeList (treelist.go), a purpose-built
+	// reverted: list is now TreeList (treelist.go), a purpose-built
 	// widget with no such clamp at all, so plain itemOffset panning (its
 	// own default wheel handling, left to run below) has no range limit -
 	// unlike tview.List, it's not bounded by the cursor's own position.
@@ -2409,11 +2410,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// unconditional swallow, clicking a menu row did nothing
 			// whatsoever, not even the wrong row.
 			x, y := event.Position()
-			if !inRect(x, y, filterFlex) {
+			if !uikit.InRect(x, y, filterFlex) {
 				return nil, action
 			}
-			if action == tview.MouseLeftClick && inRect(x, y, filterDialog) {
-				// filterDialogText's own fixed layout: row 0 headline, row
+			if action == tview.MouseLeftClick && uikit.InRect(x, y, filterDialog) {
+				// FilterDialogText's own fixed layout: row 0 headline, row
 				// 1 blank, rows 2/3/4 = All/Changed/Failed. filterDialog
 				// itself has no border of its own (that lives on
 				// filterFlex instead), so GetRect()'s own y is already the
@@ -2422,11 +2423,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				_, ry, _, _ := filterDialog.GetRect()
 				switch y - ry {
 				case 2:
-					applyFilter(filterQuery{mode: filterAll})
+					applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
 				case 3:
-					applyFilter(filterQuery{mode: filterChanged})
+					applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
 				case 4:
-					applyFilter(filterQuery{mode: filterFailed})
+					applyFilter(uikit.FilterQuery{Mode: uikit.FilterFailed})
 				}
 				return nil, action
 			}
@@ -2440,7 +2441,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// every visible page, topmost first) reaches it naturally;
 			// anything outside the box is swallowed so it can't leak
 			// through to the main page underneath.
-			if x, y := event.Position(); inRect(x, y, searchDialogFlex) {
+			if x, y := event.Position(); uikit.InRect(x, y, searchDialogFlex) {
 				return event, action
 			}
 			return nil, action
@@ -2448,7 +2449,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if rerunDialogOpen {
 			// Same reasoning as searchDialogOpen above, for rerunForm's
 			// own native per-field click-to-focus (tview.Form).
-			if x, y := event.Position(); inRect(x, y, rerunForm) {
+			if x, y := event.Position(); uikit.InRect(x, y, rerunForm) {
 				return event, action
 			}
 			return nil, action
@@ -2463,7 +2464,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// so no click can ever land there. Checked first, before any of
 			// the output-specific hit-tests below.
 			if splitMode {
-				if x, y := event.Position(); inRect(x, y, treeBody) {
+				if x, y := event.Position(); uikit.InRect(x, y, treeBody) {
 					return nil, action
 				}
 				// splitHeader is a plain, non-interactive TextView, same
@@ -2472,7 +2473,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				// for the duration of a split session (splitFlex's own
 				// construction), so it needs the identical guard they'd
 				// otherwise each carry on their own.
-				if x, y := event.Position(); inRect(x, y, splitHeader) {
+				if x, y := event.Position(); uikit.InRect(x, y, splitHeader) {
 					return nil, action
 				}
 			}
@@ -2484,7 +2485,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// navigation then stop reaching the output view at all, since
 			// TextView's own InputHandler intercepts Escape/Enter for
 			// itself and there's nothing else to visibly scroll).
-			if x, y := event.Position(); inRect(x, y, outputTopBar) || inRect(x, y, outputBottomBar) {
+			if x, y := event.Position(); uikit.InRect(x, y, outputTopBar) || uikit.InRect(x, y, outputBottomBar) {
 				return nil, action
 			}
 			// A left click on the tab bar itself switches tabs
@@ -2507,12 +2508,12 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		}
 		// topBar/bottomBar - same focus-steal guard as outputTopBar/
 		// outputBottomBar above, for the main page.
-		if x, y := event.Position(); inRect(x, y, topBar) || inRect(x, y, bottomBar) {
+		if x, y := event.Position(); uikit.InRect(x, y, topBar) || uikit.InRect(x, y, bottomBar) {
 			return nil, action
 		}
 		switch action {
 		case tview.MouseScrollUp, tview.MouseScrollDown:
-			// treeList's default handling (left to run below) never fires
+			// TreeList's default handling (left to run below) never fires
 			// SetChangedFunc, since it never touches currentItem - so
 			// disengaging autoscroll on a genuine pan has to happen here
 			// explicitly instead of falling out of that callback the way

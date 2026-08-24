@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/rivo/tview"
 )
 
@@ -54,8 +55,8 @@ type recapCategory struct {
 }
 
 // recapCategoryColor maps a category's own label to its display color -
-// colorTag's own palette for the five outcome-based categories, and
-// warningColor for "warnings", which cuts across all of them rather than
+// ColorTag's own palette for the five outcome-based categories, and
+// WarningColor for "warnings", which cuts across all of them rather than
 // being tied to one. Shared by recapForHost (building a fresh
 // recapCategory) and rebuild's own selected-row re-render (which only
 // has a label, not a full recapCategory, to work from), so the two can't
@@ -63,17 +64,17 @@ type recapCategory struct {
 func recapCategoryColor(label string) string {
 	switch label {
 	case "ok":
-		return colorTag(playbook.OutcomeOK)
+		return uikit.ColorTag(playbook.OutcomeOK)
 	case "skipped":
-		return colorTag(playbook.OutcomeSkipped)
+		return uikit.ColorTag(playbook.OutcomeSkipped)
 	case "changed":
-		return colorTag(playbook.OutcomeChanged)
+		return uikit.ColorTag(playbook.OutcomeChanged)
 	case "unreachable":
-		return colorTag(playbook.OutcomeUnreachable)
+		return uikit.ColorTag(playbook.OutcomeUnreachable)
 	case "failed":
-		return colorTag(playbook.OutcomeFailed)
+		return uikit.ColorTag(playbook.OutcomeFailed)
 	case "warnings":
-		return warningColor
+		return uikit.WarningColor
 	default:
 		return "white"
 	}
@@ -86,7 +87,7 @@ func recapCategoryColor(label string) string {
 // to expand into. Warnings is deliberately not mutually exclusive with
 // the other five - a task keeps its own outcome bucket (ok/changed/...)
 // and can *also* show up under "warnings", since a warning is orthogonal
-// to outcome (confirmed empirically: buildOutputTab already shows a
+// to outcome (confirmed empirically: BuildOutputTab already shows a
 // task's own "warnings" field regardless of outcome or module).
 type recapHostSummary struct {
 	OK, Changed, Unreachable, Failed, Skipped, Warnings int
@@ -94,7 +95,7 @@ type recapHostSummary struct {
 }
 
 // recapForHost scans every task across every play for this one host's
-// own outcome, in run order - the same data taskLabel/hostLabel already
+// own outcome, in run order - the same data TaskLabel/HostLabel already
 // read, just tallied per host instead of per task. Cheap at this
 // project's own ~10-host/handful-of-hundred-task target scale, computed
 // fresh on every rebuild rather than tracked incrementally, matching
@@ -119,7 +120,7 @@ func recapForHost(state *playbook.PlaybookState, host string) recapHostSummary {
 			case playbook.OutcomeSkipped:
 				skipped = append(skipped, task)
 			}
-			if hasWarnings(task.Raw[host]) {
+			if uikit.HasWarnings(task.Raw[host]) {
 				warned = append(warned, task)
 			}
 		}
@@ -149,7 +150,7 @@ func recapForHost(state *playbook.PlaybookState, host string) recapHostSummary {
 }
 
 // recapHostRowID/recapCategoryRowID/recapTaskRowID identify the recap
-// section's own three row kinds - separate types from hostRowID (rather
+// section's own three row kinds - separate types from HostRowID (rather
 // than reusing it for recapTaskRowID, even though both ultimately mean
 // "this task, this host") because a task's own row can legitimately
 // appear twice at once in currentRows once frozen - once as an expanded
@@ -178,15 +179,15 @@ type recapTaskRowID struct {
 // another blank spacer, the free-text narrative line - see
 // recapNarrativeSummary - and one more blank spacer after it) - six
 // distinct values of the same named type, rather than reusing
-// statusDividerRowID's own empty-struct sentinel for all of them: that
+// StatusDividerRowID's own empty-struct sentinel for all of them: that
 // type's own zero size makes every instance compare equal, which would
 // make rebuild()'s identity-based selection-restoration unable to tell
 // these apart if the cursor ever happened to be sitting on one of them
 // when a rebuild ran. None of these six rows carries a selected callback -
-// like statusRowID/statusDividerRowID, the cursor can still be moved onto
+// like StatusRowID/StatusDividerRowID, the cursor can still be moved onto
 // one by plain arrow-key navigation, but Enter does nothing there; Up/
 // Down/j/k skip over all of them entirely instead, for free, via
-// nextInteractiveRow's own generic "selected == nil" rule - matching
+// NextInteractiveRow's own generic "selected == nil" rule - matching
 // design-docs/Recap.md's explicit "these are additional lines... the
 // cursor hast to jump over" requirement for the narrative line
 // specifically, with no row-specific code needed to honor it.
@@ -203,7 +204,7 @@ const (
 
 // recapHeadingText is the plain "Summary" heading (design-docs/Recap.md)
 // shown right above the recap section - white bold, matching
-// playRowText's own heading-like styling elsewhere in this tree rather
+// PlayRowText's own heading-like styling elsewhere in this tree rather
 // than introducing a new color with no outcome to justify it.
 const recapHeadingText = "Summary"
 
@@ -214,9 +215,9 @@ func recapHeadingRowText() string {
 // recapHeadingUnderlineRowText underlines recapHeadingText with a run of
 // "=" of the identical length - the same "bold heading, plain "="
 // underline of the same length, both one color" convention
-// sectionLabel's own section headers already use in the drill-down view,
+// SectionLabel's own section headers already use in the drill-down view,
 // translated to a plain tree row here since a tree row can't hold
-// sectionLabel's own embedded newlines the way a TextView can.
+// SectionLabel's own embedded newlines the way a TextView can.
 func recapHeadingUnderlineRowText() string {
 	return "[white]" + strings.Repeat("=", len(recapHeadingText)) + "[-]"
 }
@@ -256,10 +257,10 @@ func pluralS(n int) string {
 // that's an accepted edge case, not something this narrative sentence
 // tries to resolve; real runs overwhelmingly land in one bucket or the
 // other. elapsed is the run's own total wall-clock duration (rebuild's
-// frozenElapsed, same value topBarText's own elapsed readout freezes to),
+// frozenElapsed, same value TopBarText's own elapsed readout freezes to),
 // not any one task's or host's own timing.
 func recapNarrativeSummary(state *playbook.PlaybookState, elapsed time.Duration) string {
-	totalTasks := len(allTasks(state))
+	totalTasks := len(uikit.AllTasks(state))
 	totalHosts := len(state.AllHosts)
 
 	var unreachableHosts, failedHosts int
@@ -274,7 +275,7 @@ func recapNarrativeSummary(state *playbook.PlaybookState, elapsed time.Duration)
 	}
 	reachableHosts := totalHosts - unreachableHosts
 
-	mm, ss := minutesSeconds(elapsed)
+	mm, ss := uikit.MinutesSeconds(elapsed)
 	sentence := fmt.Sprintf("Completed %d task%s on %d reachable host%s in %02d:%02d minutes.",
 		totalTasks, pluralS(totalTasks),
 		reachableHosts, pluralS(reachableHosts),
@@ -355,7 +356,7 @@ func recapComputeColumnWidths(state *playbook.PlaybookState) recapColumnWidths {
 
 // recapSummaryFieldColor is recapHostRowText's own per-field color choice:
 // recapCategoryColor's own outcome color (green ok, yellow changed, ...,
-// pink warnings) when n is greater than zero, or grayTag - the exact same
+// pink warnings) when n is greater than zero, or GrayTag - the exact same
 // dark gray already used elsewhere for a host that hasn't reported for a
 // task yet - when n is zero. A live, real-world recap experiment showed
 // six always-colored "label=N" segments read as fairly uniform "wall of
@@ -364,7 +365,7 @@ func recapComputeColumnWidths(state *playbook.PlaybookState) recapColumnWidths {
 // report stand out, at a glance, without reading every number.
 func recapSummaryFieldColor(label string, n int) string {
 	if n == 0 {
-		return grayTag
+		return uikit.GrayTag
 	}
 	return recapCategoryColor(label)
 }
@@ -381,12 +382,12 @@ func recapSummaryFieldColor(label string, n int) string {
 // than one more slice of the same partition. selected inverts each
 // segment's own color to a background (black bold text on it) instead of
 // a foreground - the same "outcome color becomes a background under the
-// cursor" convention taskLabel/hostLabel already use, just applied per
+// cursor" convention TaskLabel/HostLabel already use, just applied per
 // segment here rather than per hostname. The hostname portion itself
 // gets the plain light gray "this is the identifying label" background
 // every other selected row's own title/hostname already uses. No
 // neutral, unstyled gap anywhere on the selected line - the same rule
-// taskLabel's own selected rendering already follows for its hostname
+// TaskLabel's own selected rendering already follows for its hostname
 // segments - each segment's own leading two-space gap is folded into its
 // own color block rather than left plain between tags, so the row reads
 // as one continuous highlight instead of colored blocks with visible
@@ -400,13 +401,13 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 		// visibly shifting the "ok=" column by one space compared to the
 		// unselected rendering right above/below it.
 		firstSeg := func(label string, width, n int) string {
-			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", pureBlack, recapSummaryFieldColor(label, n), label, width, n)
+			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", uikit.PureBlack, recapSummaryFieldColor(label, n), label, width, n)
 		}
 		seg := func(label string, width, n int) string {
-			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", pureBlack, recapSummaryFieldColor(label, n), label, width, n)
+			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", uikit.PureBlack, recapSummaryFieldColor(label, n), label, width, n)
 		}
 		return fmt.Sprintf("[%s:lightgray:b]%s : [-:-:-]%s%s%s%s%s%s",
-			pureBlack, tview.Escape(hostPadded),
+			uikit.PureBlack, tview.Escape(hostPadded),
 			firstSeg("ok", w.OK, s.OK),
 			seg("skipped", w.Skipped, s.Skipped),
 			seg("changed", w.Changed, s.Changed),
@@ -430,31 +431,31 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 }
 
 // recapCategoryRowText renders one "  label (N)" line under a host,
-// colored via colorTag the same way every other outcome-colored row in
+// colored via ColorTag the same way every other outcome-colored row in
 // this app already is.
 func recapCategoryRowText(c recapCategory, selected bool) string {
 	line := fmt.Sprintf("  %s (%d)", c.Label, len(c.Tasks))
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, line)
+		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, line)
 	}
 	return fmt.Sprintf("[%s]%s[-]", c.Color, line)
 }
 
 // recapTaskDetail returns the parenthesized detail to show after a task's
-// own name on one recap task line - outcomeDetail (the identical detail
-// hostLabel already shows for the same (task, host) pair in the live
+// own name on one recap task line - OutcomeDetail (the identical detail
+// HostLabel already shows for the same (task, host) pair in the live
 // tree) for every category except "warnings", which instead shows the
 // task's own warning text(s), semicolon-joined rather than newline-joined
 // like the drill-down's own Warnings section: a recap row is always a
 // single line, unlike that section's own free-standing TextView content.
 func recapTaskDetail(task *playbook.TaskNode, host, label string) string {
 	if label == "warnings" {
-		if joined := joinedStringList(decodeWarnings(task.Raw[host]), "; "); joined != "" {
+		if joined := uikit.JoinedStringList(uikit.DecodeWarnings(task.Raw[host]), "; "); joined != "" {
 			return fmt.Sprintf(" (%s)", joined)
 		}
 		return ""
 	}
-	return outcomeDetail(task, host)
+	return uikit.OutcomeDetail(task, host)
 }
 
 // recapTaskRowText renders one task line under a category - the task's
@@ -464,7 +465,7 @@ func recapTaskDetail(task *playbook.TaskNode, host, label string) string {
 func recapTaskRowText(task *playbook.TaskNode, detail, color string, selected bool) string {
 	line := fmt.Sprintf("    %s%s", tview.Escape(task.Name), tview.Escape(detail))
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, line)
+		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, line)
 	}
 	return fmt.Sprintf("[%s]%s[-]", color, line)
 }
@@ -478,16 +479,16 @@ func recapTaskRowText(task *playbook.TaskNode, detail, color string, selected bo
 // short, complete index of the whole run, so narrowing it the same way
 // wasn't judged worth the added interaction (design-docs/Recap.md never
 // asked for it either).
-func flattenRecapRows(state *playbook.PlaybookState, hostExpanded map[string]bool, categoryExpanded map[recapCategoryRowID]bool, showOutput func(task *playbook.TaskNode, host string)) []row {
+func flattenRecapRows(state *playbook.PlaybookState, hostExpanded map[string]bool, categoryExpanded map[recapCategoryRowID]bool, showOutput func(task *playbook.TaskNode, host string)) []uikit.Row {
 	widths := recapComputeColumnWidths(state)
-	var rows []row
+	var rows []uikit.Row
 	for _, host := range state.AllHosts {
 		host := host
 		summary := recapForHost(state, host)
-		rows = append(rows, row{
-			text: recapHostRowText(host, summary, widths, false),
-			id:   recapHostRowID(host),
-			selected: func() {
+		rows = append(rows, uikit.Row{
+			Text: recapHostRowText(host, summary, widths, false),
+			ID:   recapHostRowID(host),
+			Selected: func() {
 				hostExpanded[host] = !hostExpanded[host]
 			},
 		})
@@ -497,10 +498,10 @@ func flattenRecapRows(state *playbook.PlaybookState, hostExpanded map[string]boo
 		for _, cat := range summary.Categories {
 			cat := cat
 			catID := recapCategoryRowID{host: host, label: cat.Label}
-			rows = append(rows, row{
-				text: recapCategoryRowText(cat, false),
-				id:   catID,
-				selected: func() {
+			rows = append(rows, uikit.Row{
+				Text: recapCategoryRowText(cat, false),
+				ID:   catID,
+				Selected: func() {
 					categoryExpanded[catID] = !categoryExpanded[catID]
 				},
 			})
@@ -509,10 +510,10 @@ func flattenRecapRows(state *playbook.PlaybookState, hostExpanded map[string]boo
 			}
 			for _, task := range cat.Tasks {
 				task := task
-				rows = append(rows, row{
-					text: recapTaskRowText(task, recapTaskDetail(task, host, cat.Label), cat.Color, false),
-					id:   recapTaskRowID{host: host, label: cat.Label, task: task},
-					selected: func() {
+				rows = append(rows, uikit.Row{
+					Text: recapTaskRowText(task, recapTaskDetail(task, host, cat.Label), cat.Color, false),
+					ID:   recapTaskRowID{host: host, label: cat.Label, task: task},
+					Selected: func() {
 						showOutput(task, host)
 					},
 				})

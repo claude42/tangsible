@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"fmt"
@@ -20,18 +20,18 @@ import (
 	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
-// row is one flattened, currently-visible line in the list: a play, a task,
+// Row is one flattened, currently-visible line in the list: a play, a task,
 // or (if its task is expanded) a host. selected is nil for play/host rows;
-// for task rows it toggles that task's expand state. id identifies the row
+// for task rows it toggles that task's expand state. id identifies the Row
 // across rebuilds (a *PlayNode, *TaskNode, or hostRowID), used to restore
-// the selection to the same logical row after the list is repopulated.
-type row struct {
-	text     string
-	selected func()
-	id       any
+// the selection to the same logical Row after the list is repopulated.
+type Row struct {
+	Text     string
+	Selected func()
+	ID       any
 }
 
-// nextInteractiveRow finds the next row index, starting just past from
+// NextInteractiveRow finds the next row index, starting just past from
 // and moving by delta (+1/-1), whose own selected callback is non-nil -
 // skipping purely decorative rows (statusRowID/statusDividerRowID, and
 // design-docs/Recap.md's own recapHeadingRowID rows) entirely, rather
@@ -43,30 +43,30 @@ type row struct {
 // first host line took seven silent keypresses, since none of the
 // status/heading rows in between has a visible selected state to move
 // through.
-func nextInteractiveRow(rows []row, from, delta int) int {
+func NextInteractiveRow(rows []Row, from, delta int) int {
 	for i := from + delta; i >= 0 && i < len(rows); i += delta {
-		if rows[i].selected != nil {
+		if rows[i].Selected != nil {
 			return i
 		}
 	}
 	return -1
 }
 
-type hostRowID struct {
-	task *playbook.TaskNode
-	host string
+type HostRowID struct {
+	Task *playbook.TaskNode
+	Host string
 }
 
-// statusRowID/statusDividerRowID identify the trailing status rows rebuild()
+// StatusRowID/statusDividerRowID identify the trailing status rows rebuild()
 // appends once the run has finished (see statusRowText) - given explicit
 // non-nil ids rather than leaving the divider row's id as the implicit zero
 // value, so nothing relies on "no other row's id is ever nil" holding by
 // coincidence.
-type statusRowID struct{}
+type StatusRowID struct{}
 
-type statusDividerRowID struct{}
+type StatusDividerRowID struct{}
 
-// statusRowText returns the inline status line to append below the last
+// StatusRowText returns the inline status line to append below the last
 // task row once the run has finished - every case gets one, including a
 // genuine failure (red "Playbook failed"). This used to fall through to
 // "" for anything other than success/benign-unreachable/user-interrupted,
@@ -87,33 +87,38 @@ type statusDividerRowID struct{}
 // one host is unreachable on its very first task exits 4 with
 // hadUnreachable=true and nothing else ever having run) - so this case gets
 // its own yellow, distinctly-not-"successfully" message instead.
-func statusRowText(code int, hadUnreachable bool) string {
+// userInterruptedCode is ansible-playbook's documented "user interrupted
+// execution" exit code (main.go's ansibleUserInterruptedExitCode) - passed
+// in rather than referenced directly, since this package doesn't own that
+// constant (it's an ansible-playbook/main.go concern, not a rendering one).
+func StatusRowText(code int, hadUnreachable bool, userInterruptedCode int) string {
 	benignHostUnreachable := code == 4 && hadUnreachable
 	switch {
 	case code == 0:
 		return "[green]Playbook completed successfully[-]"
 	case benignHostUnreachable:
 		return "[yellow]Playbook completed - one or more hosts were unreachable[-]"
-	case code == ansibleUserInterruptedExitCode:
+	case code == userInterruptedCode:
 		return "[red]Playbook stopped, press q again to quit tangsible.[-]"
 	default:
 		return fmt.Sprintf("[red]Playbook failed (exit code %d)[-]", code)
 	}
 }
 
-// genuineFailure reports whether code represents an actual failure - not
+// GenuineFailure reports whether code represents an actual failure - not
 // success, not the benign "some host(s) were unreachable" case (see
-// main.go's benignHostUnreachable), and not a user-requested interrupt.
-// Structurally the same condition as statusRowText's own default case
-// above, pulled out separately so rebuild's one-time post-freeze cursor
-// placement (see below) can't silently drift out of agreement with it
-// about what counts as "actually failed."
-func genuineFailure(code int, hadUnreachable bool) bool {
+// main.go's benignHostUnreachable), and not a user-requested interrupt
+// (userInterruptedCode - see StatusRowText's own doc comment). Structurally
+// the same condition as StatusRowText's own default case above, pulled out
+// separately so rebuild's one-time post-freeze cursor placement (see below)
+// can't silently drift out of agreement with it about what counts as
+// "actually failed."
+func GenuineFailure(code int, hadUnreachable bool, userInterruptedCode int) bool {
 	benignHostUnreachable := code == 4 && hadUnreachable
-	return code != 0 && !benignHostUnreachable && code != ansibleUserInterruptedExitCode
+	return code != 0 && !benignHostUnreachable && code != userInterruptedCode
 }
 
-// lastFailedTaskAndHost finds the most recent task (in tree order) that
+// LastFailedTaskAndHost finds the most recent task (in tree order) that
 // recorded a Failed or Unreachable host, and that host's own name - the
 // first such host recorded on that task, per HostOrder - or (nil, "") if
 // none is found (a genuine failure for some other reason, e.g. an
@@ -121,7 +126,7 @@ func genuineFailure(code int, hadUnreachable bool) bool {
 // Used once, right as a run freezes into a genuine failure (see rebuild),
 // to put the cursor exactly where a user drilling into "what failed"
 // would want it, without needing to navigate there themselves.
-func lastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, string) {
+func LastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, string) {
 	for pi := len(state.Plays) - 1; pi >= 0; pi-- {
 		tasks := state.Plays[pi].Tasks
 		for ti := len(tasks) - 1; ti >= 0; ti-- {
@@ -136,7 +141,7 @@ func lastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, s
 	return nil, ""
 }
 
-// flattenRows walks state's play/task/host tree into an ordered row list,
+// FlattenRows walks state's play/task/host tree into an ordered row list,
 // respecting which tasks are currently expanded and (per filter) currently
 // visible at all. Rebuilt fresh on every event - cheap at this project's
 // target scale (~10 hosts, Purpose.md), and avoids needing to incrementally
@@ -154,27 +159,27 @@ func lastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, s
 // taskVisible's filterSearch case, to search a task's own source text.
 // useColor is threaded straight through to each row's own taskLabel call
 // - see its doc comment (design-docs/Morehosts.md).
-func flattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout hostColumnLayout, allHosts []string, activeTask *playbook.TaskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *playbook.TaskNode, host string), useColor bool) []row {
-	var rows []row
+func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout HostColumnLayout, allHosts []string, activeTask *playbook.TaskNode, frame rune, filter FilterQuery, sourceIndex map[string]string, showOutput func(task *playbook.TaskNode, host string), useColor bool) []Row {
+	var rows []Row
 	for _, play := range state.Plays {
-		var playRows []row
+		var playRows []Row
 		for _, task := range play.Tasks {
 			t := task
-			if !taskVisible(t, filter, sourceIndex, t == activeTask) {
+			if !TaskVisible(t, filter, sourceIndex, t == activeTask) {
 				continue
 			}
-			playRows = append(playRows, row{
-				text:     taskLabel(t, allHosts, layout, width, t == activeTask, frame, false, useColor),
-				id:       t,
-				selected: func() { expanded[t] = !expanded[t] },
+			playRows = append(playRows, Row{
+				Text:     TaskLabel(t, allHosts, layout, width, t == activeTask, frame, false, useColor),
+				ID:       t,
+				Selected: func() { expanded[t] = !expanded[t] },
 			})
 			if expanded[t] {
 				for _, host := range t.HostOrder {
 					h := host
-					playRows = append(playRows, row{
-						text:     hostLabel(t, h, false),
-						id:       hostRowID{t, h},
-						selected: func() { showOutput(t, h) },
+					playRows = append(playRows, Row{
+						Text:     HostLabel(t, h, false),
+						ID:       HostRowID{t, h},
+						Selected: func() { showOutput(t, h) },
 					})
 				}
 			}
@@ -185,7 +190,7 @@ func flattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]
 			// tasks after filtering doesn't get a row either.
 			continue
 		}
-		rows = append(rows, row{text: playRowText(play, false), id: play})
+		rows = append(rows, Row{Text: PlayRowText(play, false), ID: play})
 		rows = append(rows, playRows...)
 	}
 	return rows

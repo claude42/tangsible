@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"encoding/json"
@@ -24,24 +24,24 @@ import (
 	"github.com/rivo/tview"
 )
 
-// spinnerAt returns the spinner frame for a given elapsed duration - shared
+// SpinnerAt returns the spinner frame for a given elapsed duration - shared
 // by the top bar's own heartbeat and taskLabel's active-task prefix so both
 // tick the same frame at the same instant when driven from the same elapsed
 // value (see rebuild).
-func spinnerAt(elapsed time.Duration) rune {
-	return spinnerFrames[int(elapsed/spinnerInterval)%len(spinnerFrames)]
+func SpinnerAt(elapsed time.Duration) rune {
+	return SpinnerFrames[int(elapsed/SpinnerInterval)%len(SpinnerFrames)]
 }
 
-// minutesSeconds splits d into whole minutes and the remaining seconds
+// MinutesSeconds splits d into whole minutes and the remaining seconds
 // (0-59), both floored - shared by the top bar's own elapsed display and
 // taskLabel's active-task elapsed suffix, which are two independent
 // measures (see NewLiveTUI's startedAt vs TaskNode.StartedAt) that should
 // at least agree on formatting.
-func minutesSeconds(d time.Duration) (mm, ss int) {
+func MinutesSeconds(d time.Duration) (mm, ss int) {
 	return int(d / time.Minute), int(d/time.Second) % 60
 }
 
-// topBarText renders the top bar: a Playbook:/Role: label (isRole picks
+// TopBarText renders the top bar: a Playbook:/Role: label (isRole picks
 // which), the currently active filter (see Filters.md's "title bar shows
 // the currently selected filter" requirement; shown unconditionally,
 // including "All", rather than only when a filter is actually narrowing
@@ -60,17 +60,17 @@ func minutesSeconds(d time.Duration) (mm, ss int) {
 // "the headline as a progress bar" idea) via progressFillLine - see its
 // own doc comment for the fill/escaping details. composeTopBarLine below
 // is this function's own plain-text half, split out only because
-// topBarText itself is a thin composeTopBarLine+progressFillLine
+// TopBarText itself is a thin composeTopBarLine+progressFillLine
 // wrapper - split mode uses its own, separately-composed
 // composeSplitHeaderLine instead of this one (see its own doc comment
 // for why a shared tree-only composer isn't reused there).
-func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int, bgColorName string, showElapsed bool) string {
-	return progressFillLine(
-		composeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, progressPos, progressTotal, width, showElapsed),
+func TopBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, bgColorName string, showElapsed bool) string {
+	return ProgressFillLine(
+		ComposeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, progressPos, progressTotal, width, showElapsed),
 		progressPos, progressTotal, frozen, bgColorName)
 }
 
-// composeTopBarLine builds the top bar's own plain, unfilled, already-
+// ComposeTopBarLine builds the top bar's own plain, unfilled, already-
 // width-padded text - see topBarText's own doc comment for what it
 // shows. Kept separate from the fill step itself (progressFillLine/
 // progressFillLineAt) so a caller that needs to coordinate this bar's
@@ -86,12 +86,12 @@ func topBarText(playbookName string, isRole bool, hosts []string, elapsed time.D
 // (never the case for a revisit session in practice, since replay never
 // builds a progress skeleton either, but this function doesn't assume
 // that - the two are independent knobs).
-func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
+func ComposeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
 	}
-	mm, ss := minutesSeconds(elapsed)
+	mm, ss := MinutesSeconds(elapsed)
 	// progressPrefix: the prototype "Task x/y" indicator (progress.go) -
 	// deliberately never clamped to progressTotal, even once frozen
 	// (unlike progressFillLine's own fill, see its doc comment) - an
@@ -109,12 +109,12 @@ func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 	case frozen:
 		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
 	default:
-		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, spinnerAt(elapsed), mm, ss)
+		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, SpinnerAt(elapsed), mm, ss)
 	}
 
 	prefix := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: ", label, playbookName, filter.label())
 	hostsBudget := width - len([]rune(prefix)) - len([]rune(right))
-	left := prefix + truncateHostsList(hosts, hostsBudget)
+	left := prefix + TruncateHostsList(hosts, hostsBudget)
 
 	pad := width - len([]rune(left)) - len([]rune(right))
 	if pad < 1 {
@@ -123,7 +123,7 @@ func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 	return left + strings.Repeat(" ", pad) + right
 }
 
-// composeSplitHeaderLine builds split mode's own combined header line -
+// ComposeSplitHeaderLine builds split mode's own combined header line -
 // a single, self-contained composition padded against the *full*
 // terminal width (width) in one pass, deliberately NOT reusing
 // composeTopBarLine (padded against just the tree pane's own share) plus
@@ -148,12 +148,12 @@ func composeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 // own host list is), then - flush right, same as topBarText's own right
 // side - the "Task x/y" progress indicator and the heartbeat (spinner +
 // elapsed, or just elapsed once frozen).
-func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter filterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
+func ComposeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
 	}
-	mm, ss := minutesSeconds(elapsed)
+	mm, ss := MinutesSeconds(elapsed)
 	var progressPrefix string
 	if progressTotal > 0 {
 		progressPrefix = fmt.Sprintf("Task %d/%d  ", progressPos, progressTotal)
@@ -165,7 +165,7 @@ func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string
 	case frozen:
 		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
 	default:
-		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, spinnerAt(elapsed), mm, ss)
+		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, SpinnerAt(elapsed), mm, ss)
 	}
 
 	left := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: %s", label, playbookName, filter.label(), hostAndTask)
@@ -177,7 +177,7 @@ func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string
 	return left + strings.Repeat(" ", pad) + right
 }
 
-// progressFillWidth returns how many of a totalWidth-rune-wide line
+// ProgressFillWidth returns how many of a totalWidth-rune-wide line
 // should be considered "filled" for the given progress - shared by
 // progressFillLine's own self-contained fill computation. 0 whenever
 // there's no skeleton at all (progressTotal <= 0 - see progressFillLine's
@@ -185,7 +185,7 @@ func composeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string
 // filled"); totalWidth itself once frozen, regardless of how far
 // progressPos actually got (same "snap to 100% rather than read as
 // broken" reasoning as progressFillLine).
-func progressFillWidth(totalWidth, progressPos, progressTotal int, frozen bool) int {
+func ProgressFillWidth(totalWidth, progressPos, progressTotal int, frozen bool) int {
 	if progressTotal <= 0 {
 		return 0
 	}
@@ -202,12 +202,12 @@ func progressFillWidth(totalWidth, progressPos, progressTotal int, frozen bool) 
 	return fillWidth
 }
 
-// progressFillLineAt applies the progress-fill background (see
+// ProgressFillLineAt applies the progress-fill background (see
 // progressFillLine's own doc comment for the visual/escaping details) at
 // an explicit, already-decided fillWidth rather than computing its own
 // proportionally from progressPos/progressTotal - the building block
 // progressFillLine itself uses internally.
-func progressFillLineAt(line string, fillWidth int, bgColorName string) string {
+func ProgressFillLineAt(line string, fillWidth int, bgColorName string) string {
 	runes := []rune(line)
 	if fillWidth > len(runes) {
 		fillWidth = len(runes)
@@ -216,10 +216,10 @@ func progressFillLineAt(line string, fillWidth int, bgColorName string) string {
 		fillWidth = 0
 	}
 	filled, unfilled := string(runes[:fillWidth]), string(runes[fillWidth:])
-	return fmt.Sprintf("[white:%s:b]%s[-:-:-][white:%s:b]%s[-:-:-]", progressFillColor, tview.Escape(filled), bgColorName, tview.Escape(unfilled))
+	return fmt.Sprintf("[white:%s:b]%s[-:-:-][white:%s:b]%s[-:-:-]", ProgressFillColor, tview.Escape(filled), bgColorName, tview.Escape(unfilled))
 }
 
-// progressFillLine wraps an already-composed, already-width-padded plain
+// ProgressFillLine wraps an already-composed, already-width-padded plain
 // bar line with the progress-fill background (design-docs' own "the
 // headline as a progress bar" idea): progressFillColor from the left
 // edge up to whatever fraction of progressPos/progressTotal the line's
@@ -249,19 +249,19 @@ func progressFillLineAt(line string, fillWidth int, bgColorName string) string {
 // place within whichever half it's applied to, which cannot shift
 // anything in the OTHER half or retroactively invalidate the split point
 // already computed against the unescaped line.
-func progressFillLine(line string, progressPos, progressTotal int, frozen bool, bgColorName string) string {
+func ProgressFillLine(line string, progressPos, progressTotal int, frozen bool, bgColorName string) string {
 	if progressTotal <= 0 {
 		return fmt.Sprintf("[white:%s:b]%s[-:-:-]", bgColorName, tview.Escape(line))
 	}
-	return progressFillLineAt(line, progressFillWidth(len([]rune(line)), progressPos, progressTotal, frozen), bgColorName)
+	return ProgressFillLineAt(line, ProgressFillWidth(len([]rune(line)), progressPos, progressTotal, frozen), bgColorName)
 }
 
-// truncateHostsList renders hosts as a comma-separated list, shortened to
+// TruncateHostsList renders hosts as a comma-separated list, shortened to
 // fit maxWidth by dropping hosts off the end and appending ", ..." (same
 // "documented heuristic, not chased to 100%" style as taskLabel's own
 // hostname-shrink loop elsewhere in this file) - never breaks a single
 // hostname mid-word, only ever drops whole hosts from the tail.
-func truncateHostsList(hosts []string, maxWidth int) string {
+func TruncateHostsList(hosts []string, maxWidth int) string {
 	full := strings.Join(hosts, ", ")
 	if maxWidth <= 0 {
 		return ""
@@ -294,24 +294,24 @@ func truncateHostsList(hosts []string, maxWidth int) string {
 	return b.String() + ", " + suffix
 }
 
-// playRowText builds one PLAY row's text - just the play's name, white and
+// PlayRowText builds one PLAY row's text - just the play's name, white and
 // bold normally. selected switches to the cursor-row styling (see
 // taskLabel/hostLabel's own selected parameter and NewLiveTUI's
 // SetSelectedStyle comment for why this can't just be a single uniform
 // List-wide style): black bold text on a light gray background across the
 // whole name.
-func playRowText(play *playbook.PlayNode, selected bool) string {
+func PlayRowText(play *playbook.PlayNode, selected bool) string {
 	name := tview.Escape(play.Name)
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, name)
+		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", PureBlack, name)
 	}
 	return fmt.Sprintf("[white::b]%s[-::-]", name)
 }
 
-// colorTag returns the tview style-tag foreground color name for o, per
+// ColorTag returns the tview style-tag foreground color name for o, per
 // TUI.md's OK/Changed/Skipped/Failed = green/yellow/cyan/red convention
 // (using tcell's/W3C's "teal" as the closest named match for cyan).
-func colorTag(o playbook.Outcome) string {
+func ColorTag(o playbook.Outcome) string {
 	switch o {
 	case playbook.OutcomeOK:
 		return "green"
@@ -330,32 +330,32 @@ func colorTag(o playbook.Outcome) string {
 	}
 }
 
-// summaryFieldColor is hostSummaryColoredText's own per-field color
+// SummaryFieldColor is hostSummaryColoredText's own per-field color
 // choice, design-docs/Morehosts.md - colorTag(o) when n is greater than
 // zero, or grayTag when n is zero. Same "gray out zero counts" rule the
 // recap's own recapSummaryFieldColor already established (recap.go) -
 // reused here in spirit, not by calling it directly, since that one is
 // keyed by a label string tied to its own recapColumnWidths fields
 // rather than by outcome.
-func summaryFieldColor(o playbook.Outcome, n int) string {
+func SummaryFieldColor(o playbook.Outcome, n int) string {
 	if n == 0 {
-		return grayTag
+		return GrayTag
 	}
-	return colorTag(o)
+	return ColorTag(o)
 }
 
-// hostSummaryPlainText renders task.counts()'s five values as
+// HostSummaryPlainText renders task.counts()'s five values as
 // design-docs/Morehosts.md's own fixed-format summary string - raw,
 // untagged, unescaped text. Shared by widestSummaryWidth (for measuring)
 // and taskLabel's own selected-row rendering (which - like every other
 // selected row in this file - uses a single uniform light-gray
 // background rather than per-field color, so there's nothing to tag
 // there either).
-func hostSummaryPlainText(ok, changed, skipped, failed, unreachable int) string {
+func HostSummaryPlainText(ok, changed, skipped, failed, unreachable int) string {
 	return fmt.Sprintf("OK:%d/Chgd:%d/Skip:%d/Fail:%d/Unrch:%d", ok, changed, skipped, failed, unreachable)
 }
 
-// hostSummaryColoredText is hostSummaryPlainText's own tagged rendering
+// HostSummaryColoredText is hostSummaryPlainText's own tagged rendering
 // for an unselected row: each field wrapped in summaryFieldColor's own
 // tag when useColor is true, or the identical plain text (escaped, no
 // tags at all) when it's false - design-docs/Morehosts.md's explicit
@@ -364,12 +364,12 @@ func hostSummaryPlainText(ok, changed, skipped, failed, unreachable int) string 
 // tview.Escape needed on the colored branch's own tag/label/digit
 // pieces, only (defensively, consistent with this file's own discipline
 // elsewhere) on the plain-text fallback.
-func hostSummaryColoredText(ok, changed, skipped, failed, unreachable int, useColor bool) string {
+func HostSummaryColoredText(ok, changed, skipped, failed, unreachable int, useColor bool) string {
 	if !useColor {
-		return tview.Escape(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))
+		return tview.Escape(HostSummaryPlainText(ok, changed, skipped, failed, unreachable))
 	}
 	seg := func(label string, o playbook.Outcome, n int) string {
-		return fmt.Sprintf("[%s]%s:%d[-]", summaryFieldColor(o, n), label, n)
+		return fmt.Sprintf("[%s]%s:%d[-]", SummaryFieldColor(o, n), label, n)
 	}
 	return strings.Join([]string{
 		seg("OK", playbook.OutcomeOK, ok),
@@ -380,33 +380,33 @@ func hostSummaryColoredText(ok, changed, skipped, failed, unreachable int, useCo
 	}, "/")
 }
 
-// widestSummaryWidth is the widest hostSummaryPlainText rune width across
+// WidestSummaryWidth is the widest hostSummaryPlainText rune width across
 // every task the run has produced so far (allTasks(state), same
 // unconditional-of-expand/collapse/filter scope computeHostColumnLayout's
 // own desiredTitleWidth already uses) - what summary mode sizes
 // TitleColWidth against instead of the host list's own width, since
 // every task's counts (and so its own summary string's digit widths) can
 // differ.
-func widestSummaryWidth(state *playbook.PlaybookState) int {
+func WidestSummaryWidth(state *playbook.PlaybookState) int {
 	widest := 0
-	for _, t := range allTasks(state) {
+	for _, t := range AllTasks(state) {
 		ok, changed, skipped, failed, unreachable := t.Counts()
-		if w := len([]rune(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))); w > widest {
+		if w := len([]rune(HostSummaryPlainText(ok, changed, skipped, failed, unreachable))); w > widest {
 			widest = w
 		}
 	}
 	return widest
 }
 
-// hostTransition builds the halfBlock separator cell between two adjacent
+// HostTransition builds the halfBlock separator cell between two adjacent
 // hostnames' color tags - left's color bleeds into right's across that one
 // cell, rather than an abrupt full-cell jump from one solid color to the
 // next.
-func hostTransition(leftTag, rightTag string) string {
-	return fmt.Sprintf("[%s:%s:-]%s[-:-:-]", leftTag, rightTag, halfBlock)
+func HostTransition(leftTag, rightTag string) string {
+	return fmt.Sprintf("[%s:%s:-]%s[-:-:-]", leftTag, rightTag, HalfBlock)
 }
 
-// hostColumnLayout is the layout every TASK row shares for one rebuild
+// HostColumnLayout is the layout every TASK row shares for one rebuild
 // (TUI.md's "Tree View - third iteration") - computed once by
 // computeHostColumnLayout and threaded into every taskLabel call (both
 // flattenRows' own per-row calls and rebuild()'s separate selected-row
@@ -421,24 +421,24 @@ func hostTransition(leftTag, rightTag string) string {
 // OK/Changed/Skipped/Failed/Unreachable count summary instead
 // (computeHostColumnLayout's own forceSummary/hostsTooNarrow) - taskLabel
 // ignores HostDisplay entirely in that case (left empty).
-type hostColumnLayout struct {
+type HostColumnLayout struct {
 	TitleColWidth int
 	HostDisplay   []string
 	SummaryMode   bool
 }
 
-// splitTreeWidth implements design-docs/TwoPanedLayout.md's growth rule for
+// SplitTreeWidth implements design-docs/TwoPanedLayout.md's growth rule for
 // the two-pane drill-down: the tree pane grows first, from splitMinTreeWidth
 // up to splitMaxTreeWidth, before any further width goes to the drill-down
 // pane. Only meaningful (and only ever called) once totalWidth has already
 // been checked to be at least splitMinTotalWidth - showOutput is the sole
 // caller, right after that same check.
-func splitTreeWidth(totalWidth int) int {
-	extra := totalWidth - splitMinTotalWidth
-	return splitMinTreeWidth + min(extra, splitMaxTreeWidth-splitMinTreeWidth)
+func SplitTreeWidth(totalWidth int) int {
+	extra := totalWidth - SplitMinTotalWidth
+	return SplitMinTreeWidth + min(extra, SplitMaxTreeWidth-SplitMinTreeWidth)
 }
 
-// computeHostColumnLayout implements TUI.md's third-iteration algorithm:
+// ComputeHostColumnLayout implements TUI.md's third-iteration algorithm:
 // hosts start at the same column on every row, regardless of that row's
 // own title length. Unlike the previous per-row-independent right-align,
 // this needs to look across every task the run has produced so far to
@@ -480,14 +480,14 @@ func splitTreeWidth(totalWidth int) int {
 // Morehosts.md's own "not enough space" trigger, and this falls through
 // to summary mode too rather than returning the now-illegibly-truncated
 // host list.
-func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, avail int, forceSummary bool) hostColumnLayout {
-	availContent := avail - len(taskIndent)
+func ComputeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, avail int, forceSummary bool) HostColumnLayout {
+	availContent := avail - len(TaskIndent)
 	if availContent < 0 {
 		availContent = 0
 	}
 
 	desiredTitleWidth := 0
-	for _, t := range allTasks(state) {
+	for _, t := range AllTasks(state) {
 		if w := len([]rune(t.Name)); w > desiredTitleWidth {
 			desiredTitleWidth = w
 		}
@@ -501,7 +501,7 @@ func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 		// value here doesn't matter. Also too early to know whether summary
 		// mode will even be needed once hosts do show up, so this never
 		// forces it just from being empty.
-		return hostColumnLayout{TitleColWidth: desiredTitleWidth}
+		return HostColumnLayout{TitleColWidth: desiredTitleWidth}
 	}
 
 	if !forceSummary {
@@ -522,16 +522,16 @@ func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 		}
 
 		fits := func(colWidth int) bool {
-			return colWidth+titleHostGapFloor+hostsWidth() <= availContent
+			return colWidth+TitleHostGapFloor+hostsWidth() <= availContent
 		}
 
 		titleColWidth := desiredTitleWidth
 		if !fits(titleColWidth) {
 			floor := desiredTitleWidth
-			if floor > minTaskTitleName {
-				floor = minTaskTitleName
+			if floor > MinTaskTitleName {
+				floor = MinTaskTitleName
 			}
-			target := availContent - titleHostGapFloor - hostsWidth()
+			target := availContent - TitleHostGapFloor - hostsWidth()
 			if target < floor {
 				target = floor
 			}
@@ -570,7 +570,7 @@ func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 			for i, hr := range hostRunes {
 				hostDisplay[i] = string(hr)
 			}
-			return hostColumnLayout{TitleColWidth: titleColWidth, HostDisplay: hostDisplay}
+			return HostColumnLayout{TitleColWidth: titleColWidth, HostDisplay: hostDisplay}
 		}
 		// Falls through to summary mode below - the host list just
 		// computed is discarded, the whole point of switching being to
@@ -583,14 +583,14 @@ func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 	// minTaskTitleName-then-accept-overflow pattern as above, just against
 	// a different, much narrower and hostname-count-independent content
 	// width.
-	summaryWidth := widestSummaryWidth(state)
+	summaryWidth := WidestSummaryWidth(state)
 	titleColWidth := desiredTitleWidth
-	if titleColWidth+titleHostGapFloor+summaryWidth > availContent {
+	if titleColWidth+TitleHostGapFloor+summaryWidth > availContent {
 		floor := desiredTitleWidth
-		if floor > minTaskTitleName {
-			floor = minTaskTitleName
+		if floor > MinTaskTitleName {
+			floor = MinTaskTitleName
 		}
-		target := availContent - titleHostGapFloor - summaryWidth
+		target := availContent - TitleHostGapFloor - summaryWidth
 		if target < floor {
 			target = floor
 		}
@@ -599,10 +599,10 @@ func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 			titleColWidth = 0
 		}
 	}
-	return hostColumnLayout{TitleColWidth: titleColWidth, SummaryMode: true}
+	return HostColumnLayout{TitleColWidth: titleColWidth, SummaryMode: true}
 }
 
-// taskLabel builds one TASK row's full text, including its leading indent.
+// TaskLabel builds one TASK row's full text, including its leading indent.
 // Per TUI.md's "Tree View - third iteration", every host in allHosts (the
 // run-wide, alphabetically-sorted set of hosts seen so far - see
 // PlaybookState.AllHosts) is shown left-aligned after the task title,
@@ -668,7 +668,7 @@ func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 // (hostSummaryColoredText) or not; the per-host list's own coloring
 // (below) is untouched by it, since Morehosts.md scopes this feature to
 // summary mode alone, not a whole-app monochrome option.
-func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
+func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
 	// One prefix fills taskIndent's single slot (see its own doc comment) -
 	// the active spinner takes priority; otherwise a warningColor ⚠ if the
 	// task has finished with at least one host's warning recorded; plain
@@ -684,10 +684,10 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 	switch {
 	case active:
 		prefix = tview.Escape(string(frame) + " ")
-	case taskHasWarnings(task):
-		prefix = fmt.Sprintf("[%s]⚠[-] ", warningColor)
+	case TaskHasWarnings(task):
+		prefix = fmt.Sprintf("[%s]⚠[-] ", WarningColor)
 	default:
-		prefix = tview.Escape(taskIndent)
+		prefix = tview.Escape(TaskIndent)
 	}
 
 	nameRunes := []rune(task.Name)
@@ -712,7 +712,7 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 		// back to fitting the title against the raw available width
 		// directly, same as this function always did before a column
 		// existed to align to.
-		availContent := avail - len(taskIndent)
+		availContent := avail - len(TaskIndent)
 		if availContent < 0 {
 			availContent = 0
 		}
@@ -730,7 +730,7 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 		}
 		title := tview.Escape(rawTitle)
 		if selected {
-			return prefix + "[" + pureBlack + ":lightgray:b]" + title + "[-:-:-]"
+			return prefix + "[" + PureBlack + ":lightgray:b]" + title + "[-:-:-]"
 		}
 		return prefix + "[silver::-]" + title + "[-::-]"
 	}
@@ -756,7 +756,7 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 	// (0 for the row whose own title defines the column, since
 	// nameWidth == TitleColWidth there), plus titleHostGapFloor more -
 	// the minimum gap every row gets, per TUI.md.
-	padding := layout.TitleColWidth - nameWidth + titleHostGapFloor
+	padding := layout.TitleColWidth - nameWidth + TitleHostGapFloor
 
 	if layout.SummaryMode {
 		ok, changed, skipped, failed, unreachable := task.Counts()
@@ -768,11 +768,11 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 			// established blending convention for a handful of short
 			// label:count fields the way there is for hostnames, and
 			// Morehosts.md doesn't ask for one.
-			plain := tview.Escape(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))
-			return prefix + "[" + pureBlack + ":lightgray:b]" + title + strings.Repeat(" ", padding) + plain + "[-:-:-]"
+			plain := tview.Escape(HostSummaryPlainText(ok, changed, skipped, failed, unreachable))
+			return prefix + "[" + PureBlack + ":lightgray:b]" + title + strings.Repeat(" ", padding) + plain + "[-:-:-]"
 		}
 		styledTitle := "[silver::-]" + title + "[-::-]"
-		return prefix + styledTitle + strings.Repeat(" ", padding) + hostSummaryColoredText(ok, changed, skipped, failed, unreachable, useColor)
+		return prefix + styledTitle + strings.Repeat(" ", padding) + HostSummaryColoredText(ok, changed, skipped, failed, unreachable, useColor)
 	}
 
 	if selected {
@@ -787,7 +787,7 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 		}
 		var b strings.Builder
 		b.WriteString(prefix)
-		b.WriteString("[" + pureBlack + ":lightgray:b]")
+		b.WriteString("[" + PureBlack + ":lightgray:b]")
 		b.WriteString(title)
 		b.WriteString(strings.Repeat(" ", greyPadding))
 		b.WriteString("[-:-:-]")
@@ -800,16 +800,16 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 		var prevTag string
 		for i, h := range allHosts {
 			o, done := task.Hosts[h]
-			tag := grayTag
+			tag := GrayTag
 			if done {
-				tag = colorTag(o)
+				tag = ColorTag(o)
 			}
 			name := tview.Escape(layout.HostDisplay[i])
 			if i == 0 {
-				fmt.Fprintf(&b, "[%s:%s:b] %s[-:-:-]", pureBlack, tag, name)
+				fmt.Fprintf(&b, "[%s:%s:b] %s[-:-:-]", PureBlack, tag, name)
 			} else {
-				b.WriteString(hostTransition(prevTag, tag))
-				fmt.Fprintf(&b, "[%s:%s:b]%s[-:-:-]", pureBlack, tag, name)
+				b.WriteString(HostTransition(prevTag, tag))
+				fmt.Fprintf(&b, "[%s:%s:b]%s[-:-:-]", PureBlack, tag, name)
 			}
 			prevTag = tag
 		}
@@ -824,9 +824,9 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 	hostSegments := make([]string, len(allHosts))
 	for i, h := range allHosts {
 		o, done := task.Hosts[h]
-		tag := grayTag
+		tag := GrayTag
 		if done {
-			tag = colorTag(o)
+			tag = ColorTag(o)
 		}
 		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(layout.HostDisplay[i]))
 	}
@@ -834,22 +834,22 @@ func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayo
 	return prefix + styledTitle + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
 }
 
-// outcomeDetail returns the extra parenthesized bit hostLabel (and
+// OutcomeDetail returns the extra parenthesized bit hostLabel (and
 // recap.go's own recapTaskRowText) append after a host's outcome for one
 // task - what it is depends on the outcome: only OK/Changed/Failed and
 // Skipped have one defined so far; "" for Unreachable, rendering exactly
 // as before.
-func outcomeDetail(task *playbook.TaskNode, host string) string {
+func OutcomeDetail(task *playbook.TaskNode, host string) string {
 	switch task.Hosts[host] {
 	case playbook.OutcomeOK, playbook.OutcomeChanged, playbook.OutcomeFailed:
-		return outputSummary(task.Raw[host])
+		return OutputSummary(task.Raw[host])
 	case playbook.OutcomeSkipped:
-		return skipDetail(task.Raw[host])
+		return SkipDetail(task.Raw[host])
 	}
 	return ""
 }
 
-// decodeWarnings decodes raw and returns its own "warnings" field (nil
+// DecodeWarnings decodes raw and returns its own "warnings" field (nil
 // if raw doesn't decode, or carries none) - shared by hasWarnings (a
 // plain presence check, backing the tree's own ⚠ indicators) and
 // recap.go's own recapTaskDetail (which needs the actual joined text),
@@ -857,7 +857,7 @@ func outcomeDetail(task *playbook.TaskNode, host string) string {
 // result carrying a non-empty "warnings" field, "regardless of outcome
 // or module" - the same rule buildOutputTab's own Warnings section in
 // the drill-down view already follows.
-func decodeWarnings(raw json.RawMessage) interface{} {
+func DecodeWarnings(raw json.RawMessage) interface{} {
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil
@@ -865,31 +865,31 @@ func decodeWarnings(raw json.RawMessage) interface{} {
 	return decoded["warnings"]
 }
 
-// hasWarnings reports whether raw's own "warnings" field is present and
+// HasWarnings reports whether raw's own "warnings" field is present and
 // non-empty. Backs hostLabel's own per-host ⚠ marker and taskHasWarnings
 // below - only presence matters there, not the warning text itself
 // (that's what drilling down, or the recap's own "warnings" category,
 // is for).
-func hasWarnings(raw json.RawMessage) bool {
-	return joinedStringList(decodeWarnings(raw), "\n") != ""
+func HasWarnings(raw json.RawMessage) bool {
+	return JoinedStringList(DecodeWarnings(raw), "\n") != ""
 }
 
-// taskHasWarnings reports whether any host recorded a warning for task -
+// TaskHasWarnings reports whether any host recorded a warning for task -
 // backs taskLabel's own aggregate ⚠ marker on the collapsed row (which
 // has no per-host granularity to show at all, the same reason its
 // outcome coloring is already per-host-segment rather than a single
 // verdict for the whole row - expanding reveals which host, via
 // hostLabel's own marker).
-func taskHasWarnings(task *playbook.TaskNode) bool {
+func TaskHasWarnings(task *playbook.TaskNode) bool {
 	for _, raw := range task.Raw {
-		if hasWarnings(raw) {
+		if HasWarnings(raw) {
 			return true
 		}
 	}
 	return false
 }
 
-// hostLabel builds one host row's text, colored uniformly by its single
+// HostLabel builds one host row's text, colored uniformly by its single
 // outcome. No width-based truncation/alignment applies here - that rule is
 // TASK-row-specific per TUI.md. selected mirrors taskLabel's own parameter -
 // black bold text on the outcome color as a background, instead of the
@@ -907,15 +907,15 @@ func taskHasWarnings(task *playbook.TaskNode) bool {
 // leading marker one column right of column 1 - both reverted after live
 // use: a marker at the row's very first column, with the hostname itself
 // never shifting regardless of whether it's showing, reads clearest.
-func hostLabel(task *playbook.TaskNode, host string, selected bool) string {
+func HostLabel(task *playbook.TaskNode, host string, selected bool) string {
 	o := task.Hosts[host]
-	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(outcomeDetail(task, host)))
-	prefix := tview.Escape(hostIndent)
-	if hasWarnings(task.Raw[host]) {
-		prefix = fmt.Sprintf("[%s]⚠[-]%s", warningColor, strings.Repeat(" ", len(hostIndent)-1))
+	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(OutcomeDetail(task, host)))
+	prefix := tview.Escape(HostIndent)
+	if HasWarnings(task.Raw[host]) {
+		prefix = fmt.Sprintf("[%s]⚠[-]%s", WarningColor, strings.Repeat(" ", len(HostIndent)-1))
 	}
 	if selected {
-		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", pureBlack, colorTag(o), line)
+		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", PureBlack, ColorTag(o), line)
 	}
-	return prefix + fmt.Sprintf("[%s]%s[-]", colorTag(o), line)
+	return prefix + fmt.Sprintf("[%s]%s[-]", ColorTag(o), line)
 }

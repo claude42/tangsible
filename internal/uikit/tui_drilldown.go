@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ import (
 	"github.com/rivo/tview"
 )
 
-// primaryOutputField picks a single field to represent a host's textual
+// PrimaryOutputField picks a single field to represent a host's textual
 // output, preferring "stdout" (the actual command output, for
 // command/shell-style modules) over the more generic "msg" field - on a
 // command/shell task with a non-zero return code, msg is often just a
@@ -42,24 +42,24 @@ import (
 // whatever variable/expression was given. Shared by formatHostOutput (the
 // full drill-down view) and outputSummary (the collapsed treeview OK
 // line) so both agree on what "the output" means for a given result.
-func primaryOutputField(decoded map[string]interface{}) (label, text string) {
+func PrimaryOutputField(decoded map[string]interface{}) (label, text string) {
 	if stdout, ok := decoded["stdout"].(string); ok && stdout != "" {
 		return "STDOUT", stdout
 	}
 	if msg, ok := decoded["msg"]; ok {
-		if text := debugValueText(msg); text != "" {
+		if text := DebugValueText(msg); text != "" {
 			return "MSG", text
 		}
 	}
-	if moduleShortName(decoded) == "debug" {
-		if text, ok := debugVarValue(decoded); ok {
+	if ModuleShortName(decoded) == "debug" {
+		if text, ok := DebugVarValue(decoded); ok {
 			return "MSG", text
 		}
 	}
 	return "", ""
 }
 
-// debugValueText renders a value from a debug task's own result (its
+// DebugValueText renders a value from a debug task's own result (its
 // "msg", or its var:-named key via debugVarValue below) as display text:
 // a plain string as-is; a JSON array of strings newline-joined (matching
 // debug's own `msg: [a, b]` shape, reusing joinedStringList); anything
@@ -67,11 +67,11 @@ func primaryOutputField(decoded map[string]interface{}) (label, text string) {
 // pretty-printed JSON - always something readable rather than silently
 // nothing, same "always show *something*" fallback style as
 // formatHostOutput's own decode-failure path.
-func debugValueText(v interface{}) string {
+func DebugValueText(v interface{}) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	if joined := joinedStringList(v, "\n"); joined != "" {
+	if joined := JoinedStringList(v, "\n"); joined != "" {
 		return joined
 	}
 	pretty, err := json.MarshalIndent(v, "", "  ")
@@ -81,17 +81,17 @@ func debugValueText(v interface{}) string {
 	return string(pretty)
 }
 
-// debugStandardKeys are the fields an ansible.builtin.debug result always
+// DebugStandardKeys are the fields an ansible.builtin.debug result always
 // or commonly carries that are never the var: value itself - used by
 // debugVarValue below to isolate the one remaining key that is.
-var debugStandardKeys = map[string]bool{
+var DebugStandardKeys = map[string]bool{
 	"changed": true, "failed": true, "skipped": true, "unreachable": true,
 	"action": true, "msg": true, "invocation": true, "warnings": true,
 	"deprecations": true, "exception": true, "results": true,
 	"item": true, "ansible_loop_var": true,
 }
 
-// debugVarValue implements ansible.builtin.debug's var: form: unlike msg:,
+// DebugVarValue implements ansible.builtin.debug's var: form: unlike msg:,
 // there's no fixed key to look up - the result's own key is named after
 // whatever variable or expression var: was given (confirmed empirically:
 // `var: some_list` reports a top-level "some_list" key; `var: outer.inner`
@@ -102,11 +102,11 @@ var debugStandardKeys = map[string]bool{
 // keys (an msg: task, or nothing usable) or exactly one (the var: task's
 // own value, whatever it's named): ok is true only in that one
 // unambiguous case, never guessing among several candidates.
-func debugVarValue(decoded map[string]interface{}) (text string, ok bool) {
+func DebugVarValue(decoded map[string]interface{}) (text string, ok bool) {
 	var found interface{}
 	count := 0
 	for k, v := range decoded {
-		if debugStandardKeys[k] || strings.HasPrefix(k, "_ansible_") {
+		if DebugStandardKeys[k] || strings.HasPrefix(k, "_ansible_") {
 			continue
 		}
 		found = v
@@ -115,17 +115,17 @@ func debugVarValue(decoded map[string]interface{}) (text string, ok bool) {
 	if count != 1 {
 		return "", false
 	}
-	return debugValueText(found), true
+	return DebugValueText(found), true
 }
 
-// moduleShortName returns decoded["action"] with any collection prefix
+// ModuleShortName returns decoded["action"] with any collection prefix
 // stripped ("ansible.builtin.copy" and the plain "copy" both become
 // "copy") - a task written with its fully-qualified name still reports the
 // FQCN in "action" (confirmed empirically: a task using
 // ansible.builtin.copy: reports action "ansible.builtin.copy", not
 // "copy"), so additionalOutputLines' module matching below needs this
 // normalization to recognize both spellings of the same module.
-func moduleShortName(decoded map[string]interface{}) string {
+func ModuleShortName(decoded map[string]interface{}) string {
 	action, _ := decoded["action"].(string)
 	if idx := strings.LastIndex(action, "."); idx != -1 {
 		return action[idx+1:]
@@ -133,14 +133,14 @@ func moduleShortName(decoded map[string]interface{}) string {
 	return action
 }
 
-// joinedStringList formats a decoded JSON value that might be a single
+// JoinedStringList formats a decoded JSON value that might be a single
 // string or a JSON array of strings (e.g. apt_repository's own
 // "sources_added", or a command task's "cmd") as one sep-joined string -
 // "" if v is neither shape, or an array with no string elements. Non-
 // string array elements are silently skipped rather than erroring, same
 // "don't trust live external jsonl blindly" caveat as this file's other
 // decoders.
-func joinedStringList(v interface{}, sep string) string {
+func JoinedStringList(v interface{}, sep string) string {
 	switch vv := v.(type) {
 	case string:
 		return vv
@@ -156,7 +156,7 @@ func joinedStringList(v interface{}, sep string) string {
 	return ""
 }
 
-// filenameField backs additionalOutputLines' copy/file/stat/template/
+// FilenameField backs additionalOutputLines' copy/file/stat/template/
 // assemble/git case: design-docs/Drilldown, Task List.md's
 // "Filename: <dest>" or "Filename: <path>", "depending on which field
 // exists in the results". Checked top-level "dest" then "path" first
@@ -167,7 +167,7 @@ func joinedStringList(v interface{}, sep string) string {
 // under invocation.module_args (which every module echoes back verbatim,
 // unresolved further) - so that's checked next, in the same
 // dest-then-path order, before giving up.
-func filenameField(decoded map[string]interface{}) string {
+func FilenameField(decoded map[string]interface{}) string {
 	if v, ok := decoded["dest"].(string); ok && v != "" {
 		return v
 	}
@@ -187,7 +187,7 @@ func filenameField(decoded map[string]interface{}) string {
 	return ""
 }
 
-// additionalOutputLines implements design-docs/Drilldown, Task List.md's
+// AdditionalOutputLines implements design-docs/Drilldown, Task List.md's
 // per-module special cases beyond debug (which already gets what it asks
 // for as a side effect of primaryOutputField's plain msg fallback - no
 // special-casing needed there): copy/file/stat/template/assemble/git get
@@ -208,18 +208,18 @@ func filenameField(decoded map[string]interface{}) string {
 // comma-joined into a single semicolon-separated part alongside the
 // primary output summary. Shared by both, the same sharing relationship
 // primaryOutputField already has with both.
-func additionalOutputLines(decoded map[string]interface{}) []string {
-	switch moduleShortName(decoded) {
+func AdditionalOutputLines(decoded map[string]interface{}) []string {
+	switch ModuleShortName(decoded) {
 	case "copy", "file", "stat", "template", "assemble", "git":
-		if fn := filenameField(decoded); fn != "" {
+		if fn := FilenameField(decoded); fn != "" {
 			return []string{"Filename: " + fn}
 		}
 	case "command", "shell":
-		if cmd := joinedStringList(decoded["cmd"], " "); cmd != "" {
+		if cmd := JoinedStringList(decoded["cmd"], " "); cmd != "" {
 			return []string{"Command: " + cmd}
 		}
 	case "apt_repository":
-		if fn := joinedStringList(decoded["sources_added"], ", "); fn != "" {
+		if fn := JoinedStringList(decoded["sources_added"], ", "); fn != "" {
 			return []string{"Filename: " + fn}
 		}
 	case "user":
@@ -235,7 +235,7 @@ func additionalOutputLines(decoded map[string]interface{}) []string {
 	return nil
 }
 
-// outputSummary returns the parenthesized detail hostLabel appends after
+// OutputSummary returns the parenthesized detail hostLabel appends after
 // "OK"/"Changed"/"Failed" - the single line of output verbatim if
 // primaryOutputField's chosen text is exactly one line, or its line count
 // otherwise, plus additionalOutputLines' own extra line(s) - comma-joined
@@ -245,12 +245,12 @@ func additionalOutputLines(decoded map[string]interface{}) []string {
 // filename fields set (shouldn't happen for a real template result, but
 // not trusted blindly - same caveat as formatHostOutput's own decode
 // below).
-func outputSummary(raw json.RawMessage) string {
+func OutputSummary(raw json.RawMessage) string {
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return ""
 	}
-	_, text := primaryOutputField(decoded)
+	_, text := PrimaryOutputField(decoded)
 	text = strings.TrimRight(text, "\n")
 
 	var parts []string
@@ -262,7 +262,7 @@ func outputSummary(raw json.RawMessage) string {
 			parts = append(parts, fmt.Sprintf("%d lines of output", len(lines)))
 		}
 	}
-	if extra := additionalOutputLines(decoded); len(extra) > 0 {
+	if extra := AdditionalOutputLines(decoded); len(extra) > 0 {
 		parts = append(parts, strings.Join(extra, ", "))
 	}
 	if len(parts) == 0 {
@@ -271,13 +271,13 @@ func outputSummary(raw json.RawMessage) string {
 	return fmt.Sprintf(" (%s)", strings.Join(parts, "; "))
 }
 
-// skipDetail returns the parenthesized "(skip_reason: false_condition)"
+// SkipDetail returns the parenthesized "(skip_reason: false_condition)"
 // detail hostLabel appends after "Skipped", pulled straight from the
 // task's own recorded result for that host - "" if skip_reason wasn't
 // present (shouldn't happen for a real v2_runner_on_skipped event, but
 // this is live external jsonl, not trusted blindly - same caveat as
 // formatHostOutput's own decode below).
-func skipDetail(raw json.RawMessage) string {
+func SkipDetail(raw json.RawMessage) string {
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return ""
@@ -292,7 +292,7 @@ func skipDetail(raw json.RawMessage) string {
 	return fmt.Sprintf(" (%s)", reason)
 }
 
-// skipOutputText builds formatHostOutput's Output section text for a
+// SkipOutputText builds formatHostOutput's Output section text for a
 // Skipped host: "<skip_reason>: <false_condition>", or just <skip_reason>
 // alone when false_condition isn't a plain string (e.g. a literal
 // `when: false` serializes it as JSON false, not a string) - same
@@ -304,7 +304,7 @@ func skipDetail(raw json.RawMessage) string {
 // result (unlike skipDetail, which decodes raw bytes itself -
 // formatHostOutput already has decoded in scope, so there's no reason to
 // decode twice).
-func skipOutputText(decoded map[string]interface{}) string {
+func SkipOutputText(decoded map[string]interface{}) string {
 	reason, _ := decoded["skip_reason"].(string)
 	if reason == "" {
 		return ""
@@ -315,9 +315,9 @@ func skipOutputText(decoded map[string]interface{}) string {
 	return reason
 }
 
-// loopItemDetail is one element of a looped task's own "results" array -
+// LoopItemDetail is one element of a looped task's own "results" array -
 // see loopItemDetails.
-type loopItemDetail struct {
+type LoopItemDetail struct {
 	Label string
 	// Msg is this item's own "msg" field, distinct from the task-level
 	// "msg" formatHostOutput already shows via primaryOutputField (which,
@@ -328,7 +328,7 @@ type loopItemDetail struct {
 	Msg string
 }
 
-// loopItemDetails returns one label+msg pair per element of a looped
+// LoopItemDetails returns one label+msg pair per element of a looped
 // task's own "results" array (present only when the task used
 // loop:/with_*, confirmed empirically against a real loop's
 // v2_runner_on_ok event - absent entirely for a non-looped task, so a
@@ -341,12 +341,12 @@ type loopItemDetail struct {
 // than a string, so it's rendered as compact JSON instead, same "always
 // show *something* readable" fallback style as formatHostOutput's own
 // decode-failure path.
-func loopItemDetails(decoded map[string]interface{}) []loopItemDetail {
+func LoopItemDetails(decoded map[string]interface{}) []LoopItemDetail {
 	results, ok := decoded["results"].([]interface{})
 	if !ok {
 		return nil
 	}
-	details := make([]loopItemDetail, 0, len(results))
+	details := make([]LoopItemDetail, 0, len(results))
 	for _, r := range results {
 		item, ok := r.(map[string]interface{})
 		if !ok {
@@ -363,16 +363,16 @@ func loopItemDetails(decoded map[string]interface{}) []loopItemDetail {
 			labelText = string(b)
 		}
 		msg, _ := item["msg"].(string)
-		details = append(details, loopItemDetail{Label: labelText, Msg: msg})
+		details = append(details, LoopItemDetail{Label: labelText, Msg: msg})
 	}
 	return details
 }
 
-// loopItemLabels is loopItemDetails' own labels, for callers (and
+// LoopItemLabels is loopItemDetails' own labels, for callers (and
 // existing tests) that only ever cared about item identity, not any
 // per-item message.
-func loopItemLabels(decoded map[string]interface{}) []string {
-	details := loopItemDetails(decoded)
+func LoopItemLabels(decoded map[string]interface{}) []string {
+	details := LoopItemDetails(decoded)
 	if details == nil {
 		return nil
 	}
@@ -390,7 +390,7 @@ func loopItemLabels(decoded map[string]interface{}) []string {
 // at a glance rather than a wall of uniform text. label is a fixed literal
 // from formatHostOutput itself, never external content, so it needs no
 // escaping.
-// yamlKeyLine matches a line's "key:" shape: optional leading indentation
+// YamlKeyLine matches a line's "key:" shape: optional leading indentation
 // and a "- " list marker (both preserved verbatim, uncolored - group 1),
 // a plain-scalar key (group 2, letters/digits/underscore/dot/hyphen -
 // covers ordinary task fields like "name"/"when" as well as FQCN module
@@ -402,19 +402,19 @@ func loopItemLabels(decoded map[string]interface{}) []string {
 // just renders unstyled; good enough for the "key: value" and "- key:
 // value" shapes every real task definition checked against this project
 // uses.
-var yamlKeyLine = regexp.MustCompile(`^(\s*(?:-\s+)?)([A-Za-z0-9_.-]+)(:)(\s.*|)$`)
+var YamlKeyLine = regexp.MustCompile(`^(\s*(?:-\s+)?)([A-Za-z0-9_.-]+)(:)(\s.*|)$`)
 
-// colorizeYAML renders raw YAML task source (see source.go) with a light,
+// ColorizeYAML renders raw YAML task source (see source.go) with a light,
 // line-based highlight: each line's "key:" portion, if it has one, is
 // colored, so structure is scannable at a glance without a real
 // tokenizer. Every dynamic piece is escaped separately (not the line as a
 // whole before coloring) so a literal "[" in the source itself - e.g.
 // "tags: [foo, bar]", which this project's own test fixtures actually
 // contain - can never be misread as a color tag.
-func colorizeYAML(raw string) string {
+func ColorizeYAML(raw string) string {
 	lines := strings.Split(raw, "\n")
 	for i, line := range lines {
-		m := yamlKeyLine.FindStringSubmatch(line)
+		m := YamlKeyLine.FindStringSubmatch(line)
 		if m == nil {
 			lines[i] = tview.Escape(line)
 			continue
@@ -424,18 +424,18 @@ func colorizeYAML(raw string) string {
 	return strings.Join(lines, "\n")
 }
 
-// sectionLabel's own trailing blank line (after the "====" underline,
+// SectionLabel's own trailing blank line (after the "====" underline,
 // before any content) matches design-docs/drilldown.txt's spacing - every
 // section there has one blank line between its underline and its content.
-func sectionLabel(color, label string) string {
+func SectionLabel(color, label string) string {
 	return fmt.Sprintf("[%s::b]%s[-::-]\n[%s]%s[-]\n\n", color, label, color, strings.Repeat("=", len([]rune(label))))
 }
 
-// taskSourceLocation formats task.Path ("<absolute file>:<line>", see
+// TaskSourceLocation formats task.Path ("<absolute file>:<line>", see
 // events.go/aggregate.go) as "[<file>, line <n>]" for display right below
 // the Task section's own YAML - "" if path doesn't have that shape
 // (shouldn't happen for a real event, but not trusted blindly).
-func taskSourceLocation(path string) string {
+func TaskSourceLocation(path string) string {
 	idx := strings.LastIndex(path, ":")
 	if idx == -1 {
 		return ""
@@ -447,13 +447,13 @@ func taskSourceLocation(path string) string {
 	return fmt.Sprintf("[%s, line %s]", file, lineStr)
 }
 
-// taskSourceFile extracts just the file portion of task.Path
+// TaskSourceFile extracts just the file portion of task.Path
 // ("<absolute file>:<line>", see events.go/aggregate.go) - "" if path
 // doesn't have that shape (shouldn't happen for a real event, but not
 // trusted blindly, same caution as taskSourceLocation above). Backs the
 // output drill-down view's own 'e' binding (openTaskSourceFile below),
 // which only needs the file to hand to an editor, not the line.
-func taskSourceFile(path string) string {
+func TaskSourceFile(path string) string {
 	idx := strings.LastIndex(path, ":")
 	if idx == -1 {
 		return ""
@@ -461,7 +461,7 @@ func taskSourceFile(path string) string {
 	return path[:idx]
 }
 
-// rolePathPattern matches the standard Ansible role directory layout
+// RolePathPattern matches the standard Ansible role directory layout
 // ("roles/<name>/tasks/...", "roles/<name>/handlers/...", or
 // "roles/<name>/templates/...") within a task's or template's own source
 // path. A heuristic, not derived from any event field - confirmed
@@ -477,9 +477,9 @@ func taskSourceFile(path string) string {
 // roles/<name>/templates/... auto-detects the same way a task's own path
 // already does, reusing this single pattern/function rather than a
 // parallel one.
-var rolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers|templates)/`)
+var RolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers|templates)/`)
 
-// roleFromPath returns the role name a task's or template's own path was
+// RoleFromPath returns the role name a task's or template's own path was
 // sourced from, or "" if it doesn't match the standard
 // roles/<name>/tasks|handlers|templates/ layout at all (a play-level task,
 // a template outside any role, or a role laid out unconventionally).
@@ -488,15 +488,15 @@ var rolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers|templ
 // strip anything first - the pattern only looks for a "/" immediately
 // after "tasks"/"handlers"/"templates", which a trailing ":<line>" (a
 // task's own path shape) never interferes with.
-func roleFromPath(path string) string {
-	m := rolePathPattern.FindStringSubmatch(path)
+func RoleFromPath(path string) string {
+	m := RolePathPattern.FindStringSubmatch(path)
 	if m == nil {
 		return ""
 	}
 	return m[1]
 }
 
-// resolvedRender is one (task, host) pair's own "Resolved" section state
+// ResolvedRender is one (task, host) pair's own "Resolved" section state
 // (design-docs/Drilldown, Resolved Values.md) - Pending means the
 // background render (see NewLiveTUI's resolveCache) hasn't finished yet;
 // otherwise exactly one of Text (success - the task's own source with its
@@ -507,13 +507,13 @@ func roleFromPath(path string) string {
 // showOutput always requests a resolve the moment a drill-down opens, so
 // in practice the zero value is only ever seen for the single frame
 // before that request is even issued.
-type resolvedRender struct {
+type ResolvedRender struct {
 	Pending bool
 	Text    string
 	Err     string
 }
 
-// buildOutputTabs is the output drill-down view's own tab-content builder
+// BuildOutputTabs is the output drill-down view's own tab-content builder
 // (design-docs/Tabbed UI.md), replacing what used to be one monolithic
 // formatHostOutput string with up to 7 named tabs instead - Task, Output
 // (merging what used to be separate Output/Warnings/Items/Error sections
@@ -562,7 +562,7 @@ type resolvedRender struct {
 // requested in that order over the module-reference-first ordering this
 // originally shipped with, once live use showed the task's own values
 // mattered more, front and center, than the module's general docs.
-func buildOutputTabs(task *playbook.TaskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender, docs resolvedRender) (names []string, contents []string) {
+func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[string]string, resolved ResolvedRender, docs ResolvedRender) (names []string, contents []string) {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		// Shouldn't happen in normal operation - every host recorded via
@@ -596,12 +596,12 @@ func buildOutputTabs(task *playbook.TaskNode, host string, sourceIndex taskSourc
 	// failure). Resolved is the one exception to "always present" among
 	// this trio - see resolvedMatchesSource below.
 	names = append(names, "Task")
-	contents = append(contents, buildTaskTab(task, host, decoded, o))
+	contents = append(contents, BuildTaskTab(task, host, decoded, o))
 
-	add("Output", buildOutputTab(decoded, o))
-	add("Diff", buildDiffTab(decoded))
+	add("Output", BuildOutputTab(decoded, o))
+	add("Diff", BuildDiffTab(decoded))
 	taskSource := sourceIndex[task.Path]
-	add("Task definition", buildSourceTab(task.Path, sourceIndex))
+	add("Task definition", BuildSourceTab(task.Path, sourceIndex))
 
 	// Omitted specifically when it would show nothing "Task definition"
 	// doesn't already - i.e. resolving finished cleanly and came back
@@ -615,47 +615,47 @@ func buildOutputTabs(task *playbook.TaskNode, host string, sourceIndex taskSourc
 	// there's no source to compare against at all (taskSource == "",
 	// meaning "Task definition" was itself omitted above) - nothing to
 	// call "identical" to in that case.
-	if !resolvedTabHidden(resolved, taskSource) {
+	if !ResolvedTabHidden(resolved, taskSource) {
 		names = append(names, "Resolved")
-		contents = append(contents, buildResolvedTab(resolved))
+		contents = append(contents, BuildResolvedTab(resolved))
 	}
 
-	if !docsTabHidden(docs) {
+	if !DocsTabHidden(docs) {
 		names = append(names, "Docs")
-		contents = append(contents, buildDocsTab(docs))
+		contents = append(contents, BuildDocsTab(docs))
 	}
 
 	names = append(names, "Details")
-	contents = append(contents, buildDetailsTab(decoded, raw))
+	contents = append(contents, BuildDetailsTab(decoded, raw))
 
 	return names, contents
 }
 
-// buildTaskTab renders the Task tab's own summary block
+// BuildTaskTab renders the Task tab's own summary block
 // (Name/Action/Role/Host/Status). Role is derived from task.Path via
 // roleFromPath - a heuristic, not something any event reports directly -
 // and the line is omitted entirely when it's not role-sourced.
-func buildTaskTab(task *playbook.TaskNode, host string, decoded map[string]interface{}, o playbook.Outcome) string {
+func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]interface{}, o playbook.Outcome) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Name: %s\n", tview.Escape(task.Name))
 	if action, ok := decoded["action"].(string); ok && action != "" {
 		fmt.Fprintf(&b, "Action: %s\n", tview.Escape(action))
 	}
-	if role := roleFromPath(task.Path); role != "" {
+	if role := RoleFromPath(task.Path); role != "" {
 		fmt.Fprintf(&b, "Role: %s\n", tview.Escape(role))
 	}
 	fmt.Fprintf(&b, "Host: %s\n", tview.Escape(host))
-	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n", colorTag(o), tview.Escape(o.String()))
+	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n", ColorTag(o), tview.Escape(o.String()))
 	return b.String()
 }
 
-// buildOutputTab merges what used to be separate Output/Warnings/Items/
+// BuildOutputTab merges what used to be separate Output/Warnings/Items/
 // Error sections into this one tab's own content (design-docs/Tabbed
 // UI.md) - each piece keeps its own sectionLabel header, exactly as
 // before, so several distinct pieces sharing one tab still read as
 // distinct pieces. "" (the tab omitted entirely by buildOutputTabs' own
 // add()) only if all four are empty.
-func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
+func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	var b strings.Builder
 	// writeTextSection renders one label+plain-text piece - omitted
 	// entirely when text is empty. The trailing "\n\n\n" closes text's
@@ -667,7 +667,7 @@ func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 		if text == "" {
 			return
 		}
-		b.WriteString(sectionLabel(color, label))
+		b.WriteString(SectionLabel(color, label))
 		b.WriteString(tview.Escape(text))
 		b.WriteString("\n\n\n")
 	}
@@ -681,16 +681,16 @@ func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// worth showing here instead.
 	var outputText string
 	if o == playbook.OutcomeSkipped {
-		outputText = skipOutputText(decoded)
+		outputText = SkipOutputText(decoded)
 	} else {
-		_, outputText = primaryOutputField(decoded)
+		_, outputText = PrimaryOutputField(decoded)
 		// additionalOutputLines' own line(s) (Filename:/Command:/User:/SSH
 		// public key:, see design-docs/Drilldown, Task List.md) are
 		// appended after whatever's already here, one per line, per its
 		// own "in addition to anything that might have gone to stdout
 		// already" wording - not shown for Skipped, which has its own,
 		// unrelated Output content above.
-		if extra := additionalOutputLines(decoded); len(extra) > 0 {
+		if extra := AdditionalOutputLines(decoded); len(extra) > 0 {
 			joined := strings.Join(extra, "\n")
 			if outputText != "" {
 				outputText += "\n" + joined
@@ -706,8 +706,8 @@ func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// "warnings" field (a JSON array of strings, confirmed empirically -
 	// e.g. ansible's own discovered-interpreter notice) gets its contents
 	// shown here, one per line, regardless of outcome or module.
-	if warnings := joinedStringList(decoded["warnings"], "\n"); warnings != "" {
-		writeTextSection(warningColor, "Warnings", warnings)
+	if warnings := JoinedStringList(decoded["warnings"], "\n"); warnings != "" {
+		writeTextSection(WarningColor, "Warnings", warnings)
 	}
 
 	// Items: only present for a looped task (loop:/with_*) - see
@@ -721,8 +721,8 @@ func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// failed"), it's shown indented on the line right below that item's
 	// own bullet, so each item's reason sits next to the item it belongs
 	// to rather than requiring a trip to Details' full JSON to find it.
-	if items := loopItemDetails(decoded); len(items) > 0 {
-		b.WriteString(sectionLabel("yellow", "Items"))
+	if items := LoopItemDetails(decoded); len(items) > 0 {
+		b.WriteString(SectionLabel("yellow", "Items"))
 		for _, item := range items {
 			fmt.Fprintf(&b, "* %s\n", tview.Escape(item.Label))
 			if item.Msg != "" {
@@ -738,7 +738,7 @@ func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// buildDiffTab renders the Diff tab's own content - "" (the tab omitted
+// BuildDiffTab renders the Diff tab's own content - "" (the tab omitted
 // entirely by buildOutputTabs' own add()) whenever decoded["diff"] is
 // absent, or present but produces no actual change to show.
 //
@@ -751,7 +751,7 @@ func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 // binary/oversize skip notices, a before/after pair, and/or a literal
 // preformatted "prepared" string - never mutually exclusive, matching
 // the original's own non-early-returning structure).
-func buildDiffTab(decoded map[string]interface{}) string {
+func BuildDiffTab(decoded map[string]interface{}) string {
 	raw, ok := decoded["diff"]
 	if !ok || raw == nil {
 		return ""
@@ -770,16 +770,16 @@ func buildDiffTab(decoded map[string]interface{}) string {
 		if !ok {
 			continue
 		}
-		if block := buildDiffEntry(d); block != "" {
+		if block := BuildDiffEntry(d); block != "" {
 			blocks = append(blocks, block)
 		}
 	}
 	return strings.Join(blocks, "\n")
 }
 
-// buildDiffEntry renders one diff dict's own content (_get_diff's
+// BuildDiffEntry renders one diff dict's own content (_get_diff's
 // per-entry body) - "" if this entry produced nothing to show at all.
-func buildDiffEntry(d map[string]interface{}) string {
+func BuildDiffEntry(d map[string]interface{}) string {
 	var b strings.Builder
 
 	if _, ok := d["dst_binary"]; ok {
@@ -797,7 +797,7 @@ func buildDiffEntry(d map[string]interface{}) string {
 
 	if _, hasBefore := d["before"]; hasBefore {
 		if _, hasAfter := d["after"]; hasAfter {
-			b.WriteString(unifiedDiffText(d))
+			b.WriteString(UnifiedDiffText(d))
 		}
 	}
 
@@ -808,11 +808,11 @@ func buildDiffEntry(d map[string]interface{}) string {
 	return b.String()
 }
 
-// unifiedDiffText computes and colorizes the before/after unified diff
+// UnifiedDiffText computes and colorizes the before/after unified diff
 // for one diff dict - "" if before and after are identical (no hunks),
 // mirroring _get_diff's own has_diff check so an unchanged file
 // contributes nothing to the tab.
-func unifiedDiffText(d map[string]interface{}) string {
+func UnifiedDiffText(d map[string]interface{}) string {
 	beforeHeader := "before"
 	if h, ok := d["before_header"]; ok {
 		beforeHeader = fmt.Sprintf("before: %v", h)
@@ -822,13 +822,13 @@ func unifiedDiffText(d map[string]interface{}) string {
 		afterHeader = fmt.Sprintf("after: %v", h)
 	}
 
-	beforeLines := diffLinesWithMarker(diffFieldText(d["before"]))
-	afterLines := diffLinesWithMarker(diffFieldText(d["after"]))
+	beforeLines := DiffLinesWithMarker(DiffFieldText(d["before"]))
+	afterLines := DiffLinesWithMarker(DiffFieldText(d["after"]))
 
-	return colorizedUnifiedDiff(beforeLines, afterLines, beforeHeader, afterHeader)
+	return ColorizedUnifiedDiff(beforeLines, afterLines, beforeHeader, afterHeader)
 }
 
-// colorizedUnifiedDiff computes a's vs b's own unified diff
+// ColorizedUnifiedDiff computes a's vs b's own unified diff
 // (difflib.GetUnifiedDiffString) and colorizes it the same way real
 // `diff -u` output reads: green "+" lines, red "-" lines, teal "@@" hunk
 // headers, everything else (context lines) plain - "" if a and b produce
@@ -837,7 +837,7 @@ func unifiedDiffText(d map[string]interface{}) string {
 // Diff.md's own drill-down tab diffing (diff.go, between two separate
 // runs) - the exact same rendering convention, reused rather than
 // reinvented, per your own "similar to how other diff utils do it."
-func colorizedUnifiedDiff(a, b []string, fromFile, toFile string) string {
+func ColorizedUnifiedDiff(a, b []string, fromFile, toFile string) string {
 	text, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
 		A:        a,
 		FromFile: fromFile,
@@ -867,12 +867,12 @@ func colorizedUnifiedDiff(a, b []string, fromFile, toFile string) string {
 	return out.String()
 }
 
-// diffFieldText converts one before/after value into plain text -
+// DiffFieldText converts one before/after value into plain text -
 // verbatim for a string, "" for nil/absent, else pretty-printed JSON
 // (matching _serialize_diff's own default result_format of "json", not
 // YAML) for a module that reports a structured value instead (e.g. the
 // file module's mode changes).
-func diffFieldText(v interface{}) string {
+func DiffFieldText(v interface{}) string {
 	switch t := v.(type) {
 	case nil:
 		return ""
@@ -887,14 +887,14 @@ func diffFieldText(v interface{}) string {
 	}
 }
 
-// diffLinesWithMarker splits s into lines the way go-difflib's Matcher
+// DiffLinesWithMarker splits s into lines the way go-difflib's Matcher
 // expects - each line keeping its own trailing "\n" (a plain "\n"-based
 // heuristic, not Python's full splitlines(True), same "good enough, not
 // chased further" tolerance as this file's other line-based heuristics,
 // e.g. yamlKeyLine) - and, if the final line has none, appends the same
 // "\ No newline at end of file" marker ansible's own _get_diff does, so a
 // diff against a file with no trailing newline reads identically.
-func diffLinesWithMarker(s string) []string {
+func DiffLinesWithMarker(s string) []string {
 	if s == "" {
 		return nil
 	}
@@ -907,24 +907,24 @@ func diffLinesWithMarker(s string) []string {
 	return lines
 }
 
-// buildSourceTab renders the Task definition tab's own content - "" (the
+// BuildSourceTab renders the Task definition tab's own content - "" (the
 // tab omitted entirely by buildOutputTabs' own add()) on a sourceIndex
 // lookup miss.
-func buildSourceTab(path string, sourceIndex taskSourceIndex) string {
+func BuildSourceTab(path string, sourceIndex map[string]string) string {
 	source, ok := sourceIndex[path]
 	if !ok || source == "" {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(colorizeYAML(source))
+	b.WriteString(ColorizeYAML(source))
 	b.WriteString("\n")
-	if loc := taskSourceLocation(path); loc != "" {
+	if loc := TaskSourceLocation(path); loc != "" {
 		fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
 	}
 	return b.String()
 }
 
-// resolvedMatchesSource reports whether resolved's own rendered text is
+// ResolvedMatchesSource reports whether resolved's own rendered text is
 // byte-for-byte identical to source (the task's raw, unresolved YAML,
 // i.e. sourceIndex[task.Path] - the same text "Task definition" shows) -
 // true only once resolving has actually finished successfully (Pending
@@ -935,14 +935,14 @@ func buildSourceTab(path string, sourceIndex taskSourceIndex) string {
 // project's own source-extraction (source.go) aren't guaranteed to agree
 // on a single trailing newline, and that alone shouldn't count as a real
 // difference worth a whole extra tab for.
-func resolvedMatchesSource(resolved resolvedRender, source string) bool {
+func ResolvedMatchesSource(resolved ResolvedRender, source string) bool {
 	if resolved.Pending || resolved.Err != "" {
 		return false
 	}
 	return strings.TrimSuffix(resolved.Text, "\n") == strings.TrimSuffix(source, "\n")
 }
 
-// resolvedTabHidden is buildOutputTabs' actual "omit the Resolved tab"
+// ResolvedTabHidden is buildOutputTabs' actual "omit the Resolved tab"
 // decision, factored out so showOutput's own async completion callback
 // (which needs the identical condition to decide whether finishing a
 // resolve should make the tab appear) can't silently drift out of
@@ -954,29 +954,29 @@ func resolvedMatchesSource(resolved resolvedRender, source string) bool {
 // doesn't carry. Otherwise hidden exactly when resolvedMatchesSource says
 // so, except source == "" (no "Task definition" tab to compare against in
 // the first place - see buildOutputTabs) always means "don't hide."
-func resolvedTabHidden(resolved resolvedRender, source string) bool {
+func ResolvedTabHidden(resolved ResolvedRender, source string) bool {
 	if resolved.Pending {
 		return true
 	}
 	if resolved.Err != "" {
 		return false
 	}
-	return source != "" && resolvedMatchesSource(resolved, source)
+	return source != "" && ResolvedMatchesSource(resolved, source)
 }
 
-// buildResolvedTab renders the Resolved tab's own content. Never called
+// BuildResolvedTab renders the Resolved tab's own content. Never called
 // with resolved.Pending true - buildOutputTabs' own resolvedTabHidden gate
 // (this tab's only call site) keeps the tab, and so this function, out of
 // the picture entirely until a resolve has actually finished - so unlike
 // its predecessor, this has no "Resolving..." case to render.
-func buildResolvedTab(resolved resolvedRender) string {
+func BuildResolvedTab(resolved ResolvedRender) string {
 	if resolved.Err != "" {
 		return "Could not resolve: " + tview.Escape(resolved.Err)
 	}
 	return tview.Escape(resolved.Text)
 }
 
-// docsTabHidden is buildOutputTabs' "omit the Docs tab" decision, factored
+// DocsTabHidden is buildOutputTabs' "omit the Docs tab" decision, factored
 // out the same way resolvedTabHidden is so showOutput's own async
 // completion callback (which needs the identical condition to decide
 // whether a finished ansible-doc lookup should make the tab appear) can't
@@ -989,28 +989,28 @@ func buildResolvedTab(resolved resolvedRender) string {
 // once a lookup was actually attempted - e.g. "module not found" or
 // ansible-doc missing from PATH is real information worth surfacing, not
 // worth pretending the tab doesn't exist over.
-func docsTabHidden(docs resolvedRender) bool {
+func DocsTabHidden(docs ResolvedRender) bool {
 	if docs.Pending {
 		return true
 	}
 	return docs.Text == "" && docs.Err == ""
 }
 
-// buildDocsTab renders the Docs tab's own content - ansible-doc -s's own
+// BuildDocsTab renders the Docs tab's own content - ansible-doc -s's own
 // output verbatim (design-docs/Ideas.md's "ansible-doc -s" entry), never
 // called with docs.Pending true, same reasoning as buildResolvedTab.
-func buildDocsTab(docs resolvedRender) string {
+func BuildDocsTab(docs ResolvedRender) string {
 	if docs.Err != "" {
 		return "Could not fetch ansible-doc: " + tview.Escape(docs.Err)
 	}
 	return tview.Escape(docs.Text)
 }
 
-// buildDetailsTab renders the full result as pretty-printed JSON - always
+// BuildDetailsTab renders the full result as pretty-printed JSON - always
 // succeeds or reports its own formatting failure, so this tab is never
 // omitted; this is also what makes every tab set work for any module
 // type without having to special-case each one.
-func buildDetailsTab(decoded map[string]interface{}, raw json.RawMessage) string {
+func BuildDetailsTab(decoded map[string]interface{}, raw json.RawMessage) string {
 	pretty, err := json.MarshalIndent(decoded, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("(failed to format: %s)\n%s", tview.Escape(err.Error()), tview.Escape(string(raw)))

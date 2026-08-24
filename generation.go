@@ -138,7 +138,7 @@ func newRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 				// invocation, not fatal to the whole session - the TUI
 				// already exists and the user is mid-session. Recorded as
 				// this one generation's own failed outcome instead;
-				// genuineFailure renders it the same as any other failed
+				// GenuineFailure renders it the same as any other failed
 				// run.
 				exitCode.Store(-1)
 				recordOutcome(generationOutcome{exitCode: -1, waitErr: err})

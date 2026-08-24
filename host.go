@@ -33,6 +33,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -387,7 +388,7 @@ func discoverHostVarsFiles(hostname string, dirs []string) []string {
 // (design-docs/HostVerb.md's own "Findings from discussion": raw file
 // content, one section per file, not a merged key-value view - preserves
 // comments/formatting and needs no variable-precedence logic), one
-// sectionLabel-headed section per file, in discoverHostVarsFiles' own
+// SectionLabel-headed section per file, in discoverHostVarsFiles' own
 // sorted order.
 func fetchHostVars(hostname, playbook string, rest []string) (string, error) {
 	var dirs []string
@@ -410,7 +411,7 @@ func fetchHostVars(hostname, playbook string, rest []string) (string, error) {
 		if err != nil {
 			content = fmt.Sprintf("(couldn't read: %v)", err)
 		}
-		b.WriteString(sectionLabel("orange", path))
+		b.WriteString(uikit.SectionLabel("orange", path))
 		b.WriteString(tview.Escape(content))
 		b.WriteString("\n\n")
 	}
@@ -459,7 +460,7 @@ func fetchHostPlays(playbook string, rest []string, hostname string) (string, er
 			if currentPlay != "" {
 				b.WriteString("\n")
 			}
-			b.WriteString(sectionLabel("orange", e.Play))
+			b.WriteString(uikit.SectionLabel("orange", e.Play))
 			currentPlay = e.Play
 		}
 		fmt.Fprintf(&b, "  %s\n", tview.Escape(e.Task))
@@ -807,8 +808,8 @@ func formatRAM(raw interface{}) string {
 // VM/Container/Bare Metal buckets - a documented heuristic, not an
 // exhaustive list of every virtualization technology Ansible can report,
 // same "good enough, not chased further" style as this project's other
-// text-classification heuristics (e.g. taskLabel's truncation,
-// primaryOutputField's stdout-vs-msg choice). An unrecognized-but-real
+// text-classification heuristics (e.g. TaskLabel's truncation,
+// PrimaryOutputField's stdout-vs-msg choice). An unrecognized-but-real
 // type falls back to showing the raw value rather than a wrong bucket.
 var virtualizationContainerTechs = map[string]bool{
 	"docker": true, "lxc": true, "lxd": true, "podman": true,
@@ -955,16 +956,16 @@ func formatHostSummary(hostname string, facts map[string]interface{}) string {
 }
 
 // hostDetailTabNames is the fixed tab order buildHostDetailPrimitive
-// always builds a fresh tabbedPane in - shared with runHostsListTUI's own
+// always builds a fresh TabbedPane in - shared with runHostsListTUI's own
 // n/p host-navigation (tabIndexByName), which needs to know this order to
-// restore the same tab after rebuilding a brand new tabbedPane for the
-// newly-selected host, since tabbedPane itself has no "jump to tab by
+// restore the same tab after rebuilding a brand new TabbedPane for the
+// newly-selected host, since TabbedPane itself has no "jump to tab by
 // name" method, only relative Next()/Prev().
 var hostDetailTabNames = []string{"Summary", "Groups", "Plays", "host_vars", "Everything known"}
 
 // tabIndexByName finds name's own index in names, defaulting to 0 (the
 // first tab) if it's ever not found - shouldn't happen in practice, since
-// every caller passes back a name tabbedPane.ActiveName() itself
+// every caller passes back a name TabbedPane.ActiveName() itself
 // produced, but a silent, harmless fallback is better than a panic over a
 // cosmetic detail like which tab a host-switch happens to land on.
 func tabIndexByName(names []string, name string) int {
@@ -978,12 +979,12 @@ func tabIndexByName(names []string, name string) int {
 
 // buildHostDetailPrimitive builds design-docs/HostVerb.md's five-tab host
 // detail view - a thin header (hostname + playbook, mirroring the
-// "template" verb's own header pattern) and a five-tab body (tabbedPane,
+// "template" verb's own header pattern) and a five-tab body (TabbedPane,
 // tabs.go) - shared unchanged between the standalone "host <name>" verb
 // (runHostDetailStandalone) and the "hosts" verb's own list-then-detail
 // flow (runHostsListTUI); the two differ only in what Esc does, which the
 // caller wires itself via its own SetInputCapture, not this function.
-// Returns the built Flex alongside the tabbedPane/header/footer so the
+// Returns the built Flex alongside the TabbedPane/header/footer so the
 // caller's own input/mouse capture can drive tab-switching and swallow
 // clicks on the header/footer bars, the same way template.go's
 // runTemplateTUI does inline for its own, simpler two-tab view.
@@ -997,9 +998,9 @@ func tabIndexByName(names []string, name string) int {
 // async-update mechanism resolved.go/ansibledoc.go already use for the
 // drill-down view's own Resolved/Docs tabs, just kicked off eagerly for
 // every tab at once instead of lazily per tab-open.
-func buildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string) (tview.Primitive, *tabbedPane, *tview.TextView, *tview.TextView) {
+func buildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *tview.TextView) {
 	header := tview.NewTextView().SetDynamicColors(true)
-	header.SetTextStyle(barStyle)
+	header.SetTextStyle(uikit.BarStyle)
 	playbookLabel := playbook
 	if playbookLabel == "" {
 		playbookLabel = "(none)"
@@ -1012,14 +1013,14 @@ func buildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	hostVarsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	everythingView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 
-	tabs := newTabbedPane()
+	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs(
 		hostDetailTabNames,
 		[]tview.Primitive{summaryView, groupsView, playsView, hostVarsView, everythingView},
 	)
 
 	footer := tview.NewTextView().SetDynamicColors(true).SetText(footerText)
-	footer.SetTextStyle(barStyle)
+	footer.SetTextStyle(uikit.BarStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
@@ -1089,7 +1090,7 @@ func runHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		if event == nil {
 			return nil, action
 		}
-		if x, y := event.Position(); inRect(x, y, header) || inRect(x, y, footer) {
+		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, footer) {
 			return nil, action
 		}
 		if action == tview.MouseLeftClick {
@@ -1109,17 +1110,17 @@ func runHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 // hostRowText renders one row of "hosts"'s own list - plain white text
 // normally, or black bold text on a light gray background when selected,
 // the same "cursor row" convention every other selectable row in this
-// app uses (playRowText/taskLabel/hostLabel's own selected parameter,
+// app uses (PlayRowText/TaskLabel/HostLabel's own selected parameter,
 // tui.go).
 func hostRowText(hostname string, selected bool) string {
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, tview.Escape(hostname))
+		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, tview.Escape(hostname))
 	}
 	return "[white]" + tview.Escape(hostname) + "[-]"
 }
 
 // runHostsListTUI implements "tangsible hosts"'s own list-then-detail
-// flow: a scrollable treeList (treelist.go - the same widget the main
+// flow: a scrollable TreeList (treelist.go - the same widget the main
 // tree view uses) of every host, Enter opens the identical five-tab
 // detail view "tangsible host <name>" would show for that same host
 // (buildHostDetailPrimitive), Esc from the detail view returns to the
@@ -1141,15 +1142,15 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
-	list := newTreeList()
+	list := uikit.NewTreeList()
 	pages := tview.NewPages()
 
 	listHeader := tview.NewTextView().SetDynamicColors(true).
 		SetText(fmt.Sprintf(" %d hosts ", len(hosts)))
-	listHeader.SetTextStyle(barStyle)
+	listHeader.SetTextStyle(uikit.BarStyle)
 	listFooter := tview.NewTextView().SetDynamicColors(true).
 		SetText(" enter: open host  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
-	listFooter.SetTextStyle(barStyle)
+	listFooter.SetTextStyle(uikit.BarStyle)
 
 	listFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(listHeader, 1, 0, false).
@@ -1159,7 +1160,7 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 
 	var (
 		onList          = true
-		detailTabs      *tabbedPane
+		detailTabs      *uikit.TabbedPane
 		detailHeader    *tview.TextView
 		detailFooter    *tview.TextView
 		currentHostname string
@@ -1185,9 +1186,9 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 	// everywhere else (e.g. tui.go's navigateMainTask). The currently
 	// active tab is preserved across the switch by name (tabIndexByName)
 	// rather than always resetting to Summary: showDetail rebuilds a
-	// brand new tabbedPane from scratch for the new host (there's no way
+	// brand new TabbedPane from scratch for the new host (there's no way
 	// to just re-point an existing one at different content), so the old
-	// tabbedPane's own active tab has to be looked up by name and
+	// TabbedPane's own active tab has to be looked up by name and
 	// re-applied via repeated Next() calls on the new one.
 	navigateHostDetail := func(delta int) {
 		idx := -1
@@ -1211,7 +1212,7 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		}
 	}
 
-	// treeList (treelist.go), unlike tview.List, has no built-in "this is
+	// TreeList (treelist.go), unlike tview.List, has no built-in "this is
 	// the current row" highlighting at all - tui.go's own tree gets its
 	// visible cursor purely by re-rendering whichever row is current with
 	// different style tags on every change (see its own rebuild()), never
@@ -1290,12 +1291,12 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 			return nil, action
 		}
 		if onList {
-			if x, y := event.Position(); inRect(x, y, listHeader) || inRect(x, y, listFooter) {
+			if x, y := event.Position(); uikit.InRect(x, y, listHeader) || uikit.InRect(x, y, listFooter) {
 				return nil, action
 			}
 			return event, action
 		}
-		if x, y := event.Position(); inRect(x, y, detailHeader) || inRect(x, y, detailFooter) {
+		if x, y := event.Position(); uikit.InRect(x, y, detailHeader) || uikit.InRect(x, y, detailFooter) {
 			return nil, action
 		}
 		if action == tview.MouseLeftClick {

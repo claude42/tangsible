@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"strings"
@@ -33,7 +33,7 @@ func TestSplitTreeWidth(t *testing.T) {
 		{1000, 80}, // very wide terminal: tree still capped at 80
 	}
 	for _, c := range cases {
-		if got := splitTreeWidth(c.totalWidth); got != c.want {
+		if got := SplitTreeWidth(c.totalWidth); got != c.want {
 			t.Errorf("splitTreeWidth(%d) = %d, want %d", c.totalWidth, got, c.want)
 		}
 	}
@@ -47,7 +47,7 @@ func TestSplitTreeWidth(t *testing.T) {
 // feature, not just the pre-existing "no host has reported yet" case.
 func TestComputeHostColumnLayoutNilAllHosts(t *testing.T) {
 	state := buildTwoPlayState() // task names: task1, task2, task3
-	layout := computeHostColumnLayout(state, nil, 200, false)
+	layout := ComputeHostColumnLayout(state, nil, 200, false)
 	if want := len("task1"); layout.TitleColWidth != want {
 		t.Errorf("TitleColWidth = %d, want %d (widest task name, unshrunk - avail is generous)", layout.TitleColWidth, want)
 	}
@@ -62,10 +62,10 @@ func TestComputeHostColumnLayoutNilAllHosts(t *testing.T) {
 // layout.TitleColWidth says, since there's no shared column to honor.
 func TestTaskLabelNilAllHosts(t *testing.T) {
 	task := &playbook.TaskNode{Name: "a-fairly-long-task-name"}
-	layout := hostColumnLayout{TitleColWidth: 3, HostDisplay: []string{"web1", "web2"}} // deliberately
+	layout := HostColumnLayout{TitleColWidth: 3, HostDisplay: []string{"web1", "web2"}} // deliberately
 	// mismatched, to prove it's ignored when allHosts is nil.
 
-	got := taskLabel(task, nil, layout, 200, false, ' ', false, true)
+	got := TaskLabel(task, nil, layout, 200, false, ' ', false, true)
 	if !strings.Contains(got, "a-fairly-long-task-name") {
 		t.Errorf("taskLabel() = %q, want the full task name present (plenty of avail width, layout ignored)", got)
 	}

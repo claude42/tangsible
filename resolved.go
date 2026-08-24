@@ -35,12 +35,13 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
 // jinjaExpressionPattern matches one {{ ... }} expression block in raw
 // ansible source text - a regex-based heuristic, not a real Jinja lexer,
 // same "documented, not chased to 100%" tolerance this project already
-// applies elsewhere (colorizeYAML's yamlKeyLine, taskLabel's truncation).
+// applies elsewhere (ColorizeYAML's YamlKeyLine, TaskLabel's truncation).
 // Known blind spot: a string literal within the expression that itself
 // contains a literal "}}" would confuse the non-greedy match boundary -
 // not worth a full tokenizer over.
@@ -95,7 +96,7 @@ func jinjaStringLiteral(s string) string {
 // exactly as shown in the drill-down's "Task definition" section) with
 // its variables resolved for host, and returns the result. Reuses most of
 // template.go's own machinery: role-owned vars_files detection
-// (roleVarsFiles, keyed off taskPath the same way roleFromPath already
+// (roleVarsFiles, keyed off taskPath the same way RoleFromPath already
 // is), the same ignore_unreachable/delegate_to: localhost stub shape
 // template.go already uses - except targeting host directly via
 // hosts: <host> rather than hosts: all + --limit, since a drill-down is
@@ -221,7 +222,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	if decoded.Failed || decoded.Unreachable {
 		var full map[string]interface{}
 		_ = json.Unmarshal(raw, &full)
-		_, msg := primaryOutputField(full)
+		_, msg := uikit.PrimaryOutputField(full)
 		if msg == "" {
 			msg = decoded.Msg
 		}

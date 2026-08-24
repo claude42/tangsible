@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
 // A couple of tiny constructors, just to avoid repeating the same struct
@@ -161,8 +162,8 @@ func TestHasWarnings(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := hasWarnings(json.RawMessage(c.raw)); got != c.want {
-				t.Errorf("hasWarnings(%s) = %v, want %v", c.raw, got, c.want)
+			if got := uikit.HasWarnings(json.RawMessage(c.raw)); got != c.want {
+				t.Errorf("HasWarnings(%s) = %v, want %v", c.raw, got, c.want)
 			}
 		})
 	}
@@ -176,16 +177,16 @@ func TestTaskHasWarnings(t *testing.T) {
 			"web2": json.RawMessage(`{"changed":false,"warnings":["hi"]}`),
 		},
 	}
-	if !taskHasWarnings(task) {
-		t.Error("taskHasWarnings() = false, want true (web2 has one)")
+	if !uikit.TaskHasWarnings(task) {
+		t.Error("TaskHasWarnings() = false, want true (web2 has one)")
 	}
 
 	noWarnings := &playbook.TaskNode{
 		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 	}
-	if taskHasWarnings(noWarnings) {
-		t.Error("taskHasWarnings() = true, want false")
+	if uikit.TaskHasWarnings(noWarnings) {
+		t.Error("TaskHasWarnings() = true, want false")
 	}
 }
 

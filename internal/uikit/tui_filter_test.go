@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package uikit
 
 import (
 	"encoding/json"
@@ -28,29 +28,29 @@ func TestTaskHasAnyOutcome(t *testing.T) {
 		"web2": playbook.OutcomeOK,
 	}}
 
-	if !taskHasAnyOutcome(task, playbook.OutcomeFailed) {
+	if !TaskHasAnyOutcome(task, playbook.OutcomeFailed) {
 		t.Error("expected a match: web1 is Failed")
 	}
-	if !taskHasAnyOutcome(task, playbook.OutcomeUnreachable, playbook.OutcomeFailed) {
+	if !TaskHasAnyOutcome(task, playbook.OutcomeUnreachable, playbook.OutcomeFailed) {
 		t.Error("expected a match against a list of outcomes when one of them matches")
 	}
-	if taskHasAnyOutcome(task, playbook.OutcomeSkipped) {
+	if TaskHasAnyOutcome(task, playbook.OutcomeSkipped) {
 		t.Error("expected no match: no host is Skipped")
 	}
-	if taskHasAnyOutcome(&playbook.TaskNode{}, playbook.OutcomeOK) {
+	if TaskHasAnyOutcome(&playbook.TaskNode{}, playbook.OutcomeOK) {
 		t.Error("expected no match against a task with no hosts at all")
 	}
 }
 
 func TestTaskVisible(t *testing.T) {
-	all := filterQuery{mode: filterAll}
-	changed := filterQuery{mode: filterChanged}
-	failed := filterQuery{mode: filterFailed}
+	all := FilterQuery{Mode: FilterAll}
+	changed := FilterQuery{Mode: FilterChanged}
+	failed := FilterQuery{Mode: FilterFailed}
 
 	cases := []struct {
 		name     string
 		task     *playbook.TaskNode
-		q        filterQuery
+		q        FilterQuery
 		isActive bool
 		want     bool
 	}{
@@ -106,7 +106,7 @@ func TestTaskVisible(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := taskVisible(c.task, c.q, nil, c.isActive)
+			got := TaskVisible(c.task, c.q, nil, c.isActive)
 			if got != c.want {
 				t.Errorf("taskVisible() = %v, want %v", got, c.want)
 			}
@@ -115,7 +115,7 @@ func TestTaskVisible(t *testing.T) {
 }
 
 func TestTaskMatchesSearch(t *testing.T) {
-	sourceIndex := taskSourceIndex{"/pb.yml:3": "- name: install package\n  ansible.builtin.package:\n    name: nginx"}
+	sourceIndex := map[string]string{"/pb.yml:3": "- name: install package\n  ansible.builtin.package:\n    name: nginx"}
 
 	task := &playbook.TaskNode{
 		Name: "install nginx",
@@ -141,7 +141,7 @@ func TestTaskMatchesSearch(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := taskMatchesSearch(task, c.term, sourceIndex)
+			got := TaskMatchesSearch(task, c.term, sourceIndex)
 			if got != c.want {
 				t.Errorf("taskMatchesSearch(%q) = %v, want %v", c.term, got, c.want)
 			}
@@ -156,16 +156,16 @@ func TestTaskOutputText(t *testing.T) {
 		"web3": json.RawMessage(`not valid json`),
 	}}
 
-	if got := taskOutputText(task, "web1"); got != "hello from stdout" {
+	if got := TaskOutputText(task, "web1"); got != "hello from stdout" {
 		t.Errorf("web1: got %q, want stdout preferred over msg", got)
 	}
-	if got := taskOutputText(task, "web2"); got != "only msg here" {
+	if got := TaskOutputText(task, "web2"); got != "only msg here" {
 		t.Errorf("web2: got %q, want msg used as fallback", got)
 	}
-	if got := taskOutputText(task, "web3"); got != "" {
+	if got := TaskOutputText(task, "web3"); got != "" {
 		t.Errorf("web3 (undecodable JSON): got %q, want empty string", got)
 	}
-	if got := taskOutputText(task, "no-such-host"); got != "" {
+	if got := TaskOutputText(task, "no-such-host"); got != "" {
 		t.Errorf("host not recorded at all: got %q, want empty string", got)
 	}
 }
@@ -177,16 +177,16 @@ func TestTaskAction(t *testing.T) {
 		"web3": json.RawMessage(`not valid json`),
 	}}
 
-	if got := taskAction(task, "web1"); got != "ansible.builtin.copy" {
+	if got := TaskAction(task, "web1"); got != "ansible.builtin.copy" {
 		t.Errorf("web1: got %q, want the action field's own FQCN verbatim", got)
 	}
-	if got := taskAction(task, "web2"); got != "" {
+	if got := TaskAction(task, "web2"); got != "" {
 		t.Errorf("web2 (no action field): got %q, want empty string", got)
 	}
-	if got := taskAction(task, "web3"); got != "" {
+	if got := TaskAction(task, "web3"); got != "" {
 		t.Errorf("web3 (undecodable JSON): got %q, want empty string", got)
 	}
-	if got := taskAction(task, "no-such-host"); got != "" {
+	if got := TaskAction(task, "no-such-host"); got != "" {
 		t.Errorf("host not recorded at all: got %q, want empty string", got)
 	}
 }
@@ -208,7 +208,7 @@ func buildTwoPlayState() *playbook.PlaybookState {
 
 func TestAllTasks(t *testing.T) {
 	state := buildTwoPlayState()
-	got := allTasks(state)
+	got := AllTasks(state)
 	var names []string
 	for _, task := range got {
 		names = append(names, task.Name)
@@ -220,7 +220,7 @@ func TestAllTasks(t *testing.T) {
 
 func TestTasksForHost(t *testing.T) {
 	state := buildTwoPlayState()
-	got := tasksForHost(state, "web2")
+	got := TasksForHost(state, "web2")
 	var names []string
 	for _, task := range got {
 		names = append(names, task.Name)
@@ -233,7 +233,7 @@ func TestTasksForHost(t *testing.T) {
 
 func TestVisibleTasks(t *testing.T) {
 	state := buildTwoPlayState() // task1 has a Failed host, task2/task3 don't
-	got := visibleTasks(state, filterQuery{mode: filterFailed}, nil, nil)
+	got := VisibleTasks(state, FilterQuery{Mode: FilterFailed}, nil, nil)
 	var names []string
 	for _, task := range got {
 		names = append(names, task.Name)
@@ -247,7 +247,7 @@ func TestVisibleTasksForHost(t *testing.T) {
 	state := buildTwoPlayState()
 	// web2 reports on task1 (Failed) and task3 (OK) - only task1 should
 	// survive a Failed filter.
-	got := visibleTasksForHost(state, "web2", filterQuery{mode: filterFailed}, nil, nil)
+	got := VisibleTasksForHost(state, "web2", FilterQuery{Mode: FilterFailed}, nil, nil)
 	var names []string
 	for _, task := range got {
 		names = append(names, task.Name)
@@ -260,7 +260,7 @@ func TestVisibleTasksForHost(t *testing.T) {
 func TestTaskSet(t *testing.T) {
 	task1 := &playbook.TaskNode{Name: "task1"}
 	task2 := &playbook.TaskNode{Name: "task2"}
-	set := taskSet([]*playbook.TaskNode{task1})
+	set := TaskSet([]*playbook.TaskNode{task1})
 
 	if !set[task1] {
 		t.Error("expected task1 to be a member")

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/pmezard/go-difflib/difflib"
 )
 
@@ -36,7 +37,7 @@ type taskAlignment struct {
 
 // alignTasks aligns oldPlay's and newPlay's own task sequences by name,
 // via difflib.SequenceMatcher (already a dependency - the same library
-// buildDiffTab already uses for line-level diffs, reused here for name-
+// BuildDiffTab already uses for line-level diffs, reused here for name-
 // level sequence alignment instead of a custom LCS implementation).
 //
 // Matching by name rather than by task.Path deliberately: editing the
@@ -52,7 +53,7 @@ type taskAlignment struct {
 // but SequenceMatcher's own alignment leans on surrounding position, not
 // just raw equality, so it tends to do the sensible thing even then: same
 // "documented heuristic, not chased further" tradeoff this codebase
-// already makes elsewhere (taskLabel's own truncation, primaryOutputField's
+// already makes elsewhere (TaskLabel's own truncation, PrimaryOutputField's
 // stdout-vs-msg choice).
 //
 // oldPlay/newPlay may themselves be nil - the play that owns them only
@@ -234,7 +235,7 @@ func differingHosts(a taskAlignment) map[string]bool {
 // hostOutputDiffers compares host's own recorded output between oldTask
 // and newTask - design-docs/Diff.md's "Different output (stdout, stderr,
 // warning)" - via the exact same fields formatHostOutput already treats
-// as distinct sections (primaryOutputField's own stdout-vs-msg choice,
+// as distinct sections (PrimaryOutputField's own stdout-vs-msg choice,
 // stderr, warnings), decoded from the same Raw[host] JSON both tasks
 // already carry. A host missing from either side's own Raw (shouldn't
 // happen for a host taskDiffers has already confirmed is present in both
@@ -254,9 +255,9 @@ func hostOutputSignature(raw json.RawMessage) (output, stderr, warnings string) 
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return "", "", ""
 	}
-	_, output = primaryOutputField(decoded)
+	_, output = uikit.PrimaryOutputField(decoded)
 	stderr, _ = decoded["stderr"].(string)
-	warnings = joinedStringList(decoded["warnings"], "\n")
+	warnings = uikit.JoinedStringList(decoded["warnings"], "\n")
 	return output, stderr, warnings
 }
 
