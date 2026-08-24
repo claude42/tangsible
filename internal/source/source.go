@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package source
 
 import (
 	"fmt"
@@ -23,11 +23,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// taskSourceIndex maps a task's Ansible-reported path ("<absolute
+// TaskSourceIndex maps a task's Ansible-reported path ("<absolute
 // file>:<line>", exactly matching RawEvent's task.path field) to its own
 // raw YAML source text, verbatim from the file - not reformatted or
 // re-serialized, so the user's own formatting/comments are preserved.
-type taskSourceIndex map[string]string
+type TaskSourceIndex map[string]string
 
 // blockTaskListKeys/playTaskListKeys name the mapping keys whose value is
 // itself a task-list sequence, at the task level (nested inside a block:)
@@ -35,7 +35,7 @@ type taskSourceIndex map[string]string
 var blockTaskListKeys = map[string]bool{"block": true, "rescue": true, "always": true}
 var playTaskListKeys = map[string]bool{"tasks": true, "pre_tasks": true, "post_tasks": true, "handlers": true}
 
-// buildTaskSourceIndex discovers every .yml/.yaml file under playbookPath's
+// BuildTaskSourceIndex discovers every .yml/.yaml file under playbookPath's
 // own directory tree (the playbook itself, plus any roles/** alongside it)
 // and indexes every task found in each by its own source location. Never
 // fails outward - unreadable directories/files or YAML parse errors just
@@ -53,8 +53,8 @@ var playTaskListKeys = map[string]bool{"tasks": true, "pre_tasks": true, "post_t
 // itself, which reports the real target file's own path in every event -
 // so a plain map lookup by that reported path finds it regardless of how
 // the file was reached.
-func buildTaskSourceIndex(playbookPath string) taskSourceIndex {
-	index := taskSourceIndex{}
+func BuildTaskSourceIndex(playbookPath string) TaskSourceIndex {
+	index := TaskSourceIndex{}
 
 	abs, err := filepath.Abs(playbookPath)
 	if err != nil {
@@ -94,7 +94,7 @@ func buildTaskSourceIndex(playbookPath string) taskSourceIndex {
 // A parse error, an unreadable file, or a top-level shape that isn't a
 // sequence (e.g. a vars file, which is a mapping) simply indexes nothing
 // from this file - never propagated as an error.
-func indexFile(path string, index taskSourceIndex) {
+func indexFile(path string, index TaskSourceIndex) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -164,7 +164,7 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 // mapping. This keeps every nested task list's span tightly bounded even
 // when interleaved with unrelated keys - e.g. a play's own "vars:" sitting
 // between "tasks:" and "handlers:", or "rescue:" following "block:".
-func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[string]bool, lines []string, limit int, index taskSourceIndex) {
+func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[string]bool, lines []string, limit int, index TaskSourceIndex) {
 	if mapping.Kind != yaml.MappingNode {
 		return
 	}
@@ -187,7 +187,7 @@ func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[s
 // each item. limit is this sequence's own end boundary, inherited from
 // whatever encloses it - used as the last item's fallback boundary; every
 // earlier item's boundary is simply the next item's own start line.
-func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index taskSourceIndex) {
+func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index TaskSourceIndex) {
 	for i, item := range seq.Content {
 		itemEnd := limit
 		if i+1 < len(seq.Content) {
@@ -204,7 +204,7 @@ func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index
 // indexTaskList - including a block: wrapper itself, alongside its nested
 // tasks - which is harmless: Ansible's own task.path never points at a
 // block wrapper in practice, so that entry simply never gets looked up.
-func recordNode(path string, item *yaml.Node, lines []string, endLine int, index taskSourceIndex) {
+func recordNode(path string, item *yaml.Node, lines []string, endLine int, index TaskSourceIndex) {
 	if item.Kind != yaml.MappingNode {
 		return
 	}

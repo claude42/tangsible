@@ -29,6 +29,7 @@ import (
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/role"
 	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
@@ -225,7 +226,7 @@ func main() {
 	// doesn't pay for it - "rerun" has no such gate to be after (see
 	// pending's own case above), so it's simply built before anything
 	// else instead.
-	sourceIndex := buildTaskSourceIndex(playbook)
+	sourceIndex := source.BuildTaskSourceIndex(playbook)
 
 	// progH holds the current (or about-to-run) generation's own
 	// "Task x/y" progress skeleton (progress.go) - an atomic.Pointer

@@ -29,6 +29,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -99,7 +100,7 @@ func lastRunID(cfg config.StateConfig, playbook, role string) string {
 // keeps picking runs to compare against - the same "list <-> detail" loop
 // shape runRevisitVerb already uses, one level down (a diff tree instead
 // of a full live NewLiveTUI).
-func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRole, currentTags, currentHosts string, currentSourceIndex taskSourceIndex) {
+func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRole, currentTags, currentHosts string, currentSourceIndex source.TaskSourceIndex) {
 	for {
 		cfg, _ := config.PruneMissingRunLogs(config.TangsibleStatePath)
 		currentRunID := lastRunID(cfg, targetPlaybook, targetRole)
@@ -122,13 +123,13 @@ func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRol
 			// than getting stuck on a dead entry.
 		}
 
-		// The comparison run's own Task-definition source: buildTaskSourceIndex
+		// The comparison run's own Task-definition source: BuildTaskSourceIndex
 		// against its own playbook, same as revisit.go's own openRevisitEntry -
 		// empty for a role-originated entry (its own generated stub is long
 		// gone, same accepted gap documented there).
-		var oldSourceIndex taskSourceIndex
+		var oldSourceIndex source.TaskSourceIndex
 		if selected.Role == "" {
-			oldSourceIndex = buildTaskSourceIndex(selected.Playbook)
+			oldSourceIndex = source.BuildTaskSourceIndex(selected.Playbook)
 		}
 
 		runDiffTreeTUI(alignPlays(oldState, currentState), currentSourceIndex, oldSourceIndex)
@@ -542,7 +543,7 @@ func diffTwoTexts(a, b string) string {
 // side"). "" (the decode-failure fallback in buildDiffOutputTabs, where
 // the task genuinely exists on both sides) skips the note entirely - it
 // would be actively wrong there.
-func singleRunTabs(task *playbook.TaskNode, host string, sourceIndex taskSourceIndex, docs uikit.ResolvedRender, side string) (names []string, contents []string) {
+func singleRunTabs(task *playbook.TaskNode, host string, sourceIndex source.TaskSourceIndex, docs uikit.ResolvedRender, side string) (names []string, contents []string) {
 	allNames, allContents := uikit.BuildOutputTabs(task, host, sourceIndex, uikit.ResolvedRender{}, docs)
 	for i, n := range allNames {
 		if n == "Diff" || n == "Resolved" {
@@ -586,7 +587,7 @@ func unmatchedTaskNote(side string) string {
 // source genuinely did change between runs, Task definition's own diff
 // already surfaces that. Can be added later if it proves genuinely
 // wanted once this is in front of you - not chased further for now.
-func buildDiffOutputTabs(a taskAlignment, host string, newSourceIndex, oldSourceIndex taskSourceIndex) (names []string, contents []string) {
+func buildDiffOutputTabs(a taskAlignment, host string, newSourceIndex, oldSourceIndex source.TaskSourceIndex) (names []string, contents []string) {
 	// A real, reported crash: TaskAction(a.NewTask, host) was called
 	// unconditionally, before ever checking a.NewTask == nil below - for
 	// an old-only task (present only in the comparison run), a.NewTask is
@@ -669,7 +670,7 @@ func buildDiffOutputTabs(a taskAlignment, host string, newSourceIndex, oldSource
 // change: toggling a task's own expand state changes the row *count*
 // too, handled the same way (recompute currentRows, re-add everything,
 // restore the cursor by index).
-func runDiffTreeTUI(alignments []playAlignment, newSourceIndex, oldSourceIndex taskSourceIndex) {
+func runDiffTreeTUI(alignments []playAlignment, newSourceIndex, oldSourceIndex source.TaskSourceIndex) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 

@@ -38,6 +38,7 @@ import (
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/role"
 	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -323,7 +324,7 @@ func openRevisitEntry(e revisitEntry) {
 	if cleanup != nil {
 		defer cleanup()
 	}
-	sourceIndex := buildTaskSourceIndex(playbook)
+	sourceIndex := source.BuildTaskSourceIndex(playbook)
 
 	settings := config.ReadSettingsConfig(config.TangsibleConfigPath)
 	invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(e.Args))
