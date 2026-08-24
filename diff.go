@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -345,6 +346,22 @@ func diffTaskLine(task *taskNode, titleColWidth int, wholeLineFlag, marker strin
 	return fmt.Sprintf("%s[silver::%s]%s[-::-]%s%s", taskIndent, wholeLineFlag, nameEscaped, padding, hosts)
 }
 
+// sortedHostOrder returns a copy of hostOrder sorted alphabetically -
+// hostOrder itself is report-arrival order (aggregate.go's taskNode.record
+// appends whichever host happens to answer first), which is deliberately
+// what render.go's plain-text dump follows, but is meaningless (and, with
+// parallel forks, different from task to task) as a *display* order. The
+// live tree's own taskLabel never has this problem since it iterates
+// state.AllHosts (alphabetically sorted) instead of any one task's
+// HostOrder - diff mode has no equivalent run-wide host set spanning both
+// the old and new playbookState trees, so it sorts locally here instead.
+func sortedHostOrder(hostOrder []string) []string {
+	sorted := make([]string, len(hostOrder))
+	copy(sorted, hostOrder)
+	sort.Strings(sorted)
+	return sorted
+}
+
 // diffHostList renders task's own HostOrder as a space-separated,
 // per-host colored list (colorTag per outcome, matching taskLabel's own
 // collapsed-row convention in spirit - though without its shared-column-
@@ -354,7 +371,7 @@ func diffTaskLine(task *taskNode, titleColWidth int, wholeLineFlag, marker strin
 // specific hosts get their own "u" (a matched, differing task).
 func diffHostList(task *taskNode, wholeLineFlag string, underlineHosts map[string]bool) string {
 	parts := make([]string, 0, len(task.HostOrder))
-	for _, host := range task.HostOrder {
+	for _, host := range sortedHostOrder(task.HostOrder) {
 		flag := wholeLineFlag
 		if flag == "" && underlineHosts[host] {
 			flag = "u"
@@ -395,7 +412,7 @@ func diffHostRows(a taskAlignment, selectedID any, showOutput func(taskAlignment
 	diffHosts := differingHosts(a)
 
 	rows := make([]row, 0, len(task.HostOrder))
-	for _, host := range task.HostOrder {
+	for _, host := range sortedHostOrder(task.HostOrder) {
 		host := host
 		flag := wholeLineFlag
 		if flag == "" && diffHosts[host] {
