@@ -163,6 +163,23 @@ subdirectory - single binary, so it doesn't earn its keep here.
 
 ## Status
 
-Not started. Phase 0 is the proposed next step whenever this gets picked
-back up - lowest risk, most immediate relief for the `tui.go` size
-concern that prompted this doc.
+Phase 0 done. `tui.go` (was 5082 lines) is now split, same package/
+directory, into `tui.go` (2537 lines - just `NewLiveTUI` and its ~35
+closures, per this phase's own decision to leave that one alone for now)
+plus six new files grouped by the declarations actually found:
+`tui_layout.go` (920 - row-text rendering: `taskLabel`/`hostLabel`/
+`playRowText`/`colorTag`/`computeHostColumnLayout`/top-bar composition),
+`tui_drilldown.go` (1018 - `buildOutputTabs` and the whole `buildXTab`
+family, `sectionLabel`, `colorizeYAML`, diff rendering), `tui_filter.go`
+(314 - `filterQuery`/`taskVisible`/search matching/task-navigation
+helpers), `tui_rows.go` (188 - `row`/`flattenRows`/status-row text),
+`tui_style.go` (152 - palette/style constants), `tui_dialogs.go` (81 -
+`centeredModal`/`filterDialogText`/`inRect`). Extraction was AST-driven
+(each declaration cut by its own exact source range, doc comment
+included) rather than manual, so nothing was dropped, reordered within
+its group, or reformatted beyond `goimports` reconciling each new file's
+own import list. `go build`/`go vet`/`gofmt -l`/`go test ./...`/
+`go test -tags e2e ./...` all pass unchanged.
+
+Phase 1 (extract a shared rendering toolkit as its own package) is the
+proposed next step whenever this gets picked back up.
