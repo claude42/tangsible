@@ -404,14 +404,67 @@ strictly in sequence rather than batching both avoided finding that out
 the hard way). `go build`/`go vet`/`gofmt -l`/`go test ./...`/
 `go test -tags e2e ./...` all pass on all five packages now.
 
-Still open, no proposal yet: the `host.go`/`template.go` cycle, and
-where `main.go`'s process-lifecycle plumbing (plus `progress.go`/
-`source.go`) ends up so `diff`/`revisit`+`generation` can become real
-packages too. `diff.go`/`revisit.go`/`revisitresolve.go`/`generation.go`
-stay in `package main` for now, unaffected by this round other than the
-`config.`/`role.` qualification their existing calls into those two
-clusters now need.
+The remaining two pieces (host/template's cycle, and where `main.go`'s
+process-lifecycle plumbing ends up) were proposed and then done as two
+more increments, in the same session:
 
-Phase 3 (break `NewLiveTUI` itself apart) stays deferred per its own
-section above - Phase 4's remaining two clusters are the proposed next
-step whenever this gets picked back up.
+**`internal/inventory`** breaks the `host.go`/`template.go` cycle by
+extracting the one thing they actually share - the `ansible-inventory
+--list` JSON client - rather than merging two already-large files
+(1314/661 lines) together. `AnsibleInventoryGroup` (type) and
+`FlattenInventoryHosts` moved out of `template.go`; `ListInventoryHosts`
+moved out of `host.go` (it also called the former, and `host.go`'s own
+`hostGroupChain` used the type directly - both fixed to call
+`inventory.*`). `host.go`/`template.go` then became genuinely
+independent packages, each importing `inventory` instead of each other.
+`TestFlattenInventoryHosts` (previously in `template_test.go`) moved
+with the code it tests, into `internal/inventory`'s own test file.
+
+**A real dependency surfaced only once `internal/host` tried to build
+standalone**, not caught by the earlier research: `FetchHostPlays`
+(host.go) calls `progress.go`'s `parseListTasksOutput` directly, for the
+"Plays" tab. Since `progress.go` was already slated for the
+process-lifecycle package, this just meant doing that part of the
+runner extraction earlier than planned rather than changing the design
+- `progress.go` moved into `internal/runner` first (on its own,
+self-contained, no other change needed), then `host.go`/`template.go`
+finished moving into `internal/host`/`internal/template`.
+
+**`internal/runner`** (rest of it): `main.go`'s
+`AnsibleUserInterruptedExitCode`/`ExitCodeOf`/`ProcHandle`/
+`PendingGeneration`/`GenerationOutcome`/`SpawnGeneration`/
+`StartFirstGeneration`/`StreamStderr`/`StreamItem`/`ScanEvents`, cut out
+of `main.go` (which shrank to just `main()` - 380 lines, imports and all
+- plus its own `import` block) into a new `process.go`, and
+`generation.go` (`RunOneGeneration`/`NewRequestRerun`) moved in
+wholesale alongside it and `progress.go`. `main_test.go` - which turned
+out to test only the process-lifecycle pieces (`TestProcHandle`/
+`TestExitCodeOf`/`TestStreamStderr`/`TestScanEvents*`), nothing of
+`main()` itself - moved to `internal/runner/process_test.go` to match.
+`PendingGeneration`/`GenerationOutcome`'s own fields needed exporting
+too (`Cmd`/`StdoutCh`/`StderrLines`/`First`/`RunID`/`ExitCode`/`WaitErr`/
+`ChildStderr`) - `main.go`'s own body reads them directly, and it's the
+one file in this whole phase that couldn't just move into the package
+alongside its dependencies, being the actual `package main` entrypoint.
+`StreamItem`'s own fields (`Ev`/`IsEvent`, from `ev`/`isEvent`) needed
+the same treatment for the same reason. `main.go`/`generation.go` both
+already used a `pb` import alias for `internal/playbook` (the same
+"playbook" local-variable collision from Phase 2) - carried forward
+into `internal/runner`'s own two files unchanged. `source.go` stays
+untouched, in `package main` - nothing about this round's moves needed
+it to go anywhere.
+
+`go build`/`go vet`/`gofmt -l`/`go test ./...`/`go test -tags e2e ./...`
+all pass on all nine packages Phase 4 now leaves: `main` (thin - just
+`main()`, `tui.go`'s `NewLiveTUI`, `recap.go`, `diff.go`/`diffmatch.go`/
+`diffresolve.go`, `revisit.go`/`revisitresolve.go`, `source.go`) plus
+`internal/config`/`role`/`playbook`/`uikit`/`inventory`/`host`/
+`template`/`runner`.
+
+Not done, deliberately out of scope for Phase 4 as it stands: `diff.go`/
+`revisit.go`/`revisitresolve.go` still live in `package main` - splitting
+them further would hit the `revisit.go` -> `NewLiveTUI` direct-call
+problem flagged when Phase 4 started (needs the same callback-injection
+treatment as `requestRerun`/`revisitReturn`), which nothing in this
+session's work required solving. Phase 3 (break `NewLiveTUI` itself
+apart) stays deferred per its own section above.

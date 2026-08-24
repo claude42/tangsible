@@ -28,6 +28,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -58,9 +59,9 @@ func replayRun(runID string) (*playbook.PlaybookState, error) {
 	defer f.Close()
 
 	state := &playbook.PlaybookState{}
-	for item := range scanEvents(f, nil) {
-		if item.isEvent {
-			state.Apply(item.ev)
+	for item := range runner.ScanEvents(f, nil) {
+		if item.IsEvent {
+			state.Apply(item.Ev)
 		}
 	}
 	return state, nil

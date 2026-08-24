@@ -122,7 +122,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (runDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -931,7 +931,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// jump.
 		if frozen && !failureCursorPlaced {
 			failureCursorPlaced = true
-			if uikit.GenuineFailure(int(exitCode.Load()), state.HadUnreachable, ansibleUserInterruptedExitCode) {
+			if uikit.GenuineFailure(int(exitCode.Load()), state.HadUnreachable, runner.AnsibleUserInterruptedExitCode) {
 				if t, h := uikit.LastFailedTaskAndHost(state); t != nil && uikit.TaskVisible(t, currentFilter, sourceIndex, false) {
 					expanded[t] = true
 					currentID = uikit.HostRowID{Task: t, Host: h}
@@ -969,7 +969,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		currentRows = uikit.FlattenRows(state, expanded, width, layout, treeAllHosts, activeTask, uikit.SpinnerAt(elapsed), currentFilter, sourceIndex, showOutput, useColor)
 		hasStatusRow := false
 		if frozen && everStarted {
-			if text := uikit.StatusRowText(int(exitCode.Load()), state.HadUnreachable, ansibleUserInterruptedExitCode); text != "" {
+			if text := uikit.StatusRowText(int(exitCode.Load()), state.HadUnreachable, runner.AnsibleUserInterruptedExitCode); text != "" {
 				currentRows = append(currentRows,
 					uikit.Row{Text: "", ID: uikit.StatusDividerRowID{}},
 					uikit.Row{Text: text, ID: uikit.StatusRowID{}},

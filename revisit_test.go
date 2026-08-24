@@ -17,6 +17,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/runner"
 )
 
 func TestRevisitCommandText(t *testing.T) {
@@ -58,7 +60,7 @@ func TestRevisitStatusLabel(t *testing.T) {
 		want     string
 	}{
 		{0, "Success"},
-		{ansibleUserInterruptedExitCode, "Aborted"},
+		{runner.AnsibleUserInterruptedExitCode, "Aborted"},
 		{2, "Failed (2)"},
 		{-1, "Failed (-1)"},
 		{255, "Failed (255)"},
@@ -76,7 +78,7 @@ func TestRevisitRowTextStatusColor(t *testing.T) {
 		t.Errorf("revisitRowText(exit 0) = %q, want a [green] \"Success\" label", success)
 	}
 
-	interrupted := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: ansibleUserInterruptedExitCode}, 7, false)
+	interrupted := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: runner.AnsibleUserInterruptedExitCode}, 7, false)
 	if !strings.Contains(interrupted, "[gray]") || !strings.Contains(interrupted, "Aborted") {
 		t.Errorf("revisitRowText(exit 99) = %q, want a [gray] \"Aborted\" label", interrupted)
 	}

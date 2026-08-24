@@ -106,11 +106,11 @@ func formatRevisitTime(raw string) string {
 }
 
 // revisitStatusLabel renders e's own exit code as a short, explicit status
-// word - "Success" (exit 0), "Aborted" (exit 99, ansibleUserInterruptedExitCode -
+// word - "Success" (exit 0), "Aborted" (exit 99, runner.AnsibleUserInterruptedExitCode -
 // the user's own q/Ctrl-C, not a real failure - main.go treats it
 // identically), or "Failed (N)" for any other exit code, N being the
 // literal code (including -1, this app's own sentinel for "the process
-// never even started" - see spawnGeneration/newRequestRerun's own spawn-
+// never even started" - see SpawnGeneration/runner.NewRequestRerun's own spawn-
 // failure path). Spelled out rather than left to color alone: a color-only
 // "red timestamp means it failed" turned out not to read clearly on its
 // own (live feedback) - matches this app's own existing precedent
@@ -120,7 +120,7 @@ func revisitStatusLabel(exitCode int) string {
 	switch exitCode {
 	case 0:
 		return "Success"
-	case ansibleUserInterruptedExitCode:
+	case runner.AnsibleUserInterruptedExitCode:
 		return "Aborted"
 	default:
 		return fmt.Sprintf("Failed (%d)", exitCode)
@@ -135,7 +135,7 @@ func revisitStatusColor(exitCode int) string {
 	switch {
 	case exitCode == 0:
 		return "green"
-	case exitCode == ansibleUserInterruptedExitCode:
+	case exitCode == runner.AnsibleUserInterruptedExitCode:
 		return "gray"
 	default:
 		return "red"
@@ -271,7 +271,7 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 // that (runRevisitListTUI). Deliberate for now, not yet settled - see
 // design-docs/Revisit.md's own open note on this.
 //
-// requestRerun is a real newRequestRerun (generation.go) - the same
+// requestRerun is a real runner.NewRequestRerun (generation.go) - the same
 // mechanism main.go's own run/rerun/role session uses, reused rather than
 // duplicated. A role-originated entry gets a freshly generated stub
 // (StartRoleSession) up front, reused for every rerun within this one
@@ -288,9 +288,9 @@ func openRevisitEntry(e revisitEntry) {
 	}
 
 	state := &pb.PlaybookState{}
-	for item := range scanEvents(f, nil) {
-		if item.isEvent {
-			state.Apply(item.ev)
+	for item := range runner.ScanEvents(f, nil) {
+		if item.IsEvent {
+			state.Apply(item.Ev)
 		}
 	}
 	f.Close()
@@ -328,7 +328,7 @@ func openRevisitEntry(e revisitEntry) {
 	settings := config.ReadSettingsConfig(config.TangsibleConfigPath)
 	invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(e.Args))
 
-	var procH procHandle
+	var procH runner.ProcHandle
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
 	processDone.Store(true)
@@ -339,11 +339,11 @@ func openRevisitEntry(e revisitEntry) {
 	// that already happened - Position() reporting (0,0) is exactly what
 	// makes the frozen top bar's fill snap straight to 100%, same as any
 	// other frozen session. Rebuilt for real (BuildProgressSkeleton) by
-	// newRequestRerun below, the moment a real rerun actually starts -
+	// runner.NewRequestRerun below, the moment a real rerun actually starts -
 	// same as any other session.
 
 	var outcomesMu sync.Mutex
-	var outcomes []generationOutcome // one appended per rerun triggered
+	var outcomes []runner.GenerationOutcome // one appended per rerun triggered
 	// from this entry's own session, if any - printed once this
 	// session's own app.Run() returns, below. Unlike main.go's own
 	// top-level accumulation (kept for the whole process's lifetime),
@@ -356,17 +356,17 @@ func openRevisitEntry(e revisitEntry) {
 
 	var app *tview.Application
 	var applyLive func(pb.RawEvent)
-	apply := func(item streamItem) {
-		if item.isEvent && !quitting.Load() {
-			applyLive(item.ev)
+	apply := func(item runner.StreamItem) {
+		if item.IsEvent && !quitting.Load() {
+			applyLive(item.Ev)
 		}
 	}
-	recordOutcome := func(o generationOutcome) {
+	recordOutcome := func(o runner.GenerationOutcome) {
 		outcomesMu.Lock()
 		outcomes = append(outcomes, o)
 		outcomesMu.Unlock()
 	}
-	requestRerun := newRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome)
+	requestRerun := runner.NewRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome)
 
 	revisitReturn := func() {
 		quitting.Store(true) // before Stop() - same race note as main.go's
@@ -400,8 +400,8 @@ func openRevisitEntry(e revisitEntry) {
 	all := outcomes
 	outcomesMu.Unlock()
 	for _, o := range all {
-		if o.exitCode != ansibleUserInterruptedExitCode {
-			for _, l := range o.childStderr {
+		if o.ExitCode != runner.AnsibleUserInterruptedExitCode {
+			for _, l := range o.ChildStderr {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
 		}
