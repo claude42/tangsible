@@ -455,6 +455,42 @@ func TestFlattenDiffRowsExpandsHostRowsWhenToggled(t *testing.T) {
 	}
 }
 
+// TestFlattenDiffRowsExpandsOnlyDifferingHostRows is a regression test for
+// a bug reported live: expanding a matched, differing task showed a host
+// row for every host the task ran on, even ones with no difference at all
+// - burying the one host that actually changed among a pile of identical
+// ones. Expanded rows should include only the hosts differingHosts flags;
+// the collapsed row (diffHostList/diffTaskLine) is unaffected and
+// deliberately keeps showing every host - see
+// TestDiffTaskRowTextMatchedOnlyDifferingHostsUnderlined.
+func TestFlattenDiffRowsExpandsOnlyDifferingHostRows(t *testing.T) {
+	oldTask := namedTask("t")
+	oldTask.HostOrder = []string{"web1", "web2"}
+	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web2"] = outcomeOK
+	newTask := namedTask("t")
+	newTask.HostOrder = []string{"web1", "web2"}
+	newTask.Hosts["web1"] = outcomeFailed // changed
+	newTask.Hosts["web2"] = outcomeOK     // unchanged
+
+	pa := playAlignment{
+		OldPlay: namedPlay("p"), NewPlay: namedPlay("p"),
+		Tasks: []taskAlignment{{OldTask: oldTask, NewTask: newTask}},
+	}
+
+	expanded := map[*taskNode]bool{newTask: true}
+	got := flattenDiffRows([]playAlignment{pa}, expanded, nil, func(taskAlignment, string) {})
+	if len(got) != 3 { // play row + task row + one host row (web1 only)
+		t.Fatalf("flattenDiffRows() expanded = %d rows, want 3 (play, task, web1 only); got %#v", len(got), got)
+	}
+	if !strings.Contains(got[2].text, "web1") {
+		t.Errorf("flattenDiffRows() expanded host row = %q, want it to mention web1", got[2].text)
+	}
+	if strings.Contains(got[2].text, "web2") {
+		t.Errorf("flattenDiffRows() expanded host row = %q, want web2 (unchanged) omitted", got[2].text)
+	}
+}
+
 // TestFlattenDiffRowsRendersTheSelectedRow is a regression test for a bug
 // reported live: no row was ever rendered with its own selected styling,
 // leaving the cursor completely invisible - treeList (unlike tview.List)

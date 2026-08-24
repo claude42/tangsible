@@ -392,13 +392,18 @@ func diffColorTag(o outcome, flag string) string {
 }
 
 // diffHostRows renders a taskAlignment's own expanded host rows - shown
-// while its collapsed row is expanded (flattenDiffRows). Same source-of-
-// truth rule as the collapsed row: an unmatched alignment renders every
-// host from whichever side is present, all marked uniformly; a matched,
-// differing one renders the NEW task's own hosts, each individually
-// marked only if differingHosts says so. Enter on a host row calls
-// showOutput(a, host) - the drill-down view (showDiffOutput, below).
-// selectedID - see flattenDiffRows' own doc comment.
+// while its collapsed row is expanded (flattenDiffRows). An unmatched
+// alignment renders every host from whichever side is present, all marked
+// uniformly - the whole task is new/gone, so every one of its hosts is
+// relevant. A matched, differing one renders *only* the hosts differingHosts
+// actually flags: unlike the collapsed row (diffHostList), which shows
+// every host so the shared-column host list stays recognizable at a
+// glance, expanding a task is a deliberate "show me what's different" -
+// per a live bug report, a task with e.g. 9 unchanged hosts and 1 changed
+// one listed all 10 host lines, burying the one that actually mattered.
+// Enter on a host row calls showOutput(a, host) - the drill-down view
+// (showDiffOutput, below). selectedID - see flattenDiffRows' own doc
+// comment.
 func diffHostRows(a taskAlignment, selectedID any, showOutput func(taskAlignment, string)) []row {
 	task := a.NewTask
 	wholeLineFlag := ""
@@ -417,6 +422,8 @@ func diffHostRows(a taskAlignment, selectedID any, showOutput func(taskAlignment
 		flag := wholeLineFlag
 		if flag == "" && diffHosts[host] {
 			flag = "u"
+		} else if flag == "" {
+			continue // matched, unchanged host - collapsed row already covers it
 		}
 		id := diffHostRowID{task: task, host: host}
 		rows = append(rows, row{
