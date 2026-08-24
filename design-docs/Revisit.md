@@ -373,3 +373,11 @@ Color: propose something :-) (and update the Colors.md document accordingly)
 
 CLAUDE.md: you can remove that comment now.
 
+# Next ideas
+
+## Manage runs
+
+After a while many previous runs might accumulate. We will 
+
+Previous runs are difficult to discern. Potentially the only difference is
+the timestamp.

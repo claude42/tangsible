@@ -11,8 +11,6 @@ immediately implemented.
 
 * Summary line sometimes not visible - beyond the screen (still?)
 
-* --check
-
 * Errors before / during execution
 
 * OK/Changed/Skipped sumamry instead of individual hosts when space is
@@ -26,8 +24,6 @@ immediately implemented.
 
 * Strategy free
 
-* Run history
-
 * Per-host task timing - see [PerHostTaskTiming.md](PerHostTaskTiming.md);
   discussed and investigated, leaning toward dropping (queueing vs. actual
   duration is ambiguous under linear strategy when forks < host count)
@@ -37,3 +33,27 @@ immediately implemented.
     var: hostvars[inventory_hostname]
 
   to print out all variables
+
+* Configurable colors
+
+* Work gracefully on white on black and black on white themes
+
+* "What differs?" functionality for a specific host
+
+* Filter for "interesting" things, i.e. failed, unreachable, changed, stderr,
+  warning
+
+* Show corresponding file in drilldown view
+
+* Rerun Failed, Current, Start with Current, Select Tasks, Failed Hosts, All
+  hosts, Current host, select
+
+* auto-complete e.g. for entering hosts or tags in rerun dialog
+
+* --check - at least visualization
+
+* Show global stderr after summary page
+
+* tangsible config
+
+* tangsible export

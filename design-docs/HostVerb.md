@@ -233,3 +233,7 @@ either unit tests or the live verification above:
   already the right thing to do regardless of what's in the output.
   parsed and for which other hostnames, if any), which would have
   shortened this considerably had it existed from the start.
+
+## Session
+
+claude --resume ec2c598e-a7a4-48d3-b955-43ea1879eda1
