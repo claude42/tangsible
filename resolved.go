@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
@@ -96,7 +97,7 @@ func jinjaStringLiteral(s string) string {
 // exactly as shown in the drill-down's "Task definition" section) with
 // its variables resolved for host, and returns the result. Reuses most of
 // template.go's own machinery: role-owned vars_files detection
-// (roleVarsFiles, keyed off taskPath the same way RoleFromPath already
+// (RoleVarsFiles, keyed off taskPath the same way RoleFromPath already
 // is), the same ignore_unreachable/delegate_to: localhost stub shape
 // template.go already uses - except targeting host directly via
 // hosts: <host> rather than hosts: all + --limit, since a drill-down is
@@ -109,7 +110,7 @@ func jinjaStringLiteral(s string) string {
 // own hosts: line.
 //
 // err is non-nil for a genuine failure to determine anything at all
-// (mirroring renderTemplate's own pre-flight-failure case) - a Jinja
+// (mirroring RenderTemplate's own pre-flight-failure case) - a Jinja
 // error wrapJinjaDefaults couldn't save (see its own doc comment) is
 // reported the same way, since from the caller's point of view both just
 // mean "show this error instead of a resolved result."
@@ -137,7 +138,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	defer os.Remove(outputPath)
 
 	// taskPath is "<absolute file>:<line>" (events.go's own shape) -
-	// roleVarsFiles expects a plain path, so the trailing ":<line>" is
+	// RoleVarsFiles expects a plain path, so the trailing ":<line>" is
 	// stripped first; it has no bearing on which role (if any) owns the
 	// file.
 	roleTaskPath := taskPath
@@ -148,7 +149,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	var b strings.Builder
 	fmt.Fprintf(&b, "- hosts: %s\n", host)
 	b.WriteString("  ignore_unreachable: true\n")
-	if varsFiles := roleVarsFiles(roleTaskPath); len(varsFiles) > 0 {
+	if varsFiles := template.RoleVarsFiles(roleTaskPath); len(varsFiles) > 0 {
 		b.WriteString("  vars_files:\n")
 		for _, f := range varsFiles {
 			fmt.Fprintf(&b, "    - %s\n", f)
@@ -182,7 +183,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()
 
-	// Same event-scanning approach as renderTemplate (template.go): scan
+	// Same event-scanning approach as RenderTemplate (template.go): scan
 	// every line for our one host's own result on the one task this stub
 	// ever runs, keeping only the last match (the delegated task's own
 	// completion, overwriting any earlier event for the same host - e.g.

@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package template
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -80,7 +79,7 @@ func TestParseTemplateArgs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			path, host, rest, ok := parseTemplateArgs(c.args)
+			path, host, rest, ok := ParseTemplateArgs(c.args)
 			if ok != c.wantOK {
 				t.Fatalf("parseTemplateArgs(%v) ok = %v, want %v", c.args, ok, c.wantOK)
 			}
@@ -93,54 +92,6 @@ func TestParseTemplateArgs(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestFlattenInventoryHosts(t *testing.T) {
-	t.Run("dedupes and sorts across nested groups", func(t *testing.T) {
-		raw := map[string]json.RawMessage{
-			"all": json.RawMessage(`{"children": ["web", "db"]}`),
-			"web": json.RawMessage(`{"hosts": ["zeta", "alpha"]}`),
-			"db":  json.RawMessage(`{"hosts": ["mid", "alpha"]}`),
-		}
-		got := flattenInventoryHosts(raw)
-		want := []string{"alpha", "mid", "zeta"}
-		if !slices.Equal(got, want) {
-			t.Errorf("flattenInventoryHosts() = %v, want %v", got, want)
-		}
-	})
-
-	t.Run("a host with no vars is still found via the group's own hosts list", func(t *testing.T) {
-		// _meta.hostvars alone would miss this - confirmed empirically
-		// that ansible-inventory --list omits a no-vars host from
-		// _meta.hostvars entirely, which is exactly why this walks the
-		// group tree instead.
-		raw := map[string]json.RawMessage{
-			"all": json.RawMessage(`{"children": ["web"]}`),
-			"web": json.RawMessage(`{"hosts": ["novars_host"]}`),
-		}
-		got := flattenInventoryHosts(raw)
-		if !slices.Equal(got, []string{"novars_host"}) {
-			t.Errorf("flattenInventoryHosts() = %v, want [novars_host]", got)
-		}
-	})
-
-	t.Run("no all group at all - empty result, not a panic", func(t *testing.T) {
-		if got := flattenInventoryHosts(map[string]json.RawMessage{}); len(got) != 0 {
-			t.Errorf("flattenInventoryHosts(empty) = %v, want empty", got)
-		}
-	})
-
-	t.Run("a cyclic children reference doesn't loop forever", func(t *testing.T) {
-		raw := map[string]json.RawMessage{
-			"all": json.RawMessage(`{"children": ["a"]}`),
-			"a":   json.RawMessage(`{"hosts": ["h1"], "children": ["b"]}`),
-			"b":   json.RawMessage(`{"hosts": ["h2"], "children": ["a"]}`),
-		}
-		got := flattenInventoryHosts(raw)
-		if !slices.Equal(got, []string{"h1", "h2"}) {
-			t.Errorf("flattenInventoryHosts() = %v, want [h1 h2]", got)
-		}
-	})
 }
 
 func TestRoleVarsFiles(t *testing.T) {
@@ -156,7 +107,7 @@ func TestRoleVarsFiles(t *testing.T) {
 	}
 
 	t.Run("neither defaults nor vars exist - nil", func(t *testing.T) {
-		if got := roleVarsFiles(tplPath); got != nil {
+		if got := RoleVarsFiles(tplPath); got != nil {
 			t.Errorf("roleVarsFiles() = %v, want nil", got)
 		}
 	})
@@ -170,7 +121,7 @@ func TestRoleVarsFiles(t *testing.T) {
 		if err := os.WriteFile(defaultsFile, []byte("x: 1"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got := roleVarsFiles(tplPath)
+		got := RoleVarsFiles(tplPath)
 		if !slices.Equal(got, []string{defaultsFile}) {
 			t.Errorf("roleVarsFiles() = %v, want [%s]", got, defaultsFile)
 		}
@@ -185,7 +136,7 @@ func TestRoleVarsFiles(t *testing.T) {
 		if err := os.WriteFile(varsFile, []byte("y: 2"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got := roleVarsFiles(tplPath)
+		got := RoleVarsFiles(tplPath)
 		wantDefaults := filepath.Join(roleDir, "defaults", "main.yml")
 		if !slices.Equal(got, []string{wantDefaults, varsFile}) {
 			t.Errorf("roleVarsFiles() = %v, want [%s %s]", got, wantDefaults, varsFile)
@@ -197,7 +148,7 @@ func TestRoleVarsFiles(t *testing.T) {
 		if err := os.WriteFile(plainPath, []byte("hi"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if got := roleVarsFiles(plainPath); got != nil {
+		if got := RoleVarsFiles(plainPath); got != nil {
 			t.Errorf("roleVarsFiles() = %v, want nil", got)
 		}
 	})
@@ -211,7 +162,7 @@ func TestWriteTemplateStub(t *testing.T) {
 	}
 	outputPath := filepath.Join(dir, "out.txt")
 
-	stubPath, err := writeTemplateStub(tplPath, outputPath)
+	stubPath, err := WriteTemplateStub(tplPath, outputPath)
 	if err != nil {
 		t.Fatalf("writeTemplateStub() error: %v", err)
 	}
@@ -250,21 +201,21 @@ func TestPreferredEditor(t *testing.T) {
 	t.Run("VISUAL wins over EDITOR", func(t *testing.T) {
 		t.Setenv("VISUAL", "myvisual")
 		t.Setenv("EDITOR", "myeditor")
-		if got := preferredEditor(); got != "myvisual" {
+		if got := PreferredEditor(); got != "myvisual" {
 			t.Errorf("preferredEditor() = %q, want myvisual", got)
 		}
 	})
 	t.Run("falls back to EDITOR", func(t *testing.T) {
 		t.Setenv("VISUAL", "")
 		t.Setenv("EDITOR", "myeditor")
-		if got := preferredEditor(); got != "myeditor" {
+		if got := PreferredEditor(); got != "myeditor" {
 			t.Errorf("preferredEditor() = %q, want myeditor", got)
 		}
 	})
 	t.Run("falls back to vi when neither is set", func(t *testing.T) {
 		t.Setenv("VISUAL", "")
 		t.Setenv("EDITOR", "")
-		if got := preferredEditor(); got != "vi" {
+		if got := PreferredEditor(); got != "vi" {
 			t.Errorf("preferredEditor() = %q, want vi", got)
 		}
 	})

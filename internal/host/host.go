@@ -19,7 +19,7 @@
 // "ansible-inventory --host" dump - entirely separate from the
 // run/rerun/role verbs' own live tree UI, the same way "template" is
 // (template.go).
-package main
+package host
 
 import (
 	"bufio"
@@ -33,13 +33,15 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-// parseHostArgs splits args (everything after the "host" Verb) into the
+// ParseHostArgs splits args (everything after the "host" Verb) into the
 // required hostname, an optional playbook, and everything else as
 // passthrough args - "tangsible host <hostname> [<playbook>] [-i ...]
 // [-e ...]" (design-docs/HostVerb.md), the same shape parseTemplateArgs
@@ -49,7 +51,7 @@ import (
 // immediately after hostname and before any flag-shaped token. ok is
 // false if no hostname was given at all (a missing or flag-shaped first
 // argument).
-func parseHostArgs(args []string) (hostname, playbookArg string, rest []string, ok bool) {
+func ParseHostArgs(args []string) (hostname, playbookArg string, rest []string, ok bool) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return "", "", nil, false
 	}
@@ -62,15 +64,15 @@ func parseHostArgs(args []string) (hostname, playbookArg string, rest []string, 
 	return hostname, playbookArg, remaining, true
 }
 
-// runHostVerb is "tangsible host <hostname> [<playbook>]"'s own entry
+// RunHostVerb is "tangsible host <hostname> [<playbook>]"'s own entry
 // point - resolves the playbook the same cascade "run" uses when it
 // isn't given explicitly (a missing/unresolved playbook isn't fatal here:
 // only the Plays tab actually needs one, and reports its own absence
 // gracefully - see fetchHostPlays), creates the one stub playbook the
 // Summary tab's live fact-gathering needs, and shows the standalone
 // detail view for the process's entire lifetime.
-func runHostVerb(args []string) int {
-	hostname, playbookArg, rest, ok := parseHostArgs(args)
+func RunHostVerb(args []string) int {
+	hostname, playbookArg, rest, ok := ParseHostArgs(args)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "usage: %s host <hostname> [<playbook>] [ansible-playbook args...]\n", os.Args[0])
 		return 2
@@ -80,29 +82,29 @@ func runHostVerb(args []string) int {
 		playbook, _ = config.ResolvePlaybook()
 	}
 
-	stubPath, err := writeHostSummaryStub()
+	stubPath, err := WriteHostSummaryStub()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook: %v\n", err)
 		return 1
 	}
 	defer os.Remove(stubPath)
 
-	runHostDetailStandalone(hostname, playbook, rest, stubPath)
+	RunHostDetailStandalone(hostname, playbook, rest, stubPath)
 	return 0
 }
 
-// runHostsVerb is "tangsible hosts [<playbook>]"'s own entry point -
+// RunHostsVerb is "tangsible hosts [<playbook>]"'s own entry point -
 // lists every inventory host up front (ansible-inventory --list, the
 // same call template.go's resolveInventoryHost already makes for its own
 // single-host resolution) and shows the list-then-detail flow.
-func runHostsVerb(args []string) int {
+func RunHostsVerb(args []string) int {
 	playbookArg, rest, _ := config.SplitPlaybookArgs(args)
 	playbook := playbookArg
 	if playbook == "" {
 		playbook, _ = config.ResolvePlaybook()
 	}
 
-	hosts, err := listInventoryHosts(rest)
+	hosts, err := inventory.ListInventoryHosts(rest)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't list inventory hosts: %v\n", err)
 		return 1
@@ -112,74 +114,46 @@ func runHostsVerb(args []string) int {
 		return 1
 	}
 
-	stubPath, err := writeHostSummaryStub()
+	stubPath, err := WriteHostSummaryStub()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook: %v\n", err)
 		return 1
 	}
 	defer os.Remove(stubPath)
 
-	runHostsListTUI(hosts, playbook, rest, stubPath)
+	RunHostsListTUI(hosts, playbook, rest, stubPath)
 	return 0
 }
 
-// listInventoryHosts runs `ansible-inventory --list`, forwarding
-// passthroughArgs verbatim, and returns every host it finds
-// (flattenInventoryHosts, template.go) - shared by the "hosts" Verb's own
-// full listing and, via resolveInventoryHost, "template"'s single-host
-// resolution.
-func listInventoryHosts(passthroughArgs []string) ([]string, error) {
-	cmd := exec.Command("ansible-inventory", append([]string{"--list"}, passthroughArgs...)...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return nil, fmt.Errorf("ansible-inventory --list failed: %s", msg)
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(out, &raw); err != nil {
-		snippet := strings.TrimSpace(string(out))
-		if len(snippet) > 300 {
-			snippet = snippet[:300] + "..."
-		}
-		return nil, fmt.Errorf("ansible-inventory --list didn't produce valid JSON (%v) - it printed:\n%s", err, snippet)
-	}
-	return flattenInventoryHosts(raw), nil
-}
-
-// groupMembership is one entry in a host's own transitive group chain
+// GroupMembership is one entry in a host's own transitive group chain
 // (hostGroupChain) - Via is "" for a group the host is a *direct* member
 // of (listed under that group's own "hosts:" in the inventory), or the
 // name of the child group through which this ancestor group was reached
 // otherwise.
-type groupMembership struct {
+type GroupMembership struct {
 	Group string
 	Via   string
 }
 
-// hostGroupChain returns every group hostname transitively belongs to,
+// HostGroupChain returns every group hostname transitively belongs to,
 // per design-docs/HostVerb.md's own decision to show the full chain, not
 // just direct membership: direct groups first (alphabetically, for
 // determinism), then each further ancestor layer outward, also
 // alphabetically within its own layer. raw is `ansible-inventory --list`'s
-// own decoded JSON (see ansibleInventoryGroup, template.go) - the same
-// source flattenInventoryHosts already reads, just walked in the opposite
+// own decoded JSON (see inventory.AnsibleInventoryGroup, internal/inventory) - the same
+// source inventory.FlattenInventoryHosts already reads, just walked in the opposite
 // direction: that function walks group→hosts to build one flat host set;
 // this one needs host→ancestor-groups, which the JSON's own "children:"
 // pointers don't give directly (only parent→children is stored, never
 // child→parent) - so this builds its own reverse (child→parents) index
 // first, then works outward from the host via BFS.
-func hostGroupChain(raw map[string]json.RawMessage, hostname string) []groupMembership {
-	groups := make(map[string]ansibleInventoryGroup, len(raw))
+func HostGroupChain(raw map[string]json.RawMessage, hostname string) []GroupMembership {
+	groups := make(map[string]inventory.AnsibleInventoryGroup, len(raw))
 	for name, data := range raw {
 		if name == "_meta" {
 			continue
 		}
-		var g ansibleInventoryGroup
+		var g inventory.AnsibleInventoryGroup
 		if err := json.Unmarshal(data, &g); err != nil {
 			continue
 		}
@@ -204,11 +178,11 @@ func hostGroupChain(raw map[string]json.RawMessage, hostname string) []groupMemb
 	}
 	sort.Strings(direct)
 
-	var chain []groupMembership
+	var chain []GroupMembership
 	seen := map[string]bool{}
 	queue := make([]string, len(direct))
 	for i, name := range direct {
-		chain = append(chain, groupMembership{Group: name})
+		chain = append(chain, GroupMembership{Group: name})
 		seen[name] = true
 		queue[i] = name
 	}
@@ -230,7 +204,7 @@ func hostGroupChain(raw map[string]json.RawMessage, hostname string) []groupMemb
 		}
 		sort.Strings(next)
 		for _, parent := range next {
-			chain = append(chain, groupMembership{Group: parent, Via: nextVia[parent]})
+			chain = append(chain, GroupMembership{Group: parent, Via: nextVia[parent]})
 		}
 		queue = next
 	}
@@ -238,11 +212,11 @@ func hostGroupChain(raw map[string]json.RawMessage, hostname string) []groupMemb
 	return chain
 }
 
-// fetchHostGroups runs `ansible-inventory --list` and renders hostname's
+// FetchHostGroups runs `ansible-inventory --list` and renders hostname's
 // own full transitive group chain (hostGroupChain), one line per group,
 // left-aligned to the widest group name so the "(direct)"/"(via ...)"
 // annotations line up.
-func fetchHostGroups(hostname string, rest []string) (string, error) {
+func FetchHostGroups(hostname string, rest []string) (string, error) {
 	cmd := exec.Command("ansible-inventory", append([]string{"--list"}, rest...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -260,7 +234,7 @@ func fetchHostGroups(hostname string, rest []string) (string, error) {
 		return "", fmt.Errorf("ansible-inventory --list didn't produce valid JSON: %v", err)
 	}
 
-	chain := hostGroupChain(raw, hostname)
+	chain := HostGroupChain(raw, hostname)
 	if len(chain) == 0 {
 		return fmt.Sprintf("host %q is not a member of any inventory group", hostname), nil
 	}
@@ -295,14 +269,14 @@ func fetchHostGroups(hostname string, rest []string) (string, error) {
 	return b.String(), nil
 }
 
-// extractInventoryDirs pulls every -i/--inventory value out of rest
+// ExtractInventoryDirs pulls every -i/--inventory value out of rest
 // (both "--flag value" and "--flag=value" long forms, same convention
 // ParsePassthroughArgs uses in rerunargs.go for --tags/--limit) and
 // returns the directory each one lives in, for any that resolve to a
 // real file or directory on disk - silently skipping anything else (a
 // bare comma-list like "web1,web2,", a nonexistent path) since neither has
 // a meaningful directory to look for a sibling host_vars/ under.
-func extractInventoryDirs(rest []string) []string {
+func ExtractInventoryDirs(rest []string) []string {
 	var dirs []string
 	addIfReal := func(path string) {
 		info, err := os.Stat(path)
@@ -332,7 +306,7 @@ func extractInventoryDirs(rest []string) []string {
 	return dirs
 }
 
-// discoverHostVarsFiles returns every host_vars file for hostname found
+// DiscoverHostVarsFiles returns every host_vars file for hostname found
 // under any of dirs, sorted for determinism - Ansible looks for host_vars
 // as a sibling of both the inventory source and the playbook (ansible-core's
 // own documented behavior), so dirs is expected to already carry both
@@ -342,7 +316,7 @@ func extractInventoryDirs(rest []string) []string {
 // file, and a host_vars/<hostname>/ directory of multiple files.
 // Deduplicated by absolute path, since the playbook and an inventory
 // source can easily share the same directory.
-func discoverHostVarsFiles(hostname string, dirs []string) []string {
+func DiscoverHostVarsFiles(hostname string, dirs []string) []string {
 	seen := map[string]bool{}
 	var files []string
 	addIfNew := func(path string) {
@@ -385,22 +359,22 @@ func discoverHostVarsFiles(hostname string, dirs []string) []string {
 	return files
 }
 
-// fetchHostVars renders every host_vars file found for hostname verbatim
+// FetchHostVars renders every host_vars file found for hostname verbatim
 // (design-docs/HostVerb.md's own "Findings from discussion": raw file
 // content, one section per file, not a merged key-value view - preserves
 // comments/formatting and needs no variable-precedence logic), one
 // SectionLabel-headed section per file, in discoverHostVarsFiles' own
 // sorted order.
-func fetchHostVars(hostname, playbook string, rest []string) (string, error) {
+func FetchHostVars(hostname, playbook string, rest []string) (string, error) {
 	var dirs []string
 	if playbook != "" {
 		if abs, err := filepath.Abs(playbook); err == nil {
 			dirs = append(dirs, filepath.Dir(abs))
 		}
 	}
-	dirs = append(dirs, extractInventoryDirs(rest)...)
+	dirs = append(dirs, ExtractInventoryDirs(rest)...)
 
-	files := discoverHostVarsFiles(hostname, dirs)
+	files := DiscoverHostVarsFiles(hostname, dirs)
 	if len(files) == 0 {
 		return fmt.Sprintf("no host_vars files found for host %q", hostname), nil
 	}
@@ -419,19 +393,19 @@ func fetchHostVars(hostname, playbook string, rest []string) (string, error) {
 	return b.String(), nil
 }
 
-// fetchHostPlays runs "ansible-playbook <playbook> <rest...> --limit
+// FetchHostPlays runs "ansible-playbook <playbook> <rest...> --limit
 // <hostname> --list-tasks --list-hosts" and groups the flattened
-// progressEntry sequence parseListTasksOutput (progress.go) already
+// ProgressEntry sequence ParseListTasksOutput (progress.go) already
 // produces back into per-play sections, reusing that parser directly
 // rather than reimplementing it - narrowed to exactly this host via the
 // same --limit flag progress.go's own doc comment already explains is
 // required alongside --list-hosts for a limit to actually apply at all.
-// Unlike buildProgressSkeleton (progress.go), which is always
+// Unlike BuildProgressSkeleton (progress.go), which is always
 // best-effort and swallows every failure silently (fine for an optional
 // progress indicator riding on top of an already-working run), this
 // surfaces a real failure as err, since an empty Plays tab needs to stay
 // distinguishable from "the whole invocation failed."
-func fetchHostPlays(playbook string, rest []string, hostname string) (string, error) {
+func FetchHostPlays(playbook string, rest []string, hostname string) (string, error) {
 	if playbook == "" {
 		return "no playbook specified, and none could be resolved - can't determine which plays would run", nil
 	}
@@ -449,7 +423,7 @@ func fetchHostPlays(playbook string, rest []string, hostname string) (string, er
 		return "", fmt.Errorf("%s", msg)
 	}
 
-	entries := parseListTasksOutput(stdout.String())
+	entries := runner.ParseListTasksOutput(stdout.String())
 	if len(entries) == 0 {
 		return fmt.Sprintf("no plays would run for host %q", hostname), nil
 	}
@@ -469,7 +443,7 @@ func fetchHostPlays(playbook string, rest []string, hostname string) (string, er
 	return b.String(), nil
 }
 
-// runAnsibleInventoryHost runs "ansible-inventory --host <hostname>" and
+// RunAnsibleInventoryHost runs "ansible-inventory --host <hostname>" and
 // returns its raw stdout - the one subprocess invocation shared by
 // fetchHostEverythingKnown (shown verbatim) and fetchHostSummary's own
 // cache-first check (parsed into a map, see below), so the command is
@@ -490,7 +464,7 @@ func fetchHostPlays(playbook string, rest []string, hostname string) (string, er
 // fresh within whatever window the user's own ansible.cfg configures,
 // never arbitrarily stale. fetchHostSummary uses this to skip an actual
 // connection entirely when a fresh cache entry already exists.
-func runAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
+func RunAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
 	cmd := exec.Command("ansible-inventory", append([]string{"--host", hostname}, rest...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -505,7 +479,7 @@ func runAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
 	return out, nil
 }
 
-// fetchHostEverythingKnown is design-docs/HostVerb.md's own fifth tab -
+// FetchHostEverythingKnown is design-docs/HostVerb.md's own fifth tab -
 // runAnsibleInventoryHost's own output shown verbatim (that tool's
 // default output is already pretty-printed JSON - confirmed empirically,
 // no reformatting needed). So this tab's content is: always declared
@@ -514,15 +488,15 @@ func runAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
 // guaranteed static either (see runAnsibleInventoryHost's own doc
 // comment). The Summary tab (fetchHostSummary) is the one that forces a
 // fresh, live gather when the cache doesn't already have what it needs.
-func fetchHostEverythingKnown(hostname string, rest []string) (string, error) {
-	out, err := runAnsibleInventoryHost(hostname, rest)
+func FetchHostEverythingKnown(hostname string, rest []string) (string, error) {
+	out, err := RunAnsibleInventoryHost(hostname, rest)
 	if err != nil {
 		return "", err
 	}
 	return tview.Escape(strings.TrimRight(string(out), "\n")), nil
 }
 
-// hostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab
+// HostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab
 // uses to gather live facts for one host: an *explicit* `ansible.builtin.
 // setup:` task, not the play-level `gather_facts: true` shorthand this
 // originally used. That original version had a real, reported bug: with
@@ -550,26 +524,26 @@ func fetchHostEverythingKnown(hostname string, rest []string) (string, error) {
 // pre-emptively. ignore_unreachable matches the "template" Verb's own
 // stub (template.go/writeTemplateStub) - moot in practice since --limit
 // always narrows this to exactly one host, but harmless and consistent.
-const hostSummaryStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: gather facts\n      ansible.builtin.setup:\n"
+const HostSummaryStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: gather facts\n      ansible.builtin.setup:\n"
 
-// writeHostSummaryStub writes hostSummaryStubYAML to a fresh temp file -
+// WriteHostSummaryStub writes hostSummaryStubYAML to a fresh temp file -
 // reused, unchanged, across every host summary fetch in one tangsible
 // session (the "hosts" Verb's own list-then-detail flow can view many
 // hosts one after another), same "one stable scratch file for the whole
 // session" convention as the "template" Verb's own stub/output pair.
-func writeHostSummaryStub() (string, error) {
+func WriteHostSummaryStub() (string, error) {
 	f, err := os.CreateTemp("", "tangsible-host-summary-*.yml")
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	if _, err := f.WriteString(hostSummaryStubYAML); err != nil {
+	if _, err := f.WriteString(HostSummaryStubYAML); err != nil {
 		return "", err
 	}
 	return f.Name(), nil
 }
 
-// factCacheCanaryKey is checked against runAnsibleInventoryHost's own
+// FactCacheCanaryKey is checked against runAnsibleInventoryHost's own
 // output to decide whether a usable, fresh fact-cache entry already
 // exists for this host - "ansible_architecture" is part of ansible's own
 // default (min) gather_subset and essentially always present whenever
@@ -577,9 +551,9 @@ func writeHostSummaryStub() (string, error) {
 // more specific subsets (hardware/network/virtual/...) were also
 // gathered - a reasonable single presence check rather than requiring
 // every individual field formatHostSummary might want.
-const factCacheCanaryKey = "ansible_architecture"
+const FactCacheCanaryKey = "ansible_architecture"
 
-// fetchHostSummary first checks whether a fresh fact-cache entry already
+// FetchHostSummary first checks whether a fresh fact-cache entry already
 // covers this host (runAnsibleInventoryHost, gated on factCacheCanaryKey)
 // and uses that directly, with no connection to the host at all, when it
 // does - restoring the original design intent ("if fact caching is
@@ -614,12 +588,12 @@ const factCacheCanaryKey = "ansible_architecture"
 // determined at all (a bad inventory/host); an unreachable/failed host is
 // reported as ordinary displayable text instead, not err, since that's
 // expected, common content for this tab, not a tool failure.
-func fetchHostSummary(stubPath, hostname string, rest []string) (string, error) {
-	if out, err := runAnsibleInventoryHost(hostname, rest); err == nil {
+func FetchHostSummary(stubPath, hostname string, rest []string) (string, error) {
+	if out, err := RunAnsibleInventoryHost(hostname, rest); err == nil {
 		var cached map[string]interface{}
 		if json.Unmarshal(out, &cached) == nil {
-			if _, ok := cached[factCacheCanaryKey]; ok {
-				return "[gray](from fact cache)[-]\n\n" + formatHostSummary(hostname, cached), nil
+			if _, ok := cached[FactCacheCanaryKey]; ok {
+				return "[gray](from fact cache)[-]\n\n" + FormatHostSummary(hostname, cached), nil
 			}
 		}
 	}
@@ -707,10 +681,10 @@ func fetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 		return fmt.Sprintf("[red::b]Failed[-::-]\n\n%s", tview.Escape(result.Msg)), nil
 	}
 	facts, _ := decoded["ansible_facts"].(map[string]interface{})
-	return formatHostSummary(hostname, facts), nil
+	return FormatHostSummary(hostname, facts), nil
 }
 
-// factString/factStringList pull a string/[]string field out of a decoded
+// FactString/factStringList pull a string/[]string field out of a decoded
 // ansible_facts map, tolerating an absent or wrongly-shaped key the same
 // way DecodeHostResult tolerates a malformed payload elsewhere - "" / nil
 // rather than a panic or an error, since a field simply not being
@@ -723,14 +697,14 @@ func fetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 // (`v2_runner_on_ok`'s own `hosts.<host>.ansible_facts`) nests every
 // fact under its full "ansible_<name>" key, not the short name - e.g.
 // "ansible_fqdn", "ansible_processor", not "fqdn"/"processor".
-func factString(facts map[string]interface{}, key string) string {
+func FactString(facts map[string]interface{}, key string) string {
 	if v, ok := facts["ansible_"+key].(string); ok {
 		return v
 	}
 	return ""
 }
 
-func factStringList(facts map[string]interface{}, key string) []string {
+func FactStringList(facts map[string]interface{}, key string) []string {
 	raw, ok := facts["ansible_"+key].([]interface{})
 	if !ok {
 		return nil
@@ -744,11 +718,11 @@ func factStringList(facts map[string]interface{}, key string) []string {
 	return out
 }
 
-// joinNonEmpty joins only parts that are actually non-empty - used for
+// JoinNonEmpty joins only parts that are actually non-empty - used for
 // "OS"/"Distribution" summary fields, each built from two separate facts
 // that could individually be missing (e.g. ansible_kernel absent on a
 // platform that doesn't report one).
-func joinNonEmpty(sep string, parts ...string) string {
+func JoinNonEmpty(sep string, parts ...string) string {
 	var nonEmpty []string
 	for _, p := range parts {
 		if p != "" {
@@ -758,7 +732,7 @@ func joinNonEmpty(sep string, parts ...string) string {
 	return strings.Join(nonEmpty, sep)
 }
 
-// dedupProcessorModels extracts unique processor model-name strings out
+// DedupProcessorModels extracts unique processor model-name strings out
 // of ansible_facts' own "processor" field. Confirmed empirically (see
 // host_test.go): that fact is a flat list repeating, once per logical
 // core, a 3-element group of [core index, vendor id, model name] - e.g.
@@ -772,7 +746,7 @@ func joinNonEmpty(sep string, parts ...string) string {
 // space and deduplicating, preserving first-seen order, reliably yields
 // just the distinct model names (handling the rare heterogeneous-CPU case
 // too) without needing to know the grouping width at all.
-func dedupProcessorModels(raw interface{}) []string {
+func DedupProcessorModels(raw interface{}) []string {
 	list, ok := raw.([]interface{})
 	if !ok {
 		return nil
@@ -792,10 +766,10 @@ func dedupProcessorModels(raw interface{}) []string {
 	return models
 }
 
-// formatRAM renders ansible_facts' own "memtotal_mb" (always a JSON
+// FormatRAM renders ansible_facts' own "memtotal_mb" (always a JSON
 // number, so always a float64 once decoded into interface{}) as
 // "N.N GB", one decimal place.
-func formatRAM(raw interface{}) string {
+func FormatRAM(raw interface{}) string {
 	mb, ok := raw.(float64)
 	if !ok {
 		return ""
@@ -803,7 +777,7 @@ func formatRAM(raw interface{}) string {
 	return fmt.Sprintf("%.1f GB", mb/1024)
 }
 
-// virtualizationContainerTechs/virtualizationVMTechs categorize
+// VirtualizationContainerTechs/virtualizationVMTechs categorize
 // ansible_facts' own "virtualization_type" (and, as a fallback,
 // "virtualization_tech_guest" entries) into design-docs/HostVerb.md's own
 // VM/Container/Bare Metal buckets - a documented heuristic, not an
@@ -812,33 +786,33 @@ func formatRAM(raw interface{}) string {
 // text-classification heuristics (e.g. TaskLabel's truncation,
 // PrimaryOutputField's stdout-vs-msg choice). An unrecognized-but-real
 // type falls back to showing the raw value rather than a wrong bucket.
-var virtualizationContainerTechs = map[string]bool{
+var VirtualizationContainerTechs = map[string]bool{
 	"docker": true, "lxc": true, "lxd": true, "podman": true,
 	"container": true, "openvz": true, "jail": true, "chroot": true, "zone": true,
 }
-var virtualizationVMTechs = map[string]bool{
+var VirtualizationVMTechs = map[string]bool{
 	"kvm": true, "qemu": true, "vmware": true, "virtualbox": true,
 	"xen": true, "hyperv": true, "parallels": true, "bhyve": true, "uml": true,
 }
 
-func classifyVirtualization(facts map[string]interface{}) string {
-	role := factString(facts, "virtualization_role")
+func ClassifyVirtualization(facts map[string]interface{}) string {
+	role := FactString(facts, "virtualization_role")
 	if role != "guest" {
 		return "Bare Metal"
 	}
-	vtype := strings.ToLower(factString(facts, "virtualization_type"))
-	if virtualizationContainerTechs[vtype] {
+	vtype := strings.ToLower(FactString(facts, "virtualization_type"))
+	if VirtualizationContainerTechs[vtype] {
 		return "Container"
 	}
-	if virtualizationVMTechs[vtype] {
+	if VirtualizationVMTechs[vtype] {
 		return "VM"
 	}
-	for _, tech := range factStringList(facts, "virtualization_tech_guest") {
+	for _, tech := range FactStringList(facts, "virtualization_tech_guest") {
 		tech = strings.ToLower(tech)
-		if virtualizationContainerTechs[tech] {
+		if VirtualizationContainerTechs[tech] {
 			return "Container"
 		}
-		if virtualizationVMTechs[tech] {
+		if VirtualizationVMTechs[tech] {
 			return "VM"
 		}
 	}
@@ -848,11 +822,11 @@ func classifyVirtualization(facts map[string]interface{}) string {
 	return "Guest (unknown type)"
 }
 
-// filterLinkLocal drops fe80::/10 link-local IPv6 addresses - present on
+// FilterLinkLocal drops fe80::/10 link-local IPv6 addresses - present on
 // essentially every interface and not generally useful for identifying a
 // host, so they'd otherwise clutter the IPv6 summary line on any
 // multi-interface host.
-func filterLinkLocal(addrs []string) []string {
+func FilterLinkLocal(addrs []string) []string {
 	var out []string
 	for _, a := range addrs {
 		if strings.HasPrefix(a, "fe80:") {
@@ -863,37 +837,37 @@ func filterLinkLocal(addrs []string) []string {
 	return out
 }
 
-// hostKeyLine is one rendered "Host key (<type>):" line - label already
+// HostKeyLine is one rendered "Host key (<type>):" line - label already
 // includes its own trailing colon, so formatHostSummary's own padding
 // logic can treat it exactly like every other field label.
-type hostKeyLine struct {
+type HostKeyLine struct {
 	label string
 	value string
 }
 
-// hostKeyTypeOrder is modern-to-legacy, matching design-docs/HostVerb.md's
+// HostKeyTypeOrder is modern-to-legacy, matching design-docs/HostVerb.md's
 // own "show all key types present" decision - every type the host
 // actually has is shown, in this fixed order, rather than picking one.
-var hostKeyTypeOrder = []string{"ed25519", "ecdsa", "rsa", "dsa"}
+var HostKeyTypeOrder = []string{"ed25519", "ecdsa", "rsa", "dsa"}
 
-// hostKeyLines builds one line per SSH host key type ansible_facts
+// HostKeyLines builds one line per SSH host key type ansible_facts
 // actually gathered for this host - `ansible_ssh_host_key_<type>_public`
 // holds the raw base64 key material, `..._public_keytype` the matching
 // wire-format prefix (e.g. "ssh-ed25519") - confirmed empirically that
 // these are two separate facts, not one combined line the way `ssh-keyscan`
 // or an authorized_keys file would show it.
-func hostKeyLines(facts map[string]interface{}) []hostKeyLine {
-	var lines []hostKeyLine
-	for _, kt := range hostKeyTypeOrder {
-		pub := factString(facts, "ssh_host_key_"+kt+"_public")
+func HostKeyLines(facts map[string]interface{}) []HostKeyLine {
+	var lines []HostKeyLine
+	for _, kt := range HostKeyTypeOrder {
+		pub := FactString(facts, "ssh_host_key_"+kt+"_public")
 		if pub == "" {
 			continue
 		}
-		prefix := factString(facts, "ssh_host_key_"+kt+"_public_keytype")
+		prefix := FactString(facts, "ssh_host_key_"+kt+"_public_keytype")
 		if prefix == "" {
 			prefix = "ssh-" + kt
 		}
-		lines = append(lines, hostKeyLine{
+		lines = append(lines, HostKeyLine{
 			label: fmt.Sprintf("Host key (%s):", kt),
 			value: prefix + " " + pub,
 		})
@@ -901,26 +875,26 @@ func hostKeyLines(facts map[string]interface{}) []hostKeyLine {
 	return lines
 }
 
-// formatHostSummary renders design-docs/HostVerb.md's own "Content
+// FormatHostSummary renders design-docs/HostVerb.md's own "Content
 // summary page" draft from a decoded ansible_facts map - a fixed field
 // list, label-padded to line up, plus one further, separately-padded
 // block of Host key lines (see hostKeyLines) since that block's own
 // labels ("Host key (ed25519):") are a different width than the main
 // field labels and pooling them into one shared width would either
 // under-pad the main fields or over-pad them for no reason.
-func formatHostSummary(hostname string, facts map[string]interface{}) string {
+func FormatHostSummary(hostname string, facts map[string]interface{}) string {
 	type field struct{ label, value string }
 	fields := []field{
 		{"Host", hostname},
-		{"FQDN", factString(facts, "fqdn")},
-		{"OS", joinNonEmpty(", ", factString(facts, "system"), factString(facts, "kernel"))},
-		{"Distribution", joinNonEmpty(", ", factString(facts, "distribution"), factString(facts, "distribution_version"))},
-		{"Architecture", factString(facts, "architecture")},
-		{"Processor", strings.Join(dedupProcessorModels(facts["ansible_processor"]), ", ")},
-		{"RAM", formatRAM(facts["ansible_memtotal_mb"])},
-		{"Virtualization", classifyVirtualization(facts)},
-		{"IPv4", strings.Join(factStringList(facts, "all_ipv4_addresses"), ", ")},
-		{"IPv6", strings.Join(filterLinkLocal(factStringList(facts, "all_ipv6_addresses")), ", ")},
+		{"FQDN", FactString(facts, "fqdn")},
+		{"OS", JoinNonEmpty(", ", FactString(facts, "system"), FactString(facts, "kernel"))},
+		{"Distribution", JoinNonEmpty(", ", FactString(facts, "distribution"), FactString(facts, "distribution_version"))},
+		{"Architecture", FactString(facts, "architecture")},
+		{"Processor", strings.Join(DedupProcessorModels(facts["ansible_processor"]), ", ")},
+		{"RAM", FormatRAM(facts["ansible_memtotal_mb"])},
+		{"Virtualization", ClassifyVirtualization(facts)},
+		{"IPv4", strings.Join(FactStringList(facts, "all_ipv4_addresses"), ", ")},
+		{"IPv6", strings.Join(FilterLinkLocal(FactStringList(facts, "all_ipv6_addresses")), ", ")},
 	}
 
 	width := 0
@@ -940,7 +914,7 @@ func formatHostSummary(hostname string, facts map[string]interface{}) string {
 		fmt.Fprintf(&b, "%s%s%s\n", label, strings.Repeat(" ", width-len(label)+1), tview.Escape(value))
 	}
 
-	keyLines := hostKeyLines(facts)
+	keyLines := HostKeyLines(facts)
 	if len(keyLines) > 0 {
 		b.WriteString("\n")
 		keyWidth := 0
@@ -956,20 +930,20 @@ func formatHostSummary(hostname string, facts map[string]interface{}) string {
 	return b.String()
 }
 
-// hostDetailTabNames is the fixed tab order buildHostDetailPrimitive
+// HostDetailTabNames is the fixed tab order buildHostDetailPrimitive
 // always builds a fresh TabbedPane in - shared with runHostsListTUI's own
 // n/p host-navigation (tabIndexByName), which needs to know this order to
 // restore the same tab after rebuilding a brand new TabbedPane for the
 // newly-selected host, since TabbedPane itself has no "jump to tab by
 // name" method, only relative Next()/Prev().
-var hostDetailTabNames = []string{"Summary", "Groups", "Plays", "host_vars", "Everything known"}
+var HostDetailTabNames = []string{"Summary", "Groups", "Plays", "host_vars", "Everything known"}
 
-// tabIndexByName finds name's own index in names, defaulting to 0 (the
+// TabIndexByName finds name's own index in names, defaulting to 0 (the
 // first tab) if it's ever not found - shouldn't happen in practice, since
 // every caller passes back a name TabbedPane.ActiveName() itself
 // produced, but a silent, harmless fallback is better than a panic over a
 // cosmetic detail like which tab a host-switch happens to land on.
-func tabIndexByName(names []string, name string) int {
+func TabIndexByName(names []string, name string) int {
 	for i, n := range names {
 		if n == name {
 			return i
@@ -978,7 +952,7 @@ func tabIndexByName(names []string, name string) int {
 	return 0
 }
 
-// buildHostDetailPrimitive builds design-docs/HostVerb.md's five-tab host
+// BuildHostDetailPrimitive builds design-docs/HostVerb.md's five-tab host
 // detail view - a thin header (hostname + playbook, mirroring the
 // "template" Verb's own header pattern) and a five-tab body (TabbedPane,
 // tabs.go) - shared unchanged between the standalone "host <name>" Verb
@@ -999,7 +973,7 @@ func tabIndexByName(names []string, name string) int {
 // async-update mechanism resolved.go/ansibledoc.go already use for the
 // drill-down view's own Resolved/Docs tabs, just kicked off eagerly for
 // every tab at once instead of lazily per tab-open.
-func buildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *tview.TextView) {
+func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *tview.TextView) {
 	header := tview.NewTextView().SetDynamicColors(true)
 	header.SetTextStyle(uikit.BarStyle)
 	playbookLabel := playbook
@@ -1016,7 +990,7 @@ func buildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 
 	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs(
-		hostDetailTabNames,
+		HostDetailTabNames,
 		[]tview.Primitive{summaryView, groupsView, playsView, hostVarsView, everythingView},
 	)
 
@@ -1042,28 +1016,28 @@ func buildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		}()
 	}
 
-	fetch(summaryView, func() (string, error) { return fetchHostSummary(stubPath, hostname, rest) })
-	fetch(groupsView, func() (string, error) { return fetchHostGroups(hostname, rest) })
-	fetch(playsView, func() (string, error) { return fetchHostPlays(playbook, rest, hostname) })
-	fetch(hostVarsView, func() (string, error) { return fetchHostVars(hostname, playbook, rest) })
-	fetch(everythingView, func() (string, error) { return fetchHostEverythingKnown(hostname, rest) })
+	fetch(summaryView, func() (string, error) { return FetchHostSummary(stubPath, hostname, rest) })
+	fetch(groupsView, func() (string, error) { return FetchHostGroups(hostname, rest) })
+	fetch(playsView, func() (string, error) { return FetchHostPlays(playbook, rest, hostname) })
+	fetch(hostVarsView, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
+	fetch(everythingView, func() (string, error) { return FetchHostEverythingKnown(hostname, rest) })
 
 	return flex, tabs, header, footer
 }
 
-// runHostDetailStandalone builds and runs "tangsible host <hostname>"'s
+// RunHostDetailStandalone builds and runs "tangsible host <hostname>"'s
 // own standalone program (design-docs/HostVerb.md) - a single
 // tview.Application showing exactly one host's detail view for the
 // process's entire lifetime, no list to go back to. Esc is deliberately
 // inert here, same reasoning and precedent as the "template" Verb's own
 // view (template.go/runTemplateTUI): only q/Ctrl-C quit, so idly browsing
 // tabs can never close the whole thing by reflex.
-func runHostDetailStandalone(hostname, playbook string, rest []string, stubPath string) {
+func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
 	footerText := " tab/shift-tab: switch tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	detail, tabs, header, footer := buildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText)
+	detail, tabs, header, footer := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch {
@@ -1108,19 +1082,19 @@ func runHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 	}
 }
 
-// hostRowText renders one row of "hosts"'s own list - plain white text
+// HostRowText renders one row of "hosts"'s own list - plain white text
 // normally, or black bold text on a light gray background when selected,
 // the same "cursor row" convention every other selectable row in this
 // app uses (PlayRowText/TaskLabel/HostLabel's own selected parameter,
 // tui.go).
-func hostRowText(hostname string, selected bool) string {
+func HostRowText(hostname string, selected bool) string {
 	if selected {
 		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, tview.Escape(hostname))
 	}
 	return "[white]" + tview.Escape(hostname) + "[-]"
 }
 
-// runHostsListTUI implements "tangsible hosts"'s own list-then-detail
+// RunHostsListTUI implements "tangsible hosts"'s own list-then-detail
 // flow: a scrollable TreeList (treelist.go - the same widget the main
 // tree view uses) of every host, Enter opens the identical five-tab
 // detail view "tangsible host <name>" would show for that same host
@@ -1139,7 +1113,7 @@ func hostRowText(hostname string, selected bool) string {
 // never asked for cross-host caching, and a fresh five-way concurrent
 // fetch per selection is cheap enough at this project's own ~10-host
 // target scale.
-func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath string) {
+func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -1170,7 +1144,7 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 	detailFooterText := " tab/shift-tab: switch tab  n/p: prev/next host  esc: back to list  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 
 	showDetail := func(hostname string) {
-		detail, tabs, hdr, ftr := buildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, detailFooterText)
+		detail, tabs, hdr, ftr := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, detailFooterText)
 		pages.RemovePage("detail")
 		pages.AddPage("detail", detail, true, true)
 		detailTabs, detailHeader, detailFooter = tabs, hdr, ftr
@@ -1182,7 +1156,7 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 
 	// navigateHostDetail switches the open detail view to the previous/
 	// next host in the same order the list itself uses (hosts, already
-	// alphabetically sorted - flattenInventoryHosts) - no wraparound at
+	// alphabetically sorted - inventory.FlattenInventoryHosts) - no wraparound at
 	// either end, matching this app's own navigation convention
 	// everywhere else (e.g. tui.go's navigateMainTask). The currently
 	// active tab is preserved across the switch by name (tabIndexByName)
@@ -1208,7 +1182,7 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		}
 		activeTabName := detailTabs.ActiveName()
 		showDetail(hosts[newIdx])
-		for i := 0; i < tabIndexByName(hostDetailTabNames, activeTabName); i++ {
+		for i := 0; i < TabIndexByName(HostDetailTabNames, activeTabName); i++ {
 			detailTabs.Next()
 		}
 	}
@@ -1239,7 +1213,7 @@ func runHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		list.Clear()
 		for i, h := range hosts {
 			h := h
-			list.AddItem(hostRowText(h, i == selectedIdx), func() { showDetail(h) })
+			list.AddItem(HostRowText(h, i == selectedIdx), func() { showDetail(h) })
 		}
 		list.SetCurrentItem(selectedIdx)
 	}

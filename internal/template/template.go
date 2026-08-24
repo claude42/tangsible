@@ -18,7 +18,7 @@
 // tree UI - there's no tree to browse here, and no live jsonl-streaming
 // pipeline is needed, since each render is exactly one synchronous
 // ansible-playbook invocation against exactly one host.
-package main
+package template
 
 import (
 	"bufio"
@@ -28,16 +28,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-// parseTemplateArgs splits args (everything after the "template" Verb)
+// ParseTemplateArgs splits args (everything after the "template" Verb)
 // into the required template path, an optional hostname, and everything
 // else as passthrough args - per design-docs/Tangsible template.md's own
 // syntax, "tangsible template <path to template> [<hostname>] [-e...]":
@@ -46,7 +46,7 @@ import (
 // after the first flag-shaped token (or after hostname, if present) is
 // rest. ok is false if no template path was given at all (a missing or
 // flag-shaped first argument).
-func parseTemplateArgs(args []string) (templatePath, hostname string, rest []string, ok bool) {
+func ParseTemplateArgs(args []string) (templatePath, hostname string, rest []string, ok bool) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return "", "", nil, false
 	}
@@ -59,71 +59,17 @@ func parseTemplateArgs(args []string) (templatePath, hostname string, rest []str
 	return templatePath, hostname, remaining, true
 }
 
-// ansibleInventoryGroup is the shape of one non-"_meta" entry in
-// `ansible-inventory --list`'s own JSON output - a group's own direct
-// hosts and child group names. Confirmed empirically: a host with no vars
-// of its own is entirely absent from "_meta.hostvars", so that map alone
-// can't be trusted as the full host list - the group tree (starting from
-// "all") is the only reliably complete source.
-type ansibleInventoryGroup struct {
-	Hosts    []string `json:"hosts"`
-	Children []string `json:"children"`
-}
-
-// flattenInventoryHosts walks raw's group tree from "all" down through
-// Children, collecting every group's own Hosts into a deduplicated,
-// alphabetically sorted list. Sorted deliberately, not left in whatever
-// order the source happened to produce - `ansible-inventory --list` and
-// `ansible ... --list-hosts` were both confirmed empirically to return
-// hosts in an inventory/pattern-matching order that isn't even consistent
-// between the two tools, and Go's own map iteration order is
-// unspecified - "the first host" needs one well-defined answer, not
-// whatever an upstream tool's internal traversal happens to produce.
-func flattenInventoryHosts(raw map[string]json.RawMessage) []string {
-	seen := map[string]bool{}
-	visited := map[string]bool{}
-	var walk func(name string)
-	walk = func(name string) {
-		if visited[name] {
-			return // guards against a (malformed or cyclic) children loop
-		}
-		visited[name] = true
-		data, ok := raw[name]
-		if !ok {
-			return
-		}
-		var g ansibleInventoryGroup
-		if err := json.Unmarshal(data, &g); err != nil {
-			return
-		}
-		for _, h := range g.Hosts {
-			seen[h] = true
-		}
-		for _, c := range g.Children {
-			walk(c)
-		}
-	}
-	walk("all")
-
-	hosts := make([]string, 0, len(seen))
-	for h := range seen {
-		hosts = append(hosts, h)
-	}
-	sort.Strings(hosts)
-	return hosts
-}
-
-// resolveInventoryHost runs `ansible-inventory --list`, forwarding
+// ResolveInventoryHost runs `ansible-inventory --list`, forwarding
 // passthroughArgs verbatim (the same -i/-e/... args this invocation was
 // given - ansible-inventory accepts a real subset of ansible-playbook's
 // own flags, confirmed via `ansible-inventory --help`; passing one it
 // doesn't recognize surfaces ansible's own clear error rather than
 // tangsible trying to filter the list itself), and returns the first host
-// per flattenInventoryHosts' own deterministic ordering. listInventoryHosts
+// per inventory.FlattenInventoryHosts' own deterministic ordering. inventory.ListInventoryHosts
 // (host.go) does the actual invocation and JSON parsing - shared with the
 // "hosts" Verb's own full host listing (design-docs/HostVerb.md).
-func resolveInventoryHost(passthroughArgs []string) (string, error) {
-	hosts, err := listInventoryHosts(passthroughArgs)
+func ResolveInventoryHost(passthroughArgs []string) (string, error) {
+	hosts, err := inventory.ListInventoryHosts(passthroughArgs)
 	if err != nil {
 		return "", err
 	}
@@ -133,7 +79,7 @@ func resolveInventoryHost(passthroughArgs []string) (string, error) {
 	return hosts[0], nil
 }
 
-// roleVarsFiles returns the existing defaults/main.yml and vars/main.yml
+// RoleVarsFiles returns the existing defaults/main.yml and vars/main.yml
 // paths (in that order, skipping whichever doesn't exist on disk) for the
 // role templatePath belongs to, per RolePathPattern (tui.go) - nil if
 // templatePath isn't role-owned at all. Deliberately doesn't invoke the
@@ -141,7 +87,7 @@ func resolveInventoryHost(passthroughArgs []string) (string, error) {
 // would run every task in the role's own tasks/main.yml as a side effect,
 // which a read-only template preview must never do; vars_files loads the
 // role's own default/var definitions without executing anything.
-func roleVarsFiles(templatePath string) []string {
+func RoleVarsFiles(templatePath string) []string {
 	abs, err := filepath.Abs(templatePath)
 	if err != nil {
 		return nil
@@ -165,7 +111,7 @@ func roleVarsFiles(templatePath string) []string {
 	return files
 }
 
-// writeTemplateStub generates a minimal playbook rendering templatePath to
+// WriteTemplateStub generates a minimal playbook rendering templatePath to
 // outputPath, and writes it to a fresh file in the system temp directory -
 // unlike the "role" Verb's own stub, this one needs no special placement
 // (there's no tree/drill-down source lookup happening here to find), so a
@@ -207,7 +153,7 @@ func roleVarsFiles(templatePath string) []string {
 // targeting the original host - a real bug caught live (switching to a
 // second, equally valid inventory host produced "no result reported for
 // host ...", since that host's own task genuinely never ran).
-func writeTemplateStub(templatePath, outputPath string) (stubPath string, err error) {
+func WriteTemplateStub(templatePath, outputPath string) (stubPath string, err error) {
 	absTemplate, err := filepath.Abs(templatePath)
 	if err != nil {
 		return "", err
@@ -216,7 +162,7 @@ func writeTemplateStub(templatePath, outputPath string) (stubPath string, err er
 	var b strings.Builder
 	b.WriteString("- hosts: all\n")
 	b.WriteString("  ignore_unreachable: true\n")
-	if varsFiles := roleVarsFiles(templatePath); len(varsFiles) > 0 {
+	if varsFiles := RoleVarsFiles(templatePath); len(varsFiles) > 0 {
 		b.WriteString("  vars_files:\n")
 		for _, f := range varsFiles {
 			fmt.Fprintf(&b, "    - %s\n", f)
@@ -240,18 +186,18 @@ func writeTemplateStub(templatePath, outputPath string) (stubPath string, err er
 	return f.Name(), nil
 }
 
-// templateResult is one render's own outcome - either Content (the
+// TemplateResult is one render's own outcome - either Content (the
 // rendered file, read back from disk) or, if the task itself failed,
 // ErrMsg (extracted from the task's own result the same way
 // PrimaryOutputField already does for the drill-down view - reused
 // directly, not reimplemented).
-type templateResult struct {
+type TemplateResult struct {
 	Content string
 	Failed  bool
 	ErrMsg  string
 }
 
-// renderTemplate runs stubPath synchronously, narrowed to hostname via
+// RenderTemplate runs stubPath synchronously, narrowed to hostname via
 // --limit (the stub itself always targets hosts: all - see
 // writeTemplateStub), forwarding rest (the same passthrough args given on
 // the command line) alongside it, and reports the outcome. err is
@@ -262,7 +208,7 @@ type templateResult struct {
 // most commonly) is reported via templateResult.Failed instead, not err,
 // since that's the normal, expected outcome this whole tool exists to
 // surface.
-func renderTemplate(stubPath, outputPath, hostname string, rest []string) (templateResult, error) {
+func RenderTemplate(stubPath, outputPath, hostname string, rest []string) (TemplateResult, error) {
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
 	cmd := exec.Command("ansible-playbook", args...)
 	cmd.Env = append(os.Environ(),
@@ -301,7 +247,7 @@ func renderTemplate(stubPath, outputPath, hostname string, rest []string) (templ
 		if msg == "" {
 			msg = fmt.Sprintf("no result reported for host %q - check that it resolves in the inventory", hostname)
 		}
-		return templateResult{}, fmt.Errorf("%s", msg)
+		return TemplateResult{}, fmt.Errorf("%s", msg)
 	}
 
 	decoded := playbook.DecodeHostResult(raw)
@@ -312,19 +258,19 @@ func renderTemplate(stubPath, outputPath, hostname string, rest []string) (templ
 		if msg == "" {
 			msg = decoded.Msg
 		}
-		return templateResult{Failed: true, ErrMsg: msg}, nil
+		return TemplateResult{Failed: true, ErrMsg: msg}, nil
 	}
 
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
-		return templateResult{Failed: true, ErrMsg: fmt.Sprintf("the template task reported success but the rendered file couldn't be read: %v", err)}, nil
+		return TemplateResult{Failed: true, ErrMsg: fmt.Sprintf("the template task reported success but the rendered file couldn't be read: %v", err)}, nil
 	}
-	return templateResult{Content: string(content)}, nil
+	return TemplateResult{Content: string(content)}, nil
 }
 
-// preferredEditor implements the standard Unix convention: $VISUAL, then
+// PreferredEditor implements the standard Unix convention: $VISUAL, then
 // $EDITOR, then a bare "vi" as the last-resort default.
-func preferredEditor() string {
+func PreferredEditor() string {
 	if v := os.Getenv("VISUAL"); v != "" {
 		return v
 	}
@@ -334,15 +280,15 @@ func preferredEditor() string {
 	return "vi"
 }
 
-// runTemplateVerb is main.go's entry point for the "template" Verb.
+// RunTemplateVerb is main.go's entry point for the "template" Verb.
 // Returns the process exit code rather than calling os.Exit itself, so
 // its own deferred cleanup (the stub playbook and the rendered-output
 // scratch file, per design-docs/Tangsible template.md's Cleanup section)
 // reliably runs on every path - os.Exit skips deferred functions, so
 // main.go calls os.Exit on the returned code only after this function has
 // already returned.
-func runTemplateVerb(args []string) int {
-	templatePath, hostname, rest, ok := parseTemplateArgs(args)
+func RunTemplateVerb(args []string) int {
+	templatePath, hostname, rest, ok := ParseTemplateArgs(args)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "usage: %s template <path to template> [<hostname>] [ansible-playbook args...]\n", os.Args[0])
 		return 2
@@ -353,7 +299,7 @@ func runTemplateVerb(args []string) int {
 	}
 
 	if hostname == "" {
-		h, err := resolveInventoryHost(rest)
+		h, err := ResolveInventoryHost(rest)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "tangsible: couldn't resolve a host from the inventory: %v\n", err)
 			return 1
@@ -370,18 +316,18 @@ func runTemplateVerb(args []string) int {
 	outFile.Close()
 	defer os.Remove(outputPath)
 
-	stubPath, err := writeTemplateStub(templatePath, outputPath)
+	stubPath, err := WriteTemplateStub(templatePath, outputPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook: %v\n", err)
 		return 1
 	}
 	defer os.Remove(stubPath)
 
-	runTemplateTUI(templatePath, stubPath, outputPath, hostname, rest)
+	RunTemplateTUI(templatePath, stubPath, outputPath, hostname, rest)
 	return 0
 }
 
-// runTemplateTUI builds and runs the standalone single-view program
+// RunTemplateTUI builds and runs the standalone single-view program
 // design-docs/Tangsible template.md describes: a thin header (template
 // path + current hostname, the same "outputTopBar" pattern the existing
 // drill-down view already uses), a two-tab body (design-docs/Tabbed
@@ -391,7 +337,7 @@ func runTemplateVerb(args []string) int {
 // relocated into a tab) - and a bottom keybinding-hint bar. No
 // Pages("main")/tree underneath any of this, since there's nothing here
 // to navigate back to.
-func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest []string) {
+func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest []string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -445,7 +391,7 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	// QueueUpdateDraw once it's done, same pattern requestRerun's own
 	// generations already use elsewhere.
 	render := func() {
-		result, err := renderTemplate(stubPath, outputPath, currentHost, rest)
+		result, err := RenderTemplate(stubPath, outputPath, currentHost, rest)
 		app.QueueUpdateDraw(func() {
 			setHeader()
 			switch {
@@ -598,7 +544,7 @@ func runTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 			// whether or not anything was actually saved - simplest, and
 			// matches how e.g. git commit/crontab -e behave.
 			app.Suspend(func() {
-				cmd := exec.Command(preferredEditor(), templatePath)
+				cmd := exec.Command(PreferredEditor(), templatePath)
 				cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 				_ = cmd.Run()
 			})

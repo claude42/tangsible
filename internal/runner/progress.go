@@ -47,7 +47,7 @@
 //     tasks at all (confirmed empirically: the play itself still gets a
 //     v2_playbook_on_play_start, but none of its tasks ever start). Any
 //     play reporting zero hosts has its tasks excluded from the
-//     skeleton entirely (parseListTasksOutput below), rather than
+//     skeleton entirely (ParseListTasksOutput below), rather than
 //     inflating the total with tasks that can never execute in this run.
 //
 // Given that, matching by plain "have we seen this task before" is
@@ -55,10 +55,10 @@
 // role, or the same included file, commonly runs more than once), so a
 // naive lookup can match a real event to the wrong occurrence and make
 // the indicator jump - which is worse than not moving at all. See
-// progressTracker for the bounded, forward-only matching this uses
+// ProgressTracker for the bounded, forward-only matching this uses
 // instead, and its own accepted failure mode (undercounting, never
 // overcounting).
-package main
+package runner
 
 import (
 	"bytes"
@@ -68,17 +68,17 @@ import (
 	"strings"
 )
 
-// progressEntry is one predicted task, keyed the same way a real
+// ProgressEntry is one predicted task, keyed the same way a real
 // v2_playbook_on_task_start event's own play.Name/task.Name pair is -
 // confirmed empirically that a role-qualified task name ("myrole : task
 // name") renders identically in both --list-tasks' own output and a real
 // event's task.name, so no separate un-qualifying step is needed.
-type progressEntry struct {
+type ProgressEntry struct {
 	Play string
 	Task string
 }
 
-// progressPlayLine/progressTaskLine/progressHostsCountLine match
+// ProgressPlayLine/ProgressTaskLine/ProgressHostsCountLine match
 // "ansible-playbook ... --list-tasks --list-hosts"' own combined output,
 // confirmed empirically against a real ansible-core install (pinned
 // ANSIBLE_JSON_INDENT/callback env vars don't affect this - both flags
@@ -88,16 +88,16 @@ type progressEntry struct {
 // play's own pattern/hosts/tasks into one combined block, in either
 // flag order, rather than needing two separate subprocess calls:
 //
-//	  play #1 (nogroup): Targets a group not in this inventory	TAGS: []
-//	    pattern: ['nogroup']
-//	    hosts (0):
+//	play #1 (nogroup): Targets a group not in this inventory	TAGS: []
+//	  pattern: ['nogroup']
+//	  hosts (0):
 //
-//	  play #2 (all): Real play	TAGS: []
-//	    pattern: ['all']
-//	    hosts (1):
-//	      localhost
-//	    tasks:
-//	      unique finisher after unreachable play	TAGS: []
+//	play #2 (all): Real play	TAGS: []
+//	  pattern: ['all']
+//	  hosts (1):
+//	    localhost
+//	  tasks:
+//	    unique finisher after unreachable play	TAGS: []
 //
 // This is a human-readable summary, not a documented machine format, so
 // treat it the same as this project's other "documented heuristic, not
@@ -105,13 +105,13 @@ type progressEntry struct {
 // doesn't match any recognized pattern (a future ansible-core version's
 // reformatted output) is silently skipped, never an error.
 var (
-	progressPlayLine       = regexp.MustCompile(`^  play #\d+ \([^)]*\): (.+)\tTAGS: `)
-	progressTaskLine       = regexp.MustCompile(`^      (.+)\tTAGS: `)
-	progressHostsCountLine = regexp.MustCompile(`^    hosts \((\d+)\):`)
+	ProgressPlayLine       = regexp.MustCompile(`^  play #\d+ \([^)]*\): (.+)\tTAGS: `)
+	ProgressTaskLine       = regexp.MustCompile(`^      (.+)\tTAGS: `)
+	ProgressHostsCountLine = regexp.MustCompile(`^    hosts \((\d+)\):`)
 )
 
-// parseListTasksOutput turns the combined "--list-tasks --list-hosts"
-// stdout into a flat, execution-order sequence of progressEntry - flat
+// ParseListTasksOutput turns the combined "--list-tasks --list-hosts"
+// stdout into a flat, execution-order sequence of ProgressEntry - flat
 // because --list-tasks itself already merges a play's pre_tasks/roles/
 // tasks/post_tasks into one single, correctly-ordered "tasks:" section
 // (confirmed empirically), so no separate section-tracking is needed
@@ -124,17 +124,17 @@ var (
 // empirically: the play itself still gets a v2_playbook_on_play_start,
 // but none of its tasks ever start), so counting them would only ever
 // inflate the total, never be matched.
-func parseListTasksOutput(output string) []progressEntry {
-	var entries []progressEntry
+func ParseListTasksOutput(output string) []ProgressEntry {
+	var entries []ProgressEntry
 	var currentPlay string
 	var skipCurrentPlay bool
 	for _, line := range strings.Split(output, "\n") {
-		if m := progressPlayLine.FindStringSubmatch(line); m != nil {
+		if m := ProgressPlayLine.FindStringSubmatch(line); m != nil {
 			currentPlay = m[1]
 			skipCurrentPlay = false // corrected by this play's own "hosts (N):" line, below, before any "tasks:" line can follow it
 			continue
 		}
-		if m := progressHostsCountLine.FindStringSubmatch(line); m != nil {
+		if m := ProgressHostsCountLine.FindStringSubmatch(line); m != nil {
 			if count, _ := strconv.Atoi(m[1]); count == 0 {
 				skipCurrentPlay = true
 			}
@@ -143,14 +143,14 @@ func parseListTasksOutput(output string) []progressEntry {
 		if skipCurrentPlay {
 			continue
 		}
-		if m := progressTaskLine.FindStringSubmatch(line); m != nil {
-			entries = append(entries, progressEntry{Play: currentPlay, Task: m[1]})
+		if m := ProgressTaskLine.FindStringSubmatch(line); m != nil {
+			entries = append(entries, ProgressEntry{Play: currentPlay, Task: m[1]})
 		}
 	}
 	return entries
 }
 
-// buildProgressSkeleton shells out to a single, throwaway
+// BuildProgressSkeleton shells out to a single, throwaway
 // "ansible-playbook <playbook> <passthroughArgs> --list-tasks
 // --list-hosts" invocation - always best-effort: any failure
 // (ansible-playbook missing, the same real playbook error the actual
@@ -173,7 +173,7 @@ func parseListTasksOutput(output string) []progressEntry {
 // terminal too, in addition to the real run's own first generation doing
 // the same - narrow enough (only playbooks actually using those flags)
 // to leave as a known limitation rather than solve up front.
-func buildProgressSkeleton(playbook string, passthroughArgs []string) []progressEntry {
+func BuildProgressSkeleton(playbook string, passthroughArgs []string) []ProgressEntry {
 	args := append([]string{playbook}, passthroughArgs...)
 	args = append(args, "--list-tasks", "--list-hosts")
 	cmd := exec.Command("ansible-playbook", args...)
@@ -182,25 +182,25 @@ func buildProgressSkeleton(playbook string, passthroughArgs []string) []progress
 	if err := cmd.Run(); err != nil {
 		return nil
 	}
-	return parseListTasksOutput(stdout.String())
+	return ParseListTasksOutput(stdout.String())
 }
 
-// progressBaseLookahead bounds how far ahead of the tracker's own cursor
+// ProgressBaseLookahead bounds how far ahead of the tracker's own cursor
 // a match is trusted while things are going normally (missStreak == 0) -
-// see progressTracker's doc comment for why a match has to be bounded at
+// see ProgressTracker's doc comment for why a match has to be bounded at
 // all once a task name can repeat, and for how this bound grows instead
 // of staying fixed once misses start piling up.
-const progressBaseLookahead = 25
+const ProgressBaseLookahead = 25
 
-// progressMaxMissShift caps how many times progressBaseLookahead doubles
+// ProgressMaxMissShift caps how many times ProgressBaseLookahead doubles
 // as missStreak grows (see window below) - 12 already gives a window of
 // 25*4096 = 102400, far larger than any playbook this project targets,
 // so this only exists to keep the shift itself well-defined rather than
 // to meaningfully limit real recovery.
-const progressMaxMissShift = 12
+const ProgressMaxMissShift = 12
 
-// progressTracker matches real, in-order task-start events against a
-// static skeleton (see buildProgressSkeleton) to produce an approximate
+// ProgressTracker matches real, in-order task-start events against a
+// static skeleton (see BuildProgressSkeleton) to produce an approximate
 // "position / total" - approximate because dynamic content (a notified
 // handler, a dynamically-included task) has no static counterpart to
 // match at all, in which case Advance leaves the tracker's own state
@@ -225,7 +225,7 @@ const progressMaxMissShift = 12
 // since the window is measured from the stuck cursor, not from where
 // that task actually sits. missStreak (consecutive Advance calls that
 // found nothing) doubles the window each time, capped at
-// progressMaxMissShift, and resets to zero the instant something
+// ProgressMaxMissShift, and resets to zero the instant something
 // matches again - so an isolated, ordinary gap stays tightly bounded
 // (protecting against a coincidental collision, the original concern),
 // while a long unmatched stretch progressively widens the search until
@@ -233,41 +233,41 @@ const progressMaxMissShift = 12
 // Undercounting during that widening (the bar stalls while catching up)
 // is still the deliberately preferred failure mode over ever jumping
 // backward or overcounting.
-type progressTracker struct {
-	skeleton   []progressEntry
+type ProgressTracker struct {
+	skeleton   []ProgressEntry
 	cursor     int // index of the first not-yet-matched skeleton entry
 	matched    int // 1-based position of the most recent successful match
 	missStreak int // consecutive Advance calls that found no match
 }
 
-// newProgressTracker never returns nil - an empty/nil skeleton (e.g.
-// buildProgressSkeleton failed) just makes Position() always report
+// NewProgressTracker never returns nil - an empty/nil skeleton (e.g.
+// BuildProgressSkeleton failed) just makes Position() always report
 // (0, 0), which callers already treat as "nothing to show" identically
 // to a genuinely absent tracker.
-func newProgressTracker(skeleton []progressEntry) *progressTracker {
-	return &progressTracker{skeleton: skeleton}
+func NewProgressTracker(skeleton []ProgressEntry) *ProgressTracker {
+	return &ProgressTracker{skeleton: skeleton}
 }
 
 // Advance looks for (play, task) among the next currently-in-effect
-// window of unconsumed skeleton entries (see progressTracker's own doc
+// window of unconsumed skeleton entries (see ProgressTracker's own doc
 // comment for how that window grows on repeated misses). On a match, the
 // cursor moves just past it, that match's own 1-based position becomes
 // the tracker's new Position(), and missStreak resets to zero; on a
 // miss, the tracker's cursor/matched are left completely untouched and
 // missStreak grows by one, widening the next call's own window. Safe to
-// call on a nil *progressTracker (a no-op) - the state before this
+// call on a nil *ProgressTracker (a no-op) - the state before this
 // session's very first skeleton has ever been built, or hasn't been
 // built for this particular generation yet.
-func (t *progressTracker) Advance(play, task string) {
+func (t *ProgressTracker) Advance(play, task string) {
 	if t == nil || len(t.skeleton) == 0 {
 		return
 	}
-	window := progressBaseLookahead << min(t.missStreak, progressMaxMissShift)
+	window := ProgressBaseLookahead << min(t.missStreak, ProgressMaxMissShift)
 	limit := t.cursor + window
 	if limit > len(t.skeleton) {
 		limit = len(t.skeleton)
 	}
-	want := progressEntry{Play: play, Task: task}
+	want := ProgressEntry{Play: play, Task: task}
 	for i := t.cursor; i < limit; i++ {
 		if t.skeleton[i] == want {
 			t.cursor = i + 1
@@ -301,7 +301,7 @@ func (t *progressTracker) Advance(play, task string) {
 // cursor - e.g. the throwaway --list-tasks probe somehow used different
 // scope than the real run) leaves the tracker completely untouched, same
 // "undercount, never guess" rule Advance itself follows.
-func (t *progressTracker) AdvanceToPlay(play string) {
+func (t *ProgressTracker) AdvanceToPlay(play string) {
 	if t == nil || len(t.skeleton) == 0 {
 		return
 	}
@@ -319,7 +319,7 @@ func (t *progressTracker) AdvanceToPlay(play string) {
 // skeleton's own total size - (0, 0) for a nil tracker, or one whose
 // skeleton is empty, both meaning the same thing to callers: no progress
 // data available, show nothing rather than a misleading "0/0".
-func (t *progressTracker) Position() (position, total int) {
+func (t *ProgressTracker) Position() (position, total int) {
 	if t == nil {
 		return 0, 0
 	}

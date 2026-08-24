@@ -31,8 +31,11 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/host"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/role"
+	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
@@ -252,13 +255,13 @@ func main() {
 	// selected entry, each its own fresh call with a freshly replayed
 	// state, never sharing this function's own run/rerun/role setup.
 	if v == config.VerbTemplate {
-		os.Exit(runTemplateVerb(args))
+		os.Exit(template.RunTemplateVerb(args))
 	}
 	if v == config.VerbHost {
-		os.Exit(runHostVerb(args))
+		os.Exit(host.RunHostVerb(args))
 	}
 	if v == config.VerbHosts {
-		os.Exit(runHostsVerb(args))
+		os.Exit(host.RunHostsVerb(args))
 	}
 	if v == config.VerbRevisit {
 		os.Exit(runRevisitVerb(args))
@@ -446,9 +449,9 @@ func main() {
 	// yet, and requestRerun below builds this exact same way once the
 	// dialog is actually confirmed, using whatever args the user ends up
 	// submitting.
-	var progH atomic.Pointer[progressTracker]
+	var progH atomic.Pointer[runner.ProgressTracker]
 	if pending != nil {
-		progH.Store(newProgressTracker(buildProgressSkeleton(playbook, originalArgs.Reassemble())))
+		progH.Store(runner.NewProgressTracker(runner.BuildProgressSkeleton(playbook, originalArgs.Reassemble())))
 	}
 
 	// Read fresh here rather than threading through the "rerun" branch's

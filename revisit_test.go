@@ -100,7 +100,7 @@ func TestRevisitRowTextStatusColor(t *testing.T) {
 	}
 
 	// Selected rendering uses the shared PureBlack-on-lightgray convention,
-	// not a per-status color - same as host.go's own hostRowText.
+	// not a per-status color - same as host.go's own HostRowText.
 	selected := revisitRowText(revisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 2}, 10, true)
 	if !strings.Contains(selected, "lightgray") {
 		t.Errorf("revisitRowText(selected) = %q, want the shared selected-row styling", selected)

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package host
 
 import (
 	"encoding/json"
@@ -21,6 +21,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/inventory"
 )
 
 func TestParseHostArgs(t *testing.T) {
@@ -41,7 +43,7 @@ func TestParseHostArgs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			host, playbook, rest, ok := parseHostArgs(c.args)
+			host, playbook, rest, ok := ParseHostArgs(c.args)
 			if ok != c.wantOK || host != c.wantHost || playbook != c.wantPlaybook || !reflect.DeepEqual(rest, c.wantRest) {
 				t.Errorf("parseHostArgs(%v) = (%q, %q, %v, %v), want (%q, %q, %v, %v)",
 					c.args, host, playbook, rest, ok, c.wantHost, c.wantPlaybook, c.wantRest, c.wantOK)
@@ -52,7 +54,7 @@ func TestParseHostArgs(t *testing.T) {
 
 func inventoryGroupJSON(t *testing.T, hosts, children []string) json.RawMessage {
 	t.Helper()
-	g := ansibleInventoryGroup{Hosts: hosts, Children: children}
+	g := inventory.AnsibleInventoryGroup{Hosts: hosts, Children: children}
 	data, err := json.Marshal(g)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -69,8 +71,8 @@ func TestHostGroupChain(t *testing.T) {
 		"other": inventoryGroupJSON(t, []string{"other1"}, nil),
 	}
 
-	got := hostGroupChain(raw, "web1")
-	want := []groupMembership{
+	got := HostGroupChain(raw, "web1")
+	want := []GroupMembership{
 		{Group: "web"},
 		{Group: "prod", Via: "web"},
 		{Group: "all", Via: "prod"},
@@ -79,7 +81,7 @@ func TestHostGroupChain(t *testing.T) {
 		t.Errorf("hostGroupChain() = %+v, want %+v", got, want)
 	}
 
-	if got := hostGroupChain(raw, "nonexistent"); len(got) != 0 {
+	if got := HostGroupChain(raw, "nonexistent"); len(got) != 0 {
 		t.Errorf("hostGroupChain(nonexistent) = %+v, want empty", got)
 	}
 }
@@ -93,7 +95,7 @@ func TestHostGroupChain_DiamondDedup(t *testing.T) {
 		"web":  inventoryGroupJSON(t, []string{"combo1"}, nil),
 		"db":   inventoryGroupJSON(t, []string{"combo1"}, nil),
 	}
-	got := hostGroupChain(raw, "combo1")
+	got := HostGroupChain(raw, "combo1")
 	seen := map[string]int{}
 	for _, m := range got {
 		seen[m.Group]++
@@ -114,24 +116,24 @@ func TestDedupProcessorModels(t *testing.T) {
 		"0", "AuthenticAMD", "AMD Ryzen 5 3600 6-Core Processor",
 		"1", "AuthenticAMD", "AMD Ryzen 5 3600 6-Core Processor",
 	}
-	if got := dedupProcessorModels(realShape); !reflect.DeepEqual(got, []string{"AMD Ryzen 5 3600 6-Core Processor"}) {
+	if got := DedupProcessorModels(realShape); !reflect.DeepEqual(got, []string{"AMD Ryzen 5 3600 6-Core Processor"}) {
 		t.Errorf("dedupProcessorModels(realShape) = %v", got)
 	}
 
-	if got := dedupProcessorModels("not a list"); got != nil {
+	if got := DedupProcessorModels("not a list"); got != nil {
 		t.Errorf("dedupProcessorModels(non-list) = %v, want nil", got)
 	}
 
-	if got := dedupProcessorModels([]interface{}{}); got != nil {
+	if got := DedupProcessorModels([]interface{}{}); got != nil {
 		t.Errorf("dedupProcessorModels(empty) = %v, want nil", got)
 	}
 }
 
 func TestFormatRAM(t *testing.T) {
-	if got := formatRAM(float64(49152)); got != "48.0 GB" {
+	if got := FormatRAM(float64(49152)); got != "48.0 GB" {
 		t.Errorf("formatRAM(49152) = %q, want %q", got, "48.0 GB")
 	}
-	if got := formatRAM("not a number"); got != "" {
+	if got := FormatRAM("not a number"); got != "" {
 		t.Errorf("formatRAM(non-number) = %q, want empty", got)
 	}
 }
@@ -170,7 +172,7 @@ func TestClassifyVirtualization(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := classifyVirtualization(c.facts); got != c.want {
+			if got := ClassifyVirtualization(c.facts); got != c.want {
 				t.Errorf("classifyVirtualization(%+v) = %q, want %q", c.facts, got, c.want)
 			}
 		})
@@ -180,7 +182,7 @@ func TestClassifyVirtualization(t *testing.T) {
 func TestFilterLinkLocal(t *testing.T) {
 	in := []string{"2a01:4f9:3080:14ad::104", "fe80::be24:11ff:fea8:39c", "::1"}
 	want := []string{"2a01:4f9:3080:14ad::104", "::1"}
-	if got := filterLinkLocal(in); !reflect.DeepEqual(got, want) {
+	if got := FilterLinkLocal(in); !reflect.DeepEqual(got, want) {
 		t.Errorf("filterLinkLocal() = %v, want %v", got, want)
 	}
 }
@@ -194,8 +196,8 @@ func TestHostKeyLines(t *testing.T) {
 		"ansible_ssh_host_key_ecdsa_public":           "AAAAECDSA",
 		"ansible_ssh_host_key_ecdsa_public_keytype":   "ecdsa-sha2-nistp256",
 	}
-	got := hostKeyLines(facts)
-	want := []hostKeyLine{
+	got := HostKeyLines(facts)
+	want := []HostKeyLine{
 		{label: "Host key (ed25519):", value: "ssh-ed25519 AAAAED"},
 		{label: "Host key (ecdsa):", value: "ecdsa-sha2-nistp256 AAAAECDSA"},
 		{label: "Host key (rsa):", value: "ssh-rsa AAAARSA"},
@@ -204,7 +206,7 @@ func TestHostKeyLines(t *testing.T) {
 		t.Errorf("hostKeyLines() = %+v, want %+v", got, want)
 	}
 
-	if got := hostKeyLines(map[string]interface{}{}); len(got) != 0 {
+	if got := HostKeyLines(map[string]interface{}{}); len(got) != 0 {
 		t.Errorf("hostKeyLines(empty) = %+v, want empty", got)
 	}
 }
@@ -226,7 +228,7 @@ func TestFormatHostSummary(t *testing.T) {
 		"ansible_ssh_host_key_ed25519_public":         "AAAAED",
 		"ansible_ssh_host_key_ed25519_public_keytype": "ssh-ed25519",
 	}
-	got := formatHostSummary("web1", facts)
+	got := FormatHostSummary("web1", facts)
 
 	for _, want := range []string{
 		"Host:           web1\n",
@@ -269,7 +271,7 @@ func TestExtractInventoryDirs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := extractInventoryDirs(c.args)
+			got := ExtractInventoryDirs(c.args)
 			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("extractInventoryDirs(%v) = %v, want %v", c.args, got, c.want)
 			}
@@ -299,13 +301,13 @@ func TestDiscoverHostVarsFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got1 := discoverHostVarsFiles("web1", []string{dir1, dir2})
+	got1 := DiscoverHostVarsFiles("web1", []string{dir1, dir2})
 	want1 := []string{filepath.Join(dir1, "host_vars", "web1.yml")}
 	if !reflect.DeepEqual(got1, want1) {
 		t.Errorf("discoverHostVarsFiles(web1) = %v, want %v", got1, want1)
 	}
 
-	got2 := discoverHostVarsFiles("web2", []string{dir1, dir2})
+	got2 := DiscoverHostVarsFiles("web2", []string{dir1, dir2})
 	want2 := []string{
 		filepath.Join(web2Dir, "a.yml"),
 		filepath.Join(web2Dir, "b.yaml"),
@@ -315,12 +317,12 @@ func TestDiscoverHostVarsFiles(t *testing.T) {
 	}
 
 	// Same directory listed twice must not duplicate results.
-	gotDup := discoverHostVarsFiles("web1", []string{dir1, dir1})
+	gotDup := DiscoverHostVarsFiles("web1", []string{dir1, dir1})
 	if !reflect.DeepEqual(gotDup, want1) {
 		t.Errorf("discoverHostVarsFiles(web1, dup dirs) = %v, want %v", gotDup, want1)
 	}
 
-	if got := discoverHostVarsFiles("nonexistent", []string{dir1, dir2}); len(got) != 0 {
+	if got := DiscoverHostVarsFiles("nonexistent", []string{dir1, dir2}); len(got) != 0 {
 		t.Errorf("discoverHostVarsFiles(nonexistent) = %v, want empty", got)
 	}
 }

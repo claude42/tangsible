@@ -34,6 +34,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
 )
 
 // runOneGeneration drains one generation's stdout to completion - from
@@ -86,7 +87,7 @@ func runOneGeneration(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-c
 // startAtTask, if non-empty, is prepended as --start-at-task; tags/hosts
 // replace the original invocation's own (originalRest is always carried
 // forward unedited alongside them - see ParsedPassthroughArgs.Reassemble).
-func newRequestRerun(playbook, roleDisplayName string, originalRest []string, state *playbook.PlaybookState, procH *procHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[progressTracker], apply func(streamItem), recordOutcome func(generationOutcome)) func(startAtTask, tags, skipTags, hosts string) {
+func newRequestRerun(playbook, roleDisplayName string, originalRest []string, state *playbook.PlaybookState, procH *procHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[runner.ProgressTracker], apply func(streamItem), recordOutcome func(generationOutcome)) func(startAtTask, tags, skipTags, hosts string) {
 	return func(startAtTask, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
 		// event-loop goroutine, from the re-run dialog's Enter handler) -
@@ -109,12 +110,12 @@ func newRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		// itself ignores --start-at-task entirely (confirmed empirically -
 		// it always lists the playbook's full task set regardless), so
 		// the resulting skeleton's front few entries simply won't ever be
-		// matched - harmless, progressTracker's own bounded lookahead
+		// matched - harmless, runner.ProgressTracker's own bounded lookahead
 		// already treats "not found (yet)" as a no-op rather than an
 		// error, and the real run's own first task-start event is still
 		// found well within that window for any reasonably-early
 		// --start-at-task point.
-		progH.Store(newProgressTracker(buildProgressSkeleton(playbook, newArgs)))
+		progH.Store(runner.NewProgressTracker(runner.BuildProgressSkeleton(playbook, newArgs)))
 
 		// Recorded the same way the original invocation was, at the top
 		// of whichever session this is - but its own error, unlike that

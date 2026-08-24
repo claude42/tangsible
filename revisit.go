@@ -37,6 +37,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/role"
+	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -129,7 +130,7 @@ func revisitStatusLabel(exitCode int) string {
 // revisitStatusColor is revisitStatusLabel's own color, shared with the
 // selected-row case only insofar as an unselected row applies it directly
 // (a selected row uses the uniform PureBlack-on-lightgray convention
-// instead, matching host.go's own hostRowText - see revisitRowText).
+// instead, matching host.go's own HostRowText - see revisitRowText).
 func revisitStatusColor(exitCode int) string {
 	switch {
 	case exitCode == 0:
@@ -147,7 +148,7 @@ func revisitStatusColor(exitCode int) string {
 // currently shown (computed once by runRevisitListTUI, not per row), so
 // every row's own trailing " - tangsible ..." column lines up regardless
 // of which row's own label happens to be shortest. Selected styling
-// matches host.go's own hostRowText convention (uniform PureBlack on
+// matches host.go's own HostRowText convention (uniform PureBlack on
 // lightgray, no per-segment color) rather than reinventing a second one.
 func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
 	ts := formatRevisitTime(e.Time)
@@ -167,7 +168,7 @@ func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
 // (Enter - returns it with ok=true) or quits (q/Ctrl-C - ok=false).
 //
 // The cursor-highlighting/rebuild-on-change structure (selectedIdx,
-// rebuilding, rebuildRows) is a direct copy of runHostsListTUI's own
+// rebuilding, rebuildRows) is a direct copy of RunHostsListTUI's own
 // (host.go) - TreeList has no built-in "current row" look of its own (see
 // that function's own doc comment for why), so every list built on it needs
 // this same small amount of bookkeeping.
@@ -333,11 +334,11 @@ func openRevisitEntry(e revisitEntry) {
 	processDone.Store(true)
 	exitCode.Store(int32(e.ExitCode))
 
-	var progH atomic.Pointer[progressTracker]
-	progH.Store(newProgressTracker(nil)) // nothing to preview for a run
+	var progH atomic.Pointer[runner.ProgressTracker]
+	progH.Store(runner.NewProgressTracker(nil)) // nothing to preview for a run
 	// that already happened - Position() reporting (0,0) is exactly what
 	// makes the frozen top bar's fill snap straight to 100%, same as any
-	// other frozen session. Rebuilt for real (buildProgressSkeleton) by
+	// other frozen session. Rebuilt for real (BuildProgressSkeleton) by
 	// newRequestRerun below, the moment a real rerun actually starts -
 	// same as any other session.
 

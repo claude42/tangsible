@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package runner
 
 import (
 	"slices"
@@ -24,7 +24,7 @@ import (
 // live against a throwaway fixture with a named play,
 // pre_tasks/roles/tasks/post_tasks, and a tags-only "plain task"; both
 // plays match the inventory here), not hand-written - pinning
-// parseListTasksOutput against actual ansible-core output rather than an
+// ParseListTasksOutput against actual ansible-core output rather than an
 // assumed shape.
 const realListTasksOutput = `
 playbook: /tmp/named_probe.yml
@@ -74,8 +74,8 @@ playbook: /tmp/unreachable_gap.yml
 
 func TestParseListTasksOutput(t *testing.T) {
 	t.Run("real ansible-core transcript, two plays, a role, tags", func(t *testing.T) {
-		got := parseListTasksOutput(realListTasksOutput)
-		want := []progressEntry{
+		got := ParseListTasksOutput(realListTasksOutput)
+		want := []ProgressEntry{
 			{Play: "First play does setup", Task: "a pre task"},
 			{Play: "First play does setup", Task: "myrole : role task one"},
 			{Play: "First play does setup", Task: "myrole : role task two"},
@@ -84,44 +84,44 @@ func TestParseListTasksOutput(t *testing.T) {
 			{Play: "Second play", Task: "only task"},
 		}
 		if !slices.Equal(got, want) {
-			t.Errorf("parseListTasksOutput() = %+v, want %+v", got, want)
+			t.Errorf("ParseListTasksOutput() = %+v, want %+v", got, want)
 		}
 	})
 
 	t.Run("unrecognized output yields an empty, non-fatal skeleton", func(t *testing.T) {
-		got := parseListTasksOutput("not --list-tasks output at all\njust some noise\n")
+		got := ParseListTasksOutput("not --list-tasks output at all\njust some noise\n")
 		if len(got) != 0 {
-			t.Errorf("parseListTasksOutput() = %v, want empty", got)
+			t.Errorf("ParseListTasksOutput() = %v, want empty", got)
 		}
 	})
 
 	t.Run("empty output", func(t *testing.T) {
-		got := parseListTasksOutput("")
+		got := ParseListTasksOutput("")
 		if len(got) != 0 {
-			t.Errorf("parseListTasksOutput() = %v, want empty", got)
+			t.Errorf("ParseListTasksOutput() = %v, want empty", got)
 		}
 	})
 
 	t.Run("a zero-host play's tasks are excluded from the skeleton entirely", func(t *testing.T) {
-		got := parseListTasksOutput(realListTasksOutputWithZeroHostPlay)
-		want := []progressEntry{
+		got := ParseListTasksOutput(realListTasksOutputWithZeroHostPlay)
+		want := []ProgressEntry{
 			{Play: "Real play", Task: "unique finisher after unreachable play"},
 		}
 		if !slices.Equal(got, want) {
-			t.Errorf("parseListTasksOutput() = %+v, want %+v", got, want)
+			t.Errorf("ParseListTasksOutput() = %+v, want %+v", got, want)
 		}
 	})
 }
 
 func TestProgressTracker(t *testing.T) {
-	skeleton := []progressEntry{
+	skeleton := []ProgressEntry{
 		{Play: "P", Task: "one"},
 		{Play: "P", Task: "two"},
 		{Play: "P", Task: "three"},
 	}
 
 	t.Run("nil tracker is a safe no-op", func(t *testing.T) {
-		var tr *progressTracker
+		var tr *ProgressTracker
 		tr.Advance("P", "one")
 		pos, total := tr.Position()
 		if pos != 0 || total != 0 {
@@ -130,7 +130,7 @@ func TestProgressTracker(t *testing.T) {
 	})
 
 	t.Run("empty skeleton reports (0, 0) and never matches", func(t *testing.T) {
-		tr := newProgressTracker(nil)
+		tr := NewProgressTracker(nil)
 		tr.Advance("P", "one")
 		pos, total := tr.Position()
 		if pos != 0 || total != 0 {
@@ -139,7 +139,7 @@ func TestProgressTracker(t *testing.T) {
 	})
 
 	t.Run("sequential matches advance position monotonically", func(t *testing.T) {
-		tr := newProgressTracker(skeleton)
+		tr := NewProgressTracker(skeleton)
 		tr.Advance("P", "one")
 		if pos, total := tr.Position(); pos != 1 || total != 3 {
 			t.Fatalf("after 'one': Position() = (%d, %d), want (1, 3)", pos, total)
@@ -155,7 +155,7 @@ func TestProgressTracker(t *testing.T) {
 	})
 
 	t.Run("a miss (e.g. a handler) leaves the position untouched", func(t *testing.T) {
-		tr := newProgressTracker(skeleton)
+		tr := NewProgressTracker(skeleton)
 		tr.Advance("P", "one")
 		tr.Advance("P", "my handler") // not in the skeleton at all
 		if pos, total := tr.Position(); pos != 1 || total != 3 {
@@ -168,12 +168,12 @@ func TestProgressTracker(t *testing.T) {
 		// twice in the skeleton - the second real occurrence must match
 		// the second skeleton entry, not re-match the first one already
 		// consumed.
-		dup := []progressEntry{
+		dup := []ProgressEntry{
 			{Play: "P", Task: "shared"},
 			{Play: "P", Task: "unique"},
 			{Play: "P", Task: "shared"},
 		}
-		tr := newProgressTracker(dup)
+		tr := NewProgressTracker(dup)
 		tr.Advance("P", "shared")
 		if pos, _ := tr.Position(); pos != 1 {
 			t.Fatalf("first 'shared': Position() pos = %d, want 1", pos)
@@ -189,12 +189,12 @@ func TestProgressTracker(t *testing.T) {
 	})
 
 	t.Run("a match beyond the base window is treated as not found on the first try", func(t *testing.T) {
-		far := make([]progressEntry, progressBaseLookahead+5)
+		far := make([]ProgressEntry, ProgressBaseLookahead+5)
 		for i := range far {
-			far[i] = progressEntry{Play: "P", Task: "filler"}
+			far[i] = ProgressEntry{Play: "P", Task: "filler"}
 		}
-		far[progressBaseLookahead+2] = progressEntry{Play: "P", Task: "distant"}
-		tr := newProgressTracker(far)
+		far[ProgressBaseLookahead+2] = ProgressEntry{Play: "P", Task: "distant"}
+		tr := NewProgressTracker(far)
 		tr.Advance("P", "distant")
 		if pos, _ := tr.Position(); pos != 0 {
 			t.Errorf("Position() pos = %d, want 0 (match was outside the base window)", pos)
@@ -208,12 +208,12 @@ func TestProgressTracker(t *testing.T) {
 		// listed task - a fixed window can never recover from this; the
 		// adaptive one must.
 		const gap = 500
-		big := make([]progressEntry, gap+1)
+		big := make([]ProgressEntry, gap+1)
 		for i := range big {
-			big[i] = progressEntry{Play: "P", Task: "filler"}
+			big[i] = ProgressEntry{Play: "P", Task: "filler"}
 		}
-		big[gap] = progressEntry{Play: "P", Task: "unique finisher"}
-		tr := newProgressTracker(big)
+		big[gap] = ProgressEntry{Play: "P", Task: "unique finisher"}
+		tr := NewProgressTracker(big)
 		// A run of real events with no static counterpart at all (the
 		// dynamic block's own children) - each one misses and widens the
 		// window for the next.
@@ -227,15 +227,15 @@ func TestProgressTracker(t *testing.T) {
 	})
 
 	t.Run("a successful match resets the window back to the tight base case", func(t *testing.T) {
-		skeleton := make([]progressEntry, 400)
+		skeleton := make([]ProgressEntry, 400)
 		for i := range skeleton {
-			skeleton[i] = progressEntry{Play: "P", Task: "filler"}
+			skeleton[i] = ProgressEntry{Play: "P", Task: "filler"}
 		}
-		skeleton[200] = progressEntry{Play: "P", Task: "recovered"}
-		skeleton[210] = progressEntry{Play: "P", Task: "next"}
-		skeleton[399] = progressEntry{Play: "P", Task: "far away"}
+		skeleton[200] = ProgressEntry{Play: "P", Task: "recovered"}
+		skeleton[210] = ProgressEntry{Play: "P", Task: "next"}
+		skeleton[399] = ProgressEntry{Play: "P", Task: "far away"}
 
-		tr := newProgressTracker(skeleton)
+		tr := NewProgressTracker(skeleton)
 		// Widen the window with misses, then land on "recovered".
 		for i := 0; i < 6; i++ {
 			tr.Advance("P", "dynamic child")
@@ -267,13 +267,13 @@ func TestProgressTrackerAdvanceToPlay(t *testing.T) {
 		// v2_playbook_on_task_start of their own for Advance to match
 		// against - so nothing but the play boundary itself can ever move
 		// the cursor past it.
-		skeleton := make([]progressEntry, 41)
+		skeleton := make([]ProgressEntry, 41)
 		for i := 0; i < 40; i++ {
-			skeleton[i] = progressEntry{Play: "Unreachable play", Task: "unreachable task"}
+			skeleton[i] = ProgressEntry{Play: "Unreachable play", Task: "unreachable task"}
 		}
-		skeleton[40] = progressEntry{Play: "Real play", Task: "unique finisher"}
+		skeleton[40] = ProgressEntry{Play: "Real play", Task: "unique finisher"}
 
-		tr := newProgressTracker(skeleton)
+		tr := NewProgressTracker(skeleton)
 		// The unreachable play's own 40 tasks never produce any event at
 		// all - nothing to call Advance with. Only its own play-start
 		// event, and the real play's, ever fire.
@@ -295,12 +295,12 @@ func TestProgressTrackerAdvanceToPlay(t *testing.T) {
 	})
 
 	t.Run("never moves backward, and a miss leaves the tracker untouched", func(t *testing.T) {
-		skeleton := []progressEntry{
+		skeleton := []ProgressEntry{
 			{Play: "A", Task: "a1"},
 			{Play: "B", Task: "b1"},
 			{Play: "C", Task: "c1"},
 		}
-		tr := newProgressTracker(skeleton)
+		tr := NewProgressTracker(skeleton)
 		tr.Advance("A", "a1")
 		if pos, _ := tr.Position(); pos != 1 {
 			t.Fatalf("after 'a1': pos = %d, want 1", pos)
@@ -319,7 +319,7 @@ func TestProgressTrackerAdvanceToPlay(t *testing.T) {
 	})
 
 	t.Run("nil tracker is a safe no-op", func(t *testing.T) {
-		var tr *progressTracker
+		var tr *ProgressTracker
 		tr.AdvanceToPlay("whatever")
 		if pos, total := tr.Position(); pos != 0 || total != 0 {
 			t.Errorf("Position() = (%d, %d), want (0, 0)", pos, total)

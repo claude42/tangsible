@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -120,12 +122,12 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (runDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
 
-	// progressPosition reads whatever progressTracker the current
+	// progressPosition reads whatever runner.ProgressTracker the current
 	// generation has (progH.Load() is nil-safe to call Position() on -
 	// see progress.go - both before this session's very first skeleton
 	// has ever been built, and for "rerun"'s own startup dialog, where
@@ -1572,7 +1574,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	state.OnPlayAdded = func(*playbook.PlayNode) { rebuild() }
 	// Fires for every real play, including one whose hosts: pattern
 	// matches nothing in this run - see aggregate.go's OnPlayStarted and
-	// progressTracker.AdvanceToPlay for why this resync exists at all
+	// runner.ProgressTracker.AdvanceToPlay for why this resync exists at all
 	// (an entirely-skipped play's tasks never fire a single event of
 	// their own for Advance, below, to ever match against).
 	state.OnPlayStarted = func(name string) { progH.Load().AdvanceToPlay(name) }
@@ -1585,7 +1587,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		expanded[task] = uikit.InheritedExpandState(uikit.AllTasks(state), expanded, startExpanded)
 		// A miss here (a handler - see progress.go's own doc comment -
 		// or any task the skeleton couldn't predict) is a silent no-op by
-		// design: progressTracker.Advance leaves its own state untouched
+		// design: runner.ProgressTracker.Advance leaves its own state untouched
 		// rather than treating "not found" as a regression.
 		progH.Load().Advance(play.Name, task.Name)
 		rebuild()
@@ -2236,7 +2238,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				// came from, per source.go's taskSourceIndex/task.Path -
 				// same app.Suspend + $VISUAL/$EDITOR/vi mechanism the
 				// template Verb's own 'e' binding already uses
-				// (template.go's preferredEditor). Deliberately does NOT
+				// (template.go's PreferredEditor). Deliberately does NOT
 				// refresh anything afterward, unlike the template Verb -
 				// there's no live render to redo here, and this view's own
 				// content (the task's already-recorded result) can't
@@ -2244,7 +2246,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				if outputTask != nil {
 					if file := uikit.TaskSourceFile(outputTask.Path); file != "" {
 						app.Suspend(func() {
-							cmd := exec.Command(preferredEditor(), file)
+							cmd := exec.Command(template.PreferredEditor(), file)
 							cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 							_ = cmd.Run()
 						})

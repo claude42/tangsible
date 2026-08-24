@@ -326,7 +326,7 @@ func diffTaskRowText(a taskAlignment, titleColWidth int, selected bool) string {
 // actually lines hosts up across every row - see diffTitleColWidth, which
 // already accounts for marker's own width via diffTaskDisplayWidth.
 // selected uses the same uniform PureBlack-on-lightgray convention
-// host.go's own hostRowText/revisit.go's own revisitRowText already do
+// host.go's own HostRowText/revisit.go's own revisitRowText already do
 // for a read-only browsing list - not the live tree's own per-host
 // colored-background blending (TaskLabel's selected variant), which
 // would be considerably more machinery for a view this feature doesn't
