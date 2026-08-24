@@ -180,31 +180,41 @@ second binary in this module, not just `package main` renamed for its
 own sake.
 
 **Revised once checked directly (grep, not assumed) before starting -
-this scope turned out optimistic in two ways:**
-- `host.go`/`template.go` are a genuine two-way cycle - both call each
-  other's inventory-JSON-parsing helpers (`flattenInventoryHosts`/
+this scope turned out optimistic in two ways, both now resolved (see
+Status for the final shape):**
+- `host.go`/`template.go` were a genuine two-way cycle - both called
+  each other's inventory-JSON-parsing helpers (`flattenInventoryHosts`/
   `ansibleInventoryGroup` from `host.go`, `listInventoryHosts` from
-  `template.go`). Can't become two independent packages as proposed
-  without either merging them or extracting the shared inventory logic
-  into a third package both depend on - not decided yet, see Status.
-- `main.go` isn't just an entrypoint - it owns process-lifecycle
+  `template.go`). Fixed by extracting that shared piece into its own
+  `internal/inventory` package rather than merging the two (much
+  larger) files together.
+- `main.go` wasn't just an entrypoint - it owned process-lifecycle
   plumbing (`procHandle`/`streamItem`/`generationOutcome`/`exitCodeOf`/
   `ansibleUserInterruptedExitCode`/`scanEvents`/`spawnGeneration`/
-  `streamStderr`), plus `progress.go`'s tracker and `source.go`'s
-  `taskSourceIndex`, that `diff.go`/`revisit.go`/`generation.go` call
-  *directly*, not via callback. Since `package main` can never be
-  imported, none of that can stay main-only once those three files
-  move out - it needs its own package(s), not named in this phase's
-  original scope above. `revisit.go`'s `openRevisitEntry` also calls
-  `NewLiveTUI` (`tui.go`, staying `package main` until Phase 3) directly
-  - that one has to become an injected callback, the same pattern
-  `requestRerun`/`revisitReturn` already use elsewhere in this codebase.
-  Not decided yet either - see Status.
+  `streamStderr`), plus `progress.go`'s tracker, that `diff.go`/
+  `revisit.go`/`generation.go` called *directly*, not via callback.
+  Since `package main` can never be imported, none of that could stay
+  main-only once `generation.go` moved out - fixed by giving it its own
+  package, `internal/runner`, absorbing `generation.go` too rather than
+  bundling it with a future `revisit` package (see Status for why).
 
-Given the scope growth, this phase is now being done incrementally
-rather than as one pass - safe, confirmed-zero-back-reference clusters
-first, the harder two (above) once there's a concrete proposal for
-them. See Status for what's done and what's still open.
+**Still open, deliberately not resolved by this phase:** `revisit.go`'s
+`openRevisitEntry` calls `NewLiveTUI` (`tui.go`, staying `package main`
+until Phase 3) directly. Moving `revisit.go`/`revisitresolve.go`/
+`diff.go`/`diffmatch.go`/`diffresolve.go` into their own package(s) -
+the remainder of this phase's original scope - needs that turned into
+an injected callback first, the same pattern `requestRerun`/
+`revisitReturn` already use elsewhere in this codebase. Nothing in this
+phase's actual work required solving it, so it's left as the next
+concrete step whenever this phase (or something needing it) resumes.
+`source.go` likewise stays untouched in `package main` - nothing moved
+in this phase needed it to go anywhere.
+
+Given the scope growth, this phase was done incrementally rather than
+as one pass - safe, confirmed-zero-back-reference clusters first
+(`config`, `role`), then the two harder ones once each had a concrete
+proposal (`inventory`+`host`+`template`, then `runner`). See Status for
+the full account of what shipped.
 
 ### Phase 5 - thin root `main.go` (trivial, any time once Phase 4 exists)
 
