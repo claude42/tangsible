@@ -19,7 +19,7 @@
 // tab - reusing ansible's own knowledge of what modules/collections are
 // installed rather than trying to bundle or re-derive it.
 
-package main
+package ansibledoc
 
 import (
 	"bytes"
@@ -33,7 +33,7 @@ import (
 // ansible-doc unconditionally writes a handful of these (confirmed live:
 // just SGR bold/underline/reset - "\x1b[1m"/"\x1b[4m"/"\x1b[0m" - around
 // its own headers) regardless of whether stdout is a real terminal, so
-// they show up in fetchAnsibleDoc's captured output too. tview has no
+// they show up in FetchAnsibleDoc's captured output too. tview has no
 // ANSI support of its own (tview.TranslateANSI exists, but turning its
 // output into real style tags and then still safely escaping every other
 // literal "[" a module's own EXAMPLES/docs text might contain - a real
@@ -42,7 +42,7 @@ import (
 // still correct.
 var ansiCSI = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 
-// fetchAnsibleDoc runs `ansible-doc <action>` and returns its stdout, ANSI
+// FetchAnsibleDoc runs `ansible-doc <action>` and returns its stdout, ANSI
 // codes stripped (see ansiCSI). The plain long-form output is used
 // deliberately, not -s's compact playbook-syntax form - live use showed
 // it read better for this tab (design-docs/Ideas.md). action is exactly
@@ -53,7 +53,7 @@ var ansiCSI = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 // PATH, etc.) is reported as an error built from stderr - real
 // information the Docs tab shows rather than hides (see tui.go's
 // DocsTabHidden).
-func fetchAnsibleDoc(action string) (string, error) {
+func FetchAnsibleDoc(action string) (string, error) {
 	cmd := exec.Command("ansible-doc", action)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

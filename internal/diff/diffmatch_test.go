@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package diff
 
 import (
 	"encoding/json"
@@ -35,14 +35,14 @@ func TestAlignTasksIdenticalSequence(t *testing.T) {
 	a2, b2, c2 := namedTask("a"), namedTask("b"), namedTask("c")
 	newPlay := namedPlay("play", a2, b2, c2)
 
-	got := alignTasks(oldPlay, newPlay)
+	got := AlignTasks(oldPlay, newPlay)
 	if len(got) != 3 {
-		t.Fatalf("alignTasks() = %d alignments, want 3", len(got))
+		t.Fatalf("AlignTasks() = %d alignments, want 3", len(got))
 	}
-	want := []taskAlignment{{OldTask: a, NewTask: a2}, {OldTask: b, NewTask: b2}, {OldTask: c, NewTask: c2}}
+	want := []TaskAlignment{{OldTask: a, NewTask: a2}, {OldTask: b, NewTask: b2}, {OldTask: c, NewTask: c2}}
 	for i, w := range want {
 		if got[i] != w {
-			t.Errorf("alignTasks()[%d] = %+v, want %+v", i, got[i], w)
+			t.Errorf("AlignTasks()[%d] = %+v, want %+v", i, got[i], w)
 		}
 	}
 }
@@ -53,18 +53,18 @@ func TestAlignTasksInsertedTask(t *testing.T) {
 	a2, bNew, c2 := namedTask("a"), namedTask("b"), namedTask("c")
 	newPlay := namedPlay("play", a2, bNew, c2)
 
-	got := alignTasks(oldPlay, newPlay)
-	want := []taskAlignment{
+	got := AlignTasks(oldPlay, newPlay)
+	want := []TaskAlignment{
 		{OldTask: a, NewTask: a2},
 		{NewTask: bNew},
 		{OldTask: c, NewTask: c2},
 	}
 	if len(got) != len(want) {
-		t.Fatalf("alignTasks() = %+v, want %+v", got, want)
+		t.Fatalf("AlignTasks() = %+v, want %+v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("alignTasks()[%d] = %+v, want %+v", i, got[i], want[i])
+			t.Errorf("AlignTasks()[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
 }
@@ -75,18 +75,18 @@ func TestAlignTasksDeletedTask(t *testing.T) {
 	a2, c2 := namedTask("a"), namedTask("c")
 	newPlay := namedPlay("play", a2, c2)
 
-	got := alignTasks(oldPlay, newPlay)
-	want := []taskAlignment{
+	got := AlignTasks(oldPlay, newPlay)
+	want := []TaskAlignment{
 		{OldTask: a, NewTask: a2},
 		{OldTask: bOld},
 		{OldTask: c, NewTask: c2},
 	}
 	if len(got) != len(want) {
-		t.Fatalf("alignTasks() = %+v, want %+v", got, want)
+		t.Fatalf("AlignTasks() = %+v, want %+v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("alignTasks()[%d] = %+v, want %+v", i, got[i], want[i])
+			t.Errorf("AlignTasks()[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
 }
@@ -100,9 +100,9 @@ func TestAlignTasksReplaceIsNotForcedIntoAPairing(t *testing.T) {
 	oldPlay := namedPlay("play", oldOnly)
 	newPlay := namedPlay("play", newOnly)
 
-	got := alignTasks(oldPlay, newPlay)
+	got := AlignTasks(oldPlay, newPlay)
 	if len(got) != 2 {
-		t.Fatalf("alignTasks() = %+v, want 2 unmatched alignments", got)
+		t.Fatalf("AlignTasks() = %+v, want 2 unmatched alignments", got)
 	}
 	foundOld, foundNew := false, false
 	for _, a := range got {
@@ -114,7 +114,7 @@ func TestAlignTasksReplaceIsNotForcedIntoAPairing(t *testing.T) {
 		}
 	}
 	if !foundOld || !foundNew {
-		t.Errorf("alignTasks() = %+v, want one old-only and one new-only entry, never paired", got)
+		t.Errorf("AlignTasks() = %+v, want one old-only and one new-only entry, never paired", got)
 	}
 }
 
@@ -122,24 +122,24 @@ func TestAlignTasksNilPlay(t *testing.T) {
 	a, b := namedTask("a"), namedTask("b")
 	newPlay := namedPlay("play", a, b)
 
-	got := alignTasks(nil, newPlay)
+	got := AlignTasks(nil, newPlay)
 	if len(got) != 2 {
-		t.Fatalf("alignTasks(nil, newPlay) = %+v, want 2 new-only alignments", got)
+		t.Fatalf("AlignTasks(nil, newPlay) = %+v, want 2 new-only alignments", got)
 	}
 	for _, al := range got {
 		if al.OldTask != nil || al.NewTask == nil {
-			t.Errorf("alignTasks(nil, newPlay) entry = %+v, want OldTask nil, NewTask set", al)
+			t.Errorf("AlignTasks(nil, newPlay) entry = %+v, want OldTask nil, NewTask set", al)
 		}
 	}
 
 	oldPlay := namedPlay("play", a, b)
-	got = alignTasks(oldPlay, nil)
+	got = AlignTasks(oldPlay, nil)
 	if len(got) != 2 {
-		t.Fatalf("alignTasks(oldPlay, nil) = %+v, want 2 old-only alignments", got)
+		t.Fatalf("AlignTasks(oldPlay, nil) = %+v, want 2 old-only alignments", got)
 	}
 	for _, al := range got {
 		if al.NewTask != nil || al.OldTask == nil {
-			t.Errorf("alignTasks(oldPlay, nil) entry = %+v, want NewTask nil, OldTask set", al)
+			t.Errorf("AlignTasks(oldPlay, nil) entry = %+v, want NewTask nil, OldTask set", al)
 		}
 	}
 }
@@ -151,9 +151,9 @@ func TestAlignPlaysAddedRemovedPlay(t *testing.T) {
 		namedPlay("brand new play", namedTask("only task")),
 	}}
 
-	got := alignPlays(oldState, newState)
+	got := AlignPlays(oldState, newState)
 	if len(got) != 2 {
-		t.Fatalf("alignPlays() = %d alignments, want 2 (shared + new)", len(got))
+		t.Fatalf("AlignPlays() = %d alignments, want 2 (shared + new)", len(got))
 	}
 	shared, newOnly := got[0], got[1]
 	if shared.OldPlay == nil || shared.NewPlay == nil {
@@ -164,7 +164,7 @@ func TestAlignPlaysAddedRemovedPlay(t *testing.T) {
 	}
 	// The new-only play's own task must itself be a new-only (unmatched)
 	// alignment - this is what makes the whole play "contain a
-	// difference" with no special-casing (see playAlignmentHasDifferences).
+	// difference" with no special-casing (see PlayAlignmentHasDifferences).
 	if len(newOnly.Tasks) != 1 || newOnly.Tasks[0].OldTask != nil || newOnly.Tasks[0].NewTask == nil {
 		t.Errorf("new-only play's own Tasks = %+v, want one new-only task alignment", newOnly.Tasks)
 	}
@@ -180,11 +180,11 @@ func rawJSON(t *testing.T, v map[string]interface{}) json.RawMessage {
 }
 
 func TestTaskDiffersUnmatchedAlwaysDiffers(t *testing.T) {
-	if !taskDiffers(taskAlignment{NewTask: namedTask("only new")}) {
-		t.Error("taskDiffers() for a new-only alignment = false, want true")
+	if !TaskDiffers(TaskAlignment{NewTask: namedTask("only new")}) {
+		t.Error("TaskDiffers() for a new-only alignment = false, want true")
 	}
-	if !taskDiffers(taskAlignment{OldTask: namedTask("only old")}) {
-		t.Error("taskDiffers() for an old-only alignment = false, want true")
+	if !TaskDiffers(TaskAlignment{OldTask: namedTask("only old")}) {
+		t.Error("TaskDiffers() for an old-only alignment = false, want true")
 	}
 }
 
@@ -194,8 +194,8 @@ func TestTaskDiffersOutcome(t *testing.T) {
 	newTask := namedTask("t")
 	newTask.Hosts["web1"] = playbook.OutcomeFailed
 
-	if !taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
-		t.Error("taskDiffers() with a changed outcome = false, want true")
+	if !TaskDiffers(TaskAlignment{OldTask: oldTask, NewTask: newTask}) {
+		t.Error("TaskDiffers() with a changed outcome = false, want true")
 	}
 }
 
@@ -207,8 +207,8 @@ func TestTaskDiffersOutput(t *testing.T) {
 	newTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hello v2"})
 
-	if !taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
-		t.Error("taskDiffers() with a changed stdout, same outcome = false, want true")
+	if !TaskDiffers(TaskAlignment{OldTask: oldTask, NewTask: newTask}) {
+		t.Error("TaskDiffers() with a changed stdout, same outcome = false, want true")
 	}
 }
 
@@ -220,8 +220,8 @@ func TestTaskDiffersIdentical(t *testing.T) {
 	newTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "same"})
 
-	if taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
-		t.Error("taskDiffers() for identical outcome and output = true, want false")
+	if TaskDiffers(TaskAlignment{OldTask: oldTask, NewTask: newTask}) {
+		t.Error("TaskDiffers() for identical outcome and output = true, want false")
 	}
 }
 
@@ -231,8 +231,8 @@ func TestTaskDiffersHostOnlyOnOneSideIsIgnored(t *testing.T) {
 	newTask := namedTask("t")
 	newTask.Hosts["web2"] = playbook.OutcomeFailed // a completely different host set
 
-	if taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
-		t.Error("taskDiffers() with disjoint host sets = true, want false (host-set differences don't count)")
+	if TaskDiffers(TaskAlignment{OldTask: oldTask, NewTask: newTask}) {
+		t.Error("TaskDiffers() with disjoint host sets = true, want false (host-set differences don't count)")
 	}
 }
 
@@ -241,14 +241,14 @@ func TestHostOutputDiffersStderrAndWarnings(t *testing.T) {
 	oldTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stderr": "err v1"})
 	newTask := namedTask("t")
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stderr": "err v2"})
-	if !hostOutputDiffers(oldTask, newTask, "web1") {
-		t.Error("hostOutputDiffers() with changed stderr = false, want true")
+	if !HostOutputDiffers(oldTask, newTask, "web1") {
+		t.Error("HostOutputDiffers() with changed stderr = false, want true")
 	}
 
 	oldTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"warnings": []string{"a"}})
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"warnings": []string{"a", "b"}})
-	if !hostOutputDiffers(oldTask, newTask, "web1") {
-		t.Error("hostOutputDiffers() with changed warnings = false, want true")
+	if !HostOutputDiffers(oldTask, newTask, "web1") {
+		t.Error("HostOutputDiffers() with changed warnings = false, want true")
 	}
 }
 
@@ -257,19 +257,19 @@ func TestPlayAlignmentHasDifferences(t *testing.T) {
 	same.Hosts["web1"] = playbook.OutcomeOK
 	same2 := namedTask("same")
 	same2.Hosts["web1"] = playbook.OutcomeOK
-	noDiff := playAlignment{
+	noDiff := PlayAlignment{
 		OldPlay: namedPlay("p"), NewPlay: namedPlay("p"),
-		Tasks: []taskAlignment{{OldTask: same, NewTask: same2}},
+		Tasks: []TaskAlignment{{OldTask: same, NewTask: same2}},
 	}
-	if playAlignmentHasDifferences(noDiff) {
-		t.Error("playAlignmentHasDifferences() with an identical matched task = true, want false")
+	if PlayAlignmentHasDifferences(noDiff) {
+		t.Error("PlayAlignmentHasDifferences() with an identical matched task = true, want false")
 	}
 
-	withDiff := playAlignment{
+	withDiff := PlayAlignment{
 		OldPlay: namedPlay("p"), NewPlay: namedPlay("p"),
-		Tasks: []taskAlignment{{OldTask: same, NewTask: same2}, {NewTask: namedTask("added")}},
+		Tasks: []TaskAlignment{{OldTask: same, NewTask: same2}, {NewTask: namedTask("added")}},
 	}
-	if !playAlignmentHasDifferences(withDiff) {
-		t.Error("playAlignmentHasDifferences() with an unmatched added task = false, want true")
+	if !PlayAlignmentHasDifferences(withDiff) {
+		t.Error("PlayAlignmentHasDifferences() with an unmatched added task = false, want true")
 	}
 }

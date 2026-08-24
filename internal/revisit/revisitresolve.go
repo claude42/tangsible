@@ -84,7 +84,7 @@ func ResolveRevisitEntries(args []string, cfg config.StateConfig) []RevisitEntry
 
 // NewRevisitEntry builds one RevisitEntry from a PlaybookHistory entry and
 // one of its own invocationRecords - shared by ResolveRevisitEntries and
-// design-docs/Diff.md's own resolveDiffCandidates (diffresolve.go), so the
+// design-docs/Diff.md's own ResolveDiffCandidates (diffresolve.go), so the
 // two can't silently drift on what a RevisitEntry's fields mean.
 func NewRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) RevisitEntry {
 	code := 0
@@ -102,7 +102,7 @@ func NewRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) Revi
 }
 
 // SortRevisitEntriesNewestFirst sorts entries in place, newest Time first -
-// shared by ResolveRevisitEntries and resolveDiffCandidates. A Time that
+// shared by ResolveRevisitEntries and ResolveDiffCandidates. A Time that
 // fails to parse (shouldn't happen for anything AppendInvocation itself
 // ever wrote, but not trusted blindly - same caveat this project applies
 // to every other event-derived field) falls back to time.Time's own zero

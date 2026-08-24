@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package diff
 
 import (
 	"strings"
@@ -21,16 +21,16 @@ import (
 	"code.aw.net/claude/tangsible/internal/revisit"
 )
 
-// csvSetEqual reports whether a and b represent the same SET of comma-
+// CsvSetEqual reports whether a and b represent the same SET of comma-
 // separated values (whitespace-trimmed per entry, order-insensitive,
 // duplicates collapsed) - CsvOverlap's own sibling (revisitresolve.go),
 // but requiring equality rather than merely an overlap. Backs
-// resolveDiffCandidates' own "did this past run use the exact same tags/
+// ResolveDiffCandidates' own "did this past run use the exact same tags/
 // hosts as the current session" check (design-docs/Diff.md: "a different
 // set of hosts" disqualifies a candidate outright, not just a partial
 // mismatch - diffing two runs that didn't actually execute the same tasks
 // wouldn't mean much).
-func csvSetEqual(a, b string) bool {
+func CsvSetEqual(a, b string) bool {
 	toSet := func(s string) map[string]bool {
 		set := map[string]bool{}
 		for _, v := range strings.Split(s, ",") {
@@ -52,10 +52,10 @@ func csvSetEqual(a, b string) bool {
 	return true
 }
 
-// resolveDiffCandidates flattens cfg's history into the runs offerable as
+// ResolveDiffCandidates flattens cfg's history into the runs offerable as
 // a diff comparison target for the current session (design-docs/Diff.md):
 // same playbook/role, and the exact same tags/hosts as the current
-// session's own (csvSetEqual, not CsvOverlap - unlike ResolveRevisitEntries'
+// session's own (CsvSetEqual, not CsvOverlap - unlike ResolveRevisitEntries'
 // own CLI-driven filter, a partial tag/host match here would silently
 // compare two runs that didn't actually execute the same set of tasks).
 // excludeRunID (the session currently on screen) is never offered against
@@ -64,7 +64,7 @@ func csvSetEqual(a, b string) bool {
 // Diff.md's own answer. Same "has a RunID" revisitability precondition and
 // newest-first ordering as ResolveRevisitEntries - PruneMissingRunLogs is
 // expected to have already run; this function has no I/O of its own.
-func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHosts, excludeRunID string, cfg config.StateConfig) []revisit.RevisitEntry {
+func ResolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHosts, excludeRunID string, cfg config.StateConfig) []revisit.RevisitEntry {
 	var entries []revisit.RevisitEntry
 	for _, h := range cfg.History {
 		if h.Playbook != currentPlaybook || h.Role != currentRole {
@@ -75,7 +75,7 @@ func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHos
 				continue
 			}
 			invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(inv.Args))
-			if !csvSetEqual(invArgs.Tags, currentTags) || !csvSetEqual(invArgs.Hosts, currentHosts) {
+			if !CsvSetEqual(invArgs.Tags, currentTags) || !CsvSetEqual(invArgs.Hosts, currentHosts) {
 				continue
 			}
 			entries = append(entries, revisit.NewRevisitEntry(h, inv))

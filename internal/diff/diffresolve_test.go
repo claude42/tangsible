@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package diff
 
 import (
 	"testing"
@@ -41,8 +41,8 @@ func TestCsvSetEqual(t *testing.T) {
 		{"a", "", false},
 	}
 	for _, c := range cases {
-		if got := csvSetEqual(c.a, c.b); got != c.want {
-			t.Errorf("csvSetEqual(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		if got := CsvSetEqual(c.a, c.b); got != c.want {
+			t.Errorf("CsvSetEqual(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
 		}
 	}
 }
@@ -55,9 +55,9 @@ func TestResolveDiffCandidatesExactTagsAndHosts(t *testing.T) {
 			{Args: "-l zen,other --tags foo,bar", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "different-hosts"},
 		}},
 	}}
-	got := resolveDiffCandidates("site.yml", "", "foo,bar", "zen", "", cfg)
+	got := ResolveDiffCandidates("site.yml", "", "foo,bar", "zen", "", cfg)
 	if len(got) != 1 || got[0].RunID != "exact-match" {
-		t.Errorf("resolveDiffCandidates() = %+v, want just the exact tags/hosts match", got)
+		t.Errorf("ResolveDiffCandidates() = %+v, want just the exact tags/hosts match", got)
 	}
 }
 
@@ -68,9 +68,9 @@ func TestResolveDiffCandidatesExcludesCurrentRun(t *testing.T) {
 			{Args: "", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "other"},
 		}},
 	}}
-	got := resolveDiffCandidates("site.yml", "", "", "", "self", cfg)
+	got := ResolveDiffCandidates("site.yml", "", "", "", "self", cfg)
 	if len(got) != 1 || got[0].RunID != "other" {
-		t.Errorf("resolveDiffCandidates() = %+v, want the current run's own RunID excluded", got)
+		t.Errorf("ResolveDiffCandidates() = %+v, want the current run's own RunID excluded", got)
 	}
 }
 
@@ -80,9 +80,9 @@ func TestResolveDiffCandidatesDifferentTargetExcluded(t *testing.T) {
 		{Role: "myrole", Invocations: []config.InvocationRecord{{Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "role"}}},
 		{Playbook: "other.yml", Invocations: []config.InvocationRecord{{Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "other"}}},
 	}}
-	got := resolveDiffCandidates("site.yml", "", "", "", "", cfg)
+	got := ResolveDiffCandidates("site.yml", "", "", "", "", cfg)
 	if len(got) != 1 || got[0].RunID != "site" {
-		t.Errorf("resolveDiffCandidates(site.yml) = %+v, want only site.yml's own entry", got)
+		t.Errorf("ResolveDiffCandidates(site.yml) = %+v, want only site.yml's own entry", got)
 	}
 }
 
@@ -92,7 +92,7 @@ func TestResolveDiffCandidatesIgnoresEntriesWithNoRunID(t *testing.T) {
 			{Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: ""},
 		}},
 	}}
-	if got := resolveDiffCandidates("site.yml", "", "", "", "", cfg); len(got) != 0 {
-		t.Errorf("resolveDiffCandidates() = %+v, want no candidates for an entry with no saved data", got)
+	if got := ResolveDiffCandidates("site.yml", "", "", "", "", cfg); len(got) != 0 {
+		t.Errorf("ResolveDiffCandidates() = %+v, want no candidates for an entry with no saved data", got)
 	}
 }

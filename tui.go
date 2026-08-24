@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/ansibledoc"
+	"code.aw.net/claude/tangsible/internal/diff"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
@@ -122,7 +124,7 @@ import (
 // filepath.Base(playbook), not the full path state.toml itself keys on).
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
-// (runDiffFlow, diff.go).
+// (RunDiffFlow, diff.go).
 func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
@@ -578,7 +580,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	resolveCache := map[resolveKey]uikit.ResolvedRender{}
 
 	// docsCache holds every module's own ResolvedRender for the "Docs" tab
-	// (ansibledoc.go's fetchAnsibleDoc), keyed by the task's own "action"
+	// (ansibledoc.go's ansibledoc.FetchAnsibleDoc), keyed by the task's own "action"
 	// result field (TaskAction) rather than by (task, host) the way
 	// resolveCache is - a module's own documentation depends on nothing
 	// about the current run (no vars, no facts, not even which host), so
@@ -674,7 +676,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 		// Same "kick off immediately, stay absent until ready" treatment
 		// as Resolved above, for the Docs tab (ansibledoc.go's
-		// fetchAnsibleDoc) - cached by module name in docsCache, not by
+		// ansibledoc.FetchAnsibleDoc) - cached by module name in docsCache, not by
 		// (task, host), since a module's own documentation is the same
 		// for every task/host that uses it (see docsCache's own comment).
 		// action == "" (no result recorded yet, or this result simply has
@@ -692,7 +694,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			docs = uikit.ResolvedRender{Pending: true}
 			docsCache[action] = docs
 			go func() {
-				text, err := fetchAnsibleDoc(action)
+				text, err := ansibledoc.FetchAnsibleDoc(action)
 				result := uikit.ResolvedRender{}
 				if err != nil {
 					result.Err = err.Error()
@@ -2301,14 +2303,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// viewingOutput, a dialog is open, or a filter is active, so
 			// nothing further is needed for "d can only be pressed from
 			// the tree view"). No 'd' binding inside diff mode itself -
-			// runDiffFlow's own Application has no such case, by design.
+			// RunDiffFlow's own Application has no such case, by design.
 			//
-			// app.Suspend hands the real terminal to runDiffFlow's own
+			// app.Suspend hands the real terminal to RunDiffFlow's own
 			// nested Applications (the candidate-run list, then the diff
 			// tree) for as long as the user keeps navigating them - the
 			// same primitive already used for the output view's own 'e'
 			// (open $EDITOR) - and automatically resumes THIS Application,
-			// exactly where it left off, the moment runDiffFlow returns.
+			// exactly where it left off, the moment RunDiffFlow returns.
 			// No custom state save/restore needed for that "Esc/q
 			// eventually returns to the standard tree view" requirement -
 			// it falls out of Suspend's own contract for free.
@@ -2316,7 +2318,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				return nil
 			}
 			app.Suspend(func() {
-				runDiffFlow(state, targetPlaybook, targetRole, initialTags, initialHosts, sourceIndex)
+				diff.RunDiffFlow(state, targetPlaybook, targetRole, initialTags, initialHosts, sourceIndex)
 			})
 			return nil
 		case event.Key() == tcell.KeyRight:

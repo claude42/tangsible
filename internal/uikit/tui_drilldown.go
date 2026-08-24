@@ -557,7 +557,7 @@ type ResolvedRender struct {
 // real ansible-playbook invocation is far too slow to run synchronously
 // from inside a pure render function. docs carries the "Docs" tab's own
 // state the same way (showOutput, backed by ansibledoc.go's
-// fetchAnsibleDoc) - a real `ansible-doc` invocation, same reasoning.
+// FetchAnsibleDoc) - a real `ansible-doc` invocation, same reasoning.
 // Resolved is placed right after Task definition, Docs right after that -
 // requested in that order over the module-reference-first ordering this
 // originally shipped with, once live use showed the task's own values

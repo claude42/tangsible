@@ -16,7 +16,7 @@
 // PlaybookState trees (an "old" run and a "new" run) so a diff tree/drill-
 // down can be built from the result. Pure - no I/O, no UI - so it's usable
 // identically whichever of the two sides happens to be live/replayed data.
-package main
+package diff
 
 import (
 	"encoding/json"
@@ -26,16 +26,16 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
-// taskAlignment pairs up a task from an "old" run with its counterpart in
+// TaskAlignment pairs up a task from an "old" run with its counterpart in
 // a "new" run. Exactly one of OldTask/NewTask is nil for a task that only
 // exists on one side (added/removed since the old run, or moved into/out
-// of a play that itself only exists on one side - see playAlignment);
-// both set for a matched pair, further comparable via taskDiffers.
-type taskAlignment struct {
+// of a play that itself only exists on one side - see PlayAlignment);
+// both set for a matched pair, further comparable via TaskDiffers.
+type TaskAlignment struct {
 	OldTask, NewTask *playbook.TaskNode
 }
 
-// alignTasks aligns oldPlay's and newPlay's own task sequences by name,
+// AlignTasks aligns oldPlay's and newPlay's own task sequences by name,
 // via difflib.SequenceMatcher (already a dependency - the same library
 // BuildDiffTab already uses for line-level diffs, reused here for name-
 // level sequence alignment instead of a custom LCS implementation).
@@ -57,10 +57,10 @@ type taskAlignment struct {
 // stdout-vs-msg choice).
 //
 // oldPlay/newPlay may themselves be nil - the play that owns them only
-// exists on one side (see alignPlays). Every task on the present side
+// exists on one side (see AlignPlays). Every task on the present side
 // then becomes old-only/new-only uniformly, via the exact same 'i'/'d'
 // opcode handling below - no special-casing needed here for that case.
-func alignTasks(oldPlay, newPlay *playbook.PlayNode) []taskAlignment {
+func AlignTasks(oldPlay, newPlay *playbook.PlayNode) []TaskAlignment {
 	var oldTasks, newTasks []*playbook.TaskNode
 	if oldPlay != nil {
 		oldTasks = oldPlay.Tasks
@@ -69,20 +69,20 @@ func alignTasks(oldPlay, newPlay *playbook.PlayNode) []taskAlignment {
 		newTasks = newPlay.Tasks
 	}
 
-	var alignments []taskAlignment
-	for _, op := range difflib.NewMatcher(taskNames(oldTasks), taskNames(newTasks)).GetOpCodes() {
+	var alignments []TaskAlignment
+	for _, op := range difflib.NewMatcher(TaskNames(oldTasks), TaskNames(newTasks)).GetOpCodes() {
 		switch op.Tag {
 		case 'e':
 			for k := 0; k < op.I2-op.I1; k++ {
-				alignments = append(alignments, taskAlignment{OldTask: oldTasks[op.I1+k], NewTask: newTasks[op.J1+k]})
+				alignments = append(alignments, TaskAlignment{OldTask: oldTasks[op.I1+k], NewTask: newTasks[op.J1+k]})
 			}
 		case 'd':
 			for _, t := range oldTasks[op.I1:op.I2] {
-				alignments = append(alignments, taskAlignment{OldTask: t})
+				alignments = append(alignments, TaskAlignment{OldTask: t})
 			}
 		case 'i':
 			for _, t := range newTasks[op.J1:op.J2] {
-				alignments = append(alignments, taskAlignment{NewTask: t})
+				alignments = append(alignments, TaskAlignment{NewTask: t})
 			}
 		case 'r':
 			// Deliberately NOT paired up despite sharing a position - see
@@ -91,17 +91,17 @@ func alignTasks(oldPlay, newPlay *playbook.PlayNode) []taskAlignment {
 			// just changed") matters more than trying to be clever about
 			// same-position replacements.
 			for _, t := range oldTasks[op.I1:op.I2] {
-				alignments = append(alignments, taskAlignment{OldTask: t})
+				alignments = append(alignments, TaskAlignment{OldTask: t})
 			}
 			for _, t := range newTasks[op.J1:op.J2] {
-				alignments = append(alignments, taskAlignment{NewTask: t})
+				alignments = append(alignments, TaskAlignment{NewTask: t})
 			}
 		}
 	}
 	return alignments
 }
 
-func taskNames(tasks []*playbook.TaskNode) []string {
+func TaskNames(tasks []*playbook.TaskNode) []string {
 	names := make([]string, len(tasks))
 	for i, t := range tasks {
 		names[i] = t.Name
@@ -109,54 +109,54 @@ func taskNames(tasks []*playbook.TaskNode) []string {
 	return names
 }
 
-// playAlignment pairs up a play from an "old" run with its counterpart in
-// a "new" run, plus its own tasks' alignment (alignTasks). Exactly one of
+// PlayAlignment pairs up a play from an "old" run with its counterpart in
+// a "new" run, plus its own tasks' alignment (AlignTasks). Exactly one of
 // OldPlay/NewPlay is nil for a play that only exists on one side.
-type playAlignment struct {
+type PlayAlignment struct {
 	OldPlay, NewPlay *playbook.PlayNode
-	Tasks            []taskAlignment
+	Tasks            []TaskAlignment
 }
 
-// alignPlays is alignTasks's own sibling, one level up: plays matched by
+// AlignPlays is AlignTasks's own sibling, one level up: plays matched by
 // name across the whole playbook, same algorithm, same reasoning. A whole
 // play only existing on one side needs no special handling of its own
 // here - every one of its own tasks becomes old-only/new-only via
-// alignTasks(nil, play)/alignTasks(play, nil), which is exactly what makes
+// AlignTasks(nil, play)/AlignTasks(play, nil), which is exactly what makes
 // it "contain tasks with differences" and show up once rendered, per
-// design-docs/Diff.md - see playAlignmentHasDifferences below.
-func alignPlays(oldState, newState *playbook.PlaybookState) []playAlignment {
+// design-docs/Diff.md - see PlayAlignmentHasDifferences below.
+func AlignPlays(oldState, newState *playbook.PlaybookState) []PlayAlignment {
 	oldPlays := oldState.Plays
 	newPlays := newState.Plays
 
-	var alignments []playAlignment
-	for _, op := range difflib.NewMatcher(playNames(oldPlays), playNames(newPlays)).GetOpCodes() {
+	var alignments []PlayAlignment
+	for _, op := range difflib.NewMatcher(PlayNames(oldPlays), PlayNames(newPlays)).GetOpCodes() {
 		switch op.Tag {
 		case 'e':
 			for k := 0; k < op.I2-op.I1; k++ {
 				o, n := oldPlays[op.I1+k], newPlays[op.J1+k]
-				alignments = append(alignments, playAlignment{OldPlay: o, NewPlay: n, Tasks: alignTasks(o, n)})
+				alignments = append(alignments, PlayAlignment{OldPlay: o, NewPlay: n, Tasks: AlignTasks(o, n)})
 			}
 		case 'd':
 			for _, p := range oldPlays[op.I1:op.I2] {
-				alignments = append(alignments, playAlignment{OldPlay: p, Tasks: alignTasks(p, nil)})
+				alignments = append(alignments, PlayAlignment{OldPlay: p, Tasks: AlignTasks(p, nil)})
 			}
 		case 'i':
 			for _, p := range newPlays[op.J1:op.J2] {
-				alignments = append(alignments, playAlignment{NewPlay: p, Tasks: alignTasks(nil, p)})
+				alignments = append(alignments, PlayAlignment{NewPlay: p, Tasks: AlignTasks(nil, p)})
 			}
 		case 'r':
 			for _, p := range oldPlays[op.I1:op.I2] {
-				alignments = append(alignments, playAlignment{OldPlay: p, Tasks: alignTasks(p, nil)})
+				alignments = append(alignments, PlayAlignment{OldPlay: p, Tasks: AlignTasks(p, nil)})
 			}
 			for _, p := range newPlays[op.J1:op.J2] {
-				alignments = append(alignments, playAlignment{NewPlay: p, Tasks: alignTasks(nil, p)})
+				alignments = append(alignments, PlayAlignment{NewPlay: p, Tasks: AlignTasks(nil, p)})
 			}
 		}
 	}
 	return alignments
 }
 
-func playNames(plays []*playbook.PlayNode) []string {
+func PlayNames(plays []*playbook.PlayNode) []string {
 	names := make([]string, len(plays))
 	for i, p := range plays {
 		names[i] = p.Name
@@ -164,11 +164,11 @@ func playNames(plays []*playbook.PlayNode) []string {
 	return names
 }
 
-// taskDiffers reports whether a matched pair (both OldTask/NewTask set -
-// see taskAlignment's own doc comment) counts as "different"
+// TaskDiffers reports whether a matched pair (both OldTask/NewTask set -
+// see TaskAlignment's own doc comment) counts as "different"
 // (design-docs/Diff.md's own "What counts as different" section): any
 // host present in *both* tasks' own Hosts map has a different outcome, or
-// different output (hostOutputDiffers below). A host present on only one
+// different output (HostOutputDiffers below). A host present on only one
 // side is skipped entirely - per design-docs/Diff.md's own "wouldn't
 // count a difference in hosts... as a difference." Since display always
 // follows the *new* task's own HostOrder (design-docs/Diff.md's "render
@@ -180,26 +180,26 @@ func playNames(plays []*playbook.PlayNode) []string {
 // construction always "different") - callers that already know an
 // alignment is unmatched don't need to call this at all, but it's safe to
 // either way.
-func taskDiffers(a taskAlignment) bool {
+func TaskDiffers(a TaskAlignment) bool {
 	if a.OldTask == nil || a.NewTask == nil {
 		return true
 	}
 	for host := range a.NewTask.Hosts {
-		if hostDiffers(a.OldTask, a.NewTask, host) {
+		if HostDiffers(a.OldTask, a.NewTask, host) {
 			return true
 		}
 	}
 	return false
 }
 
-// hostDiffers reports whether host's own result differs between oldTask
-// and newTask (outcome or output) - taskDiffers' own per-host building
+// HostDiffers reports whether host's own result differs between oldTask
+// and newTask (outcome or output) - TaskDiffers' own per-host building
 // block, and diff.go's own row rendering reuses it too, to decide which
 // specific hosts get underlined on a matched, differing task's row
 // (design-docs/Diff.md's "underline those hosts that are different").
 // false whenever host isn't recorded on both sides - same "host-set
-// differences don't count" rule taskDiffers itself follows.
-func hostDiffers(oldTask, newTask *playbook.TaskNode, host string) bool {
+// differences don't count" rule TaskDiffers itself follows.
+func HostDiffers(oldTask, newTask *playbook.TaskNode, host string) bool {
 	oldOutcome, ok := oldTask.Hosts[host]
 	if !ok {
 		return false
@@ -211,46 +211,46 @@ func hostDiffers(oldTask, newTask *playbook.TaskNode, host string) bool {
 	if oldOutcome != newOutcome {
 		return true
 	}
-	return hostOutputDiffers(oldTask, newTask, host)
+	return HostOutputDiffers(oldTask, newTask, host)
 }
 
-// differingHosts returns the set of hosts (out of NewTask.Hosts) that
-// hostDiffers reports as different for a *matched* alignment - nil for an
+// DifferingHosts returns the set of hosts (out of NewTask.Hosts) that
+// HostDiffers reports as different for a *matched* alignment - nil for an
 // unmatched one (OldTask or NewTask nil), since there's no per-host
 // comparison to make there; the whole row is marked instead (see
-// diff.go's own diffTaskRowText).
-func differingHosts(a taskAlignment) map[string]bool {
+// diff.go's own DiffTaskRowText).
+func DifferingHosts(a TaskAlignment) map[string]bool {
 	if a.OldTask == nil || a.NewTask == nil {
 		return nil
 	}
 	diff := map[string]bool{}
 	for host := range a.NewTask.Hosts {
-		if hostDiffers(a.OldTask, a.NewTask, host) {
+		if HostDiffers(a.OldTask, a.NewTask, host) {
 			diff[host] = true
 		}
 	}
 	return diff
 }
 
-// hostOutputDiffers compares host's own recorded output between oldTask
+// HostOutputDiffers compares host's own recorded output between oldTask
 // and newTask - design-docs/Diff.md's "Different output (stdout, stderr,
 // warning)" - via the exact same fields formatHostOutput already treats
 // as distinct sections (PrimaryOutputField's own stdout-vs-msg choice,
 // stderr, warnings), decoded from the same Raw[host] JSON both tasks
 // already carry. A host missing from either side's own Raw (shouldn't
-// happen for a host taskDiffers has already confirmed is present in both
+// happen for a host TaskDiffers has already confirmed is present in both
 // Hosts maps, but not trusted blindly) decodes to "", comparing equal to
 // itself rather than panicking.
-func hostOutputDiffers(oldTask, newTask *playbook.TaskNode, host string) bool {
-	oldOutput, oldStderr, oldWarnings := hostOutputSignature(oldTask.Raw[host])
-	newOutput, newStderr, newWarnings := hostOutputSignature(newTask.Raw[host])
+func HostOutputDiffers(oldTask, newTask *playbook.TaskNode, host string) bool {
+	oldOutput, oldStderr, oldWarnings := HostOutputSignature(oldTask.Raw[host])
+	newOutput, newStderr, newWarnings := HostOutputSignature(newTask.Raw[host])
 	return oldOutput != newOutput || oldStderr != newStderr || oldWarnings != newWarnings
 }
 
-// hostOutputSignature decodes raw once and extracts the three fields
-// hostOutputDiffers compares, so a task/host pair's raw JSON is only ever
+// HostOutputSignature decodes raw once and extracts the three fields
+// HostOutputDiffers compares, so a task/host pair's raw JSON is only ever
 // decoded once per side rather than once per compared field.
-func hostOutputSignature(raw json.RawMessage) (output, stderr, warnings string) {
+func HostOutputSignature(raw json.RawMessage) (output, stderr, warnings string) {
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return "", "", ""
@@ -261,17 +261,17 @@ func hostOutputSignature(raw json.RawMessage) (output, stderr, warnings string) 
 	return output, stderr, warnings
 }
 
-// playAlignmentHasDifferences reports whether pa "contains tasks with
+// PlayAlignmentHasDifferences reports whether pa "contains tasks with
 // differences" (design-docs/Diff.md) - true if any of its own task
-// alignments differ (taskDiffers). A play that only exists on one side
+// alignments differ (TaskDiffers). A play that only exists on one side
 // needs no special case here: every one of its tasks is already an
-// unmatched alignment (see alignPlays/alignTasks), and taskDiffers is
+// unmatched alignment (see AlignPlays/AlignTasks), and TaskDiffers is
 // always true for those - a play can't reach zero tasks in the first
 // place (aggregate.go's own Apply only ever creates a PlayNode once its
 // first task starts), so there's always at least one to make this true.
-func playAlignmentHasDifferences(pa playAlignment) bool {
+func PlayAlignmentHasDifferences(pa PlayAlignment) bool {
 	for _, ta := range pa.Tasks {
-		if taskDiffers(ta) {
+		if TaskDiffers(ta) {
 			return true
 		}
 	}
