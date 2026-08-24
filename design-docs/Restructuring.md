@@ -198,23 +198,22 @@ Status for the final shape):**
   package, `internal/runner`, absorbing `generation.go` too rather than
   bundling it with a future `revisit` package (see Status for why).
 
-**Still open, deliberately not resolved by this phase:** `revisit.go`'s
-`openRevisitEntry` calls `NewLiveTUI` (`tui.go`, staying `package main`
-until Phase 3) directly. Moving `revisit.go`/`revisitresolve.go`/
-`diff.go`/`diffmatch.go`/`diffresolve.go` into their own package(s) -
-the remainder of this phase's original scope - needs that turned into
-an injected callback first, the same pattern `requestRerun`/
-`revisitReturn` already use elsewhere in this codebase. Nothing in this
-phase's actual work required solving it, so it's left as the next
-concrete step whenever this phase (or something needing it) resumes.
-`source.go` likewise stays untouched in `package main` - nothing moved
-in this phase needed it to go anywhere.
+**A third problem, found only once `internal/host` tried to build
+standalone rather than by the earlier research:** `revisit.go`'s
+`openRevisitEntry` called `NewLiveTUI` (`tui.go`, staying `package main`
+until Phase 3) directly - also now fixed, by turning it into an
+injected callback, the same pattern `requestRerun`/`revisitReturn`
+already use elsewhere in this codebase. `source.go` and
+`ansibledoc.go` needed the same "give it its own package" treatment
+`main.go`'s process-lifecycle plumbing got, for the identical reason.
+See Status for the full account of all of it.
 
 Given the scope growth, this phase was done incrementally rather than
 as one pass - safe, confirmed-zero-back-reference clusters first
-(`config`, `role`), then the two harder ones once each had a concrete
-proposal (`inventory`+`host`+`template`, then `runner`). See Status for
-the full account of what shipped.
+(`config`, `role`), then each harder piece once it had a concrete
+proposal (`inventory`+`host`+`template`, then `runner`, then `source` +
+`revisit`'s `NewLiveTUI` fix, then `diff` + `ansibledoc`). See Status
+for the full account of what shipped - this phase is now complete.
 
 ### Phase 5 - thin root `main.go` (trivial, any time once Phase 4 exists)
 
@@ -471,10 +470,72 @@ all pass on all nine packages Phase 4 now leaves: `main` (thin - just
 `internal/config`/`role`/`playbook`/`uikit`/`inventory`/`host`/
 `template`/`runner`.
 
-Not done, deliberately out of scope for Phase 4 as it stands: `diff.go`/
-`revisit.go`/`revisitresolve.go` still live in `package main` - splitting
-them further would hit the `revisit.go` -> `NewLiveTUI` direct-call
-problem flagged when Phase 4 started (needs the same callback-injection
-treatment as `requestRerun`/`revisitReturn`), which nothing in this
-session's work required solving. Phase 3 (break `NewLiveTUI` itself
-apart) stays deferred per its own section above.
+**Phase 4 is now fully done.** The remaining piece - `diff.go`/
+`revisit.go`/`revisitresolve.go`/`diffmatch.go`/`diffresolve.go`,
+blocked on `revisit.go`'s direct `NewLiveTUI` call - was finished in
+three more increments:
+
+**`internal/source`** first, as a prerequisite: both `diff.go` and
+`revisit.go` call `BuildTaskSourceIndex` (`source.go`) directly, which
+had stayed in `package main` through the rest of Phase 4 since nothing
+until now needed it to move. Clean, standalone extraction - zero
+dependencies beyond stdlib + `yaml.v3`. `source_test.go`'s own
+`testdata/outcomes.yml` reference became a relative `../../testdata/...`
+path from its new location.
+
+**`internal/revisit`**, fixing the actual blocker: `OpenRevisitEntry`
+called `NewLiveTUI` directly. Fixed with the same callback-injection
+pattern already used for `requestRerun`/`revisitReturn` - a new
+`NewLiveTUIFunc` type in the `revisit` package matching `NewLiveTUI`'s
+signature exactly, threaded through `RunRevisitVerb` -> `OpenRevisitEntry`;
+`main.go` passes its own `NewLiveTUI` as the argument, no adapter
+needed (Go's assignability rules only require identical underlying
+function types - a package-qualified `pb.PlaybookState` and an
+unqualified `playbook.PlaybookState` in `package main` are the same
+type regardless of which local name refers to it).
+`diffresolve_test.go` gained its own copy of a tiny `exitCodePtr` test
+helper it had been sharing with `revisitresolve_test.go` - unexported,
+and `_test.go` files are never importable across a package boundary
+regardless of export status, the same shape as Phase 2's
+`recap_test.go`/`playStartEvent`.
+
+**A real bug found and fixed while touching `revisit.go`**: an earlier
+stale-comment sweep (this phase's own `config`/`role` round) had
+accidentally capitalized a *local variable* (`verb`, in
+`RevisitCommandText`) - a word-boundary regex sweep doesn't distinguish
+"a comment mentioning the word" from "an actual local declaration using
+the same word." Harmless (Go doesn't care about a local variable's
+capitalization), but misleading to read and worth fixing since it was
+found. No other instances turned up on a repo-wide check for the same
+pattern - contained to this one spot.
+
+**`internal/diff` + `internal/ansibledoc`** last: `diff.go`/
+`diffmatch.go`/`diffresolve.go` moved into `internal/diff`, importing
+`internal/revisit` for `RunRevisitListTUI`/`RevisitEntry`/
+`NewRevisitEntry`/`SortRevisitEntriesNewestFirst` (diff mode reuses
+revisit's own candidate-list picker UI) - confirmed one-way, no cycle.
+One dependency neither the original research nor the `revisit` round
+surfaced: `ansibledoc.go`'s `fetchAnsibleDoc` is called directly by
+*both* `diff.go` and `tui.go` - needed its own package for the same
+"package main can't be imported" reason as everything else here, so
+`internal/ansibledoc` was born, small and self-contained like
+`internal/source`. `tui.go`'s own remaining cross-file call
+(`RunDiffFlow`) needed no callback-injection fix, exactly as the doc
+predicted when this phase started: `diff` never calls back into
+`tui.go`/`main.go`, so `main` importing `diff` is just a plain one-way
+dependency, not a cycle.
+
+`go build`/`go vet`/`gofmt -l`/`go test ./...`/`go test -tags e2e ./...`
+all pass throughout, on the growing package count each step. Final
+shape: `package main` holds only `main.go`/`tui.go` (`NewLiveTUI`)/
+`recap.go`/`render.go`/`resolved.go` - the original ~26-file flat
+package is now twelve `internal/` packages (`config`/`role`/`playbook`/
+`uikit`/`inventory`/`host`/`template`/`runner`/`source`/`revisit`/
+`diff`/`ansibledoc`) plus this thin `main`.
+
+Phase 3 (break `NewLiveTUI` itself apart) stays deferred per its own
+section above - the only thing left from the original plan. Phase 5
+(thin root `main.go`) is now genuinely in reach for the first time -
+`main.go` is already just `main()` - but wasn't attempted this session;
+whether it's worth a dedicated pass of its own, or falls out naturally
+whenever Phase 3 happens, is an open call for next time.
