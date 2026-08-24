@@ -533,9 +533,39 @@ package is now twelve `internal/` packages (`config`/`role`/`playbook`/
 `uikit`/`inventory`/`host`/`template`/`runner`/`source`/`revisit`/
 `diff`/`ansibledoc`) plus this thin `main`.
 
-Phase 3 (break `NewLiveTUI` itself apart) stays deferred per its own
-section above - the only thing left from the original plan. Phase 5
-(thin root `main.go`) is now genuinely in reach for the first time -
-`main.go` is already just `main()` - but wasn't attempted this session;
-whether it's worth a dedicated pass of its own, or falls out naturally
-whenever Phase 3 happens, is an open call for next time.
+**Phase 5 done too** (Phase 3 postponed by explicit choice - see its own
+section above, still the one item left). `tui.go` (`NewLiveTUI`)/
+`recap.go`/`render.go`/`resolved.go`, plus `main.go`'s own body
+(`main()` renamed to `Main()`), moved into `internal/session` - "the
+live tangsible session: verb orchestration plus the live TUI and its
+recap/resolved-values views," the single cohesive thing Phase 4 left
+behind once everything else had a real package of its own. Root
+`main.go` is now a 26-line wrapper: one import, `func main() {
+session.Main() }`.
+
+Genuinely trivial, exactly as the doc predicted: nothing outside
+`package main` ever imported these files (`main` is the module's root,
+nothing imports it), so this was a pure same-content move plus one
+renamed function - no symbol needed exporting, no cross-package
+reference fixups at all, the simplest phase of the whole plan
+mechanically. `session` got the same local-variable-collision check
+every other package name has (`playbook`/`config`/`role`/`uikit`/
+etc.) - zero real occurrences (`app` was the first candidate name and
+was rejected specifically because `*tview.Application` locals are
+named `app` throughout `tui.go`/`main.go` - a real, checked collision,
+not a hypothetical one avoided by luck).
+
+Verified beyond the usual `go build`/`go vet`/`gofmt -l`/`go test ./...`/
+`go test -tags e2e ./...` suite: built and ran the actual binary
+directly (usage message + exit 2 for a bad verb) and through a real
+tmux-driven live run (`testdata/outcomes.yml`) - full task tree,
+colors, and recap summary rendered correctly through the new entry
+point. `e2e_rerun_test.go` (root-level, `//go:build e2e`) needed no
+change at all - it only ever drives the compiled binary externally via
+`go build -o bin .` + tmux, with no direct dependency on any package's
+internals.
+
+The plan is now complete except Phase 3, which stays postponed per its
+own long-standing "optional, do later" framing -
+`internal/session/tui.go` is where that work would happen, whenever it
+does.
