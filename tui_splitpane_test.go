@@ -17,6 +17,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 func TestSplitTreeWidth(t *testing.T) {
@@ -59,7 +61,7 @@ func TestComputeHostColumnLayoutNilAllHosts(t *testing.T) {
 // avail directly, with no host list appended at all - regardless of what
 // layout.TitleColWidth says, since there's no shared column to honor.
 func TestTaskLabelNilAllHosts(t *testing.T) {
-	task := &taskNode{Name: "a-fairly-long-task-name"}
+	task := &playbook.TaskNode{Name: "a-fairly-long-task-name"}
 	layout := hostColumnLayout{TitleColWidth: 3, HostDisplay: []string{"web1", "web2"}} // deliberately
 	// mismatched, to prove it's ignored when allHosts is nil.
 

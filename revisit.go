@@ -34,6 +34,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -250,7 +251,7 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 }
 
 // openRevisitEntry replays e's own saved .jsonl (runlog.go) into a fresh
-// playbookState, then shows it via a real NewLiveTUI - already frozen
+// PlaybookState, then shows it via a real NewLiveTUI - already frozen
 // (processDone pre-true, exitCode/HadUnreachable already exactly what they
 // were for the original run), with revisitReturn wired so Esc at the bare
 // tree level closes this Application and returns control to
@@ -282,7 +283,7 @@ func openRevisitEntry(e revisitEntry) {
 		return
 	}
 
-	state := &playbookState{}
+	state := &pb.PlaybookState{}
 	for item := range scanEvents(f, nil) {
 		if item.isEvent {
 			state.Apply(item.ev)
@@ -350,7 +351,7 @@ func openRevisitEntry(e revisitEntry) {
 	// main.go's own equivalent, just scoped one level down.
 
 	var app *tview.Application
-	var applyLive func(rawEvent)
+	var applyLive func(pb.RawEvent)
 	apply := func(item streamItem) {
 		if item.isEvent && !quitting.Load() {
 			applyLive(item.ev)

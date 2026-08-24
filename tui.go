@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -118,7 +119,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (runDiffFlow, diff.go).
-func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(rawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *procHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex taskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[progressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// topBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -137,11 +138,11 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// no secondary-text/shortcut support built in - this app never used
 	// those.
 
-	expanded := map[*taskNode]bool{}
+	expanded := map[*playbook.TaskNode]bool{}
 	// recapHostExpanded/recapCategoryExpanded back the recap section's own
 	// two-level expand/collapse (design-docs/Recap.md) - kept separate
 	// from expanded since neither key type (a hostname, a
-	// recapCategoryRowID) is a *taskNode. Both start empty/collapsed
+	// recapCategoryRowID) is a *TaskNode. Both start empty/collapsed
 	// unconditionally, regardless of startExpanded - the recap's own
 	// "initially only the top level is visible" is a fixed behavior, not
 	// tied to the tree's own default_tree_state config knob.
@@ -268,7 +269,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// navigateMainTask/navigateOutputTask/applyFilter (all outside rebuild)
 	// can compute the identical thing when deciding what a filter should
 	// keep visible (see taskVisible's isActive parameter).
-	activeTaskNow := func() *taskNode {
+	activeTaskNow := func() *playbook.TaskNode {
 		if processDone.Load() {
 			return nil
 		}
@@ -288,7 +289,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// wherever the view already was, never up. If the whole block (the
 	// task row plus all its hosts) doesn't fit in the viewport at all,
 	// this simply reveals as much of the tail as fits.
-	revealExpandedTask := func(t *taskNode) {
+	revealExpandedTask := func(t *playbook.TaskNode) {
 		_, _, _, height := list.GetInnerRect()
 		if height <= 0 {
 			return
@@ -544,7 +545,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// is currently showing, so navigateOutputTask (below) knows where
 	// "current" is without threading it through as extra state on every
 	// keypress.
-	var outputTask *taskNode
+	var outputTask *playbook.TaskNode
 	var outputHost string
 	// outputTopBarPlainText is outputTopBar's own "host — task" content,
 	// unwrapped and unpadded - set once per navigation (showOutput) but
@@ -558,7 +559,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// resolveKey identifies one (task, host) pair's own "Resolved"
 	// section cache entry (design-docs/Drilldown, Resolved Values.md).
 	type resolveKey struct {
-		task *taskNode
+		task *playbook.TaskNode
 		host string
 	}
 	// resolveCache holds every (task, host) pair's own resolvedRender for
@@ -588,7 +589,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// preserves whichever tab is currently active, by name, so repeatedly
 	// calling this while browsing (Left/Right/n/p) doesn't keep resetting
 	// the user back to the Task tab.
-	renderOutputTabs := func(task *taskNode, host string, resolved resolvedRender, docs resolvedRender) {
+	renderOutputTabs := func(task *playbook.TaskNode, host string, resolved resolvedRender, docs resolvedRender) {
 		names, contents := buildOutputTabs(task, host, sourceIndex, resolved, docs)
 		prims := make([]tview.Primitive, len(names))
 		for i, content := range contents {
@@ -599,7 +600,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		outputTabs.SetTabs(names, prims)
 	}
 
-	showOutput := func(task *taskNode, host string) {
+	showOutput := func(task *playbook.TaskNode, host string) {
 		// Pane-mode (split vs. full-screen) is no longer decided here at
 		// all - rebuild() (below) re-evaluates it, live, from the
 		// terminal's actual current width on every call, including the one
@@ -1047,9 +1048,9 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// (see flattenRows), so the cursor never deliberately lands there
 		// via Enter, only by navigating past them.
 		switch id := currentRows[selectedIndex].id.(type) {
-		case *playNode:
+		case *playbook.PlayNode:
 			currentRows[selectedIndex].text = playRowText(id, true)
-		case *taskNode:
+		case *playbook.TaskNode:
 			currentRows[selectedIndex].text = taskLabel(id, treeAllHosts, layout, width, id == activeTask, spinnerAt(elapsed), true, useColor)
 		case hostRowID:
 			currentRows[selectedIndex].text = hostLabel(id.task, id.host, true)
@@ -1075,7 +1076,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 				selected = func() {
 					r.selected()
 					rebuild()
-					if t, ok := r.id.(*taskNode); ok && expanded[t] {
+					if t, ok := r.id.(*playbook.TaskNode); ok && expanded[t] {
 						revealExpandedTask(t)
 					}
 				}
@@ -1174,7 +1175,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		case recapCategoryRowID:
 			currentID = recapHostRowID(id.host)
 		}
-		expanded = map[*taskNode]bool{}
+		expanded = map[*playbook.TaskNode]bool{}
 		recapHostExpanded = map[string]bool{}
 		recapCategoryExpanded = map[recapCategoryRowID]bool{}
 		rebuild()
@@ -1191,7 +1192,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			return
 		}
 		switch id := currentRows[idx].id.(type) {
-		case *taskNode:
+		case *playbook.TaskNode:
 			if !expanded[id] {
 				expanded[id] = true
 				rebuild()
@@ -1218,7 +1219,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			return
 		}
 		switch id := currentRows[idx].id.(type) {
-		case *taskNode:
+		case *playbook.TaskNode:
 			if expanded[id] {
 				expanded[id] = false
 				rebuild()
@@ -1275,12 +1276,12 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		}
 
 		vis := visibleTasks(state, currentFilter, sourceIndex, activeTaskNow())
-		var target *taskNode
+		var target *playbook.TaskNode
 		var host string
 		haveHost := false
 
 		switch id := currentRows[idx].id.(type) {
-		case *playNode:
+		case *playbook.PlayNode:
 			first := firstVisibleTask(id, taskSet(vis))
 			if first == nil {
 				return
@@ -1297,7 +1298,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 			} else if pos > 0 {
 				target = vis[pos-1]
 			}
-		case *taskNode:
+		case *playbook.TaskNode:
 			for i, t := range vis {
 				if t == id {
 					if newIdx := i + delta; newIdx >= 0 && newIdx < len(vis) {
@@ -1443,13 +1444,13 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	applyFilter := func(newFilter filterQuery) {
 		if newFilter != currentFilter && !following {
 			activeTask := activeTaskNow()
-			var anchor *taskNode
+			var anchor *playbook.TaskNode
 			switch id := currentID.(type) {
-			case *taskNode:
+			case *playbook.TaskNode:
 				anchor = id
 			case hostRowID:
 				anchor = id.task
-			case *playNode:
+			case *playbook.PlayNode:
 				stillVisible := false
 				for _, t := range id.Tasks {
 					if taskVisible(t, newFilter, sourceIndex, t == activeTask) {
@@ -1567,7 +1568,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		rebuild()
 	})
 
-	state.OnPlayAdded = func(*playNode) { rebuild() }
+	state.OnPlayAdded = func(*playbook.PlayNode) { rebuild() }
 	// Fires for every real play, including one whose hosts: pattern
 	// matches nothing in this run - see aggregate.go's OnPlayStarted and
 	// progressTracker.AdvanceToPlay for why this resync exists at all
@@ -1579,7 +1580,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 	// playbook: every task added afterward inherits true from whichever
 	// task was added most recently, not just the ones already on screen
 	// when 'E' was pressed.
-	state.OnTaskAdded = func(play *playNode, task *taskNode) {
+	state.OnTaskAdded = func(play *playbook.PlayNode, task *playbook.TaskNode) {
 		expanded[task] = inheritedExpandState(allTasks(state), expanded, startExpanded)
 		// A miss here (a handler - see progress.go's own doc comment -
 		// or any task the skeleton couldn't predict) is a silent no-op by
@@ -1588,7 +1589,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		progH.Load().Advance(play.Name, task.Name)
 		rebuild()
 	}
-	state.OnHostRecorded = func(*taskNode, string) { rebuild() }
+	state.OnHostRecorded = func(*playbook.TaskNode, string) { rebuild() }
 
 	bottomBar = tview.NewTextView().SetText(currentMainBottomBarText())
 	bottomBar.SetTextStyle(chromeStyle)
@@ -1877,7 +1878,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		// processDone/exitCode/state synchronously (see main.go) - by the
 		// time this returns, rebuild() below already sees a running, empty
 		// generation.
-		expanded = map[*taskNode]bool{}
+		expanded = map[*playbook.TaskNode]bool{}
 		recapHostExpanded = map[string]bool{}
 		recapCategoryExpanded = map[recapCategoryRowID]bool{}
 		currentID = nil
@@ -2521,7 +2522,7 @@ func NewLiveTUI(state *playbookState, playbookName string, isRole bool, procH *p
 		return event, action
 	})
 
-	applyLive = func(ev rawEvent) {
+	applyLive = func(ev playbook.RawEvent) {
 		app.QueueUpdateDraw(func() {
 			state.Apply(ev)
 		})

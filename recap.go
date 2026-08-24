@@ -17,7 +17,7 @@
 // appended below the tree once a run finishes, expandable into its own
 // non-empty outcome categories, each expandable into the individual
 // tasks that landed in it. Deliberately built entirely on data
-// playbookState already tracks (a scan over Plays/Tasks/Hosts) - no
+// PlaybookState already tracks (a scan over Plays/Tasks/Hosts) - no
 // aggregate.go changes needed, and no rescued/ignored categories: those
 // aren't derivable per-task from this app's own event consumption (a
 // rescued task reports as an entirely ordinary v2_runner_on_ok, and
@@ -32,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/rivo/tview"
 )
 
@@ -49,7 +50,7 @@ import (
 type recapCategory struct {
 	Label string
 	Color string
-	Tasks []*taskNode
+	Tasks []*playbook.TaskNode
 }
 
 // recapCategoryColor maps a category's own label to its display color -
@@ -62,15 +63,15 @@ type recapCategory struct {
 func recapCategoryColor(label string) string {
 	switch label {
 	case "ok":
-		return colorTag(outcomeOK)
+		return colorTag(playbook.OutcomeOK)
 	case "skipped":
-		return colorTag(outcomeSkipped)
+		return colorTag(playbook.OutcomeSkipped)
 	case "changed":
-		return colorTag(outcomeChanged)
+		return colorTag(playbook.OutcomeChanged)
 	case "unreachable":
-		return colorTag(outcomeUnreachable)
+		return colorTag(playbook.OutcomeUnreachable)
 	case "failed":
-		return colorTag(outcomeFailed)
+		return colorTag(playbook.OutcomeFailed)
 	case "warnings":
 		return warningColor
 	default:
@@ -98,8 +99,8 @@ type recapHostSummary struct {
 // project's own ~10-host/handful-of-hundred-task target scale, computed
 // fresh on every rebuild rather than tracked incrementally, matching
 // aggregate.go's own "no second source of truth" convention for counts.
-func recapForHost(state *playbookState, host string) recapHostSummary {
-	var ok, changed, unreachable, failed, skipped, warned []*taskNode
+func recapForHost(state *playbook.PlaybookState, host string) recapHostSummary {
+	var ok, changed, unreachable, failed, skipped, warned []*playbook.TaskNode
 	for _, play := range state.Plays {
 		for _, task := range play.Tasks {
 			o, present := task.Hosts[host]
@@ -107,15 +108,15 @@ func recapForHost(state *playbookState, host string) recapHostSummary {
 				continue
 			}
 			switch o {
-			case outcomeOK:
+			case playbook.OutcomeOK:
 				ok = append(ok, task)
-			case outcomeChanged:
+			case playbook.OutcomeChanged:
 				changed = append(changed, task)
-			case outcomeUnreachable:
+			case playbook.OutcomeUnreachable:
 				unreachable = append(unreachable, task)
-			case outcomeFailed:
+			case playbook.OutcomeFailed:
 				failed = append(failed, task)
-			case outcomeSkipped:
+			case playbook.OutcomeSkipped:
 				skipped = append(skipped, task)
 			}
 			if hasWarnings(task.Raw[host]) {
@@ -169,7 +170,7 @@ type recapCategoryRowID struct {
 type recapTaskRowID struct {
 	host  string
 	label string
-	task  *taskNode
+	task  *playbook.TaskNode
 }
 
 // recapHeadingRowID identifies one of the recap section's own six leading
@@ -257,7 +258,7 @@ func pluralS(n int) string {
 // other. elapsed is the run's own total wall-clock duration (rebuild's
 // frozenElapsed, same value topBarText's own elapsed readout freezes to),
 // not any one task's or host's own timing.
-func recapNarrativeSummary(state *playbookState, elapsed time.Duration) string {
+func recapNarrativeSummary(state *playbook.PlaybookState, elapsed time.Duration) string {
 	totalTasks := len(allTasks(state))
 	totalHosts := len(state.AllHosts)
 
@@ -300,7 +301,7 @@ func recapNarrativeSummary(state *playbookState, elapsed time.Duration) string {
 // even though this particular text is built entirely from this app's
 // own fixed sentence templates and never echoes anything user-authored
 // (a hostname, a task name) that could itself contain a literal "[".
-func recapNarrativeRowText(state *playbookState, elapsed time.Duration) string {
+func recapNarrativeRowText(state *playbook.PlaybookState, elapsed time.Duration) string {
 	return tview.Escape(recapNarrativeSummary(state, elapsed))
 }
 
@@ -322,7 +323,7 @@ type recapColumnWidths struct {
 // columns - matching ansible's own real recap output, which does the
 // same per-field alignment across hosts rather than sizing each line to
 // its own content.
-func recapComputeColumnWidths(state *playbookState) recapColumnWidths {
+func recapComputeColumnWidths(state *playbook.PlaybookState) recapColumnWidths {
 	var w recapColumnWidths
 	digits := func(n int) int { return len(fmt.Sprintf("%d", n)) }
 	for _, host := range state.AllHosts {
@@ -446,7 +447,7 @@ func recapCategoryRowText(c recapCategory, selected bool) string {
 // task's own warning text(s), semicolon-joined rather than newline-joined
 // like the drill-down's own Warnings section: a recap row is always a
 // single line, unlike that section's own free-standing TextView content.
-func recapTaskDetail(task *taskNode, host, label string) string {
+func recapTaskDetail(task *playbook.TaskNode, host, label string) string {
 	if label == "warnings" {
 		if joined := joinedStringList(decodeWarnings(task.Raw[host]), "; "); joined != "" {
 			return fmt.Sprintf(" (%s)", joined)
@@ -460,7 +461,7 @@ func recapTaskDetail(task *taskNode, host, label string) string {
 // own name (already "role : task name" when role-sourced, straight from
 // task.Name - see source.go/CLAUDE.md's own note that this is how a real
 // event's task.name already renders) plus detail (recapTaskDetail).
-func recapTaskRowText(task *taskNode, detail, color string, selected bool) string {
+func recapTaskRowText(task *playbook.TaskNode, detail, color string, selected bool) string {
 	line := fmt.Sprintf("    %s%s", tview.Escape(task.Name), tview.Escape(detail))
 	if selected {
 		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, line)
@@ -477,7 +478,7 @@ func recapTaskRowText(task *taskNode, detail, color string, selected bool) strin
 // short, complete index of the whole run, so narrowing it the same way
 // wasn't judged worth the added interaction (design-docs/Recap.md never
 // asked for it either).
-func flattenRecapRows(state *playbookState, hostExpanded map[string]bool, categoryExpanded map[recapCategoryRowID]bool, showOutput func(task *taskNode, host string)) []row {
+func flattenRecapRows(state *playbook.PlaybookState, hostExpanded map[string]bool, categoryExpanded map[recapCategoryRowID]bool, showOutput func(task *playbook.TaskNode, host string)) []row {
 	widths := recapComputeColumnWidths(state)
 	var rows []row
 	for _, host := range state.AllHosts {

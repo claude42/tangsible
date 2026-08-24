@@ -29,6 +29,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	pb "code.aw.net/claude/tangsible/internal/playbook"
 )
 
 // ansibleUserInterruptedExitCode is ansible-playbook's documented exit code
@@ -428,7 +430,7 @@ func main() {
 	// since tui.go's OnTaskAdded hook and topBarText rendering both read
 	// it from whatever goroutine is running at the time (tview's event
 	// loop, same as everywhere else in this file that isn't itself
-	// mutating playbookState directly). Built synchronously here, same
+	// mutating PlaybookState directly). Built synchronously here, same
 	// reasoning as sourceIndex just above, for "run"/"role"'s very first
 	// generation (pending != nil - the pre-flight gate already confirmed
 	// a real run is happening): this is a prototype, and getting the
@@ -457,7 +459,7 @@ func main() {
 	twoPaneLayout := twoPaneLayoutEnabled(readSettingsConfig(tangsibleConfigPath))
 	colorEnabled := colorEnabledByUser(readSettingsConfig(tangsibleConfigPath))
 
-	state := &playbookState{}
+	state := &pb.PlaybookState{}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
 	if pending == nil {
@@ -473,7 +475,7 @@ func main() {
 	var outcomes []generationOutcome // one appended per generation - see
 	// generationOutcome; read back only after app.Run() returns below.
 
-	var applyLive func(rawEvent)
+	var applyLive func(pb.RawEvent)
 	apply := func(item streamItem) {
 		if item.isEvent && !quitting.Load() {
 			applyLive(item.ev)
@@ -593,7 +595,7 @@ func streamStderr(r io.Reader) []string {
 // isEvent false) so main's pre-flight gate - which only cares whether
 // anything ever arrived on stdout at all - sees it.
 type streamItem struct {
-	ev      rawEvent
+	ev      pb.RawEvent
 	isEvent bool
 }
 
@@ -641,7 +643,7 @@ func scanEvents(r io.Reader, logFile *os.File) <-chan streamItem {
 				continue
 			}
 
-			var ev rawEvent
+			var ev pb.RawEvent
 			if err := json.Unmarshal([]byte(line), &ev); err != nil {
 				ch <- streamItem{}
 				continue

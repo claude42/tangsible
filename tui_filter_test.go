@@ -18,24 +18,26 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 func TestTaskHasAnyOutcome(t *testing.T) {
-	task := &taskNode{Hosts: map[string]outcome{
-		"web1": outcomeFailed,
-		"web2": outcomeOK,
+	task := &playbook.TaskNode{Hosts: map[string]playbook.Outcome{
+		"web1": playbook.OutcomeFailed,
+		"web2": playbook.OutcomeOK,
 	}}
 
-	if !taskHasAnyOutcome(task, outcomeFailed) {
+	if !taskHasAnyOutcome(task, playbook.OutcomeFailed) {
 		t.Error("expected a match: web1 is Failed")
 	}
-	if !taskHasAnyOutcome(task, outcomeUnreachable, outcomeFailed) {
+	if !taskHasAnyOutcome(task, playbook.OutcomeUnreachable, playbook.OutcomeFailed) {
 		t.Error("expected a match against a list of outcomes when one of them matches")
 	}
-	if taskHasAnyOutcome(task, outcomeSkipped) {
+	if taskHasAnyOutcome(task, playbook.OutcomeSkipped) {
 		t.Error("expected no match: no host is Skipped")
 	}
-	if taskHasAnyOutcome(&taskNode{}, outcomeOK) {
+	if taskHasAnyOutcome(&playbook.TaskNode{}, playbook.OutcomeOK) {
 		t.Error("expected no match against a task with no hosts at all")
 	}
 }
@@ -47,56 +49,56 @@ func TestTaskVisible(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		task     *taskNode
+		task     *playbook.TaskNode
 		q        filterQuery
 		isActive bool
 		want     bool
 	}{
 		{
 			name: "one Failed host and one OK host matches filterFailed - host-level, not all-hosts",
-			task: &taskNode{Hosts: map[string]outcome{"web1": outcomeFailed, "web2": outcomeOK}},
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeFailed, "web2": playbook.OutcomeOK}},
 			q:    failed,
 			want: true,
 		},
 		{
 			name: "Unreachable-only task also matches filterFailed - Unreachable counts as failure",
-			task: &taskNode{Hosts: map[string]outcome{"web1": outcomeUnreachable}},
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeUnreachable}},
 			q:    failed,
 			want: true,
 		},
 		{
 			name: "OK-only task does not match filterFailed",
-			task: &taskNode{Hosts: map[string]outcome{"web1": outcomeOK}},
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK}},
 			q:    failed,
 			want: false,
 		},
 		{
 			name: "OK-only task always matches filterAll",
-			task: &taskNode{Hosts: map[string]outcome{"web1": outcomeOK}},
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK}},
 			q:    all,
 			want: true,
 		},
 		{
 			name: "Changed host matches filterChanged",
-			task: &taskNode{Hosts: map[string]outcome{"web1": outcomeChanged}},
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeChanged}},
 			q:    changed,
 			want: true,
 		},
 		{
 			name: "Failed-only task (no Changed host) also matches filterChanged",
-			task: &taskNode{Hosts: map[string]outcome{"web1": outcomeFailed}},
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeFailed}},
 			q:    changed,
 			want: true,
 		},
 		{
 			name: "OK-only task does not match filterChanged",
-			task: &taskNode{Hosts: map[string]outcome{"web1": outcomeOK}},
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK}},
 			q:    changed,
 			want: false,
 		},
 		{
 			name:     "isActive forces visibility under filterFailed even with zero recorded hosts",
-			task:     &taskNode{Hosts: map[string]outcome{}},
+			task:     &playbook.TaskNode{Hosts: map[string]playbook.Outcome{}},
 			q:        failed,
 			isActive: true,
 			want:     true,
@@ -115,11 +117,11 @@ func TestTaskVisible(t *testing.T) {
 func TestTaskMatchesSearch(t *testing.T) {
 	sourceIndex := taskSourceIndex{"/pb.yml:3": "- name: install package\n  ansible.builtin.package:\n    name: nginx"}
 
-	task := &taskNode{
+	task := &playbook.TaskNode{
 		Name: "install nginx",
 		Path: "/pb.yml:3",
-		Hosts: map[string]outcome{
-			"web1": outcomeOK,
+		Hosts: map[string]playbook.Outcome{
+			"web1": playbook.OutcomeOK,
 		},
 		Raw: map[string]json.RawMessage{
 			"web1": json.RawMessage(`{"stdout":"package already present"}`),
@@ -148,7 +150,7 @@ func TestTaskMatchesSearch(t *testing.T) {
 }
 
 func TestTaskOutputText(t *testing.T) {
-	task := &taskNode{Raw: map[string]json.RawMessage{
+	task := &playbook.TaskNode{Raw: map[string]json.RawMessage{
 		"web1": json.RawMessage(`{"stdout":"hello from stdout","msg":"non-zero return code"}`),
 		"web2": json.RawMessage(`{"msg":"only msg here"}`),
 		"web3": json.RawMessage(`not valid json`),
@@ -169,7 +171,7 @@ func TestTaskOutputText(t *testing.T) {
 }
 
 func TestTaskAction(t *testing.T) {
-	task := &taskNode{Raw: map[string]json.RawMessage{
+	task := &playbook.TaskNode{Raw: map[string]json.RawMessage{
 		"web1": json.RawMessage(`{"action":"ansible.builtin.copy","changed":false}`),
 		"web2": json.RawMessage(`{"changed":false}`),
 		"web3": json.RawMessage(`not valid json`),
@@ -194,13 +196,13 @@ func TestTaskAction(t *testing.T) {
 // (web2 only). Shared by the allTasks/tasksForHost/visibleTasks tests
 // below since they all want the same shape to check ordering/filtering
 // against.
-func buildTwoPlayState() *playbookState {
-	task1 := &taskNode{Name: "task1", Hosts: map[string]outcome{"web1": outcomeOK, "web2": outcomeFailed}}
-	task2 := &taskNode{Name: "task2", Hosts: map[string]outcome{"web1": outcomeOK}}
-	task3 := &taskNode{Name: "task3", Hosts: map[string]outcome{"web2": outcomeOK}}
-	return &playbookState{Plays: []*playNode{
-		{Name: "play1", Tasks: []*taskNode{task1, task2}},
-		{Name: "play2", Tasks: []*taskNode{task3}},
+func buildTwoPlayState() *playbook.PlaybookState {
+	task1 := &playbook.TaskNode{Name: "task1", Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK, "web2": playbook.OutcomeFailed}}
+	task2 := &playbook.TaskNode{Name: "task2", Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK}}
+	task3 := &playbook.TaskNode{Name: "task3", Hosts: map[string]playbook.Outcome{"web2": playbook.OutcomeOK}}
+	return &playbook.PlaybookState{Plays: []*playbook.PlayNode{
+		{Name: "play1", Tasks: []*playbook.TaskNode{task1, task2}},
+		{Name: "play2", Tasks: []*playbook.TaskNode{task3}},
 	}}
 }
 
@@ -256,9 +258,9 @@ func TestVisibleTasksForHost(t *testing.T) {
 }
 
 func TestTaskSet(t *testing.T) {
-	task1 := &taskNode{Name: "task1"}
-	task2 := &taskNode{Name: "task2"}
-	set := taskSet([]*taskNode{task1})
+	task1 := &playbook.TaskNode{Name: "task1"}
+	task2 := &playbook.TaskNode{Name: "task2"}
+	set := taskSet([]*playbook.TaskNode{task1})
 
 	if !set[task1] {
 		t.Error("expected task1 to be a member")

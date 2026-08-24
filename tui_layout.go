@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/rivo/tview"
 )
 
@@ -34,7 +35,7 @@ func spinnerAt(elapsed time.Duration) rune {
 // minutesSeconds splits d into whole minutes and the remaining seconds
 // (0-59), both floored - shared by the top bar's own elapsed display and
 // taskLabel's active-task elapsed suffix, which are two independent
-// measures (see NewLiveTUI's startedAt vs taskNode.StartedAt) that should
+// measures (see NewLiveTUI's startedAt vs TaskNode.StartedAt) that should
 // at least agree on formatting.
 func minutesSeconds(d time.Duration) (mm, ss int) {
 	return int(d / time.Minute), int(d/time.Second) % 60
@@ -299,7 +300,7 @@ func truncateHostsList(hosts []string, maxWidth int) string {
 // SetSelectedStyle comment for why this can't just be a single uniform
 // List-wide style): black bold text on a light gray background across the
 // whole name.
-func playRowText(play *playNode, selected bool) string {
+func playRowText(play *playbook.PlayNode, selected bool) string {
 	name := tview.Escape(play.Name)
 	if selected {
 		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", pureBlack, name)
@@ -310,17 +311,17 @@ func playRowText(play *playNode, selected bool) string {
 // colorTag returns the tview style-tag foreground color name for o, per
 // TUI.md's OK/Changed/Skipped/Failed = green/yellow/cyan/red convention
 // (using tcell's/W3C's "teal" as the closest named match for cyan).
-func colorTag(o outcome) string {
+func colorTag(o playbook.Outcome) string {
 	switch o {
-	case outcomeOK:
+	case playbook.OutcomeOK:
 		return "green"
-	case outcomeChanged:
+	case playbook.OutcomeChanged:
 		return "yellow"
-	case outcomeSkipped:
+	case playbook.OutcomeSkipped:
 		return "teal"
-	case outcomeFailed:
+	case playbook.OutcomeFailed:
 		return "red"
-	case outcomeUnreachable:
+	case playbook.OutcomeUnreachable:
 		return "maroon" // deliberately muted vs "red" - see TUI.md; both are
 		// base ANSI-16 names (index 9 vs 1), not RGB-approximated extended
 		// W3C names, so they stay reliably distinct across terminal themes.
@@ -336,7 +337,7 @@ func colorTag(o outcome) string {
 // reused here in spirit, not by calling it directly, since that one is
 // keyed by a label string tied to its own recapColumnWidths fields
 // rather than by outcome.
-func summaryFieldColor(o outcome, n int) string {
+func summaryFieldColor(o playbook.Outcome, n int) string {
 	if n == 0 {
 		return grayTag
 	}
@@ -367,15 +368,15 @@ func hostSummaryColoredText(ok, changed, skipped, failed, unreachable int, useCo
 	if !useColor {
 		return tview.Escape(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))
 	}
-	seg := func(label string, o outcome, n int) string {
+	seg := func(label string, o playbook.Outcome, n int) string {
 		return fmt.Sprintf("[%s]%s:%d[-]", summaryFieldColor(o, n), label, n)
 	}
 	return strings.Join([]string{
-		seg("OK", outcomeOK, ok),
-		seg("Chgd", outcomeChanged, changed),
-		seg("Skip", outcomeSkipped, skipped),
-		seg("Fail", outcomeFailed, failed),
-		seg("Unrch", outcomeUnreachable, unreachable),
+		seg("OK", playbook.OutcomeOK, ok),
+		seg("Chgd", playbook.OutcomeChanged, changed),
+		seg("Skip", playbook.OutcomeSkipped, skipped),
+		seg("Fail", playbook.OutcomeFailed, failed),
+		seg("Unrch", playbook.OutcomeUnreachable, unreachable),
 	}, "/")
 }
 
@@ -386,10 +387,10 @@ func hostSummaryColoredText(ok, changed, skipped, failed, unreachable int, useCo
 // TitleColWidth against instead of the host list's own width, since
 // every task's counts (and so its own summary string's digit widths) can
 // differ.
-func widestSummaryWidth(state *playbookState) int {
+func widestSummaryWidth(state *playbook.PlaybookState) int {
 	widest := 0
 	for _, t := range allTasks(state) {
-		ok, changed, skipped, failed, unreachable := t.counts()
+		ok, changed, skipped, failed, unreachable := t.Counts()
 		if w := len([]rune(hostSummaryPlainText(ok, changed, skipped, failed, unreachable))); w > widest {
 			widest = w
 		}
@@ -413,7 +414,7 @@ func hostTransition(leftTag, rightTag string) string {
 // how wide the title "column" is - every row pads its own title with
 // spaces up to this width, or truncates down to it if its own title is
 // longer. HostDisplay is the (possibly globally-shrunk) display text for
-// each host in playbookState.AllHosts, same order - shared verbatim by
+// each host in PlaybookState.AllHosts, same order - shared verbatim by
 // every row; only each row's per-host *color* varies (task.Hosts[host]),
 // never the text. SummaryMode (design-docs/Morehosts.md) is true when
 // the per-host list should be replaced with each row's own
@@ -479,7 +480,7 @@ func splitTreeWidth(totalWidth int) int {
 // Morehosts.md's own "not enough space" trigger, and this falls through
 // to summary mode too rather than returning the now-illegibly-truncated
 // host list.
-func computeHostColumnLayout(state *playbookState, allHosts []string, avail int, forceSummary bool) hostColumnLayout {
+func computeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, avail int, forceSummary bool) hostColumnLayout {
 	availContent := avail - len(taskIndent)
 	if availContent < 0 {
 		availContent = 0
@@ -604,7 +605,7 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int,
 // taskLabel builds one TASK row's full text, including its leading indent.
 // Per TUI.md's "Tree View - third iteration", every host in allHosts (the
 // run-wide, alphabetically-sorted set of hosts seen so far - see
-// playbookState.AllHosts) is shown left-aligned after the task title,
+// PlaybookState.AllHosts) is shown left-aligned after the task title,
 // starting at the same column on every row (layout.TitleColWidth, shared
 // across every row for one rebuild - see computeHostColumnLayout), each
 // colored by its outcome for this specific task, or gray if this task
@@ -667,7 +668,7 @@ func computeHostColumnLayout(state *playbookState, allHosts []string, avail int,
 // (hostSummaryColoredText) or not; the per-host list's own coloring
 // (below) is untouched by it, since Morehosts.md scopes this feature to
 // summary mode alone, not a whole-app monochrome option.
-func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
+func taskLabel(task *playbook.TaskNode, allHosts []string, layout hostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
 	// One prefix fills taskIndent's single slot (see its own doc comment) -
 	// the active spinner takes priority; otherwise a warningColor ⚠ if the
 	// task has finished with at least one host's warning recorded; plain
@@ -758,7 +759,7 @@ func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail
 	padding := layout.TitleColWidth - nameWidth + titleHostGapFloor
 
 	if layout.SummaryMode {
-		ok, changed, skipped, failed, unreachable := task.counts()
+		ok, changed, skipped, failed, unreachable := task.Counts()
 		if selected {
 			// Same uniform light-gray-background treatment as the
 			// !haveHosts fallback above, applied to title+string as one
@@ -838,11 +839,11 @@ func taskLabel(task *taskNode, allHosts []string, layout hostColumnLayout, avail
 // task - what it is depends on the outcome: only OK/Changed/Failed and
 // Skipped have one defined so far; "" for Unreachable, rendering exactly
 // as before.
-func outcomeDetail(task *taskNode, host string) string {
+func outcomeDetail(task *playbook.TaskNode, host string) string {
 	switch task.Hosts[host] {
-	case outcomeOK, outcomeChanged, outcomeFailed:
+	case playbook.OutcomeOK, playbook.OutcomeChanged, playbook.OutcomeFailed:
 		return outputSummary(task.Raw[host])
-	case outcomeSkipped:
+	case playbook.OutcomeSkipped:
 		return skipDetail(task.Raw[host])
 	}
 	return ""
@@ -879,7 +880,7 @@ func hasWarnings(raw json.RawMessage) bool {
 // outcome coloring is already per-host-segment rather than a single
 // verdict for the whole row - expanding reveals which host, via
 // hostLabel's own marker).
-func taskHasWarnings(task *taskNode) bool {
+func taskHasWarnings(task *playbook.TaskNode) bool {
 	for _, raw := range task.Raw {
 		if hasWarnings(raw) {
 			return true
@@ -906,7 +907,7 @@ func taskHasWarnings(task *taskNode) bool {
 // leading marker one column right of column 1 - both reverted after live
 // use: a marker at the row's very first column, with the hostname itself
 // never shifting regardless of whether it's showing, reads clearest.
-func hostLabel(task *taskNode, host string, selected bool) string {
+func hostLabel(task *playbook.TaskNode, host string, selected bool) string {
 	o := task.Hosts[host]
 	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(outcomeDetail(task, host)))
 	prefix := tview.Escape(hostIndent)

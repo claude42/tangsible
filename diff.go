@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -43,10 +44,10 @@ import (
 var diffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorFuchsia).Bold(true)
 
 // replayRun loads a saved run's own .jsonl (runlog.go) into a fresh
-// playbookState - the exact replay mechanism openRevisitEntry already
+// PlaybookState - the exact replay mechanism openRevisitEntry already
 // uses for showing a revisited run, reused here for diff mode's own
 // comparison ("old") run.
-func replayRun(runID string) (*playbookState, error) {
+func replayRun(runID string) (*playbook.PlaybookState, error) {
 	jsonlPath, _ := runLogPaths(tangsibleStatePath, runID)
 	f, err := os.Open(jsonlPath)
 	if err != nil {
@@ -54,7 +55,7 @@ func replayRun(runID string) (*playbookState, error) {
 	}
 	defer f.Close()
 
-	state := &playbookState{}
+	state := &playbook.PlaybookState{}
 	for item := range scanEvents(f, nil) {
 		if item.isEvent {
 			state.Apply(item.ev)
@@ -95,7 +96,7 @@ func lastRunID(cfg stateConfig, playbook, role string) string {
 // keeps picking runs to compare against - the same "list <-> detail" loop
 // shape runRevisitVerb already uses, one level down (a diff tree instead
 // of a full live NewLiveTUI).
-func runDiffFlow(currentState *playbookState, targetPlaybook, targetRole, currentTags, currentHosts string, currentSourceIndex taskSourceIndex) {
+func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRole, currentTags, currentHosts string, currentSourceIndex taskSourceIndex) {
 	for {
 		cfg, _ := pruneMissingRunLogs(tangsibleStatePath)
 		currentRunID := lastRunID(cfg, targetPlaybook, targetRole)
@@ -134,7 +135,7 @@ func runDiffFlow(currentState *playbookState, targetPlaybook, targetRole, curren
 // diffPlayName is a playAlignment's own display name - whichever side is
 // present (they share a name by construction when matched, see
 // alignPlays).
-func diffPlayName(pa playAlignment) *playNode {
+func diffPlayName(pa playAlignment) *playbook.PlayNode {
 	if pa.NewPlay != nil {
 		return pa.NewPlay
 	}
@@ -143,7 +144,7 @@ func diffPlayName(pa playAlignment) *playNode {
 
 // diffTaskKey is a taskAlignment's own identity for expand/collapse
 // tracking - whichever side is present.
-func diffTaskKey(a taskAlignment) *taskNode {
+func diffTaskKey(a taskAlignment) *playbook.TaskNode {
 	if a.NewTask != nil {
 		return a.NewTask
 	}
@@ -154,7 +155,7 @@ func diffTaskKey(a taskAlignment) *taskNode {
 // selected-row-rendering purposes (runDiffTreeTUI) - mirrors the live
 // tree's own hostRowID{task, host} shape.
 type diffHostRowID struct {
-	task *taskNode
+	task *playbook.TaskNode
 	host string
 }
 
@@ -168,7 +169,7 @@ type diffHostRowID struct {
 // rows than the live tree ever does, so that sophistication isn't needed
 // here.
 //
-// selectedID is whichever row's own id (a *playNode, *taskNode, or
+// selectedID is whichever row's own id (a *PlayNode, *TaskNode, or
 // diffHostRowID) is currently under the cursor - every row is rendered in
 // one pass, unlike the live tree's own flattenRows (which renders
 // unselected first and patches the one selected row's text afterward,
@@ -179,7 +180,7 @@ type diffHostRowID struct {
 // version), no row was EVER rendered with its own selected styling -
 // treeList (unlike tview.List) has no built-in "current row" look of its
 // own, so the cursor was completely invisible.
-func flattenDiffRows(alignments []playAlignment, expanded map[*taskNode]bool, selectedID any, showOutput func(taskAlignment, string)) []row {
+func flattenDiffRows(alignments []playAlignment, expanded map[*playbook.TaskNode]bool, selectedID any, showOutput func(taskAlignment, string)) []row {
 	titleColWidth := diffTitleColWidth(alignments)
 
 	var rows []row
@@ -330,7 +331,7 @@ func diffTaskRowText(a taskAlignment, titleColWidth int, selected bool) string {
 // ask for; the title's own padding is included in that highlighted
 // block, the hosts themselves (already individually colored by
 // diffHostList) are not.
-func diffTaskLine(task *taskNode, titleColWidth int, wholeLineFlag, marker string, underlineHosts map[string]bool, selected bool) string {
+func diffTaskLine(task *playbook.TaskNode, titleColWidth int, wholeLineFlag, marker string, underlineHosts map[string]bool, selected bool) string {
 	name := task.Name
 	displayWidth := len([]rune(name)) + len([]rune(marker))
 	pad := titleColWidth - displayWidth + titleHostGapFloor
@@ -347,14 +348,14 @@ func diffTaskLine(task *taskNode, titleColWidth int, wholeLineFlag, marker strin
 }
 
 // sortedHostOrder returns a copy of hostOrder sorted alphabetically -
-// hostOrder itself is report-arrival order (aggregate.go's taskNode.record
+// hostOrder itself is report-arrival order (aggregate.go's TaskNode.record
 // appends whichever host happens to answer first), which is deliberately
 // what render.go's plain-text dump follows, but is meaningless (and, with
 // parallel forks, different from task to task) as a *display* order. The
 // live tree's own taskLabel never has this problem since it iterates
 // state.AllHosts (alphabetically sorted) instead of any one task's
 // HostOrder - diff mode has no equivalent run-wide host set spanning both
-// the old and new playbookState trees, so it sorts locally here instead.
+// the old and new PlaybookState trees, so it sorts locally here instead.
 func sortedHostOrder(hostOrder []string) []string {
 	sorted := make([]string, len(hostOrder))
 	copy(sorted, hostOrder)
@@ -369,7 +370,7 @@ func sortedHostOrder(hostOrder []string) []string {
 // comment). wholeLineFlag, if non-empty, applies uniformly to every host
 // (an unmatched task's whole line); otherwise underlineHosts says which
 // specific hosts get their own "u" (a matched, differing task).
-func diffHostList(task *taskNode, wholeLineFlag string, underlineHosts map[string]bool) string {
+func diffHostList(task *playbook.TaskNode, wholeLineFlag string, underlineHosts map[string]bool) string {
 	parts := make([]string, 0, len(task.HostOrder))
 	for _, host := range sortedHostOrder(task.HostOrder) {
 		flag := wholeLineFlag
@@ -384,7 +385,7 @@ func diffHostList(task *taskNode, wholeLineFlag string, underlineHosts map[strin
 // diffColorTag is colorTag(o) with flag ("u"/"s"/"") appended as the tag's
 // own third (flags) component when set - tview's own "[fg::flags]" form,
 // already used elsewhere in this file (playRowText's own "[white::b]").
-func diffColorTag(o outcome, flag string) string {
+func diffColorTag(o playbook.Outcome, flag string) string {
 	if flag == "" {
 		return colorTag(o)
 	}
@@ -439,7 +440,7 @@ func diffHostRows(a taskAlignment, selectedID any, showOutput func(taskAlignment
 // with flag ("u"/"s"/"") layered on as an extra tag component - see
 // diffColorTag. selected uses the same uniform convention diffTaskLine
 // does, not hostLabel's own per-outcome-colored-background variant.
-func diffHostRowText(task *taskNode, host string, flag string, selected bool) string {
+func diffHostRowText(task *playbook.TaskNode, host string, flag string, selected bool) string {
 	o := task.Hosts[host]
 	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(outcomeDetail(task, host)))
 	prefix := tview.Escape(hostIndent)
@@ -475,7 +476,7 @@ func stripTags(s string) string {
 // decode step buildOutputTabs already does inline, pulled out here since
 // diff mode needs it independently for both the old and new side of a
 // matched alignment.
-func decodeTaskHostResult(task *taskNode, host string) (map[string]interface{}, bool) {
+func decodeTaskHostResult(task *playbook.TaskNode, host string) (map[string]interface{}, bool) {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		return nil, false
@@ -538,7 +539,7 @@ func diffTwoTexts(a, b string) string {
 // side"). "" (the decode-failure fallback in buildDiffOutputTabs, where
 // the task genuinely exists on both sides) skips the note entirely - it
 // would be actively wrong there.
-func singleRunTabs(task *taskNode, host string, sourceIndex taskSourceIndex, docs resolvedRender, side string) (names []string, contents []string) {
+func singleRunTabs(task *playbook.TaskNode, host string, sourceIndex taskSourceIndex, docs resolvedRender, side string) (names []string, contents []string) {
 	allNames, allContents := buildOutputTabs(task, host, sourceIndex, resolvedRender{}, docs)
 	for i, n := range allNames {
 		if n == "Diff" || n == "Resolved" {
@@ -646,7 +647,7 @@ func buildDiffOutputTabs(a taskAlignment, host string, newSourceIndex, oldSource
 
 // runDiffTreeTUI shows alignments' own filtered, diff-annotated tree in a
 // standalone Application - not another NewLiveTUI (the data model here is
-// pairs of tasks/hosts, not one playbookState; forcing it through
+// pairs of tasks/hosts, not one PlaybookState; forcing it through
 // NewLiveTUI's single-state-oriented plumbing - sourceIndex, requestRerun,
 // live-generation bookkeeping - would fight it at every turn rather than
 // reuse it, per design-docs/Diff.md's own implementation notes).
@@ -670,7 +671,7 @@ func runDiffTreeTUI(alignments []playAlignment, newSourceIndex, oldSourceIndex t
 	app.EnableMouse(true)
 
 	list := newTreeList()
-	expanded := map[*taskNode]bool{}
+	expanded := map[*playbook.TaskNode]bool{}
 
 	header := tview.NewTextView().SetDynamicColors(true).SetText(" tangsible diff ")
 	header.SetTextStyle(diffChromeStyle)
@@ -716,7 +717,7 @@ func runDiffTreeTUI(alignments []playAlignment, newSourceIndex, oldSourceIndex t
 		pages.SwitchToPage("tree")
 	}
 
-	// currentID is whichever row's own id (a *playNode, *taskNode, or
+	// currentID is whichever row's own id (a *PlayNode, *TaskNode, or
 	// diffHostRowID) is logically under the cursor - tracked by identity,
 	// not raw index, since expand/collapse shifts row order (same
 	// convention the live tree's own currentID uses). nil only before the

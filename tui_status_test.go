@@ -17,6 +17,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 // statusRowText and genuineFailure must never disagree about what counts
@@ -66,9 +68,9 @@ func TestStatusRowTextAndGenuineFailure(t *testing.T) {
 
 func TestLastFailedTaskAndHost(t *testing.T) {
 	t.Run("no failure anywhere returns nil", func(t *testing.T) {
-		state := &playbookState{Plays: []*playNode{
-			{Name: "play1", Tasks: []*taskNode{
-				{Name: "task1", HostOrder: []string{"web1"}, Hosts: map[string]outcome{"web1": outcomeOK}},
+		state := &playbook.PlaybookState{Plays: []*playbook.PlayNode{
+			{Name: "play1", Tasks: []*playbook.TaskNode{
+				{Name: "task1", HostOrder: []string{"web1"}, Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK}},
 			}},
 		}}
 		task, host := lastFailedTaskAndHost(state)
@@ -78,12 +80,12 @@ func TestLastFailedTaskAndHost(t *testing.T) {
 	})
 
 	t.Run("returns the most recent failure, not the first one", func(t *testing.T) {
-		taskA := &taskNode{Name: "task A", HostOrder: []string{"web1"}, Hosts: map[string]outcome{"web1": outcomeFailed}}
-		taskB := &taskNode{Name: "task B", HostOrder: []string{"web2"}, Hosts: map[string]outcome{"web2": outcomeOK}}
-		taskC := &taskNode{Name: "task C", HostOrder: []string{"web3"}, Hosts: map[string]outcome{"web3": outcomeFailed}}
-		state := &playbookState{Plays: []*playNode{
-			{Name: "play1", Tasks: []*taskNode{taskA}},
-			{Name: "play2", Tasks: []*taskNode{taskB, taskC}},
+		taskA := &playbook.TaskNode{Name: "task A", HostOrder: []string{"web1"}, Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeFailed}}
+		taskB := &playbook.TaskNode{Name: "task B", HostOrder: []string{"web2"}, Hosts: map[string]playbook.Outcome{"web2": playbook.OutcomeOK}}
+		taskC := &playbook.TaskNode{Name: "task C", HostOrder: []string{"web3"}, Hosts: map[string]playbook.Outcome{"web3": playbook.OutcomeFailed}}
+		state := &playbook.PlaybookState{Plays: []*playbook.PlayNode{
+			{Name: "play1", Tasks: []*playbook.TaskNode{taskA}},
+			{Name: "play2", Tasks: []*playbook.TaskNode{taskB, taskC}},
 		}}
 
 		task, host := lastFailedTaskAndHost(state)
@@ -93,12 +95,12 @@ func TestLastFailedTaskAndHost(t *testing.T) {
 	})
 
 	t.Run("within the winning task, returns the first Failed/Unreachable host in HostOrder", func(t *testing.T) {
-		task := &taskNode{
+		task := &playbook.TaskNode{
 			Name:      "task1",
 			HostOrder: []string{"web1", "web2"},
-			Hosts:     map[string]outcome{"web1": outcomeOK, "web2": outcomeFailed},
+			Hosts:     map[string]playbook.Outcome{"web1": playbook.OutcomeOK, "web2": playbook.OutcomeFailed},
 		}
-		state := &playbookState{Plays: []*playNode{{Name: "play1", Tasks: []*taskNode{task}}}}
+		state := &playbook.PlaybookState{Plays: []*playbook.PlayNode{{Name: "play1", Tasks: []*playbook.TaskNode{task}}}}
 
 		gotTask, gotHost := lastFailedTaskAndHost(state)
 		if gotTask != task || gotHost != "web2" {
@@ -107,8 +109,8 @@ func TestLastFailedTaskAndHost(t *testing.T) {
 	})
 
 	t.Run("Unreachable counts as a failure here too", func(t *testing.T) {
-		task := &taskNode{Name: "task1", HostOrder: []string{"web1"}, Hosts: map[string]outcome{"web1": outcomeUnreachable}}
-		state := &playbookState{Plays: []*playNode{{Name: "play1", Tasks: []*taskNode{task}}}}
+		task := &playbook.TaskNode{Name: "task1", HostOrder: []string{"web1"}, Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeUnreachable}}
+		state := &playbook.PlaybookState{Plays: []*playbook.PlayNode{{Name: "play1", Tasks: []*playbook.TaskNode{task}}}}
 
 		gotTask, gotHost := lastFailedTaskAndHost(state)
 		if gotTask != task || gotHost != "web1" {

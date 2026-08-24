@@ -31,6 +31,7 @@ import (
 	"sort"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -279,7 +280,7 @@ func renderTemplate(stubPath, outputPath, hostname string, rest []string) (templ
 		if line == "" {
 			continue
 		}
-		var ev rawEvent
+		var ev playbook.RawEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			continue
 		}
@@ -302,7 +303,7 @@ func renderTemplate(stubPath, outputPath, hostname string, rest []string) (templ
 		return templateResult{}, fmt.Errorf("%s", msg)
 	}
 
-	decoded := decodeHostResult(raw)
+	decoded := playbook.DecodeHostResult(raw)
 	if decoded.Failed || decoded.Unreachable {
 		var full map[string]interface{}
 		_ = json.Unmarshal(raw, &full)

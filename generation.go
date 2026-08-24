@@ -31,6 +31,8 @@ package main
 import (
 	"os/exec"
 	"sync/atomic"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 // runOneGeneration drains one generation's stdout to completion - from
@@ -83,7 +85,7 @@ func runOneGeneration(cmd *exec.Cmd, stdoutCh <-chan streamItem, stderrLines <-c
 // startAtTask, if non-empty, is prepended as --start-at-task; tags/hosts
 // replace the original invocation's own (originalRest is always carried
 // forward unedited alongside them - see parsedPassthroughArgs.Reassemble).
-func newRequestRerun(playbook, roleDisplayName string, originalRest []string, state *playbookState, procH *procHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[progressTracker], apply func(streamItem), recordOutcome func(generationOutcome)) func(startAtTask, tags, skipTags, hosts string) {
+func newRequestRerun(playbook, roleDisplayName string, originalRest []string, state *playbook.PlaybookState, procH *procHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[progressTracker], apply func(streamItem), recordOutcome func(generationOutcome)) func(startAtTask, tags, skipTags, hosts string) {
 	return func(startAtTask, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
 		// event-loop goroutine, from the re-run dialog's Enter handler) -

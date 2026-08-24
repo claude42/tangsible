@@ -18,10 +18,29 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
+// A couple of tiny constructors, just to avoid repeating the same struct
+// literal shape in every test below - not a framework, just less noise.
+// Duplicated from internal/playbook's own test helpers of the same name
+// (unexported test helpers aren't visible across a package boundary).
+
+func playStartEvent(name string) playbook.RawEvent {
+	return playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: name}}
+}
+
+func taskStartEvent(name, path string) playbook.RawEvent {
+	return playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: name, Path: path}}
+}
+
+func hostResultEvent(event, host string, raw json.RawMessage) playbook.RawEvent {
+	return playbook.RawEvent{Event: event, Hosts: map[string]json.RawMessage{host: raw}}
+}
+
 func TestRecapForHost(t *testing.T) {
-	s := &playbookState{}
+	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
 
 	s.Apply(taskStartEvent("task one", "/pb.yml:3"))
@@ -75,7 +94,7 @@ func TestRecapForHost(t *testing.T) {
 }
 
 func TestRecapForHost_HostNeverReported(t *testing.T) {
-	s := &playbookState{}
+	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
 	s.Apply(taskStartEvent("task one", "/pb.yml:3"))
 	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
@@ -95,7 +114,7 @@ func TestRecapForHost_HostNeverReported(t *testing.T) {
 // the exact same task in both places, since that's the whole point of
 // warnings being orthogonal to outcome.
 func TestRecapForHost_WarningsAreCrossCutting(t *testing.T) {
-	s := &playbookState{}
+	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
 
 	s.Apply(taskStartEvent("task with a warning", "/pb.yml:3"))
@@ -150,8 +169,8 @@ func TestHasWarnings(t *testing.T) {
 }
 
 func TestTaskHasWarnings(t *testing.T) {
-	task := &taskNode{
-		Hosts: map[string]outcome{"web1": outcomeOK, "web2": outcomeOK},
+	task := &playbook.TaskNode{
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK, "web2": playbook.OutcomeOK},
 		Raw: map[string]json.RawMessage{
 			"web1": json.RawMessage(`{"changed":false}`),
 			"web2": json.RawMessage(`{"changed":false,"warnings":["hi"]}`),
@@ -161,8 +180,8 @@ func TestTaskHasWarnings(t *testing.T) {
 		t.Error("taskHasWarnings() = false, want true (web2 has one)")
 	}
 
-	noWarnings := &taskNode{
-		Hosts: map[string]outcome{"web1": outcomeOK},
+	noWarnings := &playbook.TaskNode{
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 	}
 	if taskHasWarnings(noWarnings) {
@@ -171,11 +190,11 @@ func TestTaskHasWarnings(t *testing.T) {
 }
 
 func TestRecapNarrativeSummary(t *testing.T) {
-	buildState := func(hosts map[string]string) *playbookState {
+	buildState := func(hosts map[string]string) *playbook.PlaybookState {
 		// hosts maps hostname -> "ok"/"failed"/"unreachable" for one single
 		// task shared by all of them - enough to exercise the counting
 		// logic without needing a realistic multi-task run.
-		s := &playbookState{}
+		s := &playbook.PlaybookState{}
 		s.Apply(playStartEvent("my play"))
 		s.Apply(taskStartEvent("task one", "/pb.yml:3"))
 		for host, outcome := range hosts {
@@ -251,8 +270,8 @@ func TestRecapNarrativeSummary(t *testing.T) {
 }
 
 func TestRecapTaskDetail_WarningsJoinsWithSemicolons(t *testing.T) {
-	task := &taskNode{
-		Hosts: map[string]outcome{"web1": outcomeOK},
+	task := &playbook.TaskNode{
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"warnings":["one","two"]}`)},
 	}
 	got := recapTaskDetail(task, "web1", "warnings")

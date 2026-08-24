@@ -19,6 +19,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 func TestRoleFromPath(t *testing.T) {
@@ -383,10 +385,10 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 	const path = "/project/site.yml:3"
 	const source = "- name: hi\n  ansible.builtin.debug:\n    msg: hi\n"
 
-	task := &taskNode{
+	task := &playbook.TaskNode{
 		Name:  "hi",
 		Path:  path,
-		Hosts: map[string]outcome{"web1": outcomeOK},
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 	}
 	sourceIndex := taskSourceIndex{path: source}
@@ -427,10 +429,10 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 	})
 
 	t.Run("no source found at all - Resolved tab still shown, nothing to call it identical to", func(t *testing.T) {
-		noSourceTask := &taskNode{
+		noSourceTask := &playbook.TaskNode{
 			Name:  "hi",
 			Path:  "/project/unknown.yml:1",
-			Hosts: map[string]outcome{"web1": outcomeOK},
+			Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 			Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 		}
 		names, _ := buildOutputTabs(noSourceTask, "web1", taskSourceIndex{}, resolvedRender{Text: ""}, resolvedRender{})
@@ -467,10 +469,10 @@ func TestDocsTabHidden(t *testing.T) {
 }
 
 func TestBuildOutputTabsDocsVisibility(t *testing.T) {
-	task := &taskNode{
+	task := &playbook.TaskNode{
 		Name:  "hi",
 		Path:  "/project/unknown.yml:1",
-		Hosts: map[string]outcome{"web1": outcomeOK},
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 	}
 	hasTab := func(names []string, name string) bool {

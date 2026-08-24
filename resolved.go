@@ -33,6 +33,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 // jinjaExpressionPattern matches one {{ ... }} expression block in raw
@@ -192,7 +194,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 		if line == "" {
 			continue
 		}
-		var ev rawEvent
+		var ev playbook.RawEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			continue
 		}
@@ -215,7 +217,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 		return "", fmt.Errorf("%s", msg)
 	}
 
-	decoded := decodeHostResult(raw)
+	decoded := playbook.DecodeHostResult(raw)
 	if decoded.Failed || decoded.Unreachable {
 		var full map[string]interface{}
 		_ = json.Unmarshal(raw, &full)

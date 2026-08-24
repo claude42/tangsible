@@ -24,7 +24,7 @@ import (
 )
 
 // taskSourceIndex maps a task's Ansible-reported path ("<absolute
-// file>:<line>", exactly matching rawEvent's task.path field) to its own
+// file>:<line>", exactly matching RawEvent's task.path field) to its own
 // raw YAML source text, verbatim from the file - not reformatted or
 // re-serialized, so the user's own formatting/comments are preserved.
 type taskSourceIndex map[string]string

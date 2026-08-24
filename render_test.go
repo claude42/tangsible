@@ -18,15 +18,17 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 func TestRender(t *testing.T) {
-	state := &playbookState{Plays: []*playNode{
-		{Name: "webservers", Tasks: []*taskNode{
+	state := &playbook.PlaybookState{Plays: []*playbook.PlayNode{
+		{Name: "webservers", Tasks: []*playbook.TaskNode{
 			{
 				Name:      "install nginx",
 				HostOrder: []string{"web2", "web1"}, // deliberately not alphabetical
-				Hosts:     map[string]outcome{"web1": outcomeOK, "web2": outcomeFailed},
+				Hosts:     map[string]playbook.Outcome{"web1": playbook.OutcomeOK, "web2": playbook.OutcomeFailed},
 			},
 		}},
 	}}
@@ -66,7 +68,7 @@ func TestRender(t *testing.T) {
 
 func TestRender_NoPlays(t *testing.T) {
 	var buf bytes.Buffer
-	Render(&buf, &playbookState{})
+	Render(&buf, &playbook.PlaybookState{})
 	if got := buf.String(); got != "" {
 		t.Errorf("Render on an empty state = %q, want empty output", got)
 	}

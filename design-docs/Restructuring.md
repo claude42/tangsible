@@ -115,16 +115,40 @@ resolves the `runDiffFlow` cycle for free as a side effect - `tui` and
 Moderate mechanical effort: every symbol this package exposes needs to
 go from unexported to exported, repo-wide, then re-verified.
 
+**Revised before starting (see Phase 2's own note below): this phase
+turned out to depend on Phase 2, not the other way around** - most of
+`tui_layout.go`/`tui_rows.go`/`tui_filter.go`/`tui_drilldown.go` take
+`*playbookState`/`*taskNode`/`outcome`/`taskSourceIndex` directly as
+parameters or return values, which a standalone package can't do until
+those types themselves live somewhere importable by both `main` and the
+toolkit. Phase 2 now runs first for exactly this reason. Once Phase 2
+is done, this phase proceeds as originally scoped, with `internal/
+playbook`'s exported types available to depend on.
+
 ### Phase 2 - extract the core data model into its own package
 
-`aggregate.go`/`events.go`/`recap.go` (`playbookState`/`taskNode`/
-`playNode`/`rawEvent`) into `internal/playbook` or similar. Already a
-clean, naturally isolated boundary per the check above - nothing else
-needs to change conceptually, just exporting the fields other files
-touch directly (a few of these already have an accessor for exactly
-this reason - `playbookState.CurrentTask()` exists specifically so
-`tui.go` doesn't reach into the private `currentTask` field directly,
-per its own doc comment - so some of this groundwork already exists).
+`aggregate.go`/`events.go` (`outcome`/`taskNode`/`playNode`/
+`playbookState`/`rawEvent`/`playRef`/`taskRef`/`hostResult`) into
+`internal/playbook`. Already a clean, naturally isolated boundary per
+the check above - nothing else needs to change conceptually, just
+exporting the fields other files touch directly (a few of these already
+have an accessor for exactly this reason - `playbookState.CurrentTask()`
+exists specifically so `tui.go` doesn't reach into the private
+`currentTask` field directly, per its own doc comment - so some of this
+groundwork already exists).
+
+**`recap.go` dropped from this phase's scope, unlike this section's
+original text above** - checked directly (grep, not assumed) before
+starting: `recap.go` calls `colorTag`/uses `grayTag`/`pureBlack`/the
+`row` type throughout (`flattenRecapRows`, `recapHostRowText`, etc.) -
+that's real UI-rendering coupling to the *other* toolkit-candidate
+files (`tui_layout.go`/`tui_style.go`/`tui_rows.go`), not "depends on
+nothing else" the way `aggregate.go`/`events.go` do. Moving it now would
+either drag `tui_layout.go`/`tui_style.go`/`tui_rows.go` into
+`internal/playbook` too (wrong boundary - those are rendering, not data
+model) or leave `recap.go` half-migrated. Left in `package main` for
+now; it belongs with the Phase 1 UI-toolkit cluster conceptually, once
+that phase's own data-model dependency (this phase) is resolved.
 
 ### Phase 3 - break `NewLiveTUI` itself apart (the big one, likely later/separate)
 
@@ -181,5 +205,41 @@ its group, or reformatted beyond `goimports` reconciling each new file's
 own import list. `go build`/`go vet`/`gofmt -l`/`go test ./...`/
 `go test -tags e2e ./...` all pass unchanged.
 
+Phase 2 done next, ahead of Phase 1 (see that phase's own revised note
+above) - `aggregate.go`/`events.go` now live in `internal/playbook`
+(`package playbook`), with every symbol another file touches exported:
+`Outcome`/`OutcomeOK`/.../`OutcomeUnreachable`, `TaskNode` (+ `Counts()`,
+exported from `counts()` since `tui_layout.go`/`render.go` call it
+externally), `PlayNode`, `PlaybookState` (+ `Reset`/`Apply`/
+`CurrentTask`), `RawEvent` (+ `Timestamp()`), `PlayRef`, `TaskRef`,
+`HostResult`, `DecodeHostResult`. `recap.go` stayed in `package main` -
+see Phase 2's own note above for why.
+
+Mechanics: renamed in place first with `gorename` (semantic, scope-aware
+- safe against the English word "outcome" appearing throughout comments
+where the identifier `outcome` does not), then moved the two files and
+re-qualified every remaining cross-package reference with a small
+`go/packages`+`go/types`-driven tool (matches call sites by their
+resolved `types.Object`, not text matching, so it can't confuse e.g. a
+struct's `Name`/`Path` fields with the moved types). One real snag:
+`playbook` collides with the pervasive local-variable name for "which
+playbook file to run" in `main.go`/`revisit.go` specifically (nowhere
+else) - fixed with a `pb` import alias in just those two files, plain
+`playbook.` everywhere else. Went back through by hand afterward and
+capitalized the now-stale lowercase type-name mentions left in
+unrelated files' doc comments (`taskNode` -> `TaskNode` etc., ~14 files)
+- deliberately left the bare word "outcome" alone wherever grep found it
+in prose ("recording its outcome," "colored by its outcome") since
+every one of those is the ordinary English word, not the type.
+`aggregate_test.go`/`events_test.go` moved to `internal/playbook/` too
+(package `playbook`, matching); `recap_test.go` kept its own copies of
+the three tiny `playStartEvent`/`taskStartEvent`/`hostResultEvent` test
+helpers, since Go test helpers aren't visible across a package boundary
+and it was the only other file using them. `go build`/`go vet`/
+`gofmt -l`/`go test ./...`/`go test -tags e2e ./...` all pass on both
+packages.
+
 Phase 1 (extract a shared rendering toolkit as its own package) is the
-proposed next step whenever this gets picked back up.
+proposed next step whenever this gets picked back up - it can now
+proceed as originally scoped, with `internal/playbook`'s exported types
+available to depend on.

@@ -17,14 +17,16 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
-func namedTask(name string) *taskNode {
-	return &taskNode{Name: name, Hosts: map[string]outcome{}, Raw: map[string]json.RawMessage{}}
+func namedTask(name string) *playbook.TaskNode {
+	return &playbook.TaskNode{Name: name, Hosts: map[string]playbook.Outcome{}, Raw: map[string]json.RawMessage{}}
 }
 
-func namedPlay(name string, tasks ...*taskNode) *playNode {
-	return &playNode{Name: name, Tasks: tasks}
+func namedPlay(name string, tasks ...*playbook.TaskNode) *playbook.PlayNode {
+	return &playbook.PlayNode{Name: name, Tasks: tasks}
 }
 
 func TestAlignTasksIdenticalSequence(t *testing.T) {
@@ -143,8 +145,8 @@ func TestAlignTasksNilPlay(t *testing.T) {
 }
 
 func TestAlignPlaysAddedRemovedPlay(t *testing.T) {
-	oldState := &playbookState{Plays: []*playNode{namedPlay("shared", namedTask("t"))}}
-	newState := &playbookState{Plays: []*playNode{
+	oldState := &playbook.PlaybookState{Plays: []*playbook.PlayNode{namedPlay("shared", namedTask("t"))}}
+	newState := &playbook.PlaybookState{Plays: []*playbook.PlayNode{
 		namedPlay("shared", namedTask("t")),
 		namedPlay("brand new play", namedTask("only task")),
 	}}
@@ -188,9 +190,9 @@ func TestTaskDiffersUnmatchedAlwaysDiffers(t *testing.T) {
 
 func TestTaskDiffersOutcome(t *testing.T) {
 	oldTask := namedTask("t")
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask := namedTask("t")
-	newTask.Hosts["web1"] = outcomeFailed
+	newTask.Hosts["web1"] = playbook.OutcomeFailed
 
 	if !taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
 		t.Error("taskDiffers() with a changed outcome = false, want true")
@@ -199,10 +201,10 @@ func TestTaskDiffersOutcome(t *testing.T) {
 
 func TestTaskDiffersOutput(t *testing.T) {
 	oldTask := namedTask("t")
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	oldTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hello v1"})
 	newTask := namedTask("t")
-	newTask.Hosts["web1"] = outcomeOK
+	newTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hello v2"})
 
 	if !taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
@@ -212,10 +214,10 @@ func TestTaskDiffersOutput(t *testing.T) {
 
 func TestTaskDiffersIdentical(t *testing.T) {
 	oldTask := namedTask("t")
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	oldTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "same"})
 	newTask := namedTask("t")
-	newTask.Hosts["web1"] = outcomeOK
+	newTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "same"})
 
 	if taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
@@ -225,9 +227,9 @@ func TestTaskDiffersIdentical(t *testing.T) {
 
 func TestTaskDiffersHostOnlyOnOneSideIsIgnored(t *testing.T) {
 	oldTask := namedTask("t")
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask := namedTask("t")
-	newTask.Hosts["web2"] = outcomeFailed // a completely different host set
+	newTask.Hosts["web2"] = playbook.OutcomeFailed // a completely different host set
 
 	if taskDiffers(taskAlignment{OldTask: oldTask, NewTask: newTask}) {
 		t.Error("taskDiffers() with disjoint host sets = true, want false (host-set differences don't count)")
@@ -252,9 +254,9 @@ func TestHostOutputDiffersStderrAndWarnings(t *testing.T) {
 
 func TestPlayAlignmentHasDifferences(t *testing.T) {
 	same := namedTask("same")
-	same.Hosts["web1"] = outcomeOK
+	same.Hosts["web1"] = playbook.OutcomeOK
 	same2 := namedTask("same")
-	same2.Hosts["web1"] = outcomeOK
+	same2.Hosts["web1"] = playbook.OutcomeOK
 	noDiff := playAlignment{
 		OldPlay: namedPlay("p"), NewPlay: namedPlay("p"),
 		Tasks: []taskAlignment{{OldTask: same, NewTask: same2}},

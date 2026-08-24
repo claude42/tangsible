@@ -92,7 +92,7 @@ type settingsConfig struct {
 // unrecognized value, means collapsed - the documented default, applied
 // silently rather than warning on a typo, consistent with this project's
 // general "swallow and fall back" convention for config values elsewhere
-// (readDefaultPlaybook, decodeHostResult).
+// (readDefaultPlaybook, DecodeHostResult).
 func defaultTreeExpanded(cfg settingsConfig) bool {
 	return strings.EqualFold(cfg.General.DefaultTreeState, "expanded")
 }

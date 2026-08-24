@@ -12,22 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package playbook
 
 import (
 	"encoding/json"
 	"time"
 )
 
-// rawEvent is the subset of the ansible.posix.jsonl event schema this app
+// RawEvent is the subset of the ansible.posix.jsonl event schema this app
 // cares about. Fields we don't need are simply dropped by json.Unmarshal.
 // Hosts keeps each host's full original bytes (rather than decoding
-// straight into hostResult) so the complete result - not just the fields
-// below - can be recorded and shown later; see aggregate.go's taskNode.Raw.
-type rawEvent struct {
+// straight into HostResult) so the complete result - not just the fields
+// below - can be recorded and shown later; see aggregate.go's TaskNode.Raw.
+type RawEvent struct {
 	Event string                     `json:"_event"`
-	Play  *playRef                   `json:"play"`
-	Task  *taskRef                   `json:"task"`
+	Play  *PlayRef                   `json:"play"`
+	Task  *TaskRef                   `json:"task"`
 	Hosts map[string]json.RawMessage `json:"hosts"`
 
 	// TimestampText is the event's own "_timestamp" (empirically RFC3339
@@ -39,23 +39,23 @@ type rawEvent struct {
 	// and hosts included - over nothing but a bad timestamp. A string
 	// field can't fail that way; Timestamp() below does the fallible
 	// parsing on demand and swallows any error, same convention as
-	// decodeHostResult.
+	// DecodeHostResult.
 	TimestampText string `json:"_timestamp"`
 }
 
 // Timestamp parses TimestampText as RFC3339, returning the zero time.Time
 // if it's missing or malformed. Callers must treat a zero result as
 // "unknown," never as the epoch.
-func (ev rawEvent) Timestamp() time.Time {
+func (ev RawEvent) Timestamp() time.Time {
 	t, _ := time.Parse(time.RFC3339, ev.TimestampText)
 	return t
 }
 
-type playRef struct {
+type PlayRef struct {
 	Name string `json:"name"`
 }
 
-type taskRef struct {
+type TaskRef struct {
 	Name string `json:"name"`
 	// Path is the task's own source location, "<absolute file>:<line>",
 	// exactly as Ansible reports it on every event - used by tui.go's
@@ -64,14 +64,14 @@ type taskRef struct {
 	Path string `json:"path"`
 }
 
-// hostResult is the handful of classification fields Apply needs to decide
+// HostResult is the handful of classification fields Apply needs to decide
 // a host's outcome for one task. It's deliberately not the full result
 // shape - different modules return wildly different fields (command:
 // stdout/stderr/cmd/rc; most modules: msg on failure; others: arbitrary
 // module-specific fields) and hand-modeling all of them isn't worth it. The
-// full original bytes are kept separately (taskNode.Raw) for on-demand
+// full original bytes are kept separately (TaskNode.Raw) for on-demand
 // display.
-type hostResult struct {
+type HostResult struct {
 	Changed     bool   `json:"changed"`
 	Skipped     bool   `json:"skipped"`
 	Failed      bool   `json:"failed"`
@@ -79,12 +79,12 @@ type hostResult struct {
 	Msg         string `json:"msg"`
 }
 
-// decodeHostResult extracts hostResult's classification fields from one
+// DecodeHostResult extracts HostResult's classification fields from one
 // host's raw JSON payload. A decode error is treated as "no flags set"
 // rather than surfaced - a malformed/unexpected shape for these fields
 // shouldn't prevent the host's full raw payload from still being recorded.
-func decodeHostResult(raw json.RawMessage) hostResult {
-	var r hostResult
+func DecodeHostResult(raw json.RawMessage) HostResult {
+	var r HostResult
 	_ = json.Unmarshal(raw, &r)
 	return r
 }

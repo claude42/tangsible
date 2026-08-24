@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -652,7 +653,7 @@ func fetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 		if line == "" {
 			continue
 		}
-		var ev rawEvent
+		var ev playbook.RawEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			nonJSONLines++
 			continue
@@ -696,7 +697,7 @@ func fetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 
 	var decoded map[string]interface{}
 	_ = json.Unmarshal(raw, &decoded)
-	result := decodeHostResult(raw)
+	result := playbook.DecodeHostResult(raw)
 	if result.Unreachable {
 		return fmt.Sprintf("[maroon::b]Unreachable[-::-]\n\n%s", tview.Escape(result.Msg)), nil
 	}
@@ -709,7 +710,7 @@ func fetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 
 // factString/factStringList pull a string/[]string field out of a decoded
 // ansible_facts map, tolerating an absent or wrongly-shaped key the same
-// way decodeHostResult tolerates a malformed payload elsewhere - "" / nil
+// way DecodeHostResult tolerates a malformed payload elsewhere - "" / nil
 // rather than a panic or an error, since a field simply not being
 // gathered on a given platform is normal, not exceptional. key is the
 // short fact name (e.g. "fqdn", "distribution") - both functions add the

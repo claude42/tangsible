@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"github.com/pmezard/go-difflib/difflib"
 	"github.com/rivo/tview"
 )
@@ -561,7 +562,7 @@ type resolvedRender struct {
 // requested in that order over the module-reference-first ordering this
 // originally shipped with, once live use showed the task's own values
 // mattered more, front and center, than the module's general docs.
-func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender, docs resolvedRender) (names []string, contents []string) {
+func buildOutputTabs(task *playbook.TaskNode, host string, sourceIndex taskSourceIndex, resolved resolvedRender, docs resolvedRender) (names []string, contents []string) {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		// Shouldn't happen in normal operation - every host recorded via
@@ -634,7 +635,7 @@ func buildOutputTabs(task *taskNode, host string, sourceIndex taskSourceIndex, r
 // (Name/Action/Role/Host/Status). Role is derived from task.Path via
 // roleFromPath - a heuristic, not something any event reports directly -
 // and the line is omitted entirely when it's not role-sourced.
-func buildTaskTab(task *taskNode, host string, decoded map[string]interface{}, o outcome) string {
+func buildTaskTab(task *playbook.TaskNode, host string, decoded map[string]interface{}, o playbook.Outcome) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Name: %s\n", tview.Escape(task.Name))
 	if action, ok := decoded["action"].(string); ok && action != "" {
@@ -654,7 +655,7 @@ func buildTaskTab(task *taskNode, host string, decoded map[string]interface{}, o
 // before, so several distinct pieces sharing one tab still read as
 // distinct pieces. "" (the tab omitted entirely by buildOutputTabs' own
 // add()) only if all four are empty.
-func buildOutputTab(decoded map[string]interface{}, o outcome) string {
+func buildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	var b strings.Builder
 	// writeTextSection renders one label+plain-text piece - omitted
 	// entirely when text is empty. The trailing "\n\n\n" closes text's
@@ -679,7 +680,7 @@ func buildOutputTab(decoded map[string]interface{}, o outcome) string {
 	// skip_reason/false_condition (skipOutputText) is what's actually
 	// worth showing here instead.
 	var outputText string
-	if o == outcomeSkipped {
+	if o == playbook.OutcomeSkipped {
 		outputText = skipOutputText(decoded)
 	} else {
 		_, outputText = primaryOutputField(decoded)

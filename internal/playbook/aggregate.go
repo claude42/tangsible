@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package playbook
 
 import (
 	"encoding/json"
@@ -20,35 +20,35 @@ import (
 	"time"
 )
 
-// outcome is a host's result for one task.
-type outcome int
+// Outcome is a host's result for one task.
+type Outcome int
 
 const (
-	outcomeOK outcome = iota
-	outcomeChanged
-	outcomeSkipped
-	outcomeFailed
-	outcomeUnreachable
+	OutcomeOK Outcome = iota
+	OutcomeChanged
+	OutcomeSkipped
+	OutcomeFailed
+	OutcomeUnreachable
 )
 
-func (o outcome) String() string {
+func (o Outcome) String() string {
 	switch o {
-	case outcomeOK:
+	case OutcomeOK:
 		return "OK"
-	case outcomeChanged:
+	case OutcomeChanged:
 		return "Changed"
-	case outcomeSkipped:
+	case OutcomeSkipped:
 		return "Skipped"
-	case outcomeFailed:
+	case OutcomeFailed:
 		return "Failed"
-	case outcomeUnreachable:
+	case OutcomeUnreachable:
 		return "Unreachable"
 	default:
 		return "?"
 	}
 }
 
-type taskNode struct {
+type TaskNode struct {
 	Name string
 	// Path is the task's own source location ("<absolute file>:<line>"),
 	// straight from the starting event's own task.path - used by
@@ -58,7 +58,7 @@ type taskNode struct {
 	// blindly - same caveat as this file's other event-derived fields).
 	Path string
 	// StartedAt is from the starting event's own _timestamp
-	// (rawEvent.Timestamp()), not our wall-clock time.Now() at the moment
+	// (RawEvent.Timestamp()), not our wall-clock time.Now() at the moment
 	// we process it - "when did Ansible itself start this task." Zero if
 	// that timestamp was missing/malformed. Currently unused by any
 	// renderer (tui.go shows a spinner rather than an elapsed readout for
@@ -67,7 +67,7 @@ type taskNode struct {
 	// if that never materializes.
 	StartedAt time.Time
 	HostOrder []string
-	Hosts     map[string]outcome
+	Hosts     map[string]Outcome
 	// Raw holds each host's full original result payload for this task,
 	// parallel to Hosts - populated alongside it in record, read by
 	// tui.go's showOutput on demand. Never formatted here; formatting is
@@ -75,7 +75,7 @@ type taskNode struct {
 	Raw map[string]json.RawMessage
 }
 
-func (t *taskNode) record(host string, o outcome, raw json.RawMessage) {
+func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage) {
 	if _, seen := t.Hosts[host]; !seen {
 		t.HostOrder = append(t.HostOrder, host)
 	}
@@ -83,30 +83,30 @@ func (t *taskNode) record(host string, o outcome, raw json.RawMessage) {
 	t.Raw[host] = raw
 }
 
-func (t *taskNode) counts() (ok, changed, skipped, failed, unreachable int) {
+func (t *TaskNode) Counts() (ok, changed, skipped, failed, unreachable int) {
 	for _, o := range t.Hosts {
 		switch o {
-		case outcomeOK:
+		case OutcomeOK:
 			ok++
-		case outcomeChanged:
+		case OutcomeChanged:
 			changed++
-		case outcomeSkipped:
+		case OutcomeSkipped:
 			skipped++
-		case outcomeFailed:
+		case OutcomeFailed:
 			failed++
-		case outcomeUnreachable:
+		case OutcomeUnreachable:
 			unreachable++
 		}
 	}
 	return
 }
 
-type playNode struct {
+type PlayNode struct {
 	Name  string
-	Tasks []*taskNode
+	Tasks []*TaskNode
 }
 
-// playbookState is the play -> task -> host tree built up from the live
+// PlaybookState is the play -> task -> host tree built up from the live
 // event stream. Plays and tasks are appended lazily, on their first task's
 // start, so plays with no executed tasks never show up (see TUI.md).
 //
@@ -115,8 +115,8 @@ type playNode struct {
 // mutex, by construction, since that's always tview's event-loop goroutine
 // (Apply runs inside an app.QueueUpdateDraw closure). Not a general-purpose
 // concurrent data structure.
-type playbookState struct {
-	Plays []*playNode
+type PlaybookState struct {
+	Plays []*PlayNode
 
 	// AllHosts is the run-wide, alphabetically-sorted set of hosts that have
 	// reported anything, for any task, so far this run. It only ever grows.
@@ -131,7 +131,7 @@ type playbookState struct {
 	AllHosts []string
 
 	// HadUnreachable is true once any host has been recorded as
-	// outcomeUnreachable, at any point in this run - run-wide, once true,
+	// OutcomeUnreachable, at any point in this run - run-wide, once true,
 	// never cleared, like AllHosts. Exists so main.go can disambiguate
 	// ansible-playbook's own overloaded exit code 4 (ansible-core's own
 	// ExitCode enum assigns 4 to both HOST_UNREACHABLE and PARSER_ERROR,
@@ -141,17 +141,17 @@ type playbookState struct {
 	HadUnreachable bool
 
 	pendingPlayName string
-	currentPlay     *playNode
-	currentTask     *taskNode
+	currentPlay     *PlayNode
+	currentTask     *TaskNode
 
 	// Optional hooks a UI layer wires up before streaming begins, so a
 	// tree can grow incrementally instead of being rebuilt from scratch on
 	// every event. nil-checked before every call. Deliberately typed using
 	// only this file's own types, so this file stays free of any UI
 	// dependency.
-	OnPlayAdded    func(play *playNode)
-	OnTaskAdded    func(play *playNode, task *taskNode)
-	OnHostRecorded func(task *taskNode, host string)
+	OnPlayAdded    func(play *PlayNode)
+	OnTaskAdded    func(play *PlayNode, task *TaskNode)
+	OnHostRecorded func(task *TaskNode, host string)
 	// OnPlayStarted fires on every real v2_playbook_on_play_start event,
 	// unconditionally - unlike OnPlayAdded, which only ever fires once a
 	// play gets its own first task (see the tree's own "plays with no
@@ -168,13 +168,13 @@ type playbookState struct {
 }
 
 // Reset clears every field Apply/recordHost populate during a run, back to
-// the same zero state a fresh &playbookState{} starts in - used when
+// the same zero state a fresh &PlaybookState{} starts in - used when
 // starting a rerun (Rerun.md) so the next Apply sequence builds a brand new
 // tree instead of appending onto the previous run's. The OnPlayAdded/
 // OnTaskAdded/OnHostRecorded hooks are deliberately left untouched: they're
 // wired once by tui.go and need to keep firing for the new run's events
 // exactly as they did for the run before it.
-func (s *playbookState) Reset() {
+func (s *PlaybookState) Reset() {
 	s.Plays = nil
 	s.AllHosts = nil
 	s.HadUnreachable = false
@@ -183,7 +183,7 @@ func (s *playbookState) Reset() {
 	s.currentTask = nil
 }
 
-func (s *playbookState) Apply(ev rawEvent) {
+func (s *PlaybookState) Apply(ev RawEvent) {
 	switch ev.Event {
 	case "v2_playbook_on_play_start":
 		if ev.Play != nil {
@@ -199,30 +199,30 @@ func (s *playbookState) Apply(ev rawEvent) {
 	// documented upstream) - fired for a regular task and a
 	// notify:-triggered handler respectively, but otherwise carrying the
 	// identical task{name,path,...} shape. Handling only the former (as
-	// this used to) meant a handler never got its own taskNode or
+	// this used to) meant a handler never got its own TaskNode or
 	// advanced currentTask at all: its later v2_runner_on_* events still
 	// fired and still went through recordHost below, silently
 	// attributing the handler's own result onto whatever task genuinely
 	// started last - a real bug report, not a hypothetical, that could
 	// corrupt an already-completed (and already-displayed) task's own
 	// Raw/Hosts entries with a same-named host's handler result recorded
-	// afterward. Treating both events identically - own taskNode, own
+	// afterward. Treating both events identically - own TaskNode, own
 	// row, own currentTask - is what makes a handler run visible in the
 	// tree at all instead of silently overwriting something else's data.
 	case "v2_playbook_on_task_start", "v2_playbook_on_handler_task_start":
 		if s.currentPlay == nil {
-			s.currentPlay = &playNode{Name: s.pendingPlayName}
+			s.currentPlay = &PlayNode{Name: s.pendingPlayName}
 			s.Plays = append(s.Plays, s.currentPlay)
 			if s.OnPlayAdded != nil {
 				s.OnPlayAdded(s.currentPlay)
 			}
 		}
 		if ev.Task != nil {
-			s.currentTask = &taskNode{
+			s.currentTask = &TaskNode{
 				Name:      ev.Task.Name,
 				Path:      ev.Task.Path,
 				StartedAt: ev.Timestamp(),
-				Hosts:     map[string]outcome{},
+				Hosts:     map[string]Outcome{},
 				Raw:       map[string]json.RawMessage{},
 			}
 			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
@@ -233,38 +233,38 @@ func (s *playbookState) Apply(ev rawEvent) {
 
 	case "v2_runner_on_ok":
 		for host, raw := range ev.Hosts {
-			r := decodeHostResult(raw)
-			o := outcomeOK
+			r := DecodeHostResult(raw)
+			o := OutcomeOK
 			if r.Changed {
-				o = outcomeChanged
+				o = OutcomeChanged
 			}
 			s.recordHost(host, o, raw)
 		}
 
 	case "v2_runner_on_skipped":
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, outcomeSkipped, raw)
+			s.recordHost(host, OutcomeSkipped, raw)
 		}
 
 	case "v2_runner_on_failed":
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, outcomeFailed, raw)
+			s.recordHost(host, OutcomeFailed, raw)
 		}
 
 	case "v2_runner_on_unreachable":
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, outcomeUnreachable, raw)
+			s.recordHost(host, OutcomeUnreachable, raw)
 		}
 	}
 }
 
-func (s *playbookState) recordHost(host string, o outcome, raw json.RawMessage) {
+func (s *PlaybookState) recordHost(host string, o Outcome, raw json.RawMessage) {
 	if s.currentTask == nil {
 		return
 	}
 	s.currentTask.record(host, o, raw)
 	s.noteHost(host)
-	if o == outcomeUnreachable {
+	if o == OutcomeUnreachable {
 		s.HadUnreachable = true
 	}
 	if s.OnHostRecorded != nil {
@@ -282,7 +282,7 @@ func (s *playbookState) recordHost(host string, o outcome, raw json.RawMessage) 
 // caller-side "active" indicator keeps showing on that task until either
 // the next task starts or the run finishes. Pre-existing approximation,
 // not something this accessor introduces.
-func (s *playbookState) CurrentTask() *taskNode {
+func (s *PlaybookState) CurrentTask() *TaskNode {
 	return s.currentTask
 }
 
@@ -291,7 +291,7 @@ func (s *playbookState) CurrentTask() *taskNode {
 // re-sort on every new host is dead simple and more than fast enough at this
 // project's explicit ~10-host target scale (Purpose.md) — not worth a
 // membership map or an insertion-sort for that size.
-func (s *playbookState) noteHost(host string) {
+func (s *PlaybookState) noteHost(host string) {
 	for _, h := range s.AllHosts {
 		if h == host {
 			return

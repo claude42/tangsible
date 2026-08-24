@@ -17,16 +17,18 @@ package main
 import (
 	"fmt"
 	"io"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 // Render prints a plain-text dump of the current play/task/host tree. This
 // is not the TUI — it always shows every host line under every task, since
 // there's no navigation/expand state yet to decide what to hide.
-func Render(w io.Writer, s *playbookState) {
+func Render(w io.Writer, s *playbook.PlaybookState) {
 	for _, play := range s.Plays {
 		fmt.Fprintf(w, "PLAY: %s\n", play.Name)
 		for _, task := range play.Tasks {
-			ok, changed, skipped, failed, unreachable := task.counts()
+			ok, changed, skipped, failed, unreachable := task.Counts()
 			fmt.Fprintf(w, "  TASK: %-40s OK: %d, Chgd: %d, Skip: %d, Fail: %d, Unrch: %d\n",
 				task.Name, ok, changed, skipped, failed, unreachable)
 			for _, host := range task.HostOrder {

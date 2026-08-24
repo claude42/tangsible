@@ -17,6 +17,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
 func TestStripTags(t *testing.T) {
@@ -79,7 +81,7 @@ func TestDecodeTaskHostResult(t *testing.T) {
 func TestSingleRunTabsDropsDiffAndResolvedTabs(t *testing.T) {
 	task := namedTask("t")
 	task.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hello"})
-	task.Hosts["web1"] = outcomeOK
+	task.Hosts["web1"] = playbook.OutcomeOK
 
 	names, contents := singleRunTabs(task, "web1", nil, resolvedRender{}, "")
 	if len(names) != len(contents) {
@@ -107,7 +109,7 @@ func TestSingleRunTabsDropsDiffAndResolvedTabs(t *testing.T) {
 func TestBuildDiffOutputTabsUnmatchedFallsBackToSingleRun(t *testing.T) {
 	task := namedTask("only in new run")
 	task.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hi"})
-	task.Hosts["web1"] = outcomeOK
+	task.Hosts["web1"] = playbook.OutcomeOK
 	task.HostOrder = []string{"web1"}
 
 	names, contents := buildDiffOutputTabs(taskAlignment{NewTask: task}, "web1", nil, nil)
@@ -150,7 +152,7 @@ func taskTabContent(t *testing.T, names, contents []string) string {
 func TestBuildDiffOutputTabsOldOnlyDoesNotPanic(t *testing.T) {
 	task := namedTask("only in old run")
 	task.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hi"})
-	task.Hosts["web1"] = outcomeOK
+	task.Hosts["web1"] = playbook.OutcomeOK
 	task.HostOrder = []string{"web1"}
 
 	names, contents := buildDiffOutputTabs(taskAlignment{OldTask: task}, "web1", nil, nil)
@@ -182,10 +184,10 @@ func TestBuildDiffOutputTabsDecodeFailureFallbackOmitsUnmatchedNote(t *testing.T
 	// its decode-failure fallback branch (falling back to the new run's own
 	// singleRunTabs, which needs a real Raw entry on the new side to still
 	// produce a Task tab at all).
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	oldTask.HostOrder = []string{"web1"}
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hi"})
-	newTask.Hosts["web1"] = outcomeOK
+	newTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask.HostOrder = []string{"web1"}
 
 	names, contents := buildDiffOutputTabs(taskAlignment{OldTask: oldTask, NewTask: newTask}, "web1", nil, nil)
@@ -197,12 +199,12 @@ func TestBuildDiffOutputTabsDecodeFailureFallbackOmitsUnmatchedNote(t *testing.T
 func TestBuildDiffOutputTabsMatchedDiffsEachTab(t *testing.T) {
 	oldTask := namedTask("t")
 	oldTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hello v1"})
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	oldTask.HostOrder = []string{"web1"}
 
 	newTask := namedTask("t")
 	newTask.Raw["web1"] = rawJSON(t, map[string]interface{}{"stdout": "hello v2"})
-	newTask.Hosts["web1"] = outcomeOK
+	newTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask.HostOrder = []string{"web1"}
 
 	names, contents := buildDiffOutputTabs(taskAlignment{OldTask: oldTask, NewTask: newTask}, "web1", nil, nil)
@@ -229,10 +231,10 @@ func TestBuildDiffOutputTabsMatchedDiffsEachTab(t *testing.T) {
 }
 
 func TestDiffColorTag(t *testing.T) {
-	if got := diffColorTag(outcomeOK, ""); got != "green" {
+	if got := diffColorTag(playbook.OutcomeOK, ""); got != "green" {
 		t.Errorf("diffColorTag(OK, \"\") = %q, want %q", got, "green")
 	}
-	if got := diffColorTag(outcomeFailed, "u"); got != "red::u" {
+	if got := diffColorTag(playbook.OutcomeFailed, "u"); got != "red::u" {
 		t.Errorf("diffColorTag(Failed, u) = %q, want %q", got, "red::u")
 	}
 }
@@ -240,7 +242,7 @@ func TestDiffColorTag(t *testing.T) {
 func TestDiffTaskRowTextUnmatchedNewOnly(t *testing.T) {
 	task := namedTask("only in new run")
 	task.HostOrder = []string{"web1"}
-	task.Hosts["web1"] = outcomeOK
+	task.Hosts["web1"] = playbook.OutcomeOK
 
 	got := diffTaskRowText(taskAlignment{NewTask: task}, 0, false)
 	if !strings.Contains(got, "only in new run") {
@@ -260,7 +262,7 @@ func TestDiffTaskRowTextUnmatchedNewOnly(t *testing.T) {
 func TestDiffTaskRowTextUnmatchedOldOnly(t *testing.T) {
 	task := namedTask("only in old run")
 	task.HostOrder = []string{"web1"}
-	task.Hosts["web1"] = outcomeOK
+	task.Hosts["web1"] = playbook.OutcomeOK
 
 	got := diffTaskRowText(taskAlignment{OldTask: task}, 0, false)
 	if !strings.Contains(got, "only in old run") {
@@ -283,13 +285,13 @@ func TestDiffTaskRowTextUnmatchedOldOnly(t *testing.T) {
 func TestDiffTaskRowTextMatchedOnlyDifferingHostsUnderlined(t *testing.T) {
 	oldTask := namedTask("t")
 	oldTask.HostOrder = []string{"web1", "web2"}
-	oldTask.Hosts["web1"] = outcomeOK
-	oldTask.Hosts["web2"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
+	oldTask.Hosts["web2"] = playbook.OutcomeOK
 
 	newTask := namedTask("t")
 	newTask.HostOrder = []string{"web1", "web2"}
-	newTask.Hosts["web1"] = outcomeFailed // changed
-	newTask.Hosts["web2"] = outcomeOK     // unchanged
+	newTask.Hosts["web1"] = playbook.OutcomeFailed // changed
+	newTask.Hosts["web2"] = playbook.OutcomeOK     // unchanged
 
 	got := diffTaskRowText(taskAlignment{OldTask: oldTask, NewTask: newTask}, 0, false)
 	if !strings.Contains(got, "[red::u]web1[-::-]") {
@@ -306,12 +308,12 @@ func TestDiffTaskRowTextMatchedOnlyDifferingHostsUnderlined(t *testing.T) {
 func TestDiffTaskRowTextRendersFromNewOnMatch(t *testing.T) {
 	oldTask := namedTask("t")
 	oldTask.HostOrder = []string{"web1"}
-	oldTask.Hosts["web1"] = outcomeFailed
+	oldTask.Hosts["web1"] = playbook.OutcomeFailed
 
 	newTask := namedTask("t (new title irrelevant, name must match to align)")
 	newTask.Name = "t" // matched alignment always shares a name
 	newTask.HostOrder = []string{"web1"}
-	newTask.Hosts["web1"] = outcomeOK
+	newTask.Hosts["web1"] = playbook.OutcomeOK
 
 	got := diffTaskRowText(taskAlignment{OldTask: oldTask, NewTask: newTask}, 0, false)
 	if !strings.Contains(got, "green") || strings.Contains(got, "red") {
@@ -328,12 +330,12 @@ func TestDiffTaskRowTextRendersFromNewOnMatch(t *testing.T) {
 func TestDiffTaskRowTextIndentedAndPaddedToSharedColumn(t *testing.T) {
 	short := namedTask("short")
 	short.HostOrder = []string{"web1"}
-	short.Hosts["web1"] = outcomeOK
+	short.Hosts["web1"] = playbook.OutcomeOK
 
 	longName := "a much, much longer task title"
 	long := namedTask(longName)
 	long.HostOrder = []string{"web1"}
-	long.Hosts["web1"] = outcomeOK
+	long.Hosts["web1"] = playbook.OutcomeOK
 
 	// diffTaskDisplayWidth, not a plain len(longName) - both short and long
 	// are unmatched (new-only) here, so both rows also carry unmatchedMarker's
@@ -382,17 +384,17 @@ func TestDiffTitleColWidth(t *testing.T) {
 func TestFlattenDiffRowsOnlyShowsDifferingPlaysAndTasks(t *testing.T) {
 	sameTask := namedTask("unchanged")
 	sameTask.HostOrder = []string{"web1"}
-	sameTask.Hosts["web1"] = outcomeOK
+	sameTask.Hosts["web1"] = playbook.OutcomeOK
 	sameTaskNew := namedTask("unchanged")
 	sameTaskNew.HostOrder = []string{"web1"}
-	sameTaskNew.Hosts["web1"] = outcomeOK
+	sameTaskNew.Hosts["web1"] = playbook.OutcomeOK
 
 	changedOld := namedTask("changed")
 	changedOld.HostOrder = []string{"web1"}
-	changedOld.Hosts["web1"] = outcomeOK
+	changedOld.Hosts["web1"] = playbook.OutcomeOK
 	changedNew := namedTask("changed")
 	changedNew.HostOrder = []string{"web1"}
-	changedNew.Hosts["web1"] = outcomeFailed
+	changedNew.Hosts["web1"] = playbook.OutcomeFailed
 
 	quietPlay := playAlignment{
 		OldPlay: namedPlay("quiet"), NewPlay: namedPlay("quiet"),
@@ -406,7 +408,7 @@ func TestFlattenDiffRowsOnlyShowsDifferingPlaysAndTasks(t *testing.T) {
 		},
 	}
 
-	rows := flattenDiffRows([]playAlignment{quietPlay, noisyPlay}, map[*taskNode]bool{}, nil, func(taskAlignment, string) {})
+	rows := flattenDiffRows([]playAlignment{quietPlay, noisyPlay}, map[*playbook.TaskNode]bool{}, nil, func(taskAlignment, string) {})
 
 	var texts []string
 	for _, r := range rows {
@@ -430,22 +432,22 @@ func TestFlattenDiffRowsOnlyShowsDifferingPlaysAndTasks(t *testing.T) {
 func TestFlattenDiffRowsExpandsHostRowsWhenToggled(t *testing.T) {
 	oldTask := namedTask("t")
 	oldTask.HostOrder = []string{"web1"}
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask := namedTask("t")
 	newTask.HostOrder = []string{"web1"}
-	newTask.Hosts["web1"] = outcomeFailed
+	newTask.Hosts["web1"] = playbook.OutcomeFailed
 
 	pa := playAlignment{
 		OldPlay: namedPlay("p"), NewPlay: namedPlay("p"),
 		Tasks: []taskAlignment{{OldTask: oldTask, NewTask: newTask}},
 	}
 
-	collapsed := flattenDiffRows([]playAlignment{pa}, map[*taskNode]bool{}, nil, func(taskAlignment, string) {})
+	collapsed := flattenDiffRows([]playAlignment{pa}, map[*playbook.TaskNode]bool{}, nil, func(taskAlignment, string) {})
 	if len(collapsed) != 2 { // play row + task row, no host row
 		t.Fatalf("flattenDiffRows() collapsed = %d rows, want 2 (play, task)", len(collapsed))
 	}
 
-	expanded := map[*taskNode]bool{newTask: true}
+	expanded := map[*playbook.TaskNode]bool{newTask: true}
 	got := flattenDiffRows([]playAlignment{pa}, expanded, nil, func(taskAlignment, string) {})
 	if len(got) != 3 { // play row + task row + one host row
 		t.Fatalf("flattenDiffRows() expanded = %d rows, want 3 (play, task, host)", len(got))
@@ -466,19 +468,19 @@ func TestFlattenDiffRowsExpandsHostRowsWhenToggled(t *testing.T) {
 func TestFlattenDiffRowsExpandsOnlyDifferingHostRows(t *testing.T) {
 	oldTask := namedTask("t")
 	oldTask.HostOrder = []string{"web1", "web2"}
-	oldTask.Hosts["web1"] = outcomeOK
-	oldTask.Hosts["web2"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
+	oldTask.Hosts["web2"] = playbook.OutcomeOK
 	newTask := namedTask("t")
 	newTask.HostOrder = []string{"web1", "web2"}
-	newTask.Hosts["web1"] = outcomeFailed // changed
-	newTask.Hosts["web2"] = outcomeOK     // unchanged
+	newTask.Hosts["web1"] = playbook.OutcomeFailed // changed
+	newTask.Hosts["web2"] = playbook.OutcomeOK     // unchanged
 
 	pa := playAlignment{
 		OldPlay: namedPlay("p"), NewPlay: namedPlay("p"),
 		Tasks: []taskAlignment{{OldTask: oldTask, NewTask: newTask}},
 	}
 
-	expanded := map[*taskNode]bool{newTask: true}
+	expanded := map[*playbook.TaskNode]bool{newTask: true}
 	got := flattenDiffRows([]playAlignment{pa}, expanded, nil, func(taskAlignment, string) {})
 	if len(got) != 3 { // play row + task row + one host row (web1 only)
 		t.Fatalf("flattenDiffRows() expanded = %d rows, want 3 (play, task, web1 only); got %#v", len(got), got)
@@ -501,10 +503,10 @@ func TestFlattenDiffRowsExpandsOnlyDifferingHostRows(t *testing.T) {
 func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 	oldTask := namedTask("t")
 	oldTask.HostOrder = []string{"web1"}
-	oldTask.Hosts["web1"] = outcomeOK
+	oldTask.Hosts["web1"] = playbook.OutcomeOK
 	newTask := namedTask("t")
 	newTask.HostOrder = []string{"web1"}
-	newTask.Hosts["web1"] = outcomeFailed
+	newTask.Hosts["web1"] = playbook.OutcomeFailed
 
 	pa := playAlignment{
 		OldPlay: namedPlay("p"), NewPlay: namedPlay("p"),
@@ -514,7 +516,7 @@ func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 	// Selecting the task row (id == newTask, per diffTaskKey) must render
 	// THAT row with the selected (pureBlack-on-lightgray) styling, and
 	// leave the play row unselected.
-	rows := flattenDiffRows([]playAlignment{pa}, map[*taskNode]bool{}, newTask, func(taskAlignment, string) {})
+	rows := flattenDiffRows([]playAlignment{pa}, map[*playbook.TaskNode]bool{}, newTask, func(taskAlignment, string) {})
 	if len(rows) != 2 {
 		t.Fatalf("flattenDiffRows() = %d rows, want 2 (play, task)", len(rows))
 	}
@@ -526,7 +528,7 @@ func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 	}
 
 	// Selecting an expanded host row instead.
-	expanded := map[*taskNode]bool{newTask: true}
+	expanded := map[*playbook.TaskNode]bool{newTask: true}
 	hostID := diffHostRowID{task: newTask, host: "web1"}
 	rows = flattenDiffRows([]playAlignment{pa}, expanded, hostID, func(taskAlignment, string) {})
 	if len(rows) != 3 {

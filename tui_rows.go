@@ -14,12 +14,16 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
+)
 
 // row is one flattened, currently-visible line in the list: a play, a task,
 // or (if its task is expanded) a host. selected is nil for play/host rows;
 // for task rows it toggles that task's expand state. id identifies the row
-// across rebuilds (a *playNode, *taskNode, or hostRowID), used to restore
+// across rebuilds (a *PlayNode, *TaskNode, or hostRowID), used to restore
 // the selection to the same logical row after the list is repopulated.
 type row struct {
 	text     string
@@ -49,7 +53,7 @@ func nextInteractiveRow(rows []row, from, delta int) int {
 }
 
 type hostRowID struct {
-	task *taskNode
+	task *playbook.TaskNode
 	host string
 }
 
@@ -117,13 +121,13 @@ func genuineFailure(code int, hadUnreachable bool) bool {
 // Used once, right as a run freezes into a genuine failure (see rebuild),
 // to put the cursor exactly where a user drilling into "what failed"
 // would want it, without needing to navigate there themselves.
-func lastFailedTaskAndHost(state *playbookState) (*taskNode, string) {
+func lastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, string) {
 	for pi := len(state.Plays) - 1; pi >= 0; pi-- {
 		tasks := state.Plays[pi].Tasks
 		for ti := len(tasks) - 1; ti >= 0; ti-- {
 			t := tasks[ti]
 			for _, h := range t.HostOrder {
-				if o := t.Hosts[h]; o == outcomeFailed || o == outcomeUnreachable {
+				if o := t.Hosts[h]; o == playbook.OutcomeFailed || o == playbook.OutcomeUnreachable {
 					return t, h
 				}
 			}
@@ -150,7 +154,7 @@ func lastFailedTaskAndHost(state *playbookState) (*taskNode, string) {
 // taskVisible's filterSearch case, to search a task's own source text.
 // useColor is threaded straight through to each row's own taskLabel call
 // - see its doc comment (design-docs/Morehosts.md).
-func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, layout hostColumnLayout, allHosts []string, activeTask *taskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *taskNode, host string), useColor bool) []row {
+func flattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout hostColumnLayout, allHosts []string, activeTask *playbook.TaskNode, frame rune, filter filterQuery, sourceIndex taskSourceIndex, showOutput func(task *playbook.TaskNode, host string), useColor bool) []row {
 	var rows []row
 	for _, play := range state.Plays {
 		var playRows []row
@@ -177,7 +181,7 @@ func flattenRows(state *playbookState, expanded map[*taskNode]bool, width int, l
 		}
 		if len(playRows) == 0 {
 			// Same rule as a play with no executed tasks at all (see
-			// playbookState's own doc comment) - a play with no *visible*
+			// PlaybookState's own doc comment) - a play with no *visible*
 			// tasks after filtering doesn't get a row either.
 			continue
 		}
