@@ -18,11 +18,12 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/revisit"
 )
 
 // csvSetEqual reports whether a and b represent the same SET of comma-
 // separated values (whitespace-trimmed per entry, order-insensitive,
-// duplicates collapsed) - csvOverlap's own sibling (revisitresolve.go),
+// duplicates collapsed) - CsvOverlap's own sibling (revisitresolve.go),
 // but requiring equality rather than merely an overlap. Backs
 // resolveDiffCandidates' own "did this past run use the exact same tags/
 // hosts as the current session" check (design-docs/Diff.md: "a different
@@ -54,17 +55,17 @@ func csvSetEqual(a, b string) bool {
 // resolveDiffCandidates flattens cfg's history into the runs offerable as
 // a diff comparison target for the current session (design-docs/Diff.md):
 // same playbook/role, and the exact same tags/hosts as the current
-// session's own (csvSetEqual, not csvOverlap - unlike resolveRevisitEntries'
+// session's own (csvSetEqual, not CsvOverlap - unlike ResolveRevisitEntries'
 // own CLI-driven filter, a partial tag/host match here would silently
 // compare two runs that didn't actually execute the same set of tasks).
 // excludeRunID (the session currently on screen) is never offered against
 // itself. Deliberately ignores every other passthrough arg (-e, -i, -vvv,
 // ...) - only playbook/role and tags/hosts are checked, per design-docs/
 // Diff.md's own answer. Same "has a RunID" revisitability precondition and
-// newest-first ordering as resolveRevisitEntries - PruneMissingRunLogs is
+// newest-first ordering as ResolveRevisitEntries - PruneMissingRunLogs is
 // expected to have already run; this function has no I/O of its own.
-func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHosts, excludeRunID string, cfg config.StateConfig) []revisitEntry {
-	var entries []revisitEntry
+func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHosts, excludeRunID string, cfg config.StateConfig) []revisit.RevisitEntry {
+	var entries []revisit.RevisitEntry
 	for _, h := range cfg.History {
 		if h.Playbook != currentPlaybook || h.Role != currentRole {
 			continue
@@ -77,9 +78,9 @@ func resolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHos
 			if !csvSetEqual(invArgs.Tags, currentTags) || !csvSetEqual(invArgs.Hosts, currentHosts) {
 				continue
 			}
-			entries = append(entries, newRevisitEntry(h, inv))
+			entries = append(entries, revisit.NewRevisitEntry(h, inv))
 		}
 	}
-	sortRevisitEntriesNewestFirst(entries)
+	revisit.SortRevisitEntriesNewestFirst(entries)
 	return entries
 }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package revisit
 
 import (
 	"sort"
@@ -22,12 +22,12 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 )
 
-// revisitEntry is one flattened, revisitable InvocationRecord - one
+// RevisitEntry is one flattened, revisitable InvocationRecord - one
 // generation whose saved run data still exists (see InvocationRecord's own
 // doc comment, history.go: RunID is only ever non-empty when it does).
 // Exactly one of Playbook/Role is set, mirroring PlaybookHistory's own
 // shape.
-type revisitEntry struct {
+type RevisitEntry struct {
 	Playbook string
 	Role     string
 	Args     string
@@ -36,7 +36,7 @@ type revisitEntry struct {
 	RunID    string
 }
 
-// resolveRevisitEntries flattens every revisitable invocation across cfg's
+// ResolveRevisitEntries flattens every revisitable invocation across cfg's
 // whole history into one list, filtered by the "revisit" Verb's own args
 // (design-docs/Revisit.md: an optional positional playbook/role, and/or
 // -l/--tags) and sorted newest-first. Pure - no I/O of its own, so directly
@@ -51,14 +51,14 @@ type revisitEntry struct {
 // own history. -l/--tags, parsed the same way ParsePassthroughArgs already
 // does elsewhere, keep only entries whose own recorded Args overlap - at
 // least one requested host, or one requested tag, is also present in that
-// entry's own comma-separated set (csvOverlap) - matching ansible's own
+// entry's own comma-separated set (CsvOverlap) - matching ansible's own
 // --tags/-l OR semantics for a comma list, not a strict subset requirement.
 // Everything unset (a bare "tangsible revisit") means no filtering at all.
-func resolveRevisitEntries(args []string, cfg config.StateConfig) []revisitEntry {
+func ResolveRevisitEntries(args []string, cfg config.StateConfig) []RevisitEntry {
 	target, rest, explicit := config.SplitPlaybookArgs(args)
 	filter := config.ParsePassthroughArgs(rest)
 
-	var entries []revisitEntry
+	var entries []RevisitEntry
 	for _, h := range cfg.History {
 		if explicit && h.Playbook != target && h.Role != target {
 			continue
@@ -68,30 +68,30 @@ func resolveRevisitEntries(args []string, cfg config.StateConfig) []revisitEntry
 				continue // nothing left to revisit - see PruneMissingRunLogs
 			}
 			invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(inv.Args))
-			if filter.Hosts != "" && !csvOverlap(filter.Hosts, invArgs.Hosts) {
+			if filter.Hosts != "" && !CsvOverlap(filter.Hosts, invArgs.Hosts) {
 				continue
 			}
-			if filter.Tags != "" && !csvOverlap(filter.Tags, invArgs.Tags) {
+			if filter.Tags != "" && !CsvOverlap(filter.Tags, invArgs.Tags) {
 				continue
 			}
-			entries = append(entries, newRevisitEntry(h, inv))
+			entries = append(entries, NewRevisitEntry(h, inv))
 		}
 	}
 
-	sortRevisitEntriesNewestFirst(entries)
+	SortRevisitEntriesNewestFirst(entries)
 	return entries
 }
 
-// newRevisitEntry builds one revisitEntry from a PlaybookHistory entry and
-// one of its own invocationRecords - shared by resolveRevisitEntries and
+// NewRevisitEntry builds one RevisitEntry from a PlaybookHistory entry and
+// one of its own invocationRecords - shared by ResolveRevisitEntries and
 // design-docs/Diff.md's own resolveDiffCandidates (diffresolve.go), so the
-// two can't silently drift on what a revisitEntry's fields mean.
-func newRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) revisitEntry {
+// two can't silently drift on what a RevisitEntry's fields mean.
+func NewRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) RevisitEntry {
 	code := 0
 	if inv.ExitCode != nil {
 		code = *inv.ExitCode
 	}
-	return revisitEntry{
+	return RevisitEntry{
 		Playbook: h.Playbook,
 		Role:     h.Role,
 		Args:     inv.Args,
@@ -101,14 +101,14 @@ func newRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) revi
 	}
 }
 
-// sortRevisitEntriesNewestFirst sorts entries in place, newest Time first -
-// shared by resolveRevisitEntries and resolveDiffCandidates. A Time that
+// SortRevisitEntriesNewestFirst sorts entries in place, newest Time first -
+// shared by ResolveRevisitEntries and resolveDiffCandidates. A Time that
 // fails to parse (shouldn't happen for anything AppendInvocation itself
 // ever wrote, but not trusted blindly - same caveat this project applies
 // to every other event-derived field) falls back to time.Time's own zero
 // value, which naturally sorts to the end - no separate fallback branch
 // needed.
-func sortRevisitEntriesNewestFirst(entries []revisitEntry) {
+func SortRevisitEntriesNewestFirst(entries []RevisitEntry) {
 	sort.SliceStable(entries, func(i, j int) bool {
 		ti, _ := time.Parse(time.RFC3339, entries[i].Time)
 		tj, _ := time.Parse(time.RFC3339, entries[j].Time)
@@ -116,9 +116,9 @@ func sortRevisitEntriesNewestFirst(entries []revisitEntry) {
 	})
 }
 
-// csvOverlap reports whether any comma-separated value in want also
+// CsvOverlap reports whether any comma-separated value in want also
 // appears in have (whitespace-trimmed per entry).
-func csvOverlap(want, have string) bool {
+func CsvOverlap(want, have string) bool {
 	haveSet := map[string]bool{}
 	for _, h := range strings.Split(have, ",") {
 		if h = strings.TrimSpace(h); h != "" {

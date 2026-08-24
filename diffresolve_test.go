@@ -20,6 +20,12 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 )
 
+// exitCodePtr is duplicated from internal/revisit's own test helper of the
+// same name (unexported test helpers aren't visible across a package
+// boundary, and _test.go files are never importable at all regardless of
+// export status).
+func exitCodePtr(n int) *int { return &n }
+
 func TestCsvSetEqual(t *testing.T) {
 	cases := []struct {
 		a, b string

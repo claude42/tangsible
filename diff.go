@@ -28,6 +28,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/revisit"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/uikit"
@@ -48,7 +49,7 @@ import (
 var diffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorFuchsia).Bold(true)
 
 // replayRun loads a saved run's own .jsonl (runlog.go) into a fresh
-// PlaybookState - the exact replay mechanism openRevisitEntry already
+// PlaybookState - the exact replay mechanism OpenRevisitEntry already
 // uses for showing a revisited run, reused here for diff mode's own
 // comparison ("old") run.
 func replayRun(runID string) (*playbook.PlaybookState, error) {
@@ -95,10 +96,10 @@ func lastRunID(cfg config.StateConfig, playbook, role string) string {
 // design-docs/Diff.md) - called from inside app.Suspend, so it owns the
 // real terminal for as long as it runs and hands it back automatically on
 // return. Loops between the candidate-run list (reusing revisit's own
-// list UI, runRevisitListTUI - just fed resolveDiffCandidates instead of
-// resolveRevisitEntries) and the diff tree view, for as long as the user
+// list UI, RunRevisitListTUI - just fed resolveDiffCandidates instead of
+// ResolveRevisitEntries) and the diff tree view, for as long as the user
 // keeps picking runs to compare against - the same "list <-> detail" loop
-// shape runRevisitVerb already uses, one level down (a diff tree instead
+// shape RunRevisitVerb already uses, one level down (a diff tree instead
 // of a full live NewLiveTUI).
 func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRole, currentTags, currentHosts string, currentSourceIndex source.TaskSourceIndex) {
 	for {
@@ -111,7 +112,7 @@ func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRol
 			// !processDone.
 		}
 
-		selected, ok := runRevisitListTUI(candidates)
+		selected, ok := revisit.RunRevisitListTUI(candidates)
 		if !ok {
 			return
 		}
@@ -124,7 +125,7 @@ func runDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRol
 		}
 
 		// The comparison run's own Task-definition source: BuildTaskSourceIndex
-		// against its own playbook, same as revisit.go's own openRevisitEntry -
+		// against its own playbook, same as revisit.go's own OpenRevisitEntry -
 		// empty for a role-originated entry (its own generated stub is long
 		// gone, same accepted gap documented there).
 		var oldSourceIndex source.TaskSourceIndex
@@ -328,7 +329,7 @@ func diffTaskRowText(a taskAlignment, titleColWidth int, selected bool) string {
 // actually lines hosts up across every row - see diffTitleColWidth, which
 // already accounts for marker's own width via diffTaskDisplayWidth.
 // selected uses the same uniform PureBlack-on-lightgray convention
-// host.go's own HostRowText/revisit.go's own revisitRowText already do
+// host.go's own HostRowText/revisit.go's own RevisitRowText already do
 // for a read-only browsing list - not the live tree's own per-host
 // colored-background blending (TaskLabel's selected variant), which
 // would be considerably more machinery for a view this feature doesn't
@@ -665,7 +666,7 @@ func buildDiffOutputTabs(a taskAlignment, host string, newSourceIndex, oldSource
 // diff mode itself, confirmed deliberate, not just unaddressed.
 //
 // The cursor-highlighting/rebuild-on-toggle structure mirrors
-// runRevisitListTUI's own (revisit.go) - TreeList has no built-in
+// RunRevisitListTUI's own (revisit.go) - TreeList has no built-in
 // "current row" look of its own - but rebuilds on more than a selection
 // change: toggling a task's own expand state changes the row *count*
 // too, handled the same way (recompute currentRows, re-add everything,

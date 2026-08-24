@@ -23,7 +23,7 @@
 // way to fold the list in as "just another page" the way host.go's own
 // list-then-detail flow does one level down; see the design doc's own
 // "Open questions" for why two Applications was chosen deliberately here.
-package main
+package revisit
 
 import (
 	"fmt"
@@ -44,21 +44,37 @@ import (
 	"github.com/rivo/tview"
 )
 
-// runRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
+// NewLiveTUIFunc matches tui.go's own NewLiveTUI exactly - injected rather
+// than called directly, since tui.go stays in package main (NewLiveTUI
+// itself doesn't move until Phase 3 breaks it apart) while this package
+// doesn't - the same requestRerun/revisitReturn callback-injection pattern
+// already used one level down (OpenRevisitEntry -> NewLiveTUI's own
+// requestRerun/revisitReturn params), just one level further out. Passing
+// tui.go's NewLiveTUI itself as this parameter's argument needs no adapter:
+// Go's assignability rules only require identical underlying function
+// types, and package-qualified vs. unqualified references to the same
+// imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
+// unqualified within package main) are the same type either way.
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+
+// RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
 // entry's detail view for as long as the user keeps picking entries -
 // re-pruning and re-resolving the list fresh every time control returns to
 // it, so a re-run started and finished during a later phase's detail
 // session (once Phase 3 wires that up) would show up in it, and so files
 // deleted externally between selections are noticed too.
-func runRevisitVerb(args []string) int {
+//
+// newLiveTUI is main.go's own tui.NewLiveTUI - see NewLiveTUIFunc's own
+// doc comment for why this is injected rather than called directly.
+func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 	shownAnything := false
 	for {
 		cfg, err := config.PruneMissingRunLogs(config.TangsibleStatePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "tangsible: couldn't update invocation history in %s: %v\n", config.TangsibleStatePath, err)
 		}
-		entries := resolveRevisitEntries(args, cfg)
+		entries := ResolveRevisitEntries(args, cfg)
 		if len(entries) == 0 {
 			if !shownAnything {
 				fmt.Fprintln(os.Stderr, "tangsible: no matching previous runs to revisit")
@@ -68,37 +84,37 @@ func runRevisitVerb(args []string) int {
 		}
 		shownAnything = true
 
-		selected, ok := runRevisitListTUI(entries)
+		selected, ok := RunRevisitListTUI(entries)
 		if !ok {
 			return 0
 		}
-		openRevisitEntry(selected)
+		OpenRevisitEntry(selected, newLiveTUI)
 	}
 }
 
-// revisitCommandText reconstructs "how tangsible was called" for one
+// RevisitCommandText reconstructs "how tangsible was called" for one
 // entry, e.g. "tangsible run site.yml -l zen" or "tangsible role postfix" -
 // the playbook/role is always included (unlike the shorthand in the design
 // conversation this implements), since an unfiltered list can otherwise mix
 // entries for different targets with no way to tell them apart.
-func revisitCommandText(e revisitEntry) string {
-	Verb, target := "run", e.Playbook
+func RevisitCommandText(e RevisitEntry) string {
+	verb, target := "run", e.Playbook
 	if e.Role != "" {
-		Verb, target = "role", e.Role
+		verb, target = "role", e.Role
 	}
-	cmd := fmt.Sprintf("tangsible %s %s", Verb, target)
+	cmd := fmt.Sprintf("tangsible %s %s", verb, target)
 	if e.Args != "" {
 		cmd += " " + e.Args
 	}
 	return cmd
 }
 
-// formatRevisitTime renders InvocationRecord.Time (RFC3339 UTC, as
+// FormatRevisitTime renders InvocationRecord.Time (RFC3339 UTC, as
 // AppendInvocation stamps it) in the local zone, readably - falling back to
 // the raw stored string on a parse failure (shouldn't happen for anything
 // this program itself ever wrote, but not trusted blindly, same caveat
 // applied to every other stored/event-derived field elsewhere).
-func formatRevisitTime(raw string) string {
+func FormatRevisitTime(raw string) string {
 	t, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
 		return raw
@@ -106,7 +122,7 @@ func formatRevisitTime(raw string) string {
 	return t.Local().Format("2006-01-02 15:04:05")
 }
 
-// revisitStatusLabel renders e's own exit code as a short, explicit status
+// RevisitStatusLabel renders e's own exit code as a short, explicit status
 // word - "Success" (exit 0), "Aborted" (exit 99, runner.AnsibleUserInterruptedExitCode -
 // the user's own q/Ctrl-C, not a real failure - main.go treats it
 // identically), or "Failed (N)" for any other exit code, N being the
@@ -117,7 +133,7 @@ func formatRevisitTime(raw string) string {
 // own (live feedback) - matches this app's own existing precedent
 // elsewhere of never relying on color as the sole signal (Morehosts.md's
 // monochrome-terminal fallback for the tree's own host-color list).
-func revisitStatusLabel(exitCode int) string {
+func RevisitStatusLabel(exitCode int) string {
 	switch exitCode {
 	case 0:
 		return "Success"
@@ -128,11 +144,11 @@ func revisitStatusLabel(exitCode int) string {
 	}
 }
 
-// revisitStatusColor is revisitStatusLabel's own color, shared with the
+// RevisitStatusColor is RevisitStatusLabel's own color, shared with the
 // selected-row case only insofar as an unselected row applies it directly
 // (a selected row uses the uniform PureBlack-on-lightgray convention
-// instead, matching host.go's own HostRowText - see revisitRowText).
-func revisitStatusColor(exitCode int) string {
+// instead, matching host.go's own HostRowText - see RevisitRowText).
+func RevisitStatusColor(exitCode int) string {
 	switch {
 	case exitCode == 0:
 		return "green"
@@ -143,27 +159,27 @@ func revisitStatusColor(exitCode int) string {
 	}
 }
 
-// revisitRowText renders one list row: <timestamp> - <status, padded to
-// labelWidth and colored by revisitStatusColor> - <revisitCommandText>.
-// labelWidth is the widest revisitStatusLabel across the whole list
-// currently shown (computed once by runRevisitListTUI, not per row), so
+// RevisitRowText renders one list row: <timestamp> - <status, padded to
+// labelWidth and colored by RevisitStatusColor> - <RevisitCommandText>.
+// labelWidth is the widest RevisitStatusLabel across the whole list
+// currently shown (computed once by RunRevisitListTUI, not per row), so
 // every row's own trailing " - tangsible ..." column lines up regardless
 // of which row's own label happens to be shortest. Selected styling
 // matches host.go's own HostRowText convention (uniform PureBlack on
 // lightgray, no per-segment color) rather than reinventing a second one.
-func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
-	ts := formatRevisitTime(e.Time)
-	cmd := revisitCommandText(e)
-	label := revisitStatusLabel(e.ExitCode)
+func RevisitRowText(e RevisitEntry, labelWidth int, selected bool) string {
+	ts := FormatRevisitTime(e.Time)
+	cmd := RevisitCommandText(e)
+	label := RevisitStatusLabel(e.ExitCode)
 	padded := label + strings.Repeat(" ", labelWidth-len([]rune(label)))
 	if selected {
 		return fmt.Sprintf("[%s:lightgray:b]%s - %s - %s[-:-:-]", uikit.PureBlack, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
 	}
-	return fmt.Sprintf("[white]%s[-] - [%s]%s[-] - %s", tview.Escape(ts), revisitStatusColor(e.ExitCode), tview.Escape(padded), tview.Escape(cmd))
+	return fmt.Sprintf("[white]%s[-] - [%s]%s[-] - %s", tview.Escape(ts), RevisitStatusColor(e.ExitCode), tview.Escape(padded), tview.Escape(cmd))
 }
 
-// runRevisitListTUI shows entries (already filtered/sorted newest-first by
-// resolveRevisitEntries) in a plain, flat, single-page list - no tree/
+// RunRevisitListTUI shows entries (already filtered/sorted newest-first by
+// ResolveRevisitEntries) in a plain, flat, single-page list - no tree/
 // expand-collapse needed here, per your own call that this should look
 // like "tangsible hosts"'s own list. Blocks until the user either picks one
 // (Enter - returns it with ok=true) or quits (q/Ctrl-C - ok=false).
@@ -173,7 +189,7 @@ func revisitRowText(e revisitEntry, labelWidth int, selected bool) string {
 // (host.go) - TreeList has no built-in "current row" look of its own (see
 // that function's own doc comment for why), so every list built on it needs
 // this same small amount of bookkeeping.
-func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
+func RunRevisitListTUI(entries []RevisitEntry) (RevisitEntry, bool) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -194,15 +210,15 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 	// labelWidth is the widest status label across the whole list, computed
 	// once up front (entries is fully known already, unlike the live tree's
 	// incrementally-growing rows) so every row's own label column lines up -
-	// see revisitRowText's own doc comment.
+	// see RevisitRowText's own doc comment.
 	labelWidth := 0
 	for _, e := range entries {
-		if w := len([]rune(revisitStatusLabel(e.ExitCode))); w > labelWidth {
+		if w := len([]rune(RevisitStatusLabel(e.ExitCode))); w > labelWidth {
 			labelWidth = w
 		}
 	}
 
-	var selected revisitEntry
+	var selected RevisitEntry
 	chosen := false
 
 	selectedIdx := 0
@@ -214,7 +230,7 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 		list.Clear()
 		for i, e := range entries {
 			e := e
-			list.AddItem(revisitRowText(e, labelWidth, i == selectedIdx), func() {
+			list.AddItem(RevisitRowText(e, labelWidth, i == selectedIdx), func() {
 				selected = e
 				chosen = true
 				app.Stop()
@@ -255,21 +271,21 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 	return selected, chosen
 }
 
-// openRevisitEntry replays e's own saved .jsonl (runlog.go) into a fresh
+// OpenRevisitEntry replays e's own saved .jsonl (runlog.go) into a fresh
 // PlaybookState, then shows it via a real NewLiveTUI - already frozen
 // (processDone pre-true, exitCode/HadUnreachable already exactly what they
 // were for the original run), with revisitReturn wired so Esc at the bare
 // tree level closes this Application and returns control to
-// runRevisitVerb's own loop, unless a real rerun (Phase 3, below) is
+// RunRevisitVerb's own loop, unless a real rerun (Phase 3, below) is
 // confirmed first - once that happens (submitRerun/SetInputCapture, tui.go)
 // this session is no longer "old data" in any sense: chrome/clock revert to
 // normal and Esc stops meaning "back to the list." q/Ctrl-C's own meaning is
 // unchanged either way, before or after a rerun: it closes THIS Application
 // once processDone (same as tui.go's own SetInputCapture always does),
 // which - here, unlike main.go's own top-level session - still just returns
-// control to runRevisitVerb's own loop, showing the list again rather than
+// control to RunRevisitVerb's own loop, showing the list again rather than
 // exiting the program outright. Only q/Ctrl-C *at the list itself* does
-// that (runRevisitListTUI). Deliberate for now, not yet settled - see
+// that (RunRevisitListTUI). Deliberate for now, not yet settled - see
 // design-docs/Revisit.md's own open note on this.
 //
 // requestRerun is a real runner.NewRequestRerun (generation.go) - the same
@@ -280,7 +296,7 @@ func runRevisitListTUI(entries []revisitEntry) (revisitEntry, bool) {
 // "playbook" local's own doc comment below for why this is built
 // unconditionally, and what it does/doesn't fix about the historical
 // drill-down's own source lookup.
-func openRevisitEntry(e revisitEntry) {
+func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc) {
 	jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, e.RunID)
 	f, err := os.Open(jsonlPath)
 	if err != nil {
@@ -350,7 +366,7 @@ func openRevisitEntry(e revisitEntry) {
 	// top-level accumulation (kept for the whole process's lifetime),
 	// this is scoped to just one entry-viewing session: the terminal is
 	// genuinely back in normal mode between this Application's Run()
-	// returning and runRevisitVerb's own next list Application starting
+	// returning and RunRevisitVerb's own next list Application starting
 	// (tview's own Screen.Fini(), same as between any two sequential
 	// Application lifetimes), so printing here is exactly as safe as
 	// main.go's own equivalent, just scoped one level down.
@@ -375,7 +391,7 @@ func openRevisitEntry(e revisitEntry) {
 		app.Stop()
 	}
 
-	app, applyLive = NewLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
+	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
 		sourceIndex, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
 		invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, false, requestRerun, invArgs.Rest, &progH, revisitReturn,
 		e.Playbook, e.Role)

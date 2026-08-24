@@ -27,6 +27,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/host"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/revisit"
 	"code.aw.net/claude/tangsible/internal/role"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
@@ -61,7 +62,7 @@ func main() {
 		os.Exit(host.RunHostsVerb(args))
 	}
 	if v == config.VerbRevisit {
-		os.Exit(runRevisitVerb(args))
+		os.Exit(revisit.RunRevisitVerb(args, NewLiveTUI))
 	}
 
 	var procH runner.ProcHandle

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package revisit
 
 import (
 	"testing"
@@ -30,9 +30,9 @@ func TestResolveRevisitEntriesFiltersEntriesWithNoRunID(t *testing.T) {
 			{Args: "pruned", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: ""},     // RunID cleared by PruneMissingRunLogs
 		}},
 	}}
-	got := resolveRevisitEntries(nil, cfg)
+	got := ResolveRevisitEntries(nil, cfg)
 	if len(got) != 1 || got[0].Args != "saved" {
-		t.Errorf("resolveRevisitEntries() = %+v, want exactly the one entry with a RunID", got)
+		t.Errorf("ResolveRevisitEntries() = %+v, want exactly the one entry with a RunID", got)
 	}
 }
 
@@ -44,9 +44,9 @@ func TestResolveRevisitEntriesSortsNewestFirst(t *testing.T) {
 			{Args: "middle", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-3"},
 		}},
 	}}
-	got := resolveRevisitEntries(nil, cfg)
+	got := ResolveRevisitEntries(nil, cfg)
 	if len(got) != 3 || got[0].Args != "newest" || got[1].Args != "middle" || got[2].Args != "oldest" {
-		t.Errorf("resolveRevisitEntries() order = %v, want newest, middle, oldest", got)
+		t.Errorf("ResolveRevisitEntries() order = %v, want newest, middle, oldest", got)
 	}
 }
 
@@ -57,9 +57,9 @@ func TestResolveRevisitEntriesUnparseableTimeSortsLast(t *testing.T) {
 			{Args: "good time", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
 		}},
 	}}
-	got := resolveRevisitEntries(nil, cfg)
+	got := ResolveRevisitEntries(nil, cfg)
 	if len(got) != 2 || got[0].Args != "good time" || got[1].Args != "bad time" {
-		t.Errorf("resolveRevisitEntries() order = %v, want the parseable time first", got)
+		t.Errorf("ResolveRevisitEntries() order = %v, want the parseable time first", got)
 	}
 }
 
@@ -72,13 +72,13 @@ func TestResolveRevisitEntriesFiltersByExplicitTarget(t *testing.T) {
 			{Args: "", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
 		}},
 	}}
-	got := resolveRevisitEntries([]string{"site.yml"}, cfg)
+	got := ResolveRevisitEntries([]string{"site.yml"}, cfg)
 	if len(got) != 1 || got[0].Playbook != "site.yml" {
-		t.Errorf("resolveRevisitEntries([site.yml]) = %+v, want only the site.yml entry", got)
+		t.Errorf("ResolveRevisitEntries([site.yml]) = %+v, want only the site.yml entry", got)
 	}
-	got = resolveRevisitEntries([]string{"myrole"}, cfg)
+	got = ResolveRevisitEntries([]string{"myrole"}, cfg)
 	if len(got) != 1 || got[0].Role != "myrole" {
-		t.Errorf("resolveRevisitEntries([myrole]) = %+v, want only the myrole entry", got)
+		t.Errorf("ResolveRevisitEntries([myrole]) = %+v, want only the myrole entry", got)
 	}
 }
 
@@ -89,17 +89,17 @@ func TestResolveRevisitEntriesFiltersByHostsAndTags(t *testing.T) {
 			{Args: "-l other --tags baz", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
 		}},
 	}}
-	got := resolveRevisitEntries([]string{"-l", "zen"}, cfg)
+	got := ResolveRevisitEntries([]string{"-l", "zen"}, cfg)
 	if len(got) != 1 || got[0].Args != "-l zen --tags foo,bar" {
-		t.Errorf("resolveRevisitEntries([-l zen]) = %+v, want just the matching host entry", got)
+		t.Errorf("ResolveRevisitEntries([-l zen]) = %+v, want just the matching host entry", got)
 	}
-	got = resolveRevisitEntries([]string{"--tags", "bar"}, cfg)
+	got = ResolveRevisitEntries([]string{"--tags", "bar"}, cfg)
 	if len(got) != 1 || got[0].Args != "-l zen --tags foo,bar" {
-		t.Errorf("resolveRevisitEntries([--tags bar]) = %+v, want just the matching tag entry (OR-overlap on the comma list)", got)
+		t.Errorf("ResolveRevisitEntries([--tags bar]) = %+v, want just the matching tag entry (OR-overlap on the comma list)", got)
 	}
-	got = resolveRevisitEntries([]string{"--tags", "nomatch"}, cfg)
+	got = ResolveRevisitEntries([]string{"--tags", "nomatch"}, cfg)
 	if len(got) != 0 {
-		t.Errorf("resolveRevisitEntries([--tags nomatch]) = %+v, want no entries", got)
+		t.Errorf("ResolveRevisitEntries([--tags nomatch]) = %+v, want no entries", got)
 	}
 }
 
@@ -108,8 +108,8 @@ func TestResolveRevisitEntriesNoArgsMeansNoFiltering(t *testing.T) {
 		{Playbook: "a.yml", Invocations: []config.InvocationRecord{{Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"}}},
 		{Playbook: "b.yml", Invocations: []config.InvocationRecord{{Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"}}},
 	}}
-	if got := resolveRevisitEntries(nil, cfg); len(got) != 2 {
-		t.Errorf("resolveRevisitEntries(nil) = %+v, want both entries with no filter applied", got)
+	if got := ResolveRevisitEntries(nil, cfg); len(got) != 2 {
+		t.Errorf("ResolveRevisitEntries(nil) = %+v, want both entries with no filter applied", got)
 	}
 }
 
@@ -125,8 +125,8 @@ func TestCsvOverlap(t *testing.T) {
 		{"a", "", false},
 	}
 	for _, c := range cases {
-		if got := csvOverlap(c.want, c.have); got != c.wantMatch {
-			t.Errorf("csvOverlap(%q, %q) = %v, want %v", c.want, c.have, got, c.wantMatch)
+		if got := CsvOverlap(c.want, c.have); got != c.wantMatch {
+			t.Errorf("CsvOverlap(%q, %q) = %v, want %v", c.want, c.have, got, c.wantMatch)
 		}
 	}
 }
