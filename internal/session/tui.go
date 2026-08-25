@@ -2470,6 +2470,26 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// the output-specific hit-tests below.
 			if splitMode {
 				if x, y := event.Position(); uikit.InRect(x, y, treeBody) {
+					// A wheel scroll over the tree pane itself (not its
+					// bottomBar row - matching the full-screen case below,
+					// which swallows a scroll over bottomBar the same way)
+					// is the one deliberate exception to "fully inert while
+					// split" (design-docs/TwoPanedLayout.md's own "no
+					// focus-switching, Esc to close" call): unlike a click,
+					// it doesn't select or change anything, only pans the
+					// view, so it's let through to reach list's own
+					// MouseHandler via tview's normal position-based
+					// dispatch - already correctly unbounded (TreeList's own
+					// wheel handling), no new panning logic needed here.
+					// following=false has to be set explicitly on this path,
+					// same reasoning as the shared fallthrough below:
+					// TreeList's wheel handling never fires SetChangedFunc
+					// (it never touches currentItem), so nothing else
+					// disengages autoscroll here.
+					if (action == tview.MouseScrollUp || action == tview.MouseScrollDown) && uikit.InRect(x, y, list) {
+						following = false
+						return event, action
+					}
 					return nil, action
 				}
 				// splitHeader is a plain, non-interactive TextView, same
