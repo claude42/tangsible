@@ -103,6 +103,11 @@ func LastRunID(cfg config.StateConfig, playbook, role string) string {
 // shape RunRevisitVerb already uses, one level down (a diff tree instead
 // of a full live NewLiveTUI).
 func RunDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRole, currentTags, currentHosts string, currentSourceIndex source.TaskSourceIndex) {
+	// lastSelectedRunID carries the previously-picked candidate into the
+	// next RunRevisitListTUI call, same reasoning as RunRevisitVerb's own
+	// (revisit.go): closing a diff view (Esc/q) puts the cursor back on
+	// the candidate just viewed, rather than resetting to the first row.
+	var lastSelectedRunID string
 	for {
 		cfg, _ := config.PruneMissingRunLogs(config.TangsibleStatePath)
 		currentRunID := LastRunID(cfg, targetPlaybook, targetRole)
@@ -113,10 +118,11 @@ func RunDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRol
 			// !processDone.
 		}
 
-		selected, ok := revisit.RunRevisitListTUI(candidates)
+		selected, ok := revisit.RunRevisitListTUI(candidates, lastSelectedRunID)
 		if !ok {
 			return
 		}
+		lastSelectedRunID = selected.RunID
 
 		oldState, err := ReplayRun(selected.RunID)
 		if err != nil {

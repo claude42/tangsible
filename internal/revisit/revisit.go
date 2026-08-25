@@ -69,6 +69,13 @@ type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bo
 // doc comment for why this is injected rather than called directly.
 func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 	shownAnything := false
+	// lastRunID is whichever entry was most recently opened - carried into
+	// the next RunRevisitListTUI call so closing that entry (Esc/q) puts
+	// the cursor back where it was, rather than always resetting to the
+	// first row. Deliberately the entry the user actually picked, not
+	// whatever a rerun triggered from within it might have since added to
+	// history - see RunRevisitListTUI's own doc comment.
+	var lastRunID string
 	for {
 		cfg, err := config.PruneMissingRunLogs(config.TangsibleStatePath)
 		if err != nil {
@@ -84,10 +91,11 @@ func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 		}
 		shownAnything = true
 
-		selected, ok := RunRevisitListTUI(entries)
+		selected, ok := RunRevisitListTUI(entries, lastRunID)
 		if !ok {
 			return 0
 		}
+		lastRunID = selected.RunID
 		OpenRevisitEntry(selected, newLiveTUI)
 	}
 }
@@ -189,7 +197,14 @@ func RevisitRowText(e RevisitEntry, labelWidth int, selected bool) string {
 // (host.go) - TreeList has no built-in "current row" look of its own (see
 // that function's own doc comment for why), so every list built on it needs
 // this same small amount of bookkeeping.
-func RunRevisitListTUI(entries []RevisitEntry) (RevisitEntry, bool) {
+// initialRunID, if it matches one of entries' own RunID, puts the cursor
+// there instead of at the top - so a caller looping back to this list
+// after the user closes a previously opened entry (RunRevisitVerb below;
+// design-docs/Diff.md's own RunDiffFlow, diff.go) can put the cursor back
+// where it was, rather than always resetting to the first row. "" (or no
+// match - e.g. the entry has since been pruned) falls back to the top,
+// same as before this parameter existed.
+func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntry, bool) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -222,6 +237,12 @@ func RunRevisitListTUI(entries []RevisitEntry) (RevisitEntry, bool) {
 	chosen := false
 
 	selectedIdx := 0
+	for i, e := range entries {
+		if e.RunID == initialRunID {
+			selectedIdx = i
+			break
+		}
+	}
 	rebuilding := false
 	var rebuildRows func()
 	rebuildRows = func() {
