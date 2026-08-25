@@ -177,7 +177,7 @@ func TaskVisible(t *playbook.TaskNode, q FilterQuery, sourceIndex map[string]str
 
 // AllTasks returns every task across every play, in run order (play order,
 // then task order within each play) - the host-agnostic sibling of
-// tasksForHost below, backing the main tree's n/p task-hop and E (expand
+// tasksForHost below, backing the main tree's n/N task-hop and E (expand
 // all) shortcuts.
 func AllTasks(state *playbook.PlaybookState) []*playbook.TaskNode {
 	var tasks []*playbook.TaskNode
@@ -225,7 +225,7 @@ func TasksForHost(state *playbook.PlaybookState, host string) []*playbook.TaskNo
 
 // VisibleTasks is allTasks' filtered sibling - every task that gets a row
 // under filter (see taskVisible), in the same run order. Used by
-// navigateMainTask (n/p) and the filter-switch cursor fallback so neither
+// navigateMainTask (n/N) and the filter-switch cursor fallback so neither
 // ever targets a task flattenRows wouldn't actually have rendered a row
 // for.
 func VisibleTasks(state *playbook.PlaybookState, filter FilterQuery, sourceIndex map[string]string, activeTask *playbook.TaskNode) []*playbook.TaskNode {

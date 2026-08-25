@@ -932,7 +932,7 @@ func FormatHostSummary(hostname string, facts map[string]interface{}) string {
 
 // HostDetailTabNames is the fixed tab order buildHostDetailPrimitive
 // always builds a fresh TabbedPane in - shared with runHostsListTUI's own
-// n/p host-navigation (tabIndexByName), which needs to know this order to
+// n/N host-navigation (tabIndexByName), which needs to know this order to
 // restore the same tab after rebuilding a brand new TabbedPane for the
 // newly-selected host, since TabbedPane itself has no "jump to tab by
 // name" method, only relative Next()/Prev().
@@ -973,7 +973,7 @@ func TabIndexByName(names []string, name string) int {
 // async-update mechanism resolved.go/ansibledoc.go already use for the
 // drill-down view's own Resolved/Docs tabs, just kicked off eagerly for
 // every tab at once instead of lazily per tab-open.
-func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *tview.TextView) {
+func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *uikit.TabSearchBar) {
 	header := tview.NewTextView().SetDynamicColors(true)
 	header.SetTextStyle(uikit.BarStyle)
 	playbookLabel := playbook
@@ -994,18 +994,28 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		[]tview.Primitive{summaryView, groupsView, playsView, hostVarsView, everythingView},
 	)
 
-	footer := tview.NewTextView().SetDynamicColors(true).SetText(footerText)
-	footer.SetTextStyle(uikit.BarStyle)
+	// searchBar (design-docs/Search.md) replaces the plain footer TextView
+	// in flex's own bottom slot - it owns its own hint/search-prompt/
+	// match-status states internally, see its own doc comment (uikit).
+	// focus falls back to tabs.Primitive() once a search prompt closes,
+	// matching this view's own initial SetFocus (both callers below).
+	searchBar := uikit.NewTabSearchBar(app, tabs, footerText, tabs.Primitive())
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
 		AddItem(tabs.Primitive(), 0, 1, true).
-		AddItem(footer, 1, 0, false)
+		AddItem(searchBar.Primitive(), 1, 0, false)
 
 	fetch := func(view *tview.TextView, do func() (string, error)) {
 		go func() {
 			text, err := do()
 			app.QueueUpdateDraw(func() {
+				searchBar.ClearForView(view) // this tab's own content is
+				// about to change out from under any search targeting it
+				// specifically - design-docs/Search.md's "a search does
+				// not survive content changing under it," scoped to just
+				// this one tab so a fetch landing on a *different* tab
+				// doesn't clear a search that's still perfectly valid.
 				if err != nil {
 					view.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 				} else {
@@ -1022,7 +1032,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	fetch(hostVarsView, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
 	fetch(everythingView, func() (string, error) { return FetchHostEverythingKnown(hostname, rest) })
 
-	return flex, tabs, header, footer
+	return flex, tabs, header, searchBar
 }
 
 // RunHostDetailStandalone builds and runs "tangsible host <hostname>"'s
@@ -1036,13 +1046,25 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
-	footerText := " tab/shift-tab: switch tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	detail, tabs, header, footer := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText)
+	footerText := " tab/shift-tab: switch tab  /: search tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch {
-		case event.Key() == tcell.KeyCtrlC:
+		if event.Key() == tcell.KeyCtrlC {
+			searchBar.CloseComposing()
 			app.Stop()
+			return nil
+		}
+		// design-docs/Search.md, same reasoning as tui.go's identically-
+		// shaped branch: bypasses normal focus-driven dispatch, confirmed
+		// live to not reliably reach a primitive nested this deep.
+		if searchBar.IsComposing() {
+			searchBar.HandleComposingKey(event)
+			return nil
+		}
+		switch {
+		case event.Key() == tcell.KeyEscape && searchBar.HasActive():
+			searchBar.Clear()
 			return nil
 		case event.Rune() == 'q':
 			app.Stop()
@@ -1057,6 +1079,15 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		case event.Key() == tcell.KeyBacktab:
 			tabs.Prev()
 			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'N':
+			searchBar.Prev()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'n':
+			searchBar.Next()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == '/':
+			searchBar.Open()
+			return nil
 		}
 		return event
 	})
@@ -1065,7 +1096,7 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		if event == nil {
 			return nil, action
 		}
-		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, footer) {
+		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, searchBar.Primitive()) {
 			return nil, action
 		}
 		if action == tview.MouseLeftClick {
@@ -1101,9 +1132,9 @@ func HostRowText(hostname string, selected bool) string {
 // (buildHostDetailPrimitive), Esc from the detail view returns to the
 // list rather than quitting - the one behavioral difference from "host
 // <name>"'s own standalone Esc-is-inert view. While a detail view is
-// open, n/p also jump straight to the next/previous host in the list
+// open, n/N also jump straight to the next/previous host in the list
 // (navigateHostDetail) without leaving the detail view at all - the same
-// n/p convention the main tree's own drill-down view uses to hop between
+// n/N convention the main tree's own drill-down view uses to hop between
 // hosts for the same task, applied here to hopping between hosts
 // directly. Built as a single tview.Application with a two-page Pages
 // (list, detail); detail's own
@@ -1137,17 +1168,17 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		onList          = true
 		detailTabs      *uikit.TabbedPane
 		detailHeader    *tview.TextView
-		detailFooter    *tview.TextView
+		detailSearch    *uikit.TabSearchBar
 		currentHostname string
 	)
 
-	detailFooterText := " tab/shift-tab: switch tab  n/p: prev/next host  esc: back to list  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	detailFooterText := " tab/shift-tab: switch tab  n/N: next/prev host  /: search tab  esc: back to list  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 
 	showDetail := func(hostname string) {
-		detail, tabs, hdr, ftr := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, detailFooterText)
+		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, detailFooterText)
 		pages.RemovePage("detail")
 		pages.AddPage("detail", detail, true, true)
-		detailTabs, detailHeader, detailFooter = tabs, hdr, ftr
+		detailTabs, detailHeader, detailSearch = tabs, hdr, bar
 		currentHostname = hostname
 		pages.SwitchToPage("detail")
 		onList = false
@@ -1227,8 +1258,22 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 	rebuildRows()
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyCtrlC {
+			if !onList {
+				detailSearch.CloseComposing()
+			}
+			app.Stop()
+			return nil
+		}
+		// design-docs/Search.md, same reasoning as tui.go's identically-
+		// shaped branch: bypasses normal focus-driven dispatch, confirmed
+		// live to not reliably reach a primitive nested this deep.
+		if !onList && detailSearch.IsComposing() {
+			detailSearch.HandleComposingKey(event)
+			return nil
+		}
 		switch {
-		case event.Key() == tcell.KeyCtrlC, event.Rune() == 'q':
+		case event.Rune() == 'q':
 			app.Stop()
 			return nil
 		case event.Key() == tcell.KeyCtrlA:
@@ -1240,6 +1285,9 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 			return event
 		}
 		switch {
+		case event.Key() == tcell.KeyEscape && detailSearch.HasActive():
+			detailSearch.Clear()
+			return nil
 		case event.Key() == tcell.KeyEscape:
 			pages.SwitchToPage("list")
 			onList = true
@@ -1251,11 +1299,28 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		case event.Key() == tcell.KeyBacktab:
 			detailTabs.Prev()
 			return nil
+		// n/N are context-sensitive here, the same way tui.go's own
+		// task-hop n/N become match-nav while a search is active: this
+		// view already used n/N for host-hop (navigateHostDetail) before
+		// search existed, and there's no separate key budget to give
+		// search its own - see design-docs/Search.md's own discussion of
+		// this exact collision.
 		case event.Rune() == 'n':
-			navigateHostDetail(1)
+			if detailSearch.HasActive() {
+				detailSearch.Next()
+			} else {
+				navigateHostDetail(1)
+			}
 			return nil
-		case event.Rune() == 'p':
-			navigateHostDetail(-1)
+		case event.Rune() == 'N':
+			if detailSearch.HasActive() {
+				detailSearch.Prev()
+			} else {
+				navigateHostDetail(-1)
+			}
+			return nil
+		case event.Rune() == '/':
+			detailSearch.Open()
 			return nil
 		}
 		return event
@@ -1271,7 +1336,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 			}
 			return event, action
 		}
-		if x, y := event.Position(); uikit.InRect(x, y, detailHeader) || uikit.InRect(x, y, detailFooter) {
+		if x, y := event.Position(); uikit.InRect(x, y, detailHeader) || uikit.InRect(x, y, detailSearch.Primitive()) {
 			return nil, action
 		}
 		if action == tview.MouseLeftClick {

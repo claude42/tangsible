@@ -256,7 +256,7 @@ control, and more).
 | `Enter` / `Space` | Toggle a task's host rows, or open a host's result |
 | `←`/`→` | Collapse / expand a task |
 | `C`/`E` | Collapse / expand all |
-| `n`/`p` | Jump to the next / previous task |
+| `n`/`N` | Jump to the next / previous task |
 | `F`| Follow new tasks | 
 | `f`| Filter: All / Changed / Failed |
 | `/` | Search filter (task name, source, output) |
@@ -269,8 +269,9 @@ control, and more).
 |---|---|
 | `Tab` / `Shift Tab` | Switch between tabs | 
 | `e` | Edit task file |
-| `n`/`p` | Next / previous task (same host) |
+| `n`/`N` | Next / previous task (same host) |
 | `←`/`→` | Previous / next host (same task) |
+| `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
 | `Esc`/`Enter` | Close, back to the tree |
 
 **Template view**
@@ -278,12 +279,16 @@ control, and more).
 | Key | Action |
 |---|---|
 | `Tab` / `Shift Tab` | Switch between tabs | 
-| `n`/`p` | Next / previous task (same host) |
 | `e` | Edit template file |
-| `←`/`→` | Previous / next host (same task) |
+| `h` | Change host |
+| `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
 | `q`/`Ctrl-C` | Quit |
 
 Mouse navigation is supported as well.
+
+`tangsible hosts`/`tangsible host`'s own detail view and `tangsible diff`'s
+own drill-down aren't tabulated separately here, but support the same `/`
+in-tab search shown above.
 
 ## Configuration
 

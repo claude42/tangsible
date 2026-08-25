@@ -42,11 +42,26 @@ import (
 // layout; Next/Prev/HandleClick/SetTabs are the only things a caller
 // needs to drive it.
 type TabbedPane struct {
-	header *tview.TextView
-	pages  *tview.Pages
-	root   *tview.Flex
-	names  []string
-	active int
+	header  *tview.TextView
+	pages   *tview.Pages
+	root    *tview.Flex
+	names   []string
+	active  int
+	changed func()
+}
+
+// SetChangedFunc registers f to be called whenever the active tab changes,
+// for any reason (Next/Prev/HandleClick/SetTabs's own by-name active-tab
+// resolution) - design-docs/Search.md's own "switching tabs implicitly
+// clears an active in-tab search" requirement is why this exists: one
+// registration per caller covers every way the active tab can change,
+// rather than each call site (keyboard Tab/Backtab, mouse click) having to
+// remember to clear it individually - a real gap live use caught, since
+// mouse-click tab switching had no such call at all before this existed.
+// Harmless to fire on SetTabs's own initial call too (nothing to clear
+// yet, callers register this after building whatever it would clear).
+func (p *TabbedPane) SetChangedFunc(f func()) {
+	p.changed = f
 }
 
 // NewTabbedPane constructs an empty pane - call SetTabs before it has
@@ -120,6 +135,25 @@ func (p *TabbedPane) ActiveName() string {
 	return p.names[p.active]
 }
 
+// ActiveTextView returns the currently active tab's own content as a
+// *tview.TextView, and whether that succeeded - false if there are no
+// tabs, or the active one isn't a *tview.TextView. Every tab at every
+// current call site is one, but this doesn't assume that structurally;
+// SetTabs itself only ever hands content straight to p.pages (there's no
+// separate field retaining it), so this reads it back the same way
+// anything else asks tview.Pages what's registered under a page name -
+// design-docs/Search.md's own reason this exists: a search controller
+// driven by tab position, not by every caller re-deriving which widget
+// that is from its own locally-held slice.
+func (p *TabbedPane) ActiveTextView() (*tview.TextView, bool) {
+	name := p.ActiveName()
+	if name == "" {
+		return nil, false
+	}
+	tv, ok := p.pages.GetPage(name).(*tview.TextView)
+	return tv, ok
+}
+
 // Next/Prev switch to the next/previous tab, wrapping at either end - a
 // small, fixed-size tab bar (unlike the main tree's own potentially many
 // rows) is exactly the case where wraparound is the expected, natural
@@ -143,6 +177,9 @@ func (p *TabbedPane) setActive(index int) {
 	p.active = index
 	p.pages.SwitchToPage(p.names[index])
 	p.renderHeader()
+	if p.changed != nil {
+		p.changed()
+	}
 }
 
 // renderHeader draws every tab name in order, one space of padding on

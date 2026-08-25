@@ -41,6 +41,72 @@ func TestTabbedPaneSetTabsAndActiveName(t *testing.T) {
 	}
 }
 
+func TestTabbedPaneActiveTextView(t *testing.T) {
+	p := NewTabbedPane()
+	if _, ok := p.ActiveTextView(); ok {
+		t.Error("ActiveTextView() on an empty pane returned ok=true, want false")
+	}
+
+	taskView := tview.NewTextView().SetText("task content")
+	outputView := tview.NewTextView().SetText("output content")
+	p.SetTabs([]string{"Task", "Output"}, []tview.Primitive{taskView, outputView})
+
+	tv, ok := p.ActiveTextView()
+	if !ok || tv != taskView {
+		t.Fatalf("ActiveTextView() = (%v, %v), want (taskView, true)", tv, ok)
+	}
+
+	p.Next()
+	tv, ok = p.ActiveTextView()
+	if !ok || tv != outputView {
+		t.Fatalf("ActiveTextView() after Next() = (%v, %v), want (outputView, true)", tv, ok)
+	}
+}
+
+func TestTabbedPaneActiveTextViewNonTextViewContent(t *testing.T) {
+	p := NewTabbedPane()
+	// A tab whose content isn't a *tview.TextView at all - every current
+	// call site only ever uses TextViews, but ActiveTextView shouldn't
+	// assume that structurally.
+	p.SetTabs([]string{"Weird"}, []tview.Primitive{tview.NewBox()})
+	if _, ok := p.ActiveTextView(); ok {
+		t.Error("ActiveTextView() on a non-TextView tab returned ok=true, want false")
+	}
+}
+
+func TestTabbedPaneSetChangedFuncFiresOnNextPrevAndClick(t *testing.T) {
+	p := NewTabbedPane()
+	calls := 0
+	p.SetChangedFunc(func() { calls++ })
+	p.SetTabs([]string{"Task", "Output", "Details"}, primitives(3))
+	if calls == 0 {
+		t.Fatal("SetChangedFunc's callback should fire at least once from SetTabs's own initial setActive")
+	}
+
+	calls = 0
+	p.Next()
+	if calls != 1 {
+		t.Errorf("calls after Next() = %d, want 1", calls)
+	}
+
+	calls = 0
+	p.Prev()
+	if calls != 1 {
+		t.Errorf("calls after Prev() = %d, want 1", calls)
+	}
+
+	calls = 0
+	// HandleClick's own hit-test math: header row (y=0), first tab " Task "
+	// starts at column 0.
+	p.header.SetRect(0, 0, 40, 1)
+	if !p.HandleClick(2, 0) {
+		t.Fatal("HandleClick on the Task tab's own label should report handled")
+	}
+	if calls != 1 {
+		t.Errorf("calls after HandleClick() = %d, want 1 - this is the real gap live use caught (mouse tab-switching never cleared an active search before SetChangedFunc existed)", calls)
+	}
+}
+
 func TestTabbedPaneSetTabsPreservesActiveByName(t *testing.T) {
 	p := NewTabbedPane()
 	p.SetTabs([]string{"Task", "Output", "Details"}, primitives(3))

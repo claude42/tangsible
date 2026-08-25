@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Tangsible is a TUI wrapper for `ansible-playbook`, aimed at interactive use (e.g. during development). The problem it solves and the product decisions behind it are documented in `Purpose.md` — read that first for the "why" before making design choices; this file only covers the "how".
 
-The TUI (built with `tview`) is live: it comes up immediately and updates incrementally as jsonl events arrive, while `ansible-playbook` is still running — arrow-key/j-k navigation (no wraparound at the ends), Space/`b` to page down/up, Enter to expand/collapse a task's host rows, cursor Right/Left to expand/collapse a task directly, `E`/`C` to expand/collapse every task at once, `n`/`p` to hop to the next/previous task (preserving the selected host across tasks where possible), Home/End/`'G'`/Ctrl-A/Ctrl-E to jump to the first/last row, `q`/Ctrl-C to quit (or, while the process is still running, to interrupt it — see below). The view auto-follows the newest row while nothing has been navigated away from; disengages the moment the user scrolls (including via End/`'G'`/Ctrl-E, which are deliberately plain navigation), and only `'F'` re-engages it. Full shortcut reference: `Keyboard-shortcuts.md`. Play rows are white and bold; task rows are a plain regular gray. A task's collapsed row shows every host discovered so far this run, right-aligned, each individually colored by its outcome for that task (green/yellow/cyan/red/maroon for OK/Changed/Skipped/Failed/Unreachable) or grey if it hasn't reported for that specific task yet — not aggregate counts. The row under the cursor renders differently from a flat highlight: black bold text throughout, a light gray background on the title, and each hostname's outcome color as a background instead of a foreground, with adjacent hostnames' colors blended together in the cell between them. An expanded host row shows its outcome plus a short contextual detail where one's defined — OK shows the single line of output verbatim or a line count; Skipped shows its `skip_reason`/`false_condition`. Expanding a task and pressing Enter on one of its host rows opens a full-screen view of that host's complete result for that task (one of MSG/STDOUT plus STDERR, plus the full result as JSON); Escape or Enter closes it, leaving the tree's cursor on whatever (task, host) was last shown there. While that view is open, cursor Left/Right switch to the previous/next host for the same task, and `n`/`p` switch to the previous/next task for the same host. The top and bottom bars are white-on-navy. The top bar ticks a spinner + total elapsed time so it's visibly obvious the app hasn't hung, freezing once the run finishes; whichever task is currently active also shows that same spinner frame next to its title. Because it opens a real terminal UI, running it requires an actual TTY (not a piped/headless shell).
+The TUI (built with `tview`) is live: it comes up immediately and updates incrementally as jsonl events arrive, while `ansible-playbook` is still running — arrow-key/j-k navigation (no wraparound at the ends), Space/`b` to page down/up, Enter to expand/collapse a task's host rows, cursor Right/Left to expand/collapse a task directly, `E`/`C` to expand/collapse every task at once, `n`/`N` to hop to the next/previous task (preserving the selected host across tasks where possible), Home/End/`'G'`/Ctrl-A/Ctrl-E to jump to the first/last row, `q`/Ctrl-C to quit (or, while the process is still running, to interrupt it — see below). The view auto-follows the newest row while nothing has been navigated away from; disengages the moment the user scrolls (including via End/`'G'`/Ctrl-E, which are deliberately plain navigation), and only `'F'` re-engages it. Full shortcut reference: `Keyboard-shortcuts.md`. Play rows are white and bold; task rows are a plain regular gray. A task's collapsed row shows every host discovered so far this run, right-aligned, each individually colored by its outcome for that task (green/yellow/cyan/red/maroon for OK/Changed/Skipped/Failed/Unreachable) or grey if it hasn't reported for that specific task yet — not aggregate counts. The row under the cursor renders differently from a flat highlight: black bold text throughout, a light gray background on the title, and each hostname's outcome color as a background instead of a foreground, with adjacent hostnames' colors blended together in the cell between them. An expanded host row shows its outcome plus a short contextual detail where one's defined — OK shows the single line of output verbatim or a line count; Skipped shows its `skip_reason`/`false_condition`. Expanding a task and pressing Enter on one of its host rows opens a full-screen view of that host's complete result for that task (one of MSG/STDOUT plus STDERR, plus the full result as JSON); Escape or Enter closes it, leaving the tree's cursor on whatever (task, host) was last shown there. While that view is open, cursor Left/Right switch to the previous/next host for the same task, and `n`/`N` switch to the previous/next task for the same host. The top and bottom bars are white-on-navy. The top bar ticks a spinner + total elapsed time so it's visibly obvious the app hasn't hung, freezing once the run finishes; whichever task is currently active also shows that same spinner frame next to its title. Because it opens a real terminal UI, running it requires an actual TTY (not a piped/headless shell).
 
 ## Commands
 
@@ -135,7 +135,7 @@ The source text stored per task is verbatim — sliced directly from the file's 
 
 Two non-obvious things a design-review pass caught here that are easy to reintroduce if this code is restructured:
 - `TextView.SetText` does **not** reset scroll position (`lineOffset`/`trackEnd`). Since the output view is one `TextView` reused across every drill-down (never recreated), `showOutput` must call `outputView.ScrollToBeginning()` after every `SetText` — otherwise opening a second host's output right after scrolling through the first would open already scrolled to (or bottom-pinned from) the old position.
-- Left/Right and `n`/`p` mean different things on each page (host-nav/task-nav in the output view vs. expand-collapse/task-hop in the main tree — see Keyboard shortcuts below), so `SetInputCapture` needs to know which page is frontmost before dispatching them. Fixed with a `viewingOutput bool` (same locally-owned-flag style as `following`/`jumpingToEnd`), checked before the page-specific bindings dispatch.
+- Left/Right and `n`/`N` mean different things on each page (host-nav/task-nav in the output view vs. expand-collapse/task-hop in the main tree — see Keyboard shortcuts below), so `SetInputCapture` needs to know which page is frontmost before dispatching them. Fixed with a `viewingOutput bool` (same locally-owned-flag style as `following`/`jumpingToEnd`), checked before the page-specific bindings dispatch.
 
 `formatHostOutput` decodes `task.Raw[host]` into a generic `map[string]interface{}` (not a fixed struct, for the same reason `events.go`'s `rawEvent.Hosts` doesn't decode into one), leads with a colored status line and a `TASK:` section looked up from `sourceIndex[task.Path]` (see `source.go` below and Color below) when found, then shows one labeled section for `primaryOutputField`'s chosen text (see below), then `stderr` if present and non-empty, followed unconditionally by the complete result as pretty-printed JSON — the fallback that makes this work for any module's result shape without special-casing.
 
@@ -163,7 +163,7 @@ This makes `rebuild()` itself the single place that ever decides which of `"outp
 
 The old `lastRebuildWidth` (compared against `list`'s own width to notice a resize while frozen) is renamed `lastTotalWidth` and now compares against `pages`' own width instead, computed once per `rebuild()` call and reused both for the split-mode resync above and for the resize-watcher goroutine's own comparison - `list`'s width alone was never a reliable proxy for "did the terminal resize" once a two-pane session could pin it to a value independent of the terminal (or, in full-screen output mode, leave it stale entirely, not part of the currently-drawn page at all). `startHeartbeat`'s own ticker already calls `rebuild()` unconditionally every `spinnerInterval` while a run is live, so the live-running case needs no separate wiring - the split resync just rides along. The frozen case still needs the dedicated resize-watcher goroutine, exactly as before the two-pane feature existed, just now comparing the more general `pages`-based width instead of `list`'s.
 
-**Live-sync** is `showOutput` unconditionally doing, on every call (not just the session's first), exactly what `closeOutput` used to do only once on the way out: `expanded[task] = true; currentID = hostRowID{task, host}; following = false`, then `rebuild()`. Since `navigateOutputHost`/`navigateOutputTask` (Left/Right, `n`/`p` while already viewing output) both funnel through `showOutput`, this is what makes the tree pane track the drill-down's own navigation in real time — `closeOutput` no longer needs its own copy of this sync at all, since it's always already current by the time `closeOutput` runs. No new scrolling code was needed to keep the newly-synced row visible: `rebuild()`'s existing `SetCurrentItem` call already fires whenever `selectedIndex` differs from `lastAppliedSelectedIndex`, and `treeList.ensureVisible()` (`treelist.go`) already runs on exactly that index change — the same mechanism ordinary keyboard navigation has always used, requiring no split-mode-specific case at all.
+**Live-sync** is `showOutput` unconditionally doing, on every call (not just the session's first), exactly what `closeOutput` used to do only once on the way out: `expanded[task] = true; currentID = hostRowID{task, host}; following = false`, then `rebuild()`. Since `navigateOutputHost`/`navigateOutputTask` (Left/Right, `n`/`N` while already viewing output) both funnel through `showOutput`, this is what makes the tree pane track the drill-down's own navigation in real time — `closeOutput` no longer needs its own copy of this sync at all, since it's always already current by the time `closeOutput` runs. No new scrolling code was needed to keep the newly-synced row visible: `rebuild()`'s existing `SetCurrentItem` call already fires whenever `selectedIndex` differs from `lastAppliedSelectedIndex`, and `treeList.ensureVisible()` (`treelist.go`) already runs on exactly that index change — the same mechanism ordinary keyboard navigation has always used, requiring no split-mode-specific case at all.
 
 **Hostnames are omitted from collapsed tree rows while split** — deliberately, not shrunk via `computeHostColumnLayout`'s usual per-character algorithm at a narrower budget: whichever host currently matters is already shown by live-sync (expanded, cursor on that exact row), so a second, degraded rendering of the full host list at 40-80 columns wasn't judged worth the screen space. Implemented by threading an explicit `allHosts []string` parameter into `flattenRows` (previously read `state.AllHosts` directly) and a `treeAllHosts` local in `rebuild()` — `state.AllHosts` when not split, `nil` while `splitMode` is true — passed to both `computeHostColumnLayout` and `flattenRows`/`taskLabel`. Both functions already had a documented, tested fallback for `allHosts == nil`: `computeHostColumnLayout` skips its whole shrink pass and returns just the natural title width; `taskLabel` renders the title alone against `avail`, ignoring `layout.TitleColWidth` entirely. Before this feature, that path was only ever reachable transiently — before the very first host of a run has reported anything. Split mode is a second, deliberate caller of the identical path, not a new branch (`tui_splitpane_test.go` pins this fallback's exact behavior specifically because split mode now depends on it staying that way).
 
@@ -207,7 +207,7 @@ Two things worth knowing if touching this file:
 `SetInputCapture`'s body is three tiers, in order:
 1. **Quit** (`q`/Ctrl-C) — unchanged from before.
 2. **Universal key aliases**, applied regardless of which page is frontmost: `j`/`k` → synthesize `KeyDown`/`KeyUp`; Ctrl-F/Ctrl-B → `KeyPgDn`/`KeyPgUp`; Space/`'b'` → `KeyPgDn`/`KeyPgUp` (a pager-style alias, e.g. `less`/`man` - added after Ctrl-F/Ctrl-B already existed, since those alone don't match the muscle memory of every pager); Ctrl-A/Ctrl-E → `KeyHome`/`KeyEnd`; `'G'` → `KeyEnd`. Returning a *different* `*tcell.EventKey` than the one received makes `Application` forward the synthesized event to whichever primitive is currently focused, exactly as if the user had typed that key (confirmed from `application.go`) — so these ride the exact same code path plain Home/End/PgUp/PgDn already use, on both `List` and `TextView`, with no duplicated logic. This is also what makes `'G'`/Ctrl-E deliberately plain navigation rather than resuming autoscroll: they're indistinguishable, once translated, from the user having pressed the real End key. Claiming Space here at this tier is also why it now behaves identically whether the main tree or the output view is frontmost - previously it only had a (tree-only, native) meaning at all, so there was nothing to make consistent between the two; the `searchDialogOpen`/`rerunDialogOpen`/`filterDialogOpen` guards above this tier already `return event`/handle-and-return-nil before reaching it, so a literal typed space still lands normally in the search box or a re-run dialog field, unaffected.
-3. **Page-specific bindings**, `if viewingOutput { ... } else { ... }`: output view gets Left/Right → `navigateOutputHost` (steps through `outputTask.HostOrder`, no wraparound) and `n`/`p` → `navigateOutputTask` (steps through `tasksForHost(state, outputHost)`, no wraparound); main tree gets `'F'` (the sole surviving "jump to bottom + resume follow" binding — see Autoscroll above), `E`/`C` → `expandAll`/`collapseAll`, Right/Left → `handleRight`/`handleLeft`, `n`/`p` → `navigateMainTask`.
+3. **Page-specific bindings**, `if viewingOutput { ... } else { ... }`: output view gets Left/Right → `navigateOutputHost` (steps through `outputTask.HostOrder`, no wraparound) and `n`/`N` → `navigateOutputTask` (steps through `tasksForHost(state, outputHost)`, no wraparound); main tree gets `'F'` (the sole surviving "jump to bottom + resume follow" binding — see Autoscroll above), `E`/`C` → `expandAll`/`collapseAll`, Right/Left → `handleRight`/`handleLeft`, `n`/`N` → `navigateMainTask`.
 
 `expandAll`/`collapseAll` set every task's `expanded` entry at once. `collapseAll` has a cursor-fallback: if `currentID` is currently a `hostRowID` (about to disappear), it's reassigned to that row's own task first, so the cursor lands on the now-collapsed task row rather than `rebuild()`'s generic "unknown id → index 0" fallback.
 
@@ -223,7 +223,7 @@ The main tree's wheel handling went through two reverted approaches before landi
 
 **`treeList` (`treelist.go`) replaces `tview.List` for the main tree entirely**, to remove that remaining limitation for real rather than working around it again. It's a minimal, purpose-built `tview.Primitive` (embeds `*tview.Box`, same pattern `List` itself uses) implementing only the slice of `List`'s behavior this app actually exercises: single-line rows (this app never used `List`'s secondary-text mode), no shortcuts, no horizontal scrolling (Left/Right never reach this widget at all — `SetInputCapture` intercepts them itself before dispatch, see Keyboard shortcuts below), and no wraparound. Row text is still rendered through the exported `tview.Print`, the same tag-parsing entry point `List`'s own internal rendering uses, so every existing `[color]...[-]`-tagged row-text producer (`playRowText`/`taskLabel`/`hostLabel`) needed no changes at all.
 
-The key structural difference from `List`: `itemOffset` (the scroll position) and `currentItem` (the cursor) are fully decoupled. `treeList.Draw()` renders whatever `itemOffset` currently is, with no relation to `currentItem` — no per-draw clamp exists at all. Keeping the cursor visible after a *genuine* navigation (arrow keys, `n`/`p`, `F`, closing the output view, the failure-cursor auto-placement, etc.) is instead handled by `ensureVisible()`, called only from `SetCurrentItem` when the index actually changes, and from the widget's own `InputHandler`. This distinction is what makes unbounded panning possible: `rebuild()` calls `list.SetCurrentItem(selectedIndex)` on essentially every redraw (data events, the heartbeat tick, genuine navigation alike — see Selection preservation above), and after `list.Clear()` resets `currentItem` to `-1` with the first `AddItem()` afterward setting it straight to `0` (mirroring `tview.List`'s own `Clear()`/first-`InsertItem()` behavior, kept deliberately for symmetry with the pre-existing `rebuilding`-guarded `SetChangedFunc` handler — see Selection preservation above), that trailing `SetCurrentItem` call looks like a "genuine" index change on nearly every rebuild purely from `treeList`'s own point of view. If `ensureVisible` ran unconditionally there, it would re-clamp the viewport to the cursor on every single rebuild — reintroducing the exact bug this type exists to fix. It's safe specifically because every one of those rebuild-driven calls happens while `rebuilding == true`, and the existing `SetChangedFunc` handler in `tui.go` already no-ops entirely while that flag is set — so `ensureVisible`'s side effect on the viewport happens, but the callback that would otherwise treat it as user navigation (and disengage `following`) never fires. Mouse wheel panning (`treeList.MouseHandler`, ported from `list.go`'s own bounded scroll-up/scroll-down logic almost verbatim) touches only `itemOffset` directly, calling neither `SetCurrentItem` nor `ensureVisible` — so it never triggers a rebuild or a viewport snap-back at all, and can move arbitrarily far from wherever the cursor happens to be, in either direction, bounded only by the actual row count (no wraparound). `app.SetMouseCapture` at the `tui.go` level still exists solely to set `following = false` on a wheel event before it reaches `treeList.MouseHandler`, since panning-only never fires `SetChangedFunc` the way keyboard navigation does.
+The key structural difference from `List`: `itemOffset` (the scroll position) and `currentItem` (the cursor) are fully decoupled. `treeList.Draw()` renders whatever `itemOffset` currently is, with no relation to `currentItem` — no per-draw clamp exists at all. Keeping the cursor visible after a *genuine* navigation (arrow keys, `n`/`N`, `F`, closing the output view, the failure-cursor auto-placement, etc.) is instead handled by `ensureVisible()`, called only from `SetCurrentItem` when the index actually changes, and from the widget's own `InputHandler`. This distinction is what makes unbounded panning possible: `rebuild()` calls `list.SetCurrentItem(selectedIndex)` on essentially every redraw (data events, the heartbeat tick, genuine navigation alike — see Selection preservation above), and after `list.Clear()` resets `currentItem` to `-1` with the first `AddItem()` afterward setting it straight to `0` (mirroring `tview.List`'s own `Clear()`/first-`InsertItem()` behavior, kept deliberately for symmetry with the pre-existing `rebuilding`-guarded `SetChangedFunc` handler — see Selection preservation above), that trailing `SetCurrentItem` call looks like a "genuine" index change on nearly every rebuild purely from `treeList`'s own point of view. If `ensureVisible` ran unconditionally there, it would re-clamp the viewport to the cursor on every single rebuild — reintroducing the exact bug this type exists to fix. It's safe specifically because every one of those rebuild-driven calls happens while `rebuilding == true`, and the existing `SetChangedFunc` handler in `tui.go` already no-ops entirely while that flag is set — so `ensureVisible`'s side effect on the viewport happens, but the callback that would otherwise treat it as user navigation (and disengage `following`) never fires. Mouse wheel panning (`treeList.MouseHandler`, ported from `list.go`'s own bounded scroll-up/scroll-down logic almost verbatim) touches only `itemOffset` directly, calling neither `SetCurrentItem` nor `ensureVisible` — so it never triggers a rebuild or a viewport snap-back at all, and can move arbitrarily far from wherever the cursor happens to be, in either direction, bounded only by the actual row count (no wraparound). `app.SetMouseCapture` at the `tui.go` level still exists solely to set `following = false` on a wheel event before it reaches `treeList.MouseHandler`, since panning-only never fires `SetChangedFunc` the way keyboard navigation does.
 
 `revealExpandedTask` (see above) is unaffected by any of this: it already called `SetOffset` directly rather than relying on any clamp, specifically because the cursor staying on the task row itself while its newly-expanded children need revealing was never something a `currentItem`-driven clamp would help with in the first place — true of both `List` and `treeList`.
 
@@ -237,7 +237,7 @@ The key structural difference from `List`: `itemOffset` (the scroll position) an
 
 `flattenRows` applies `taskVisible` per task, skipping non-matching ones entirely - when a task matches, *all* of its hosts are still shown, not just the matching ones (Filters.md is explicit about this: filtering hides whole tasks, never individual host rows within a shown task). A play whose tasks are all filtered out gets no row either, the same rule (and same mechanism - both are just "was anything appended for this play" checks) as a play with zero *executed* tasks.
 
-Three helper functions mirror this filtering for navigation, so nothing ever targets a task `flattenRows` wouldn't actually have rendered a row for: `visibleTasks`/`visibleTasksForHost` are `allTasks`/`tasksForHost`'s filtered siblings (same run order, just skipping non-matching tasks), used by `navigateMainTask` (`n`/`p` in the main tree) and `navigateOutputTask` (`n`/`p` in the drill-down view) respectively - both per Filters.md's explicit requirement that filtered-out tasks are skipped during navigation, not just hidden from the initial view. `navigateMainTask`'s play-row case (`n`/`p` starting from a play row) needed a genuine rework, not just a swap-in-the-filtered-list: the old logic looked at `state.Plays[playIdx-1].Tasks[last]` directly, which breaks once a whole intervening play can be entirely hidden - reformulated instead around position within the flat `visibleTasks` sequence itself (`firstVisibleTask` finds the play's own first visible task; "prev" is just whatever precedes it in that flat sequence), which correctly skips over any number of fully-hidden plays for free, without needing to search play-by-play backward for one that still has something visible.
+Three helper functions mirror this filtering for navigation, so nothing ever targets a task `flattenRows` wouldn't actually have rendered a row for: `visibleTasks`/`visibleTasksForHost` are `allTasks`/`tasksForHost`'s filtered siblings (same run order, just skipping non-matching tasks), used by `navigateMainTask` (`n`/`N` in the main tree) and `navigateOutputTask` (`n`/`N` in the drill-down view) respectively - both per Filters.md's explicit requirement that filtered-out tasks are skipped during navigation, not just hidden from the initial view. `navigateMainTask`'s play-row case (`n`/`N` starting from a play row) needed a genuine rework, not just a swap-in-the-filtered-list: the old logic looked at `state.Plays[playIdx-1].Tasks[last]` directly, which breaks once a whole intervening play can be entirely hidden - reformulated instead around position within the flat `visibleTasks` sequence itself (`firstVisibleTask` finds the play's own first visible task; "prev" is just whatever precedes it in that flat sequence), which correctly skips over any number of fully-hidden plays for free, without needing to search play-by-play backward for one that still has something visible.
 
 **Cursor fallback on a filter switch (`tui.go`'s `applyFilter`).** Per Filters.md, if the filter changes and the row the cursor was pinned to disappears, the cursor should land on the nearest still-visible task rather than snapping to the top of the list. This only needs to run when `following == false`: when it's `true`, `rebuild()` already re-resolves the selection to the newest *visible* row on every call regardless of what disappeared, so there's nothing to fix up. `nearestVisibleTask(all, anchor, visible)` walks `allTasks(state)` forward from `anchor`'s position looking for the first task present in the new filter's `visibleTasks` result, falling back to searching backward if nothing survives after it - "removed" always means a whole task (and, transitively, a whole play with nothing left) disappearing at once here, never an individual host row on its own (see `taskVisible` above), so a task is always the right granularity to land on, unlike `collapseAll`'s existing host-row fallback (which snaps to the row's own now-collapsed parent task - a case that still exists, just structurally different from what a filter switch produces). The anchor resolution differs slightly by what the cursor was on: a `*taskNode`/`hostRowID` anchor is that task itself; a `*playNode` anchor is only set (to the play's first task) if *none* of that play's own tasks survive the new filter - if at least one does, the play's own row is untouched by the switch and needs no fallback at all. This path is shared by all four filter kinds - `applyFilter` doesn't know or care whether the switch came from `a`/`c`/`f` or from typing a new search term and pressing Enter.
 
@@ -293,6 +293,205 @@ The original design paired `taskField` with a `startAtTaskCheckbox` gating it vi
 `main`'s `verbRerun` case never records anything into `.tangsible/state.toml` itself — unlike `run`, which always records immediately (the invocation already happened by definition), a `rerun` invocation the user Ctrl-C's out of before ever confirming the dialog leaves no trace, since nothing was actually invoked. Recording only happens once `requestRerun` fires, from inside `submitRerun` — for `rerun`'s own first generation exactly as much as for any later one, since both go through the identical path.
 
 **Test fixtures (`testdata/`).** Playbooks (and inventory files) used to manually exercise the aggregation logic: `basic.yml` (simple sequential tasks including a sleep, demonstrates live streaming), `outcomes.yml` (single host, all four original outcome buckets including an ignored failure), `multihost.yml` + `multihost-inventory.ini` (two hosts diverging on the same task, to exercise per-host aggregation within one task), `hostnames.yml` + `hostnames-inventory.ini` (varied-length hostnames to exercise `taskLabel`'s shrink algorithm, plus a host pointed at an unreachable address with a short SSH connect timeout, to trigger `v2_runner_on_unreachable` for real — run with `--forks 1` to serialize per-host completion for an observable grey-to-lit transition).
+
+## In-tab search (Search.md)
+
+`/` opens a "find text in the currently active tab" prompt in every one of
+this app's tab-bearing views — the main drill-down (`tui.go`), `tangsible
+diff`'s own drill-down (`diff.go`), `tangsible hosts`'/`tangsible host`'s
+detail view (`host.go`), and `tangsible template` (`template.go`) —
+scoped deliberately to the one tab currently on screen, not a cross-tab
+or cross-run search (Search.md's own explicit scope note).
+
+**The core mechanism (`internal/uikit/search.go`) is built on `tview.TextView`'s
+own region/highlight API, not hand-rolled.** `TextSearch` (`StartTextSearch`,
+`Next`/`Prev`/`HasMatches`/`MatchCount`/`CurrentMatch`/`Query`) reads a
+tab's own text back once via `TextView.GetText(true)` — tview's real
+tag-stripping parser, not a reimplementation — finds every case-insensitive
+match's own byte span (`findMatches`, byte-window `strings.EqualFold`
+scanning rather than case-folding the whole string up front, to avoid a
+fold changing a substring's own byte length for some non-ASCII scripts),
+and caches both. `render()` (called once up front and again on every
+`Next`/`Prev`) rebuilds the tab's content from that cached plain text on
+every call, wrapping each match in its own `["match-N"]`/`[""]` region tag
+plus an explicit color tag - black-on-yellow for every match except the
+current one, black-on-orange for whichever one is current, a genuinely
+distinct color rather than only tview's own automatic
+highlight-inverts-existing-colors behavior (see the current-match color
+bug this ran into, further down). `Highlight`/`ScrollToHighlight` do the
+actual jump-to-match. Deliberate, documented simplification: this redraws
+the tab from *plain* text, so a tab's own supplementary coloring (Diff's
+line colors, Task's `colorizeYAML` key-highlighting) isn't shown while a
+search is active — reinserting match tags into an *already*-tagged string
+without corrupting it would need a hand-rolled parser for tview's own tag
+grammar, a real risk against arbitrary command output; restoring plain
+match-only rendering costs nothing extra since the caller already has to
+re-render the tab normally the moment the search clears.
+
+**`uikit.TabbedPane` gained `ActiveTextView()`** (`tabs.go`) — reads the
+active tab's content back via `p.pages.GetPage(name)` (there was no field
+retaining it; `SetTabs` only ever handed content straight to the internal
+`pages`) — so a search controller can be driven by tab position without
+every call site re-deriving which widget that is.
+
+**Two different wiring shapes, matching how each surface's tabs are
+actually built.** The drill-down (`tui.go`) and `diff.go` rebuild every
+tab's `TextView` from scratch on every host/task navigation
+(`renderOutputTabs`/`showDiffOutput` call `outputTabs.SetTabs(...)` fresh
+each time) — search state there is wired inline, with `clearTabSearch()`
+called at the top of that same rebuild function, since a rebuild always
+means "the active tab's content is about to change," Search.md's own rule
+for when a search must not survive. `host.go`'s detail view and
+`template.go` instead build their `TabbedPane` once and populate each
+tab's long-lived `TextView` later via a plain `SetText` (host.go: five
+concurrent goroutines fetching Summary/Groups/Plays/host_vars/Everything;
+template.go: one synchronous render plus a source re-read on `e`) — for
+that shape, `internal/uikit/tabsearchbar.go`'s `TabSearchBar` is a
+genuinely shared component (footer-swap InputField, `Open`/`Clear`/
+`CloseComposing`/`Next`/`Prev`, all state owned internally) that both
+`BuildHostDetailPrimitive` and `RunTemplateTUI` embed directly, with
+`ClearForView(view)` called right before each individual `SetText` so a
+fetch landing on a *different*, inactive tab doesn't clear a search
+that's still perfectly valid on the one actually being searched.
+`tui.go`/`diff.go` don't use `TabSearchBar` — their own inline wiring
+predates it and stayed inline rather than being retrofitted, to avoid
+re-touching already-verified code for a stylistic-only gain.
+
+**A footer-slot `Pages` swap, matching how the tree's own two-pane divider
+etc. already solve "one Flex slot, two possible widgets."** Each surface's
+bottom bar becomes a `tview.Pages` with a `"hint"` page (the normal
+keybinding-hint `TextView`) and a `"search"` page (a real
+`tview.InputField`, black-on-yellow via `uikit.SearchBarStyle` — matching
+`TextSearch`'s own match-highlight color, so the mode reads as one thing)
+— `SwitchToPage` toggles between them, no restructuring of the parent
+`Flex` itself. `tui.go` has a second, easy-to-miss wrinkle here: `outputFlex`
+(the full-screen "output" page) and `outputBody` (split mode's own right
+pane, `design-docs/TwoPanedLayout.md`) are *two separate* `Flex`es that
+both need to embed the *same* `outputFooterPages` instance — missing
+`outputBody`'s own update was a real bug caught live (search worked in
+full-screen mode, silently did nothing in split mode, since split mode was
+still drawing the old raw `outputBottomBar` with no `Pages` wrapper at
+all).
+
+**A real tview dispatch bug, not just app-level state, blocks typing into
+a nested `InputField` — confirmed live, root cause not fully isolated.**
+`app.SetFocus(tabSearchInput)` correctly sets the field's own `HasFocus()`
+to `true`, and every ancestor up to `pages` (the application's own root)
+also correctly reports `HasFocus() == true` when checked directly — yet
+tview's normal key-forwarding path (`Application`'s event loop: "pass
+other key events to the root primitive if `root.HasFocus()`") still
+doesn't route keystrokes into the field once it's nested three
+`Pages`/`Flex` layers deep (`pages` → `"output"`/`outputFlex` →
+`outputFooterPages` → `"search"` → `tabSearchInput`). Ruled out, each
+confirmed directly against `tview`'s own source rather than assumed:
+`Flex`/`Pages.Draw()` never touch focus; `TreeList`'s own `list` doesn't
+retain stale focus (it's correctly blurred); a `SetTabs`-triggered
+`RemovePage`/`AddPage` focus-reassignment churn on `outputTabs`'s own
+internal `Pages` is real (confirmed, and guarded against separately - see
+below) but doesn't explain the failure on the very first keystroke, before
+any rebuild has run. The shallower dialogs (`searchDialogFlex`,
+`rerunForm` - direct siblings of `"main"` on the *root* `Pages`, one layer
+shallower) don't hit this and correctly use tview's normal
+`return event`-and-let-it-forward pattern; `hostDialogOpen`
+(`template.go`) is similarly shallow and also fine as-is. Rather than
+chase tview's own internals further, `SetInputCapture`'s
+`tabSearchComposing`/`IsComposing()` branch in all four surfaces calls
+`tabSearchInput.InputHandler()` directly instead of returning the event
+for normal dispatch — the same "route around tview instead of fighting
+it" call this codebase already made once for `treeList` (`treelist.go`)
+when `tview.List`'s own behavior fell short.
+
+**The `SetTabs`-triggered focus churn is real and separately guarded
+against** (`tui.go`'s `renderOutputTabs`): `outputTabs.SetTabs(...)`
+tears down and rebuilds its own internal `tview.Pages` on every call
+(`RemovePage`/`AddPage`, each of which conditionally re-delegates focus to
+whichever tab ends up active if that internal `Pages` object currently
+reports `HasFocus()`) — confirmed live that this can silently redirect
+application-level focus onto the newly-active tab even while composing,
+if an async Resolved/Docs fetch happens to land mid-keystroke.
+Re-asserting `app.SetFocus(tabSearchInput)` right after `SetTabs` when
+`tabSearchComposing` is true is a direct counter to the *observed*
+symptom (now largely redundant for typing itself, since the direct
+`InputHandler` invocation above no longer depends on it, but still worth
+doing so the field's own cursor rendering doesn't visibly jump elsewhere).
+
+**Mouse hover can independently steal focus too**, unrelated to the bug
+above — `tview`'s `fireMouseActions` forwards every mouse event, including
+a bare `MouseMove` with no button down (which terminals under SGR mouse
+tracking can send continuously), to whatever's under the cursor, and that
+primitive's own `MouseHandler` can call the focus-set callback on nothing
+more than a hover. `tui.go`'s `SetMouseCapture` gained a
+`tabSearchComposing` guard (mirroring the existing
+`searchDialogOpen`/`rerunDialogOpen` ones) that swallows everything
+outside `tabSearchInput`'s own rect while composing, for the same reason
+those two already exist. `template.go` already had a related, independently-
+documented instance of this exact class of bug (clicking `header`/the
+footer bar silently stealing focus onto a one-line status bar) predating
+this feature entirely.
+
+**Follow-up fixes from live feedback.** Five issues surfaced once this was
+actually used, all now fixed:
+
+- **The composing prompt's own label** changed from the terse `" / "` to
+  `" Search: "` (`tabSearchInput`/`TabSearchBar.input`, all four surfaces,
+  plus the post-Enter status text's own `"/%s - ..."` prefix, changed to
+  `"Search: %s - ..."` to match) — a bare yellow bar with a single `/`
+  character didn't read as an active prompt on its own.
+- **Switching tabs while a search was active used to leave it pointing at
+  a tab the user had since navigated away from** — matches stayed
+  highlighted (in the tab that was searched, invisible once you'd tabbed
+  away from it) rather than being cleared. `TabbedPane` gained
+  `SetChangedFunc(f func())`, fired from `setActive` — the single place
+  `Next()`/`Prev()`/`HandleClick()`/`SetTabs`'s own by-name active-tab
+  resolution all funnel through — so one registration per surface
+  (`outputTabs.SetChangedFunc(clearTabSearch)` in `tui.go`/`diff.go`;
+  wired automatically inside `NewTabSearchBar` itself for `host.go`/
+  `template.go`) covers every way the active tab can change. This also
+  fixed a real, independently-existing gap: mouse-click tab-switching had
+  never cleared an active search at all (only the keyboard `Tab`/`Backtab`
+  cases had their own explicit call, itself now removed as redundant).
+- **The current match rendered "yellow text on black," not the intended
+  solid color block** — root cause confirmed by rendering to a real
+  `tcell.SimulationScreen` and decomposing the drawn cell's own style
+  (a plain string-match assertion on the raw tagged text would have
+  passed against this exact bug, since the *tag* was correct in
+  isolation): `TextView.Highlight()` renders its target region with
+  fg/bg swapped *on top of* whatever color tag that region already
+  carries, not as a replacement for it — confirmed directly against a
+  live render, not just inferred from its own doc comment's "background
+  and foreground colors swapped" wording. Since `TextSearch.render()`
+  already gives the current match its own explicit color tag (needed so
+  it can differ from the other matches' at all) and then calls
+  `Highlight()` on that same region for `ScrollToHighlight()`'s sake, the
+  two combined into a double-invert. Per live request, the current match
+  now gets its own distinct color entirely (orange, not yellow) rather
+  than "whatever plain automatic inversion produces" - fixed by writing
+  the *pre-swapped* pair into the tag (`searchCurrentMatchBg`,
+  `searchCurrentMatchFg`, in that order) specifically for the region about
+  to be highlighted, so `Highlight()`'s own inversion lands on the
+  intended final colors instead of doubling back past them.
+- **The composing prompt's own label rendered black-on-black** —
+  `InputField.SetLabelColor` only sets the label's own *foreground*
+  (confirmed against `inputfield.go`: unlike `SetFieldBackgroundColor`/
+  `SetFieldTextColor`, which both compose into the same underlying field
+  style, there's no paired `SetLabelBackgroundColor` at all), so the
+  label's own background silently stayed at tview's default - reading as
+  black-on-black against a typical dark terminal theme. Fixed by calling
+  `SetLabelStyle` directly with both channels set
+  (`tcell.StyleDefault.Foreground(black).Background(yellow)`) instead of
+  `SetLabelColor` alone, in all three places that build `tabSearchInput`.
+- **Clearing a search (Esc) reset the surrounding chrome but left every
+  match still visibly highlighted in the tab itself** - `clearTabSearch`/
+  `TabSearchBar.Clear` only ever reset the *footer's* own state; nothing
+  had ever told the searched `TextView` to go back to what it looked like
+  before `render()` started rewriting it. `TextSearch` now caches the
+  view's own original, fully-tagged text too (`original`, alongside the
+  already-cached `plain`), captured via `GetText(false)` right when
+  `StartTextSearch` begins - and gained `Stop()`, which restores it
+  verbatim (supplementary coloring included, not just plain unhighlighted
+  text) and clears tview's own highlight tracking. All three `Clear()`/
+  `clearTabSearch` implementations call it before dropping their own
+  reference to the search.
 
 ## Current scope constraints (from Purpose.md)
 

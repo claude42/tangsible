@@ -34,6 +34,18 @@ var BarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.
 // themes rather than RGB-approximated. See design-docs/Colors.md.
 var ReplayBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorPurple).Bold(true)
 
+// SearchBarStyle is the drill-down/host-detail/template view's own bottom
+// bar style while an in-tab search (design-docs/Search.md) is being
+// composed or is currently active - black on yellow, the same "a distinct
+// color signals a mode change" precedent BarStyle/ReplayBarStyle already
+// establish for the whole session's chrome, applied here to just the one
+// bar instead of every bar at once (a search is scoped to a single tab,
+// not global to the session the way revisit-mode is). Matches the color
+// TextSearch's own match highlighting uses (search.go's
+// searchMatchFg/searchMatchBg), so the bar and the highlighted text read
+// as the same mode.
+var SearchBarStyle = tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorYellow).Bold(true)
+
 const SpinnerInterval = 200 * time.Millisecond
 
 var SpinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
@@ -61,7 +73,7 @@ const TaskIndent = "  "
 // branch), even though the tree pane itself stays visible and its bottomBar
 // keeps drawing - showing the normal hint text there would advertise keys
 // that currently do nothing.
-const MainBottomBarText = " p/n: prev/next task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  d: diff  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+const MainBottomBarText = " n/N: next/prev task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  d: diff  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 
 const SplitBottomBarText = " Esc: close drill-down to use the tree "
 

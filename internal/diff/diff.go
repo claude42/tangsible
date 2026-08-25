@@ -699,20 +699,101 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 	outputTabs := uikit.NewTabbedPane()
 	outputHeader := tview.NewTextView().SetDynamicColors(true).SetText(" tangsible diff ")
 	outputHeader.SetTextStyle(DiffChromeStyle)
-	outputFooter := tview.NewTextView().SetDynamicColors(true).
-		SetText(" tab/shift-tab: switch tab  q/esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
+	const outputHintText = " tab/shift-tab: switch tab  /: search tab  q/esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	outputFooter := tview.NewTextView().SetDynamicColors(true).SetText(outputHintText)
 	outputFooter.SetTextStyle(DiffChromeStyle)
+
+	// tabSearchInput/outputFooterPages/tabSearch* mirror tui.go's own
+	// in-tab search (design-docs/Search.md) - same shared uikit.TextSearch
+	// component, same footer-swap technique, same reasoning throughout;
+	// see that file's own comments for the parts not repeated here.
+	tabSearchInput := tview.NewInputField().SetLabel(" Search: ")
+	// SetLabelColor alone only sets the label's own foreground - see
+	// tui.go's identically-shaped setup for the full story on why
+	// SetLabelStyle (both channels) is needed instead.
+	tabSearchInput.SetLabelStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorYellow))
+	tabSearchInput.SetFieldBackgroundColor(tcell.ColorYellow)
+	tabSearchInput.SetFieldTextColor(tcell.ColorBlack)
+	tabSearchInput.SetBackgroundColor(tcell.ColorYellow)
+	outputFooterPages := tview.NewPages().
+		AddPage("hint", outputFooter, true, true).
+		AddPage("search", tabSearchInput, true, false)
+
 	outputFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(outputHeader, 1, 0, false).
 		AddItem(outputTabs.Primitive(), 0, 1, true).
-		AddItem(outputFooter, 1, 0, false)
+		AddItem(outputFooterPages, 1, 0, false)
 
 	pages := tview.NewPages().
 		AddPage("tree", treeFlex, true, true).
 		AddPage("output", outputFlex, true, false)
 	viewingOutput := false
 
+	var tabSearch *uikit.TextSearch
+	var tabSearchComposing bool
+
+	outputSearchStatusText := func(ts *uikit.TextSearch) string {
+		status := "no matches"
+		if ts.HasMatches() {
+			status = fmt.Sprintf("match %d of %d", ts.CurrentMatch(), ts.MatchCount())
+		}
+		return fmt.Sprintf(" Search: %s - %s   n/N: next/prev match  Esc: clear  tab/shift-tab: switch tab ", ts.Query(), status)
+	}
+	clearTabSearch := func() {
+		if tabSearch == nil {
+			return
+		}
+		tabSearch.Stop() // restores the tab's own original content -
+		// without this, clearing left every match still highlighted.
+		tabSearch = nil
+		outputFooter.SetTextStyle(DiffChromeStyle)
+		outputFooter.SetText(outputHintText)
+		outputFooterPages.SwitchToPage("hint")
+	}
+	// outputTabs.SetChangedFunc: switching tabs makes an active search
+	// irrelevant (it only ever describes the tab that was active when it
+	// started) - fires for every way the active tab can change (Tab/
+	// Backtab below, and a mouse click on the tab bar), so those cases
+	// don't need their own explicit call.
+	outputTabs.SetChangedFunc(clearTabSearch)
+	closeTabSearchComposing := func() {
+		if !tabSearchComposing {
+			return
+		}
+		tabSearchComposing = false
+		outputFooterPages.SwitchToPage("hint")
+		app.SetFocus(list)
+	}
+	openTabSearch := func() {
+		tabSearchComposing = true
+		query := ""
+		if tabSearch != nil {
+			query = tabSearch.Query()
+		}
+		tabSearchInput.SetText(query)
+		outputFooterPages.SwitchToPage("search")
+		app.SetFocus(tabSearchInput)
+	}
+	tabSearchInput.SetDoneFunc(func(key tcell.Key) {
+		if key != tcell.KeyEnter {
+			closeTabSearchComposing()
+			return
+		}
+		tabSearchComposing = false
+		query := tabSearchInput.GetText()
+		if query == "" {
+			clearTabSearch()
+		} else if tv, ok := outputTabs.ActiveTextView(); ok {
+			tabSearch = uikit.StartTextSearch(tv, query)
+			outputFooter.SetTextStyle(uikit.SearchBarStyle)
+			outputFooter.SetText(outputSearchStatusText(tabSearch))
+		}
+		outputFooterPages.SwitchToPage("hint")
+		app.SetFocus(list)
+	})
+
 	showDiffOutput := func(a TaskAlignment, host string) {
+		clearTabSearch()
 		names, contents := BuildDiffOutputTabs(a, host, newSourceIndex, oldSourceIndex)
 		prims := make([]tview.Primitive, len(names))
 		for i, content := range contents {
@@ -725,6 +806,7 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		pages.SwitchToPage("output")
 	}
 	closeDiffOutput := func() {
+		clearTabSearch()
 		viewingOutput = false
 		pages.SwitchToPage("tree")
 	}
@@ -826,11 +908,29 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyCtrlC {
+			closeTabSearchComposing()
 			app.Stop()
+			return nil
+		}
+		// Same reasoning as tui.go's own identically-named branch: a query
+		// might legitimately contain any letter, so every key but Ctrl-C
+		// must reach tabSearchInput's own native editing, and normal
+		// root.HasFocus()-driven dispatch doesn't reliably reach a
+		// primitive nested this many Pages/Flex layers deep - confirmed
+		// live in tui.go, see that file's own comment on this same
+		// pattern for the full story. Invoking the field's InputHandler
+		// directly sidesteps it here too.
+		if tabSearchComposing {
+			if handler := tabSearchInput.InputHandler(); handler != nil {
+				handler(event, func(p tview.Primitive) { app.SetFocus(p) })
+			}
 			return nil
 		}
 		if viewingOutput {
 			switch {
+			case event.Key() == tcell.KeyEscape && tabSearch != nil:
+				clearTabSearch()
+				return nil
 			case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyEnter, event.Key() == tcell.KeyRune && event.Rune() == 'q':
 				closeDiffOutput()
 				return nil
@@ -839,6 +939,26 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 				return nil
 			case event.Key() == tcell.KeyBacktab:
 				outputTabs.Prev()
+				return nil
+			// n/N have no other meaning in this view (unlike tui.go's main
+			// tree/drill-down, diff.go never bound them to task/host-hop),
+			// so unlike tui.go's own context-sensitive n/N, these are
+			// simply no-ops without an active search - nothing to fall
+			// back to.
+			case event.Key() == tcell.KeyRune && event.Rune() == 'N':
+				if tabSearch != nil && tabSearch.HasMatches() {
+					tabSearch.Prev()
+					outputFooter.SetText(outputSearchStatusText(tabSearch))
+				}
+				return nil
+			case event.Key() == tcell.KeyRune && event.Rune() == 'n':
+				if tabSearch != nil && tabSearch.HasMatches() {
+					tabSearch.Next()
+					outputFooter.SetText(outputSearchStatusText(tabSearch))
+				}
+				return nil
+			case event.Key() == tcell.KeyRune && event.Rune() == '/':
+				openTabSearch()
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == 'j':
 				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)

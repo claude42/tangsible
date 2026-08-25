@@ -350,14 +350,19 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs([]string{"Rendered", "Source"}, []tview.Primitive{renderedView, sourceView})
 
-	footer := tview.NewTextView().SetDynamicColors(true).
-		SetText(" tab/shift-tab: switch tab  e: edit template  h: change host  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
-	footer.SetTextStyle(uikit.BarStyle)
+	// searchBar (design-docs/Search.md) replaces the plain footer TextView
+	// in flex's own bottom slot - see its own doc comment (uikit) and
+	// host.go's identical use of it for the full story; this view shares
+	// the same "long-lived TextViews, content arrives via SetText" shape
+	// host.go's detail view does, unlike tui.go/diff.go's own drill-downs.
+	searchBar := uikit.NewTabSearchBar(app, tabs,
+		" tab/shift-tab: switch tab  e: edit template  h: change host  /: search tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ",
+		tabs.Primitive())
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
 		AddItem(tabs.Primitive(), 0, 1, true).
-		AddItem(footer, 1, 0, false)
+		AddItem(searchBar.Primitive(), 1, 0, false)
 
 	pages := tview.NewPages().AddPage("main", flex, true, true)
 
@@ -374,6 +379,9 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	// editor, since that's the one thing that can actually change the
 	// file's own content (switching hosts or reprocessing never does).
 	refreshSource := func() {
+		searchBar.ClearForView(sourceView) // its own content is about to
+		// change - design-docs/Search.md's "a search does not survive
+		// content changing under it," scoped to just this tab.
 		data, err := os.ReadFile(templatePath)
 		if err != nil {
 			sourceView.SetText("[red]" + tview.Escape(err.Error()) + "[-]")
@@ -394,6 +402,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		result, err := RenderTemplate(stubPath, outputPath, currentHost, rest)
 		app.QueueUpdateDraw(func() {
 			setHeader()
+			searchBar.ClearForView(renderedView)
 			switch {
 			case err != nil:
 				renderedView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
@@ -498,19 +507,42 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 			}
 			return event
 		}
+		// design-docs/Search.md, same reasoning as tui.go's identically-
+		// shaped branch: bypasses normal focus-driven dispatch (unlike
+		// hostDialogOpen's own plain "return event" above, which is
+		// shallow enough - a direct sibling page of the root Pages - not
+		// to need it; searchBar's own prompt sits one Flex layer deeper).
+		if searchBar.IsComposing() {
+			searchBar.HandleComposingKey(event)
+			return nil
+		}
 		switch {
-		// Deliberately no KeyEscape case here (unlike Ctrl-C) - Esc used to
-		// quit identically to q/Ctrl-C, but that's an easy accidental hit
-		// while just browsing the rendered/source tabs; only q and Ctrl-C
-		// quit now. Falls through to `return event` at the bottom, which
-		// tview.TextView (sourceView/renderedView) with no SetDoneFunc of
-		// its own just no-ops on - not a dead binding, just genuinely
-		// inert.
+		// Esc clears an active search first (design-docs/Search.md);
+		// otherwise deliberately still no KeyEscape case here (unlike
+		// Ctrl-C) - Esc used to quit identically to q/Ctrl-C, but that's
+		// an easy accidental hit while just browsing the rendered/source
+		// tabs; only q and Ctrl-C quit now. Falls through to `return
+		// event` at the bottom, which tview.TextView (sourceView/
+		// renderedView) with no SetDoneFunc of its own just no-ops on -
+		// not a dead binding, just genuinely inert.
+		case event.Key() == tcell.KeyEscape && searchBar.HasActive():
+			searchBar.Clear()
+			return nil
 		case event.Key() == tcell.KeyCtrlC:
+			searchBar.CloseComposing()
 			app.Stop()
 			return nil
 		case event.Rune() == 'q':
 			app.Stop()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'N':
+			searchBar.Prev()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'n':
+			searchBar.Next()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == '/':
+			searchBar.Open()
 			return nil
 		case event.Key() == tcell.KeyCtrlA:
 			// Not natively handled by tview.TextView (unlike Home/End,
@@ -589,7 +621,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		// issue as tui.go's topBar/bottomBar/outputTopBar/
 		// outputBottomBar - confirmed live there that Escape/Enter/arrow
 		// navigation then silently stop reaching the real content).
-		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, footer) {
+		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, searchBar.Primitive()) {
 			return nil, action
 		}
 		if action == tview.MouseLeftClick {
