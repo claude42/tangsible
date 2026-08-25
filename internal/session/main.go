@@ -33,25 +33,28 @@ import (
 	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/uikit"
+	"code.aw.net/claude/tangsible/internal/vault"
 )
 
 func Main() {
 	v, args, ok := config.ParseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|vault> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
 	}
 
 	// "template" (design-docs/Tangsible template.md), "host"/"hosts"
-	// (design-docs/HostVerb.md), and "revisit" (design-docs/Revisit.md) are
-	// each standalone programs - they share none of run/rerun/role's own
-	// tree-building machinery below (procH, playbook resolution, the live
-	// jsonl pipeline, NewLiveTUI's own construction, ...), so they're split
-	// off here before any of that gets set up, rather than threaded through
-	// the switch below. "revisit" does still end up inside NewLiveTUI for
-	// its own detail view (unlike the other three) - but only once per
-	// selected entry, each its own fresh call with a freshly replayed
-	// state, never sharing this function's own run/rerun/role setup.
+	// (design-docs/HostVerb.md), "revisit" (design-docs/Revisit.md), and
+	// "vault" (design-docs/Vault.md) are each standalone programs - they
+	// share none of run/rerun/role's own tree-building machinery below
+	// (procH, playbook resolution, the live jsonl pipeline, NewLiveTUI's
+	// own construction, ...), so they're split off here before any of
+	// that gets set up, rather than threaded through the switch below.
+	// "revisit" does still end up inside NewLiveTUI for its own detail
+	// view (unlike the other three) - but only once per selected entry,
+	// each its own fresh call with a freshly replayed state, never
+	// sharing this function's own run/rerun/role setup. "vault" never
+	// touches tview at all, unlike every other Verb here.
 	if v == config.VerbTemplate {
 		os.Exit(template.RunTemplateVerb(args))
 	}
@@ -63,6 +66,9 @@ func Main() {
 	}
 	if v == config.VerbRevisit {
 		os.Exit(revisit.RunRevisitVerb(args, NewLiveTUI))
+	}
+	if v == config.VerbVault {
+		os.Exit(vault.RunVaultVerb(args))
 	}
 
 	var procH runner.ProcHandle

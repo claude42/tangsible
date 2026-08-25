@@ -84,6 +84,26 @@ type SettingsConfig struct {
 		// instead - see tui.go's colorEnabledByUser callers.
 		Color *bool `toml:"color"`
 	} `toml:"general"`
+	// Vault holds settings specific to the "vault" Verb (design-docs/
+	// Vault.md) - its own table rather than folded into General, since
+	// General is otherwise entirely TUI/session-behavior settings and a
+	// credentials-adjacent path doesn't belong there.
+	Vault struct {
+		// PasswordFile is a default --vault-password-file path, used when
+		// the vault Verb is invoked with neither --vault-password-file
+		// nor --ask-vault-pass nor $ANSIBLE_VAULT_PASSWORD_FILE set - see
+		// VaultPasswordFile.
+		PasswordFile string `toml:"password_file"`
+	} `toml:"vault"`
+}
+
+// VaultPasswordFile returns cfg.Vault.PasswordFile - the project's
+// configured default vault password file, or "" if unset. A thin
+// accessor purely for symmetry with DefaultTreeExpanded/
+// TwoPaneLayoutEnabled/ColorEnabledByUser above, all of which read
+// SettingsConfig through a named function rather than the raw field.
+func VaultPasswordFile(cfg SettingsConfig) string {
+	return cfg.Vault.PasswordFile
 }
 
 // DefaultTreeExpanded reports whether cfg.General.DefaultTreeState says a
@@ -120,13 +140,15 @@ func ColorEnabledByUser(cfg SettingsConfig) bool {
 // Verb identifies which top-level command Tangsible was invoked with -
 // "run" (the direct successor of the original bare-playbook invocation),
 // "rerun" (see Rerun.md), "role" (see design-docs/Tangsible role.md),
-// "template" (see design-docs/Tangsible template.md), or "host"/"hosts"
-// (see design-docs/HostVerb.md). A Verb is now mandatory: unlike the
-// playbook argument, there's no shape-based way to tell "no Verb given"
-// from "Verb given" (every Verb looks like a plain word, same as a
-// playbook path), and more verbs were expected to follow Rerun.md's own
-// rationale for introducing this - so requiring one explicitly, as a
-// breaking change, is simpler than trying to keep guessing.
+// "template" (see design-docs/Tangsible template.md), "host"/"hosts"
+// (see design-docs/HostVerb.md), or "vault" (see design-docs/Vault.md,
+// per-variable vault editing - no TUI at all, unlike every other Verb).
+// A Verb is now mandatory: unlike the playbook argument, there's no
+// shape-based way to tell "no Verb given" from "Verb given" (every Verb
+// looks like a plain word, same as a playbook path), and more verbs were
+// expected to follow Rerun.md's own rationale for introducing this - so
+// requiring one explicitly, as a breaking change, is simpler than trying
+// to keep guessing.
 type Verb string
 
 const (
@@ -137,6 +159,7 @@ const (
 	VerbHost     Verb = "host"
 	VerbHosts    Verb = "hosts"
 	VerbRevisit  Verb = "revisit"
+	VerbVault    Verb = "vault"
 )
 
 // ParseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
@@ -147,7 +170,7 @@ func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 		return "", nil, false
 	}
 	switch Verb(args[0]) {
-	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbRevisit:
+	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbRevisit, VerbVault:
 		return Verb(args[0]), args[1:], true
 	default:
 		return "", nil, false
