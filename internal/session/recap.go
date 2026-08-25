@@ -120,7 +120,7 @@ func recapForHost(state *playbook.PlaybookState, host string) recapHostSummary {
 			case playbook.OutcomeSkipped:
 				skipped = append(skipped, task)
 			}
-			if uikit.HasWarnings(task.Raw[host]) {
+			if task.Warnings[host] {
 				warned = append(warned, task)
 			}
 		}

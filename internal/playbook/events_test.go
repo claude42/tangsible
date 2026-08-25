@@ -102,3 +102,37 @@ func TestRawEvent_Timestamp(t *testing.T) {
 		})
 	}
 }
+
+// TestHasNonEmptyWarnings checks the same "presence and non-empty" rule,
+// and the same multi-shape ("warnings" as a plain string or a list)
+// tolerance, uikit's own JoinedStringList/HasWarnings apply - the two
+// must stay in agreement (TaskNode.Warnings' own doc comment, aggregate.go)
+// since one feeds the tree/recap's own indicators and the other the
+// drill-down's full text, and a real bug elsewhere in this codebase was
+// exactly two "same fact, computed two different ways" paths silently
+// disagreeing.
+func TestHasNonEmptyWarnings(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"no warnings field at all", `{"changed":false}`, false},
+		{"warnings: null", `{"warnings":null}`, false},
+		{"warnings: empty string", `{"warnings":""}`, false},
+		{"warnings: non-empty string", `{"warnings":"deprecated syntax"}`, true},
+		{"warnings: empty list", `{"warnings":[]}`, false},
+		{"warnings: list of one empty string", `{"warnings":[""]}`, false},
+		{"warnings: list with a real entry", `{"warnings":["","deprecated syntax"]}`, true},
+		{"warnings: list with a non-string entry mixed in", `{"warnings":[42,"deprecated syntax"]}`, true},
+		{"warnings: list of only non-string entries", `{"warnings":[42,true]}`, false},
+		{"malformed JSON", `not json`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := hasNonEmptyWarnings(json.RawMessage(c.raw)); got != c.want {
+				t.Errorf("hasNonEmptyWarnings(%s) = %v, want %v", c.raw, got, c.want)
+			}
+		})
+	}
+}

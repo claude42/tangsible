@@ -73,6 +73,25 @@ type TaskNode struct {
 	// tui.go's showOutput on demand. Never formatted here; formatting is
 	// a UI concern (see tui.go).
 	Raw map[string]json.RawMessage
+	// Warnings mirrors Hosts, not Raw: like Outcome, "did this host report
+	// a non-empty warnings field for this task" is a classification
+	// decided once from the raw payload, not a rendering decision - the
+	// same category of fact Outcome already is, computed the same way
+	// (once, in record, from this event's own raw bytes), just a second
+	// independent axis alongside it (a result can be both Changed and
+	// carry a warning). Exists purely so callers rendering many rows
+	// across many hosts (tui.go's TaskLabel/HostLabel, recap.go's
+	// recapForHost) don't have to re-decode the same JSON on every single
+	// redraw just to answer a yes/no question - a real, measured cost:
+	// profiling a frozen 40-host/30-task recap showed ~63% of
+	// FlattenRecapRows' own CPU time was encoding/json decode calls doing
+	// exactly this, repeated on every cursor move. hasNonEmptyWarnings
+	// (events.go) deliberately doesn't reuse uikit's own DecodeWarnings/
+	// JoinedStringList - this package can't import uikit (uikit already
+	// imports this one) - but only needs a plain presence check, not
+	// JoinedStringList's own multi-shape text-joining, so duplicating that
+	// much is a deliberately small, self-contained trade.
+	Warnings map[string]bool
 }
 
 func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage) {
@@ -81,6 +100,7 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage) {
 	}
 	t.Hosts[host] = o
 	t.Raw[host] = raw
+	t.Warnings[host] = hasNonEmptyWarnings(raw)
 }
 
 func (t *TaskNode) Counts() (ok, changed, skipped, failed, unreachable int) {
@@ -224,6 +244,7 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 				StartedAt: ev.Timestamp(),
 				Hosts:     map[string]Outcome{},
 				Raw:       map[string]json.RawMessage{},
+				Warnings:  map[string]bool{},
 			}
 			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
 			if s.OnTaskAdded != nil {

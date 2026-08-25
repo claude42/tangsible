@@ -881,8 +881,8 @@ func HasWarnings(raw json.RawMessage) bool {
 // verdict for the whole row - expanding reveals which host, via
 // hostLabel's own marker).
 func TaskHasWarnings(task *playbook.TaskNode) bool {
-	for _, raw := range task.Raw {
-		if HasWarnings(raw) {
+	for _, has := range task.Warnings {
+		if has {
 			return true
 		}
 	}
@@ -911,7 +911,7 @@ func HostLabel(task *playbook.TaskNode, host string, selected bool) string {
 	o := task.Hosts[host]
 	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(OutcomeDetail(task, host)))
 	prefix := tview.Escape(HostIndent)
-	if HasWarnings(task.Raw[host]) {
+	if task.Warnings[host] {
 		prefix = fmt.Sprintf("[%s]⚠[-]%s", WarningColor, strings.Repeat(" ", len(HostIndent)-1))
 	}
 	if selected {

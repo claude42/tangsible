@@ -88,3 +88,43 @@ func DecodeHostResult(raw json.RawMessage) HostResult {
 	_ = json.Unmarshal(raw, &r)
 	return r
 }
+
+// hasNonEmptyWarnings reports whether raw carries a non-empty "warnings"
+// field - the same "presence and non-empty" rule uikit's own HasWarnings
+// (tui.go, the drill-down/tree-marker package) already follows, and
+// deliberately kept in sync with it: both must agree on what "this result
+// has a warning" means. Not a call to that function directly - this
+// package can't import uikit (uikit already imports this one) - but the
+// full text-joining JoinedStringList does for multi-shape "warnings"
+// values isn't needed here either, only a yes/no answer, so decoding into
+// a single json.RawMessage field (cheap - no map[string]interface{} built
+// for the rest of the payload) and checking its own shape directly is a
+// smaller, self-contained equivalent, not a full port.
+func hasNonEmptyWarnings(raw json.RawMessage) bool {
+	var decoded struct {
+		Warnings json.RawMessage `json:"warnings"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil || len(decoded.Warnings) == 0 {
+		return false
+	}
+	var single string
+	if json.Unmarshal(decoded.Warnings, &single) == nil {
+		return single != ""
+	}
+	// A list, per JoinedStringList's own handling - decoded element-by-
+	// element into json.RawMessage first (never []string directly), so
+	// one non-string entry doesn't fail the whole array the way it would
+	// decoding straight into []string; JoinedStringList skips a non-string
+	// entry individually instead, and this mirrors that exactly rather
+	// than drifting to a stricter, easier-to-write shortcut.
+	var list []json.RawMessage
+	if json.Unmarshal(decoded.Warnings, &list) == nil {
+		for _, elem := range list {
+			var s string
+			if json.Unmarshal(elem, &s) == nil && s != "" {
+				return true
+			}
+		}
+	}
+	return false
+}

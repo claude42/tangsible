@@ -53,6 +53,28 @@ func TestApply_RecordsBasicOKOutcome(t *testing.T) {
 	}
 }
 
+// TestApply_RecordsWarnings checks that record (via Apply) populates
+// TaskNode.Warnings from each host's own raw result, for every outcome
+// kind - not just OK, since a warning is orthogonal to outcome (see
+// TaskNode.Warnings' own doc comment). This is what lets callers rendering
+// many rows (uikit's TaskLabel/HostLabel, recap.go's recapForHost) read a
+// plain map lookup instead of re-decoding raw JSON on every redraw.
+func TestApply_RecordsWarnings(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+	s.Apply(taskStartEvent("task with a warning", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false,"warnings":["deprecated syntax"]}`)))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web2", json.RawMessage(`{"msg":"boom"}`)))
+
+	task := s.Plays[0].Tasks[0]
+	if !task.Warnings["web1"] {
+		t.Error(`task.Warnings["web1"] = false, want true`)
+	}
+	if task.Warnings["web2"] {
+		t.Error(`task.Warnings["web2"] = true, want false (no warnings field at all)`)
+	}
+}
+
 func TestApply_DistinguishesChangedFromOK(t *testing.T) {
 	s := &PlaybookState{}
 	s.Apply(playStartEvent("my play"))

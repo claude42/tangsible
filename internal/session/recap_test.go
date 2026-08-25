@@ -176,14 +176,19 @@ func TestTaskHasWarnings(t *testing.T) {
 			"web1": json.RawMessage(`{"changed":false}`),
 			"web2": json.RawMessage(`{"changed":false,"warnings":["hi"]}`),
 		},
+		// Warnings mirrors Raw here the same way record (aggregate.go)
+		// populates it from real events - TaskHasWarnings reads this
+		// cached field now, not Raw directly (see its own doc comment).
+		Warnings: map[string]bool{"web1": false, "web2": true},
 	}
 	if !uikit.TaskHasWarnings(task) {
 		t.Error("TaskHasWarnings() = false, want true (web2 has one)")
 	}
 
 	noWarnings := &playbook.TaskNode{
-		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
-		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
+		Hosts:    map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+		Raw:      map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
+		Warnings: map[string]bool{"web1": false},
 	}
 	if uikit.TaskHasWarnings(noWarnings) {
 		t.Error("TaskHasWarnings() = true, want false")
