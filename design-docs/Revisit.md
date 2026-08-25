@@ -373,11 +373,182 @@ Color: propose something :-) (and update the Colors.md document accordingly)
 
 CLAUDE.md: you can remove that comment now.
 
+
+
 # Next ideas
 
 ## Manage runs
 
-After a while many previous runs might accumulate. We will 
+After a while many previous runs might accumulate. Previous runs are
+difficult to discern. Potentially the only difference is the timestamp.
 
-Previous runs are difficult to discern. Potentially the only difference is
-the timestamp.
+### Name runs
+
+Currently all list entries look like this
+
+timestamp - succss/failure - command-line
+
+#### Proposal
+
+Provide the possibility to assign a name to a previous run. User selects a
+previous run, presses 'r' for rename. A pop up will open. Initially the name
+is empty. When the user has set a name it will be displayed in the list as
+
+timestamp - success/failure - name - commandline
+
+Entries where no nama has been assigne so far will be displayed as before.
+
+### Delete runs
+
+Irrelevant runs, runs with stupid failures, might clutter up the list.
+
+#### Proposal
+
+Provide the possibility to delete a previous run. User selects a previous
+run, presses 'd' for delete. A pop up will ask for confirmation. If
+confirmed, the respective files will be removed from .tangsible/runs/
+
+### Export runs
+
+.tangsible/runs is a kind of black box right now. Sometimes users might want
+to same previous runs elsewhere.
+
+#### Proposal
+
+Provide the possibility to export a previous run. User slects a previous run,
+presses 'e' for export. A popup will be opened for the filename. It will
+either contain a previously assigned name or if no name has been assigned it
+will contain the timestamp and commandline used. When the user confirms, the
+file will be saved in the current directory.
+
+In addition the tangsible revisit verb should get a new functionality. When
+the user calls
+
+tangsible revisit filename.json
+
+Tangible should open this file and us it as input for revisiting a run.
+
+#### Still to be discussed
+
+Currently a run consists of two files, exporting two files will be rather
+inconvenient so the export should consist of just one file. To be discussed
+how to handle this. I'm not sure right now. Just discard the stderr? Fold it
+into the other file. Let's discuss.
+
+## Feedback on the above three ideas (Claude, 2026-08-25)
+
+Went through all three. Here's the read, idea by idea.
+
+### Name runs
+
+Mechanically clean - `InvocationRecord` gets a `Name string
+\`toml:"name,omitempty"\`` field, `RevisitEntry` picks it up, `RevisitRowText`
+grows a column. state.toml is already a full-rewrite-on-every-write file (per
+Dottangsible-directory.md's precedent), so adding a field is cheap, no
+migration story needed.
+
+Two real questions, though:
+
+1. **Key choice: `r` for rename.** At the list level today `r` is unbound, so
+   there's no *technical* collision - but everywhere else in this app (the
+   tree/detail view), `r` means "open the re-run dialog," a well-established
+   association by now. A user landing on the list and reflexively hitting `r`
+   expecting "run this again" would instead get a rename prompt. Given the
+   project's own precedent of reserving capitals for "bigger" actions (`E`/`C`
+   for expand/collapse-all, `A`/`C`/`F` for filter categories), would a
+   different key - or a capital - read more safely here?
+2. **Does the name survive a re-run?** Re-running a revisited entry creates a
+   brand-new, independent `InvocationRecord`/`RunID` (already implemented,
+   Phase 3). Should that new entry inherit the old name, or start blank? I'd
+   lean "blank, it's a new run" - but worth confirming since it affects
+   whether "rename" is a per-run label or something closer to a per-*target*
+   nickname.
+3. Should the raw command-line still show once a name is set (`timestamp -
+   status - name - commandline`, as written), or should the name *replace*
+   the command text? Showing both could get long for entries with a lot of
+   passthrough args.
+
+### Delete runs
+
+Same key-collision flavor, but sharper: `d` means **Diff** in the
+tree/detail view - a read-only, non-destructive action. Reusing `d` for an
+irreversible delete one screen over feels like the riskier of the two
+collisions. Pushing harder here for a capital `D`, matching this app's
+"capital = heavier/broader action" convention, specifically *because* this
+one destroys data and the neighboring meaning of the same lowercase letter is
+completely unrelated and harmless.
+
+Real design question: when an entry is deleted, does it become identical to
+today's "log went missing externally" case - `RunID` cleared, `Args`/`Time`
+kept (so it still feeds `lastInvocation`'s rerun pre-fill) - or should a
+manual delete remove the whole `InvocationRecord` outright, disappearing
+from history entirely? Those aren't equivalent: the first keeps influencing
+"what tags/hosts does rerun pre-fill for this target" even after deletion;
+the second doesn't. Given the intent here ("runs with stupid failures...
+might clutter up the list"), the new-generation-of-Claude's guess is you
+want it gone from the rerun pre-fill picture too, but that's a real
+behavioral fork worth deciding explicitly rather than falling out of "reuse
+the pruning code."
+
+Also: after deleting the currently-selected entry, cursor placement matters
+- landing back at row 0 would be exactly the regression already fixed once
+this session for closing a revisit entry. Worth calling out now so it isn't
+a repeat bug.
+
+### Export runs
+
+This is the one with the real open design question, and it's bigger than
+just "one file vs. two":
+
+**What does `filename.json` actually contain?** Three genuinely different
+shapes are hiding under that one proposal:
+
+- **(a) Just the raw `.jsonl`, stderr dropped**, saved with a `.json`
+  extension. Simplest - reuses everything unchanged - but "drop stderr" is a
+  real information loss already flagged as unsure, and `.json` on a
+  newline-delimited-JSON file is a little misleading naming.
+- **(b) A real JSON envelope**: one object like `{"meta": {playbook, args,
+  time, exit_code}, "jsonl": "<raw multi-line text>", "stderr": "<raw
+  text>"}`. Keeps everything, genuinely one file, but needs new
+  marshal/unmarshal code and a small unwrap step before the existing
+  line-based `ScanEvents` can read it back - the current design's
+  "byte-identical, so replay reuses the exact same scanner" property needs a
+  deliberate one-line carve-out for this path.
+- **(c) A tar/zip of the existing two files**, still called something the
+  user picks. Not literally JSON, contradicts the `filename.json` naming in
+  the writeup, but needs *zero* new parsing code - unpack to a temp dir and
+  hand the existing `OpenRevisitEntry` machinery the same two paths it
+  already expects.
+
+Leaning toward (b) if this needs to be genuinely portable, or (c) if it's
+really just "get it out of `.tangsible/runs/` and somewhere visible" without
+inventing a new format. Which is it - is export meant for sharing a run with
+someone else (a colleague, a bug report), or just personal archival on the
+same machine?
+
+That distinction matters for a second reason too: `tangsible revisit
+filename.json` reopening an *external* file bypasses `state.toml` entirely,
+so it has no `Playbook`/`Role` to locate the original playbook on disk with
+- meaning `source.BuildTaskSourceIndex` (the "TASK:" tab) has nothing to
+work from unless the metadata envelope carries the original playbook path
+*and* that path still exists and still matches on whatever machine reopens
+it. If this is meant to cross machines/repos, that tab will just be
+silently empty for an export (same graceful-miss behavior the role-stub gap
+already has) - worth deciding if that's an accepted limitation up front
+rather than a surprise later.
+
+Smaller: filenames auto-generated from a command-line string (`-e
+msg="hello world"`-style args, per Rerun.md's own tokenizer notes) need
+sanitizing before they're usable as a real filename - worth a line noting
+that in the doc so it isn't rediscovered during implementation.
+
+### Cross-cutting: keybindings
+
+All three ideas propose new *list-level* keybindings (`r`/`d`/`e`), and the
+list currently has none beyond Enter/quit/navigation. Might be worth
+deciding the whole trio's key scheme together rather than one at a time,
+partly for the collision reasons above, and partly so the list's own footer
+hint text (mirroring how the tree's bottom bar advertises exactly what's
+live) stays legible once it's advertising three new single-letter actions at
+once.
+
