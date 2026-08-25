@@ -212,6 +212,18 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// different things on each page). A plain locally-owned bool, not a
 	// pages.GetFrontPage() query, since this function owns both places that
 	// ever switch pages.
+	var viewingOutputFromRecap bool // true for the duration of a drill-down
+	// session that was opened from a recap task row (design-docs/Recap.md)
+	// rather than the main tree - see showOutputWithOrigin's own doc
+	// comment for what this changes. Persists across
+	// navigateOutputTask/navigateOutputHost calls within the same session
+	// (both pass the current value straight through, not a hardcoded
+	// false), so hopping between tasks/hosts via n/p or Left/Right while
+	// viewing doesn't silently switch the session back to tree-origin
+	// behavior partway through. Reset on close (closeOutput) purely for
+	// clarity - every future showOutput/showOutputFromRecap call sets it
+	// explicitly on entry regardless, so a stale value here could never
+	// actually leak into a later session.
 	var rebuild func() // declared (not yet assigned - see its real definition
 	// further down) before showOutput, which now calls it directly (see
 	// design-docs/TwoPanedLayout.md's live-sync) - a closure only needs
@@ -606,7 +618,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		outputTabs.SetTabs(names, prims)
 	}
 
-	showOutput := func(task *playbook.TaskNode, host string) {
+	// showOutputWithOrigin is showOutput/showOutputFromRecap's own shared
+	// implementation - see their own doc comments, and the fromRecap
+	// discussion further down, for why the two need to differ at all.
+	showOutputWithOrigin := func(task *playbook.TaskNode, host string, fromRecap bool) {
 		// Pane-mode (split vs. full-screen) is no longer decided here at
 		// all - rebuild() (below) re-evaluates it, live, from the
 		// terminal's actual current width on every call, including the one
@@ -736,11 +751,41 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// screen: rebuild()'s own SetCurrentItem call fires whenever
 		// selectedIndex genuinely changes, and TreeList.ensureVisible()
 		// (treelist.go) already runs on exactly that.
+		//
+		// fromRecap skips the currentID line specifically - a real report:
+		// opening a drill-down from a recap task row already has currentID
+		// correctly pointing at that recap row (SetChangedFunc already set
+		// it there, same as any other cursor move), and forcibly
+		// overwriting it with the tree's own HostRowID here yanked the
+		// cursor into the main tree the instant the view opened - so
+		// closing it (Esc) landed back in the tree too, not the recap row
+		// the user actually came from, defeating "go through all failed
+		// tasks from the recap" as a workflow. expanded[task] still runs
+		// unconditionally either way - harmless, and leaves the
+		// corresponding tree row expanded for later if the user does
+		// scroll up into the tree.
 		expanded[task] = true
-		currentID = uikit.HostRowID{Task: task, Host: host}
+		viewingOutputFromRecap = fromRecap
+		if !fromRecap {
+			currentID = uikit.HostRowID{Task: task, Host: host}
+		}
 		following = false
 		rebuild() // also decides/applies pane mode now that viewingOutput is
 		// true - see rebuild()'s own resync block.
+	}
+
+	// showOutput is FlattenRows' own callback shape (uikit.go) - a plain
+	// (task, host) selected-row handler with no notion of "origin," used
+	// for every main-tree host row. Always tree-origin.
+	showOutput := func(task *playbook.TaskNode, host string) {
+		showOutputWithOrigin(task, host, false)
+	}
+
+	// showOutputFromRecap is flattenRecapRows' own equivalent (recap.go) -
+	// see showOutputWithOrigin's own doc comment for what "recap-origin"
+	// actually changes.
+	showOutputFromRecap := func(task *playbook.TaskNode, host string) {
+		showOutputWithOrigin(task, host, true)
 	}
 
 	// navigateOutputTask moves the output page to the previous/next task
@@ -769,7 +814,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if newIdx < 0 || newIdx >= len(tasks) {
 			return
 		}
-		showOutput(tasks[newIdx], outputHost)
+		showOutputWithOrigin(tasks[newIdx], outputHost, viewingOutputFromRecap)
 	}
 
 	rebuild = func() {
@@ -996,7 +1041,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				uikit.Row{Text: recapNarrativeRowText(state, elapsed), ID: recapNarrativeRow},
 				uikit.Row{Text: "", ID: recapDividerAfterNarrative},
 			)
-			currentRows = append(currentRows, flattenRecapRows(state, recapHostExpanded, recapCategoryExpanded, showOutput)...)
+			currentRows = append(currentRows, flattenRecapRows(state, recapHostExpanded, recapCategoryExpanded, showOutputFromRecap)...)
 		}
 
 		if len(currentRows) == 0 {
@@ -1149,7 +1194,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if newIdx < 0 || newIdx >= len(hosts) {
 			return
 		}
-		showOutput(outputTask, hosts[newIdx])
+		showOutputWithOrigin(outputTask, hosts[newIdx], viewingOutputFromRecap)
 	}
 
 	// expandAll/collapseAll back the main tree's E/C shortcuts.
@@ -1976,6 +2021,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// the way out.
 	closeOutput := func() {
 		viewingOutput = false
+		viewingOutputFromRecap = false
 		splitMode = false
 		bottomBar.SetText(currentMainBottomBarText())
 		switchPage("main")
