@@ -130,41 +130,135 @@ func FormatRevisitTime(raw string) string {
 	return t.Local().Format("2006-01-02 15:04:05")
 }
 
-// RevisitStatusLabel renders e's own exit code as a short, explicit status
-// word - "Success" (exit 0), "Aborted" (exit 99, runner.AnsibleUserInterruptedExitCode -
-// the user's own q/Ctrl-C, not a real failure - main.go treats it
-// identically), or "Failed (N)" for any other exit code, N being the
-// literal code (including -1, this app's own sentinel for "the process
-// never even started" - see SpawnGeneration/runner.NewRequestRerun's own spawn-
-// failure path). Spelled out rather than left to color alone: a color-only
-// "red timestamp means it failed" turned out not to read clearly on its
-// own (live feedback) - matches this app's own existing precedent
-// elsewhere of never relying on color as the sole signal (Morehosts.md's
-// monochrome-terminal fallback for the tree's own host-color list).
-func RevisitStatusLabel(exitCode int) string {
+// ansible-core's own TaskQueueManager exit-code bits
+// (lib/ansible/executor/task_queue_manager.py). ansible-playbook's real
+// exit code is a bitmask of these, ORed together across a multi-play run -
+// not a flat enum - so e.g. 6 means "some hosts failed AND some were
+// unreachable in the same run" (tqmFailedHostsBit|tqmUnreachableHostsBit),
+// not some sixth, independent state. tqmMaxBitmask (15) is every bit set at
+// once - the upper bound of what a genuine ansible-playbook run can ever
+// legitimately produce this way; a code outside that range (having reached
+// here past the fixed cases below) is something this app doesn't
+// recognize, not a bitmask to decode.
+const (
+	tqmErrorBit            = 1 // generic/unhandled AnsibleError
+	tqmFailedHostsBit      = 2 // at least one host failed a task
+	tqmUnreachableHostsBit = 4 // at least one host was unreachable
+	tqmBreakPlayBit        = 8 // any_errors_fatal aborted a play early
+	tqmMaxBitmask          = tqmErrorBit | tqmFailedHostsBit | tqmUnreachableHostsBit | tqmBreakPlayBit
+)
+
+// unhandledExceptionExitCode is ansible-playbook's own fixed exit code for
+// an uncaught Python exception in the CLI's outermost error handler (a
+// traceback on stderr) - fixed, like AnsibleUserInterruptedExitCode, not
+// part of the TaskQueueManager bitmask above.
+const unhandledExceptionExitCode = 250
+
+// classifyExit is the single place that decides what an exit code *means*
+// - RevisitStatusLabel/RevisitStatusColor are thin readers of its result,
+// so the two can never silently disagree on what a given code represents.
+// hadUnreachable resolves the one genuine ambiguity left after the fixed
+// cases and the bitmask are both accounted for: exit code 4 alone is
+// produced by *two* unrelated ansible-playbook code paths that happen to
+// hardcode the identical value - TaskQueueManager's own
+// RUN_UNREACHABLE_HOSTS bit, and the CLI's entirely separate
+// AnsibleParserError handler (a static-include syntax error, resolved
+// before TaskQueueManager ever runs) - and the exit code alone can't tell
+// them apart. Only real event evidence can (resolveHadUnreachable, below);
+// nil means "couldn't determine" (log missing/pruned), which is treated as
+// the safer of the two readings, "Failed", rather than assumed benign. Any
+// other bit being set alongside 4 already resolves unambiguously via the
+// bitmask cases below - the collision only exists when 4 is the *entire*
+// code.
+func classifyExit(exitCode int, hadUnreachable *bool) (label, color string) {
 	switch exitCode {
+	case -1: // this app's own sentinel: the process never even started -
+		// see SpawnGeneration/runner.NewRequestRerun's own spawn-failure path.
+		return "Failed", "red"
 	case 0:
-		return "Success"
-	case runner.AnsibleUserInterruptedExitCode:
-		return "Aborted"
-	default:
-		return fmt.Sprintf("Failed (%d)", exitCode)
+		return "Success", "green"
+	case runner.AnsibleUserInterruptedExitCode: // 99, the user's own q/Ctrl-C
+		return "Aborted", "gray"
+	case unhandledExceptionExitCode: // 250
+		return "Failed", "red"
 	}
+
+	if exitCode > 0 && exitCode <= tqmMaxBitmask {
+		switch {
+		case exitCode&tqmFailedHostsBit != 0:
+			// Dominates regardless of what else is set - 6
+			// (failed|unreachable) reads as "Host failed," not
+			// "Success," since a genuine failure happened too.
+			return "Host failed", "red"
+		case exitCode&tqmBreakPlayBit != 0:
+			return "Failed", "red"
+		case exitCode&tqmErrorBit != 0:
+			// Also covers AnsibleOptionsError's own fixed exit code 5
+			// (bad CLI args) colliding with the bitmask reading
+			// tqmErrorBit|tqmUnreachableHostsBit - both readings are
+			// already "Failed," so there's nothing to disambiguate.
+			return "Failed", "red"
+		case exitCode == tqmUnreachableHostsBit: // == 4, and ONLY that bit
+			if hadUnreachable != nil && *hadUnreachable {
+				return "Success", "green"
+			}
+			return "Failed", "red"
+		}
+	}
+	return fmt.Sprintf("Failed (%d)", exitCode), "red" // genuinely unrecognized
+}
+
+// RevisitStatusLabel renders e's own exit code as a short, explicit status
+// word via classifyExit - see its own doc comment for what each word
+// means and why. Spelled out rather than left to color alone: a
+// color-only "red timestamp means it failed" turned out not to read
+// clearly on its own (live feedback) - matches this app's own existing
+// precedent elsewhere of never relying on color as the sole signal
+// (Morehosts.md's monochrome-terminal fallback for the tree's own
+// host-color list). hadUnreachable is only consulted for the exit-4
+// collision (classifyExit); pass nil when it's not known/relevant.
+func RevisitStatusLabel(exitCode int, hadUnreachable *bool) string {
+	label, _ := classifyExit(exitCode, hadUnreachable)
+	return label
 }
 
 // RevisitStatusColor is RevisitStatusLabel's own color, shared with the
 // selected-row case only insofar as an unselected row applies it directly
 // (a selected row uses the uniform PureBlack-on-lightgray convention
 // instead, matching host.go's own HostRowText - see RevisitRowText).
-func RevisitStatusColor(exitCode int) string {
-	switch {
-	case exitCode == 0:
-		return "green"
-	case exitCode == runner.AnsibleUserInterruptedExitCode:
-		return "gray"
-	default:
-		return "red"
+func RevisitStatusColor(exitCode int, hadUnreachable *bool) string {
+	_, color := classifyExit(exitCode, hadUnreachable)
+	return color
+}
+
+// resolveHadUnreachable answers classifyExit's own "did this entry's run
+// really see an unreachable host?" question by scanning its saved .jsonl
+// for a real v2_runner_on_unreachable event - the same ground truth the
+// live tree's own HadUnreachable is built from (aggregate.go), just
+// replayed from disk instead of live events, and only for entries whose
+// exit code actually needs it (see the ExitCode == tqmUnreachableHostsBit
+// guard at this function's one call site, RunRevisitListTUI) - most
+// entries never pay for this I/O at all. Returns nil - "couldn't
+// determine" - if the log can't be opened; ResolveRevisitEntries already
+// only ever produces entries with a non-empty RunID, but a file can still
+// vanish between resolving the list and opening it here, and this
+// function makes no assumption either way.
+func resolveHadUnreachable(e RevisitEntry) *bool {
+	jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, e.RunID)
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return nil
 	}
+	defer f.Close()
+
+	found := false
+	for item := range runner.ScanEvents(f, nil) {
+		if item.IsEvent && item.Ev.Event == "v2_runner_on_unreachable" {
+			found = true
+			break // no need to scan the rest of a possibly-large run
+		}
+	}
+	return &found
 }
 
 // RevisitRowText renders one list row: <timestamp> - <status, padded to
@@ -172,18 +266,23 @@ func RevisitStatusColor(exitCode int) string {
 // labelWidth is the widest RevisitStatusLabel across the whole list
 // currently shown (computed once by RunRevisitListTUI, not per row), so
 // every row's own trailing " - tangsible ..." column lines up regardless
-// of which row's own label happens to be shortest. Selected styling
-// matches host.go's own HostRowText convention (uniform PureBlack on
-// lightgray, no per-segment color) rather than reinventing a second one.
-func RevisitRowText(e RevisitEntry, labelWidth int, selected bool) string {
+// of which row's own label happens to be shortest. hadUnreachable is
+// e's own precomputed resolveHadUnreachable result (nil for every entry
+// that doesn't need it - see RunRevisitListTUI) - resolving it here
+// instead would re-scan that entry's .jsonl on every single cursor move,
+// since this function is called fresh for every row on every rebuild.
+// Selected styling matches host.go's own HostRowText convention (uniform
+// PureBlack on lightgray, no per-segment color) rather than reinventing a
+// second one.
+func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, selected bool) string {
 	ts := FormatRevisitTime(e.Time)
 	cmd := RevisitCommandText(e)
-	label := RevisitStatusLabel(e.ExitCode)
+	label, color := classifyExit(e.ExitCode, hadUnreachable)
 	padded := label + strings.Repeat(" ", labelWidth-len([]rune(label)))
 	if selected {
 		return fmt.Sprintf("[%s:lightgray:b]%s - %s - %s[-:-:-]", uikit.PureBlack, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
 	}
-	return fmt.Sprintf("[white]%s[-] - [%s]%s[-] - %s", tview.Escape(ts), RevisitStatusColor(e.ExitCode), tview.Escape(padded), tview.Escape(cmd))
+	return fmt.Sprintf("[white]%s[-] - [%s]%s[-] - %s", tview.Escape(ts), color, tview.Escape(padded), tview.Escape(cmd))
 }
 
 // RunRevisitListTUI shows entries (already filtered/sorted newest-first by
@@ -222,13 +321,26 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntr
 		AddItem(list, 0, 1, true).
 		AddItem(footer, 1, 0, false)
 
+	// hadUnreachable resolves classifyExit's own exit-4 ambiguity once per
+	// entry, up front - not per row-render, which would re-scan a
+	// possibly-large .jsonl on every single cursor move (rebuildRows runs
+	// on every SetChangedFunc). Only entries whose exit code is exactly 4
+	// pay for this I/O at all; every other entry's map lookup below is
+	// just a nil, matching classifyExit's own "unknown" default.
+	hadUnreachable := make(map[string]*bool, len(entries))
+	for _, e := range entries {
+		if e.ExitCode == tqmUnreachableHostsBit {
+			hadUnreachable[e.RunID] = resolveHadUnreachable(e)
+		}
+	}
+
 	// labelWidth is the widest status label across the whole list, computed
 	// once up front (entries is fully known already, unlike the live tree's
 	// incrementally-growing rows) so every row's own label column lines up -
 	// see RevisitRowText's own doc comment.
 	labelWidth := 0
 	for _, e := range entries {
-		if w := len([]rune(RevisitStatusLabel(e.ExitCode))); w > labelWidth {
+		if w := len([]rune(RevisitStatusLabel(e.ExitCode, hadUnreachable[e.RunID]))); w > labelWidth {
 			labelWidth = w
 		}
 	}
@@ -251,7 +363,7 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntr
 		list.Clear()
 		for i, e := range entries {
 			e := e
-			list.AddItem(RevisitRowText(e, labelWidth, i == selectedIdx), func() {
+			list.AddItem(RevisitRowText(e, hadUnreachable[e.RunID], labelWidth, i == selectedIdx), func() {
 				selected = e
 				chosen = true
 				app.Stop()
