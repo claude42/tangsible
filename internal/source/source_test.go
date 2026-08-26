@@ -38,7 +38,7 @@ func TestBuildTaskSourceIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	index, _ := BuildTaskSourceIndex(path)
+	index, _, _ := BuildTaskSourceIndex(path)
 
 	wantNames := []string{"ok task", "changed task", "skipped task", "failed task", "after failure"}
 	if len(index) != len(wantNames) {
@@ -66,12 +66,15 @@ func TestBuildTaskSourceIndex_NonexistentPlaybook(t *testing.T) {
 	// empty. An empty temp dir is the only way to get a genuinely empty
 	// result.
 	path := filepath.Join(t.TempDir(), "does-not-exist.yml")
-	index, tags := BuildTaskSourceIndex(path)
+	index, tags, names := BuildTaskSourceIndex(path)
 	if len(index) != 0 {
 		t.Errorf("got %d entries, want 0 for a nonexistent playbook in an empty directory", len(index))
 	}
 	if len(tags) != len(ReservedTagNames) {
 		t.Errorf("got %d tags, want just the %d reserved names for a nonexistent playbook", len(tags), len(ReservedTagNames))
+	}
+	if len(names) != 0 {
+		t.Errorf("got %d task names, want 0 for a nonexistent playbook in an empty directory", len(names))
 	}
 }
 
@@ -110,7 +113,7 @@ func TestBuildTaskSourceIndex_CollectsTags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, tags := BuildTaskSourceIndex(path)
+	_, tags, _ := BuildTaskSourceIndex(path)
 
 	want := map[string]bool{
 		"foo": true, "bar": true, "baz": true,
@@ -155,5 +158,73 @@ func TestBuildTaskSourceIndex_CollectsTags(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf(`tags contains "always" %d times, want exactly 1 (reserved ∪ discovered must dedupe)`, count)
+	}
+}
+
+func TestBuildTaskSourceIndex_CollectsTaskNames(t *testing.T) {
+	playbookYAML := `
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: plain task
+      debug:
+        msg: hi
+    - name: "{{ dynamic_name }}"
+      debug:
+        msg: hi
+    - debug:
+        msg: no name at all
+    - name: grouped tasks
+      block:
+        - name: inside the block
+          debug:
+            msg: hi
+      rescue:
+        - name: inside rescue
+          debug:
+            msg: hi
+  roles:
+    - myrole
+`
+	roleTasksYAML := `
+- name: role task
+  debug:
+    msg: hi
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "site.yml")
+	if err := os.WriteFile(path, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	roleTasksDir := filepath.Join(dir, "roles", "myrole", "tasks")
+	if err := os.MkdirAll(roleTasksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(roleTasksDir, "main.yml"), []byte(roleTasksYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, names := BuildTaskSourceIndex(path)
+
+	want := []string{"plain task", "inside the block", "inside rescue", "role task"}
+	for _, w := range want {
+		found := false
+		for _, got := range names {
+			if got == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("names = %v, missing %q", names, w)
+		}
+	}
+	dontWant := []string{"grouped tasks", "{{ dynamic_name }}", ""}
+	for _, dw := range dontWant {
+		for _, got := range names {
+			if got == dw {
+				t.Errorf("names = %v, unexpectedly contains %q", names, dw)
+			}
+		}
 	}
 }

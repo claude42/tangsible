@@ -77,8 +77,12 @@ import (
 // value) is every literal tags: value found in the playbook/role tree,
 // unioned with source.ReservedTagNames - the re-run dialog's Tags/Skip
 // tags fields' own autocomplete candidate list (design-docs/Autocomplete.md).
-// Hosts need no equivalent parameter: the Limit hosts field's own
-// candidates come straight from state.AllHosts, already in scope.
+// knownTaskNames (BuildTaskSourceIndex's third return value) is the same
+// idea for the "Start with task" field - every literal task name: found
+// the same static way, deliberately not sourced from state.AllTasks (see
+// BuildTaskSourceIndex's own doc comment for why). Hosts need no
+// equivalent parameter: the Limit hosts field's own candidates come
+// straight from state.AllHosts, already in scope.
 //
 // startExpanded governs the very first task row's own initial
 // expand/collapse state (`.tangsible`'s general.default_tree_state - see
@@ -132,7 +136,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags []string, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownTaskNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -609,23 +613,34 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// the only way to source any tag at all, since Ansible's own event
 	// stream never carries a task's tags); hostsField reads state.AllHosts
 	// fresh on every call via closure, so its own candidates keep growing
-	// as the run discovers more hosts. matchTags/matchHosts are also
-	// called directly from SetInputCapture below (autocompleteOpenNow) -
-	// recomputed from the field's own current text on every check rather
-	// than mirrored into a bool set only inside these callbacks, since
-	// InputField.Blur() clears its drop-down internally without
-	// re-invoking this callback, which would let a mirrored flag go stale
-	// across a mouse-driven focus change. acDismissed below is a second,
-	// narrower bool for a different, Escape-specific reason - see its own
-	// comment.
+	// as the run discovers more hosts; taskField shares knownTags'
+	// static-scan origin (BuildTaskSourceIndex's third return value,
+	// knownTaskNames) rather than the live state.AllTasks - see
+	// BuildTaskSourceIndex's own doc comment for why. matchTags/matchHosts/
+	// matchTask are also called directly from SetInputCapture below
+	// (autocompleteOpenNow) - recomputed from the field's own current text
+	// on every check rather than mirrored into a bool set only inside
+	// these callbacks, since InputField.Blur() clears its drop-down
+	// internally without re-invoking this callback, which would let a
+	// mirrored flag go stale across a mouse-driven focus change.
+	// acDismissed below is a second, narrower bool for a different,
+	// Escape-specific reason - see its own comment.
 	matchTags := func(text string) []string { return matchToken(knownTags, text) }
 	matchHosts := func(text string) []string { return matchToken(state.AllHosts, text) }
-	wireAutocomplete := func(field *tview.InputField, match func(string) []string) {
+	matchTask := func(text string) []string { return matchTaskName(knownTaskNames, text) }
+	// wireAutocomplete's apply func decides how a picked suggestion gets
+	// written back into the field: replaceLastToken for the
+	// comma-separated multi-value fields (Tags/Skip tags/Hosts - only the
+	// token currently being typed is replaced, everything before the last
+	// comma is carried through untouched), or a plain whole-field replace
+	// for taskField, which - unlike the other three - has only ever one
+	// value to begin with, so there's no earlier token to preserve.
+	wireAutocomplete := func(field *tview.InputField, match func(string) []string, apply func(current, picked string) string) {
 		field.SetAutocompleteFunc(match).
-			SetAutocompleteUseTags(false). // plain hostnames/tags, and
-			// avoids a literal '[' in one being misread as a color tag -
-			// the same class of bug this app guards against everywhere
-			// else dynamic text meets a tags-aware widget.
+			SetAutocompleteUseTags(false). // plain hostnames/tags/task
+			// names, and avoids a literal '[' in one being misread as a
+			// color tag - the same class of bug this app guards against
+			// everywhere else dynamic text meets a tags-aware widget.
 			SetAutocompletedFunc(func(text string, index, source int) bool {
 				// Navigating (arrow keys) only moves the highlight within
 				// the drop-down itself - deliberately not previewed into
@@ -639,13 +654,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				if source == tview.AutocompletedNavigate {
 					return false
 				}
-				field.SetText(replaceLastToken(field.GetText(), text))
+				field.SetText(apply(field.GetText(), text))
 				return true
 			})
 	}
-	wireAutocomplete(tagsField, matchTags)
-	wireAutocomplete(skipTagsField, matchTags)
-	wireAutocomplete(hostsField, matchHosts)
+	wireAutocomplete(tagsField, matchTags, replaceLastToken)
+	wireAutocomplete(skipTagsField, matchTags, replaceLastToken)
+	wireAutocomplete(hostsField, matchHosts, replaceLastToken)
+	wireAutocomplete(taskField, matchTask, func(current, picked string) string { return picked })
 
 	// acDismissed tracks whether the user has already Escaped the
 	// currently-showing drop-down once - needed alongside the plain
@@ -655,13 +671,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// (e.g. text "database" still substring-matches itself), which would
 	// swallow every subsequent Escape as "dismiss the drop-down" forever
 	// and never actually close the dialog. Reset to false by
-	// resetDismissed, wired to all three fields' own SetChangedFunc, so
+	// resetDismissed, wired to all four fields' own SetChangedFunc, so
 	// any real text change (typing, or a pick) starts a fresh interaction
 	// - only set true from SetInputCapture's own Escape case, right when
 	// it lets an Escape through to dismiss what it believes is currently
 	// showing.
 	var acDismissed bool
 	resetDismissed := func(string) { acDismissed = false }
+	taskField.SetChangedFunc(resetDismissed)
 	tagsField.SetChangedFunc(resetDismissed)
 	skipTagsField.SetChangedFunc(resetDismissed)
 	hostsField.SetChangedFunc(resetDismissed)
@@ -676,6 +693,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			return false
 		}
 		switch {
+		case taskField.HasFocus():
+			return len(matchTask(taskField.GetText())) > 0
 		case tagsField.HasFocus():
 			return len(matchTags(tagsField.GetText())) > 0
 		case skipTagsField.HasFocus():

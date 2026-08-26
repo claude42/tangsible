@@ -233,7 +233,7 @@ func Main() {
 	// doesn't pay for it - "rerun" has no such gate to be after (see
 	// pending's own case above), so it's simply built before anything
 	// else instead.
-	sourceIndex, knownTags := source.BuildTaskSourceIndex(playbook)
+	sourceIndex, knownTags, knownTaskNames := source.BuildTaskSourceIndex(playbook)
 
 	// progH holds the current (or about-to-run) generation's own
 	// "Task x/y" progress skeleton (progress.go) - an atomic.Pointer
@@ -324,7 +324,7 @@ func Main() {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownTaskNames, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)

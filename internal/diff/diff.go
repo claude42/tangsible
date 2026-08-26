@@ -137,7 +137,7 @@ func RunDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRol
 		// gone, same accepted gap documented there).
 		var oldSourceIndex source.TaskSourceIndex
 		if selected.Role == "" {
-			oldSourceIndex, _ = source.BuildTaskSourceIndex(selected.Playbook)
+			oldSourceIndex, _, _ = source.BuildTaskSourceIndex(selected.Playbook)
 		}
 
 		RunDiffTreeTUI(AlignPlays(oldState, currentState), currentSourceIndex, oldSourceIndex)

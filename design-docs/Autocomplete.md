@@ -33,7 +33,8 @@ both worth recording since they shape the design:
 
 * Scope: `tagsField`, `skipTagsField`, `hostsField`. Not `taskField` - a
   single value with a different completion shape, and not what this was
-  asked for.
+  asked for. (`taskField` gained its own single-value autocomplete in a
+  later pass - see "Task name autocomplete" below.)
 * Suggestions are purely advisory. Whatever the user has typed is always
   valid to submit, drop-down or no drop-down, matched entry or not - a
   host-limit pattern like `web:!excluded` or a brand-new tag that's never
@@ -239,7 +240,6 @@ wrong once it's on screen.
 
 ## Not in this pass
 
-* `taskField` autocomplete (different, single-value completion shape).
 * Mid-token editing (cursor moved back into an earlier token) - a real
   limitation of `tview`'s callback API (full text only, no cursor
   position), not chased around.
@@ -331,3 +331,79 @@ showing most of the time - ordinary floating-dropdown behavior, the same
 tradeoff any GUI combobox that overlaps sibling content makes. Left as-is;
 revisit only if real use finds it actually confusing rather than just
 busy.
+
+## Task name autocomplete (Claude, 2026-08-26)
+
+Picked back up as a real follow-up, not a hypothetical: `taskField` was
+the one field left out above, and the natural question is where its
+candidate list should come from.
+
+**Considered and rejected: shelling out to `ansible-playbook
+--list-tasks`.** It would need to run as a subprocess before/while the
+dialog is open, so unlike everything else in this feature it couldn't be
+a synchronous lookup - it'd need the same async-fetch-plus-cache
+machinery the Resolved/Docs tabs already use (CLAUDE.md's "Docs tab"
+section), just to populate a suggestion list. It also has no
+machine-readable output mode (no JSON, unlike most of `ansible-playbook`'s
+own tooling) - parsing its plain indented text would be the same class of
+fragile problem `ansibledoc.go` already has to work around for
+`ansible-doc`'s own plain-text output. And it needs a fully resolvable
+inventory/extra-vars/lookup-plugin context to run at all - for the
+`rerun` verb's very first dialog (before any generation of this session
+has ever actually run), that context may not even be the one that's about
+to be used. None of that is worth paying for something `source.go`
+already computes for free.
+
+**What's used instead: the same static scan that already sources
+`knownTags`.** `BuildTaskSourceIndex` (`source.go`) already visits every
+task's own YAML mapping node (`indexTaskList` → `recordNode`) to build the
+`TASK:` source index, and was already extended once to also read each
+task's `tags:` value off that same node while it's in hand. Reading each
+task's `name:` value at the same point costs nothing extra - no second
+directory walk, no subprocess, and (unlike sourcing from
+`PlaybookState.AllTasks`, the live equivalent hosts/tags don't have) no
+dependency on a generation having actually run yet, which matters for
+`rerun`'s startup dialog specifically. `BuildTaskSourceIndex` gained a
+third return value, `knownTaskNames []string` (sorted, deduplicated,
+literal names only - the same `{{`-templated-value skip `collectTags`
+already applies), collected by a new `collectTaskName`, called from
+`indexTaskList` right alongside the existing `collectTags` call. One
+extra rule `collectTags` doesn't need: a `block:`/`rescue:`/`always:`
+wrapper's own `name:` (if it has one) is skipped - Ansible's own event
+stream never reports a task-start for the wrapper itself, only for the
+individual tasks nested inside it (each of those already collected
+separately, when this same walk recurses into the wrapper via
+`walkMappingForTaskLists`) - so a wrapper's own name would be a candidate
+`--start-at-task` could never actually match against.
+
+**Wiring is simpler than Tags/Skip tags/Hosts, not harder.** Those three
+are comma-separated multi-value fields, needing `lastToken`/
+`replaceLastToken` to isolate and replace just the token currently being
+typed. `taskField` only ever holds one value, so it needed neither: a new
+`matchTaskName(candidates, text)` matches the field's *whole* trimmed text
+directly (no comma splitting, no "already-present" exclusion - a task is
+only ever entered once), and its own `SetAutocompletedFunc` just replaces
+the whole field's text with the picked candidate. Both `matchToken` and
+`matchTaskName` now share one extracted core, `filteredMatch` (the
+prefix-then-substring-match-then-cap logic itself), so the actual
+matching rules stay identical between the multi-value and single-value
+fields even though the token-isolation step around them differs.
+`wireAutocomplete` (`tui.go`) gained an `apply func(current, picked
+string) string` parameter to express that one difference -
+`replaceLastToken` for the three existing fields, a plain `func(_, picked
+string) string { return picked }` for `taskField` - rather than a
+separate, near-duplicate wiring function.
+
+Everything else - the drop-down itself, `SetInputCapture`'s Enter/Escape
+interception (`autocompleteOpenNow` gained a `taskField.HasFocus()` case,
+same shape as the other three), `acDismissed`/`resetDismissed`, and
+`SetMouseCapture`'s click band below `rerunForm` - already applied
+generically to "whichever field is focused" and needed no changes at all
+to also cover `taskField`.
+
+Known, accepted gaps, same posture as the ones already listed above: a
+task with no `name:` at all (Ansible auto-generates a display name from
+its module/args, not a literal string this static scan can see) suggests
+nothing; duplicate task names across a playbook are inherently ambiguous
+to `--start-at-task` itself, not something autocomplete introduces or can
+resolve.

@@ -17,7 +17,7 @@ package session
 import "strings"
 
 // autocompleteMaxEntries caps how many suggestions the re-run dialog's
-// Tags/Skip tags/Hosts fields will ever show at once (design-docs/
+// Task/Tags/Skip tags/Hosts fields will ever show at once (design-docs/
 // Autocomplete.md) - an arbitrary, fixed budget for keeping the drop-down
 // a small, predictable size, in the same spirit as this app's other fixed
 // budgets (splitMinTotalWidth, maxHistoryPerPlaybook).
@@ -46,22 +46,64 @@ func lastToken(text string) (token string, earlier map[string]bool) {
 // SetAutocompleteFunc callback for its Tags/Skip tags/Hosts fields
 // (design-docs/Autocomplete.md). An empty token (bare focus, or right
 // after a comma) returns nil - no drop-down until the user has actually
-// started typing something. Case-insensitive prefix match wins; if
-// nothing has that prefix, a substring match instead. Candidates already
-// present earlier in text are excluded. Capped at autocompleteMaxEntries;
-// suggestions are purely advisory, so truncation here only ever means
-// "fewer choices shown," never "a valid value became unavailable" - the
-// user can still always just finish typing it themselves.
+// started typing something. Candidates already present earlier in text
+// are excluded. See filteredMatch for the matching/capping rules
+// themselves, shared with matchTaskName below.
 func matchToken(candidates []string, text string) []string {
 	token, earlier := lastToken(text)
 	if token == "" {
 		return nil
 	}
+	return filteredMatch(candidates, token, earlier)
+}
+
+// matchTaskName returns candidates matching text as a whole - the re-run
+// dialog's own SetAutocompleteFunc callback for its single-valued "Start
+// with task" field (design-docs/Autocomplete.md), unlike
+// tagsField/skipTagsField/hostsField above: there's no comma-separated
+// token to isolate, and no "earlier" entries to exclude (a task is only
+// ever entered once). An empty/whitespace-only text returns nil, same
+// "no drop-down until the user has actually started typing" rule as
+// matchToken.
+//
+// A text that already exactly (case-insensitively) equals one of the
+// candidates also returns nil - a real bug hit live, not a hypothetical:
+// wireAutocomplete's own apply func for this field is a plain whole-field
+// replace (no trailing ", " the way replaceLastToken leaves for the
+// comma-separated fields, which is what makes their own next match empty
+// right after a pick), so without this check, the text left behind by
+// picking "changed task" still self-matches "changed task" on the very
+// next SetAutocompleteFunc call. autocompleteOpenNow (tui.go) would then
+// keep reporting the drop-down as open even though tview's own
+// autocompleteList is already nil, permanently stealing that field's
+// Enter key away from submitRerun.
+func matchTaskName(candidates []string, text string) []string {
+	token := strings.TrimSpace(text)
+	if token == "" {
+		return nil
+	}
+	lowerToken := strings.ToLower(token)
+	for _, c := range candidates {
+		if strings.ToLower(c) == lowerToken {
+			return nil
+		}
+	}
+	return filteredMatch(candidates, token, nil)
+}
+
+// filteredMatch is matchToken/matchTaskName's shared core: case-insensitive
+// prefix match against token wins; if nothing has that prefix, a substring
+// match instead. Any candidate present in exclude (nil is fine - matchTaskName
+// has nothing to exclude) is skipped. Capped at autocompleteMaxEntries;
+// suggestions are purely advisory, so truncation here only ever means
+// "fewer choices shown," never "a valid value became unavailable" - the
+// user can still always just finish typing it themselves.
+func filteredMatch(candidates []string, token string, exclude map[string]bool) []string {
 	lowerToken := strings.ToLower(token)
 
 	var prefixMatches, substringMatches []string
 	for _, c := range candidates {
-		if earlier[c] {
+		if exclude[c] {
 			continue
 		}
 		lc := strings.ToLower(c)

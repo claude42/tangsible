@@ -84,6 +84,44 @@ func TestMatchTokenCapsAtMaxEntries(t *testing.T) {
 	}
 }
 
+func TestMatchTaskName(t *testing.T) {
+	candidates := []string{"install web packages", "restart web service", "gather facts", "always runs"}
+
+	cases := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"empty text, no suggestions", "", nil},
+		{"whitespace-only text, no suggestions", "   ", nil},
+		{"prefix match, case-insensitive", "REST", []string{"restart web service"}},
+		{"substring fallback when no prefix match", "web serv", []string{"restart web service"}},
+		{"no comma-token isolation, whole text matched", "install web", []string{"install web packages"}},
+		{"exact match to a candidate suggests nothing further", "restart web service", nil},
+		{"exact match is case-insensitive", "RESTART WEB SERVICE", nil},
+		{"no match at all", "zzz", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := matchTaskName(candidates, c.text)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("matchTaskName(%v, %q) = %v, want %v", candidates, c.text, got, c.want)
+			}
+		})
+	}
+}
+
+func TestMatchTaskNameCapsAtMaxEntries(t *testing.T) {
+	var candidates []string
+	for i := 0; i < autocompleteMaxEntries+5; i++ {
+		candidates = append(candidates, "task "+string(rune('a'+i)))
+	}
+	got := matchTaskName(candidates, "task")
+	if len(got) != autocompleteMaxEntries {
+		t.Fatalf("matchTaskName returned %d entries, want %d (capped)", len(got), autocompleteMaxEntries)
+	}
+}
+
 func TestReplaceLastToken(t *testing.T) {
 	cases := []struct {
 		text        string
