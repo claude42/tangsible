@@ -3,11 +3,13 @@
 **A live terminal UI for `ansible-playbook`, for the person actually
 watching it run.**
 
+
 Tangsible wraps `ansible-playbook` in a live, navigable tree of plays → tasks
-→ hosts, color-coded by outcome. It comes up immediately, updates live while
-the run is still in progress, and lets you drill into any host's result —
-task source, output, stderr, diff, full JSON — without losing your place in
-the run.
+→ hosts, color-coded by outcome. It let's you efficiently monitor running playbooks and drill into any task results, outputs, variable definitions etc. without loosing your place in the run.
+
+You can rerun playbooks or parts of it as well as revisit and compare previous runs.
+
+In addition tangsible provide useful functionality to debug Jinja2 templates, edit individual encrypted variables and analyze host information.
 
 ![Tangsible demo](assets/demo.gif)
 
@@ -98,7 +100,9 @@ normally require writing temporary playbooks.
 
 - **Run / test a role in isolation** with `tangsible role <role>`.
 - **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
+- **Easily edited individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
 - A **host-centric view** about every relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, groups, plays, host_vars
+
 
 ## Requirements
 
@@ -224,6 +228,16 @@ that role's variables available automatically.
 
 Press `e` to open the template in `$VISUAL` / `$EDITOR` and render it again
 after saving.
+
+## Encrypt individual variables
+
+`ansible-vault`either allows you to encrypt a whole file via `edit` or `encrypt`- which will result in huge diff on every change or you can create individually encrypted variables via `encrypt_string` which involves specifying secrets on the command line, copy/pasting encrypted strings and decryption is even more messy.
+
+```
+tangsible vault <filename>
+```
+
+provides an `ansible-vault edit` like experience but operates on individual variables. One can simply add / edit / remove encrypted variables in the text editor while diffs stay minimal.
 
 ## Analyze hosts
 
