@@ -3,8 +3,11 @@
 Covers both `tangsible run`/`rerun`/`role` (the live tree UI, `tui.go`) and
 `tangsible template` (the standalone template-debugging UI, `template.go`)
 - two separate programs with their own key/mouse handling, noted separately
-below. A short "Possible inconsistencies" section at the end collects
-things worth a second look while reviewing this list, not necessarily bugs.
+below. `tangsible hosts`/`tangsible host` (`host.go`) and `tangsible diff`
+(`diff.go`) aren't otherwise covered by this document, but share the same
+in-tab search feature described below, so that one section applies to them
+too. A short "Possible inconsistencies" section at the end collects things
+worth a second look while reviewing this list, not necessarily bugs.
 
 ## In the main tree view
 
@@ -22,15 +25,15 @@ things worth a second look while reviewing this list, not necessarily bugs.
 * < / >            - same as Home / End
 * G                - move cursor to end of list (same as End - does not
                      resume autoscrolling)
-* n / p            - move to next / previous task, expand the task if
+* n / N            - move to next / previous task, expand the task if
                      necessary, if cursor was on a specific host on the
                      current task, position cursor on same host in the new
                      task (falls back to the task's own row if that host
                      hasn't reported a result for it yet). From a play row,
                      next/prev targets that play's own first task, or the
-                     previous play's last task
-* Shift-N          - same as p (previous task) - an alias, not a separate
-                     "previous of something else"
+                     previous play's last task. There is no separate 'p' -
+                     n/N is this app's one convention for stepping through
+                     a sequence, everywhere it appears
 * Cursor right     - expand tree element (no-op if already expanded, or on
                      a host row / play row)
 * Cursor left      - collapse tree element; on a host row, collapses its
@@ -115,11 +118,18 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
                      NOT quit the app, unlike bare `q` everywhere else
 * Cursor left / right - show the same tab's content for the previous /
                      next host on this task (no wraparound)
-* n / p            - show the same tab's content for the next / previous
+* n / N            - show the same tab's content for the next / previous
                      task, same host (no wraparound; skips tasks hidden by
-                     the active filter)
-* Shift-N          - same as p (previous task) - an alias, not a separate
-                     "previous of something else"
+                     the active filter). No separate 'p' - see the main
+                     tree's own n/N entry above. Context-sensitive: while
+                     an in-tab search (see "In-tab search" below) has at
+                     least one match, n/N step through matches instead
+* /                - open the in-tab search prompt (see "In-tab search"
+                     below) - search text visible in the *currently
+                     active tab only*, not the tree's own row-filtering
+                     Search dialog further down this document (a
+                     different feature, opened with `/` from the main
+                     tree instead)
 * e                - open the file containing the currently displayed
                      task's own source in `$VISUAL`/`$EDITOR` (a foreground
                      subprocess, suspending the TUI - same mechanism as the
@@ -132,7 +142,7 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
 
 When you close the view (Escape/Enter/q), the tree's own cursor updates to
 match whatever (task, host) was last shown - including if you navigated to
-a different one via Cursor left/right or n/p since opening it - and the
+a different one via Cursor left/right or n/N since opening it - and the
 tree auto-expands so that row is visible.
 
 **Mouse**
@@ -140,6 +150,49 @@ tree auto-expands so that row is visible.
 * Click on a tab   - switch to it (same as Tab/Shift-Tab)
 * Click on the top/bottom info bars - no effect (same fix as the main
                      tree's own top/bottom bars, above)
+
+## In-tab search
+
+design-docs/Search.md. Opened with `/` from the drill-down view above, the
+`template` verb, `tangsible hosts`'/`tangsible host`'s own detail view, or
+`tangsible diff`'s own drill-down - same key, same behavior, in every case
+scoped to whichever *tab* is currently active, not the whole session.
+Replaces the bottom bar itself
+(no floating dialog box, unlike the Filter/Search/Re-run dialogs below) -
+the same "take over the terminal's own last line" convention `less`/`vim`/
+`tmux` copy-mode search already use.
+
+* (type freely) - every key but Ctrl-C reaches the search box directly,
+                     including letters that are shortcuts elsewhere (a
+                     search term could legitimately contain any of them)
+* Enter            - run the search: every case-insensitive match in the
+                     active tab's own text is found, the first one is
+                     shown, and the bar switches to a black-on-yellow
+                     status line ("match X of Y", or "no matches"). An
+                     empty query is the same as Esc - no change.
+* Esc              - while typing: cancel with no change. Once a search is
+                     showing results: clear it, restoring the bar to its
+                     normal hint text
+* n / N            - next / previous match, wrapping at either end - only
+                     meaningful once a search has at least one match;
+                     where n/N already mean something else in that view
+                     (drill-down task-hop, host-hop in `tangsible hosts`),
+                     an active search with matches takes priority - see
+                     each view's own n/N entry
+* Ctrl-C           - cancel/close the search prompt (with no change), same
+                     as everywhere else in this app - unconditional, even
+                     mid-search
+
+A search never survives the active tab's own content changing out from
+under it - switching tabs, navigating to a different host/task, an async
+background fetch (Resolved/Docs, or `tangsible hosts`' own Summary/Groups/
+Plays/host_vars/Everything tabs) landing - all clear it automatically,
+rather than leaving it pointing at text that's no longer what's on screen.
+
+While a search is active, the searched tab shows only its plain text plus
+match highlighting - not its own supplementary coloring (Diff's line
+colors, Task's `key:` highlighting) - a deliberate simplification;
+restored the moment the search clears.
 
 ## Filter dialog
 
@@ -193,7 +246,7 @@ box with the previous term.
 
 The title bar always shows the currently active filter, from either
 dialog. If the row the cursor was on is no longer shown under a newly
-applied filter, the cursor moves to the nearest task that still is; n/p
+applied filter, the cursor moves to the nearest task that still is; n/N
 (main tree and command output view alike) and the play-row next/prev
 targets in the main tree view section above all skip over tasks the active
 filter is currently hiding.
@@ -217,14 +270,17 @@ in that order (Cancel left, Re-run right).
                      whichever field has focus normally, including `q` and
                      every other letter that's a shortcut elsewhere - same
                      reasoning as the search dialog's own text box
-* Enter            - while a text field has focus: start the re-run and
-                     close the dialog, regardless of which *field*
-                     currently has focus (tview's own default Enter
-                     behavior inside a form field just moves to the next
-                     field, not what's wanted here). While the Cancel or
-                     Re-run *button* has focus (reached via Tab): triggers
-                     that button instead - Cancel cancels, Re-run submits
-* Esc              - cancel back out: no re-run started, nothing on screen
+* Enter            - while a text field has focus, with no autocomplete
+                     drop-down currently showing (see below): start the
+                     re-run and close the dialog, regardless of which
+                     *field* currently has focus (tview's own default
+                     Enter behavior inside a form field just moves to the
+                     next field, not what's wanted here). While the Cancel
+                     or Re-run *button* has focus (reached via Tab):
+                     triggers that button instead - Cancel cancels, Re-run
+                     submits
+* Esc              - while no autocomplete drop-down is currently showing:
+                     cancel back out, no re-run started, nothing on screen
                      changes (regardless of what has focus)
 * Ctrl-C           - cancel back out *and* quit/interrupt the playbook,
                      same as Ctrl-C always does outside the dialog
@@ -238,6 +294,25 @@ while still empty) - editing them changes what the re-run uses. All four
 fields keep whatever was last typed into them across repeated `r` presses
 within the same session, the same way the search dialog's box remembers the
 last search term.
+
+**Autocomplete** (Tags/Skip tags/Hosts fields only - see
+design-docs/Autocomplete.md): typing the start of a tag or hostname opens a
+drop-down of matches for the comma-separated value currently being typed,
+sourced from every tag literally written in the playbook/role plus
+Ansible's reserved tag names (Tags/Skip tags), or every host seen so far
+this run (Hosts).
+
+* Down             - open the drop-down (if not already open), or move to
+                     the next suggestion
+* Up / PgUp / PgDn - move within the drop-down
+* Enter / Tab      - accept the highlighted suggestion, replacing only the
+                     value currently being typed and leaving the rest of
+                     the field untouched; does *not* also submit the
+                     dialog or move focus - a second Enter/Tab does that,
+                     same as with no drop-down open
+* Esc              - dismiss the drop-down only; a second Esc then cancels
+                     the whole dialog, as above
+* (mouse)          - clicking a suggestion picks it, same as Enter
 
 Starting `tangsible` with the `rerun` verb instead of `run` (see the
 project README for the full command-line syntax) opens this same dialog
@@ -275,14 +350,23 @@ template against one host. Two tabs - Rendered, Source.
                      `git commit` would) - re-renders unconditionally once
                      the editor exits, whether or not anything was saved
 * h                - open the "change host" dialog (see below)
+* /                - open the in-tab search prompt (see "In-tab search"
+                     above) - scoped to whichever of Rendered/Source is
+                     currently active
+* n / N            - next / previous search match, once a search has at
+                     least one - otherwise unbound (this view had no
+                     other use for n/N before search existed)
 * q / Ctrl-C       - quit the program outright - no distinction between the
                      two here, and no interrupt-vs-quit split either, since
                      there's no long-running child process to interrupt
                      (each render is one synchronous `ansible-playbook`
-                     invocation). Esc deliberately does NOT quit here (it
-                     used to, identically to q/Ctrl-C, but that made it too
-                     easy to close the whole program by reflex while just
-                     browsing the tabs) - it's simply inert instead
+                     invocation). Ctrl-C also closes an open search prompt
+                     first, same as everywhere else, before quitting. Esc
+                     deliberately does NOT quit here (it used to,
+                     identically to q/Ctrl-C, but that made it too easy to
+                     close the whole program by reflex while just browsing
+                     the tabs) - it's simply inert, except to clear an
+                     active search first if there is one
 
 **Mouse**
 * Wheel / trackpad - scroll the active tab's content
@@ -354,6 +438,15 @@ things to change:
   do the same thing (switch tabs)** - listed here as a *positive*
   consistency worth preserving, not a problem, in case future changes to
   either drift apart.
+* **n/N now mean different things depending on context**, on top of the
+  cursor-left/right split above: everywhere they already had a meaning
+  (drill-down task-hop, `tangsible hosts`' own host-hop), an active
+  in-tab search with at least one match takes priority over it, per
+  design-docs/Search.md. Deliberate, and the same class of "same key,
+  different meaning depending on invisible state" this app already
+  accepts elsewhere (`viewingOutput`/dialog-open branches throughout
+  `SetInputCapture`) - flagged here mainly so it isn't mistaken for an
+  oversight if it ever reads as surprising in practice.
 
 ## My notes, pls ignore for now
 

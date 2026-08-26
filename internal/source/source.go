@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -35,9 +36,18 @@ type TaskSourceIndex map[string]string
 var blockTaskListKeys = map[string]bool{"block": true, "rescue": true, "always": true}
 var playTaskListKeys = map[string]bool{"tasks": true, "pre_tasks": true, "post_tasks": true, "handlers": true}
 
+// ReservedTagNames are Ansible's own built-in tag values (they select
+// behavior rather than naming a task the way a user-defined tag does) -
+// always offered as autocomplete candidates alongside whatever tags are
+// actually found in the playbook (design-docs/Autocomplete.md), since a
+// playbook using none of them doesn't mean a user typing --tags never
+// wants them.
+var ReservedTagNames = []string{"always", "never", "tagged", "untagged", "all"}
+
 // BuildTaskSourceIndex discovers every .yml/.yaml file under playbookPath's
-// own directory tree (the playbook itself, plus any roles/** alongside it)
-// and indexes every task found in each by its own source location. Never
+// own directory tree (the playbook itself, plus any roles/** alongside it),
+// indexes every task found in each by its own source location, and
+// collects every literal tags: value it encounters along the way. Never
 // fails outward - unreadable directories/files or YAML parse errors just
 // mean less coverage, not a crash; a lookup miss at display time simply
 // means no Task definition section for that entry (see tui.go's
@@ -53,12 +63,23 @@ var playTaskListKeys = map[string]bool{"tasks": true, "pre_tasks": true, "post_t
 // itself, which reports the real target file's own path in every event -
 // so a plain map lookup by that reported path finds it regardless of how
 // the file was reached.
-func BuildTaskSourceIndex(playbookPath string) TaskSourceIndex {
+//
+// The second return value is the sorted, deduplicated union of every
+// literal tag string found (design-docs/Autocomplete.md) with
+// ReservedTagNames - confirmed empirically that Ansible's own jsonl event
+// stream never carries a task's tags at all, so this static scan is the
+// only way to source any tag-autocomplete candidates whatsoever, not just
+// a nice-to-have alternative to a live source.
+func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string) {
 	index := TaskSourceIndex{}
+	tagSet := map[string]bool{}
+	for _, t := range ReservedTagNames {
+		tagSet[t] = true
+	}
 
 	abs, err := filepath.Abs(playbookPath)
 	if err != nil {
-		return index
+		return index, sortedTags(tagSet)
 	}
 
 	root := filepath.Dir(abs)
@@ -85,16 +106,28 @@ func BuildTaskSourceIndex(playbookPath string) TaskSourceIndex {
 	})
 
 	for _, f := range files {
-		indexFile(f, index)
+		indexFile(f, index, tagSet)
 	}
-	return index
+	return index, sortedTags(tagSet)
 }
 
-// indexFile parses one YAML file and indexes every task it can find in it.
-// A parse error, an unreadable file, or a top-level shape that isn't a
-// sequence (e.g. a vars file, which is a mapping) simply indexes nothing
-// from this file - never propagated as an error.
-func indexFile(path string, index TaskSourceIndex) {
+// sortedTags returns tagSet's own keys, alphabetically sorted - a plain
+// slice is what tui.go's autocomplete matching wants, not a map.
+func sortedTags(tagSet map[string]bool) []string {
+	tags := make([]string, 0, len(tagSet))
+	for t := range tagSet {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+	return tags
+}
+
+// indexFile parses one YAML file, indexes every task it can find in it,
+// and adds every literal tags: value it encounters (at any task/block/play
+// level) to tagSet. A parse error, an unreadable file, or a top-level
+// shape that isn't a sequence (e.g. a vars file, which is a mapping)
+// simply indexes nothing from this file - never propagated as an error.
+func indexFile(path string, index TaskSourceIndex, tagSet map[string]bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -133,12 +166,72 @@ func indexFile(path string, index TaskSourceIndex) {
 			if i+1 < len(root.Content) {
 				playEnd = root.Content[i+1].Line
 			}
-			walkMappingForTaskLists(path, play, playTaskListKeys, lines, playEnd, index)
+			collectTags(play, tagSet)
+			collectRoleTags(play, tagSet)
+			walkMappingForTaskLists(path, play, playTaskListKeys, lines, playEnd, index, tagSet)
 		}
 		return
 	}
 
-	indexTaskList(path, root, lines, totalLines+1, index)
+	indexTaskList(path, root, lines, totalLines+1, index, tagSet)
+}
+
+// collectTags reads mapping's own "tags:" value, if any - a scalar
+// ("tags: foo") or a sequence ("tags: [foo, bar]" or block form) - and
+// adds every non-empty literal string found to tagSet. A templated value
+// (containing "{{") is skipped - it isn't a literal tag name to suggest,
+// the same "don't evaluate Jinja, show it as literal text or skip it"
+// restraint this package's own task-source rendering already follows
+// elsewhere (CLAUDE.md's Task source lookup section).
+func collectTags(mapping *yaml.Node, tagSet map[string]bool) {
+	val := mappingValue(mapping, "tags")
+	if val == nil {
+		return
+	}
+	var scalars []*yaml.Node
+	switch val.Kind {
+	case yaml.ScalarNode:
+		scalars = []*yaml.Node{val}
+	case yaml.SequenceNode:
+		scalars = val.Content
+	default:
+		return
+	}
+	for _, s := range scalars {
+		if s.Kind != yaml.ScalarNode {
+			continue
+		}
+		t := strings.TrimSpace(s.Value)
+		if t == "" || strings.Contains(t, "{{") {
+			continue
+		}
+		tagSet[t] = true
+	}
+}
+
+// collectRoleTags reads play's own "roles:" sequence, if any, and adds
+// each role reference's own tags: value to tagSet - a role can carry tags
+// of its own right where it's included ("- role: foo\n  tags: [...]" or
+// the equivalent "- {role: foo, tags: [...]}" flow form), a common enough
+// pattern that it's a real gap otherwise: collectTags's own call against
+// the play mapping only ever sees the play's own top-level tags: key, not
+// anything nested inside roles:, and role entries aren't a task list
+// walkMappingForTaskLists/indexTaskList would ever reach either (a role
+// reference isn't a task - it has no path a jsonl event could report,
+// only the tasks it eventually expands into do, indexed separately when
+// this same walk reaches that role's own tasks/main.yml as a task-list
+// file in its own right). The bare "- somerole" shorthand form carries no
+// tags of its own and is silently skipped (not a mapping, nothing to read).
+func collectRoleTags(play *yaml.Node, tagSet map[string]bool) {
+	roles := mappingValue(play, "roles")
+	if roles == nil || roles.Kind != yaml.SequenceNode {
+		return
+	}
+	for _, r := range roles.Content {
+		if r.Kind == yaml.MappingNode {
+			collectTags(r, tagSet)
+		}
+	}
 }
 
 // mappingValue returns the value node for key within mapping node m, or
@@ -164,7 +257,7 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 // mapping. This keeps every nested task list's span tightly bounded even
 // when interleaved with unrelated keys - e.g. a play's own "vars:" sitting
 // between "tasks:" and "handlers:", or "rescue:" following "block:".
-func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[string]bool, lines []string, limit int, index TaskSourceIndex) {
+func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[string]bool, lines []string, limit int, index TaskSourceIndex, tagSet map[string]bool) {
 	if mapping.Kind != yaml.MappingNode {
 		return
 	}
@@ -178,7 +271,7 @@ func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[s
 		if k+2 < len(mapping.Content) {
 			nested = mapping.Content[k+2].Line
 		}
-		indexTaskList(path, val, lines, nested, index)
+		indexTaskList(path, val, lines, nested, index, tagSet)
 	}
 }
 
@@ -187,14 +280,15 @@ func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[s
 // each item. limit is this sequence's own end boundary, inherited from
 // whatever encloses it - used as the last item's fallback boundary; every
 // earlier item's boundary is simply the next item's own start line.
-func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index TaskSourceIndex) {
+func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index TaskSourceIndex, tagSet map[string]bool) {
 	for i, item := range seq.Content {
 		itemEnd := limit
 		if i+1 < len(seq.Content) {
 			itemEnd = seq.Content[i+1].Line
 		}
 		recordNode(path, item, lines, itemEnd-1, index)
-		walkMappingForTaskLists(path, item, blockTaskListKeys, lines, itemEnd, index)
+		collectTags(item, tagSet)
+		walkMappingForTaskLists(path, item, blockTaskListKeys, lines, itemEnd, index, tagSet)
 	}
 }
 

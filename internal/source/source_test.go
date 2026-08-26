@@ -38,7 +38,7 @@ func TestBuildTaskSourceIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	index := BuildTaskSourceIndex(path)
+	index, _ := BuildTaskSourceIndex(path)
 
 	wantNames := []string{"ok task", "changed task", "skipped task", "failed task", "after failure"}
 	if len(index) != len(wantNames) {
@@ -66,8 +66,94 @@ func TestBuildTaskSourceIndex_NonexistentPlaybook(t *testing.T) {
 	// empty. An empty temp dir is the only way to get a genuinely empty
 	// result.
 	path := filepath.Join(t.TempDir(), "does-not-exist.yml")
-	index := BuildTaskSourceIndex(path)
+	index, tags := BuildTaskSourceIndex(path)
 	if len(index) != 0 {
 		t.Errorf("got %d entries, want 0 for a nonexistent playbook in an empty directory", len(index))
+	}
+	if len(tags) != len(ReservedTagNames) {
+		t.Errorf("got %d tags, want just the %d reserved names for a nonexistent playbook", len(tags), len(ReservedTagNames))
+	}
+}
+
+func TestBuildTaskSourceIndex_CollectsTags(t *testing.T) {
+	playbookYAML := `
+- hosts: localhost
+  gather_facts: false
+  tags: playlevel
+  tasks:
+    - name: tagged task
+      debug:
+        msg: hi
+      tags: [foo, bar]
+    - name: single scalar tag
+      debug:
+        msg: hi
+      tags: baz
+    - name: templated tag is skipped
+      debug:
+        msg: hi
+      tags: "{{ some_var }}"
+    - name: reserved tag used explicitly
+      debug:
+        msg: hi
+      tags: always
+    - name: untagged task
+      debug:
+        msg: hi
+  roles:
+    - role: withtags
+      tags: [roletag1, roletag2]
+    - bareroleref
+`
+	path := filepath.Join(t.TempDir(), "tagged.yml")
+	if err := os.WriteFile(path, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, tags := BuildTaskSourceIndex(path)
+
+	want := map[string]bool{
+		"foo": true, "bar": true, "baz": true,
+		"playlevel": true, "roletag1": true, "roletag2": true,
+	}
+	for t2 := range want {
+		found := false
+		for _, got := range tags {
+			if got == t2 {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("tags = %v, missing discovered tag %q", tags, t2)
+		}
+	}
+	for _, reserved := range ReservedTagNames {
+		found := false
+		for _, got := range tags {
+			if got == reserved {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("tags = %v, missing reserved tag %q", tags, reserved)
+		}
+	}
+	for _, got := range tags {
+		if strings.Contains(got, "{{") {
+			t.Errorf("tags = %v, a templated tag value leaked through unresolved", tags)
+		}
+	}
+	// "always" is both a reserved name and used literally as a task's own
+	// tag above - must appear exactly once, not duplicated by the union.
+	count := 0
+	for _, got := range tags {
+		if got == "always" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf(`tags contains "always" %d times, want exactly 1 (reserved ∪ discovered must dedupe)`, count)
 	}
 }

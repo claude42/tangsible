@@ -73,6 +73,13 @@ import (
 // wasn't found while building the index) just means no TASK: section for
 // that entry, never an error.
 //
+// knownTags (source.go's BuildTaskSourceIndex, its own second return
+// value) is every literal tags: value found in the playbook/role tree,
+// unioned with source.ReservedTagNames - the re-run dialog's Tags/Skip
+// tags fields' own autocomplete candidate list (design-docs/Autocomplete.md).
+// Hosts need no equivalent parameter: the Limit hosts field's own
+// candidates come straight from state.AllHosts, already in scope.
+//
 // startExpanded governs the very first task row's own initial
 // expand/collapse state (`.tangsible`'s general.default_tree_state - see
 // DefaultTreeExpanded, resolve.go), read once by main.go before
@@ -125,7 +132,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags []string, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -595,6 +602,90 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	tagsField := tview.NewInputField().SetLabel("Limit tags to: ")
 	skipTagsField := tview.NewInputField().SetLabel("Skip tags: ")
 	hostsField := tview.NewInputField().SetLabel("Limit hosts to: ")
+
+	// Autocomplete (design-docs/Autocomplete.md): tagsField/skipTagsField
+	// share one candidate list (knownTags, built once by source.go's
+	// BuildTaskSourceIndex - a static scan of the playbook/role YAML tree,
+	// the only way to source any tag at all, since Ansible's own event
+	// stream never carries a task's tags); hostsField reads state.AllHosts
+	// fresh on every call via closure, so its own candidates keep growing
+	// as the run discovers more hosts. matchTags/matchHosts are also
+	// called directly from SetInputCapture below (autocompleteOpenNow) -
+	// recomputed from the field's own current text on every check rather
+	// than mirrored into a bool set only inside these callbacks, since
+	// InputField.Blur() clears its drop-down internally without
+	// re-invoking this callback, which would let a mirrored flag go stale
+	// across a mouse-driven focus change. acDismissed below is a second,
+	// narrower bool for a different, Escape-specific reason - see its own
+	// comment.
+	matchTags := func(text string) []string { return matchToken(knownTags, text) }
+	matchHosts := func(text string) []string { return matchToken(state.AllHosts, text) }
+	wireAutocomplete := func(field *tview.InputField, match func(string) []string) {
+		field.SetAutocompleteFunc(match).
+			SetAutocompleteUseTags(false). // plain hostnames/tags, and
+			// avoids a literal '[' in one being misread as a color tag -
+			// the same class of bug this app guards against everywhere
+			// else dynamic text meets a tags-aware widget.
+			SetAutocompletedFunc(func(text string, index, source int) bool {
+				// Navigating (arrow keys) only moves the highlight within
+				// the drop-down itself - deliberately not previewed into
+				// the field's own text. Confirmed live: replaceLastToken's
+				// own trailing ", " empties the *next* token, which
+				// InputField's own "text changed -> re-run Autocomplete()"
+				// housekeeping (inputfield.go) sees as "no more matches"
+				// and silently closes the drop-down after a single Down
+				// press - so a live preview here would make navigation
+				// stop working after one step, not just look different.
+				if source == tview.AutocompletedNavigate {
+					return false
+				}
+				field.SetText(replaceLastToken(field.GetText(), text))
+				return true
+			})
+	}
+	wireAutocomplete(tagsField, matchTags)
+	wireAutocomplete(skipTagsField, matchTags)
+	wireAutocomplete(hostsField, matchHosts)
+
+	// acDismissed tracks whether the user has already Escaped the
+	// currently-showing drop-down once - needed alongside the plain
+	// has-matches check below, not instead of it. Confirmed live: Escape
+	// doesn't change the field's own text, so a naive "does the current
+	// text have matches" check still says yes immediately afterward
+	// (e.g. text "database" still substring-matches itself), which would
+	// swallow every subsequent Escape as "dismiss the drop-down" forever
+	// and never actually close the dialog. Reset to false by
+	// resetDismissed, wired to all three fields' own SetChangedFunc, so
+	// any real text change (typing, or a pick) starts a fresh interaction
+	// - only set true from SetInputCapture's own Escape case, right when
+	// it lets an Escape through to dismiss what it believes is currently
+	// showing.
+	var acDismissed bool
+	resetDismissed := func(string) { acDismissed = false }
+	tagsField.SetChangedFunc(resetDismissed)
+	skipTagsField.SetChangedFunc(resetDismissed)
+	hostsField.SetChangedFunc(resetDismissed)
+
+	// autocompleteOpenNow reports whether the currently focused re-run
+	// dialog field has any live autocomplete matches for its current text -
+	// used by SetInputCapture below to decide whether Enter/Escape should
+	// reach the field's own native drop-down handling (pick/dismiss) or,
+	// as today, submit/close the whole dialog.
+	autocompleteOpenNow := func() bool {
+		if acDismissed {
+			return false
+		}
+		switch {
+		case tagsField.HasFocus():
+			return len(matchTags(tagsField.GetText())) > 0
+		case skipTagsField.HasFocus():
+			return len(matchTags(skipTagsField.GetText())) > 0
+		case hostsField.HasFocus():
+			return len(matchHosts(hostsField.GetText())) > 0
+		default:
+			return false
+		}
+	}
 
 	rerunForm := tview.NewForm().
 		AddFormItem(taskField).
@@ -2301,14 +2392,29 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// focus"), letting the event through untouched so Button's native
 		// InputHandler (button.go: KeyEnter calls its own selected func)
 		// fires the correct one of the two.
+		//
+		// A further exception to both cases (design-docs/Autocomplete.md):
+		// if the focused field currently has an open autocomplete
+		// drop-down (autocompleteOpenNow), Enter/Escape are let through
+		// untouched instead, so InputField's own native handling can pick
+		// the current suggestion or dismiss just the drop-down - only once
+		// that's no longer true does either key fall back to submitting/
+		// closing the whole dialog.
 		if rerunDialogOpen {
 			switch event.Key() {
 			case tcell.KeyEnter:
 				if _, button := rerunForm.GetFocusedItemIndex(); button >= 0 {
 					return event
 				}
+				if autocompleteOpenNow() {
+					return event
+				}
 				submitRerun()
 			case tcell.KeyEscape:
+				if autocompleteOpenNow() {
+					acDismissed = true
+					return event
+				}
 				closeDialogs()
 			default:
 				return event
@@ -2759,7 +2865,21 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if rerunDialogOpen {
 			// Same reasoning as searchDialogOpen above, for rerunForm's
 			// own native per-field click-to-focus (tview.Form).
-			if x, y := event.Position(); uikit.InRect(x, y, rerunForm) {
+			x, y := event.Position()
+			if uikit.InRect(x, y, rerunForm) {
+				return event, action
+			}
+			// An open autocomplete drop-down (design-docs/Autocomplete.md)
+			// renders at an absolute screen position directly below its
+			// own field (InputField.Draw), independent of rerunForm's own
+			// fixed-height box - it can render partly or entirely below
+			// rerunForm's own rect, where the exact-rect check above would
+			// otherwise swallow a click on it as dead. InputField exposes
+			// no accessor for the drop-down's own rect, so this is a
+			// deliberately generous fixed band below rerunForm sized to
+			// the maximum drop-down height, not a precise hit-test.
+			if rx, ry, rw, rh := rerunForm.GetRect(); x >= rx && x < rx+rw &&
+				y >= ry+rh && y < ry+rh+autocompleteMaxEntries+1 {
 				return event, action
 			}
 			return nil, action
