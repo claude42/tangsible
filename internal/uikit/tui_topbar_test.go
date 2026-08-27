@@ -100,10 +100,10 @@ func TestTopBarTextProgressFill(t *testing.T) {
 		}
 	})
 
-	t.Run("the 'Task x/y' text itself stays honest, not clamped, once frozen", func(t *testing.T) {
+	t.Run("no 'Task x/y' text is ever rendered - design-docs/ProgressIndicator.md", func(t *testing.T) {
 		got := call(3, 10, true)
-		if !strings.Contains(got, "Task 3/10") {
-			t.Errorf("topBarText() = %q, want the literal, un-clamped 'Task 3/10' text even though the fill snaps to 100%%", got)
+		if strings.Contains(got, "Task") {
+			t.Errorf("topBarText() = %q, want no literal 'Task x/y' text at all - only the fill should convey progress", got)
 		}
 	})
 
@@ -124,10 +124,10 @@ func TestTopBarTextProgressFill(t *testing.T) {
 		}
 	})
 
-	t.Run("showElapsed false still shows a real Task x/y prefix if there is one", func(t *testing.T) {
+	t.Run("showElapsed false shows nothing on the right at all, even with real progress", func(t *testing.T) {
 		got := TopBarText("site.yml", false, nil, 0, true, FilterQuery{}, 3, 10, 100, "navy", false)
-		if !strings.Contains(got, "Task 3/10") {
-			t.Errorf("topBarText(showElapsed=false) = %q, want the Task x/y prefix kept", got)
+		if strings.Contains(got, "Task") {
+			t.Errorf("topBarText(showElapsed=false) = %q, want no 'Task x/y' text", got)
 		}
 		if strings.Contains(got, "00:00") {
 			t.Errorf("topBarText(showElapsed=false) = %q, want no elapsed clock alongside it", got)

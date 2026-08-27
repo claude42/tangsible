@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Implements a first-prototype "Task x/y" progress indicator (top bar,
-// tui.go's TopBarText). There is no event in the jsonl stream that tells
-// us upfront how many tasks a run will execute (CLAUDE.md's own
-// Aggregation section: plays/tasks are only ever discovered as they
+// Implements the top bar's own proportional progress fill (tui.go's
+// TopBarText/ComposeSplitHeaderLine - a background sweep, not a literal
+// "Task x/y" number since design-docs/ProgressIndicator.md, for exactly
+// the reason documented below). There is no event in the jsonl stream
+// that tells us upfront how many tasks a run will execute (CLAUDE.md's
+// own Aggregation section: plays/tasks are only ever discovered as they
 // start), so this predicts a task sequence ahead of time from a second,
 // throwaway `ansible-playbook ... --list-tasks --list-hosts` invocation
 // (confirmed empirically that both flags can be given together in one
@@ -26,7 +28,11 @@
 //
 // This is deliberately approximate, not exact - confirmed empirically
 // (a handful of small probe playbooks, not kept in the repo) before
-// building any of this:
+// building any of this, and confirmed again live once real, role-heavy
+// playbooks made the gap between this prediction and the recap's own
+// exact end-of-run count large enough to notice (design-docs/
+// ProgressIndicator.md - a two-item include_tasks loop alone produced a
+// 1-task prediction for 7 real executed tasks):
 //   - neither flag ever lists a handler at all, even a notified one that
 //     will genuinely run - so a handler's own task-start event can never
 //     have a static counterpart to match.

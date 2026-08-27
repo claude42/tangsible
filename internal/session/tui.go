@@ -1201,7 +1201,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 					hostAndTask = outputHost + "   " + outputTask.Name
 				}
 				splitHeader.SetText(uikit.ProgressFillLine(
-					uikit.ComposeSplitHeaderLine(playbookName, isRole, hostAndTask, elapsed, frozen, currentFilter, progressPos, progressTotal, totalWidth, showElapsed()),
+					uikit.ComposeSplitHeaderLine(playbookName, isRole, hostAndTask, elapsed, frozen, currentFilter, totalWidth, showElapsed()),
 					progressPos, progressTotal, frozen, chromeColorName()))
 			} else {
 				// Padded to the full terminal width before the fill is
