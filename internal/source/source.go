@@ -122,6 +122,153 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	return index, sortedSet(tagSet), sortedSet(nameSet)
 }
 
+// topLevelPlay is one entry in a playbook file's own top-level sequence -
+// shared by ListTopLevelPlayNames and TrimPlaybookToPlay
+// (design-docs/StartWithPlay.md), so both agree on exactly what counts as
+// "a play" and where it starts without parsing the file twice in two
+// different ways.
+type topLevelPlay struct {
+	name      string
+	startLine int // 1-indexed - the line the play's own mapping starts at.
+}
+
+// parseTopLevelPlays reads playbookPath and returns every *named* entry in
+// its own top-level sequence, in file order. Returns nil - never an error -
+// if the file can't be read/parsed, or its top-level shape isn't
+// playbook-shaped (every item a mapping with its own "hosts" key, the same
+// check indexFile already makes) - same "less coverage rather than a
+// crash" posture as BuildTaskSourceIndex. A play with no literal "name:"
+// (or a templated one) is silently skipped: v1's own scope note
+// (design-docs/StartWithPlay.md) - there's nothing for a user to type or
+// pick that would ever identify it, the same restraint collectTaskName
+// already applies to a task with no literal name.
+//
+// Deliberately does not follow import_playbook - v1 only ever addresses a
+// playbook's own top-level plays (design-docs/StartWithPlay.md).
+func parseTopLevelPlays(playbookPath string) []topLevelPlay {
+	data, err := os.ReadFile(playbookPath)
+	if err != nil {
+		return nil
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.SequenceNode || len(root.Content) == 0 {
+		return nil
+	}
+	for _, item := range root.Content {
+		if mappingValue(item, "hosts") == nil {
+			return nil // not playbook-shaped
+		}
+	}
+
+	var plays []topLevelPlay
+	for _, item := range root.Content {
+		val := mappingValue(item, "name")
+		if val == nil || val.Kind != yaml.ScalarNode {
+			continue
+		}
+		name := strings.TrimSpace(val.Value)
+		if name == "" || strings.Contains(name, "{{") {
+			continue
+		}
+		plays = append(plays, topLevelPlay{name: name, startLine: item.Line})
+	}
+	return plays
+}
+
+// ListTopLevelPlayNames returns the name of every named top-level play in
+// playbookPath, in file order (duplicates included - ambiguity is
+// TrimPlaybookToPlay's own concern, not this function's) - the "Start with
+// play" re-run dialog field's autocomplete candidate list
+// (design-docs/StartWithPlay.md), mirroring how BuildTaskSourceIndex's own
+// third return value backs "Start with task".
+func ListTopLevelPlayNames(playbookPath string) []string {
+	plays := parseTopLevelPlays(playbookPath)
+	names := make([]string, len(plays))
+	for i, p := range plays {
+		names[i] = p.name
+	}
+	return names
+}
+
+// MergeSourceIndex adds every task indexed under trimmedPlaybookPath into
+// dst, in place. Needed wherever a generation actually spawns against a
+// TrimPlaybookToPlay copy rather than the original file
+// (design-docs/StartWithPlay.md): every RawEvent.Task.Path the running
+// generation reports for a task defined directly in the top-level
+// playbook (as opposed to one reached via roles:/include_tasks/
+// import_tasks, whose own file is untouched and unaffected) points into
+// the *trimmed* file's own path and line numbers - which a sourceIndex
+// built only from the original file, at session start, can never contain,
+// silently dropping the drill-down view's "Task definition" tab for every
+// such task. Re-indexing the trimmed file and merging its entries in
+// fixes that; role/include files get harmlessly re-indexed with identical
+// content along the way (BuildTaskSourceIndex always walks a playbook's
+// whole directory tree, not just the one file), which is wasted work but
+// not wrong. A no-op, not an error, if trimmedPlaybookPath can't be
+// read/parsed - same posture as everything else in this file.
+func MergeSourceIndex(dst TaskSourceIndex, trimmedPlaybookPath string) {
+	src, _, _ := BuildTaskSourceIndex(trimmedPlaybookPath)
+	for k, v := range src {
+		dst[k] = v
+	}
+}
+
+// TrimPlaybookToPlay writes a temporary copy of playbookPath containing
+// only the named play onward, in the same directory as playbookPath -
+// not a system temp directory - so that any role/include reference
+// resolved relative to the playbook's own directory still finds exactly
+// what it would for the original file (design-docs/StartWithPlay.md).
+// cleanup removes the temp file; ok is false (with cleanup nil) if no
+// top-level play named playName exists (a duplicate name resolves to the
+// first match, in file order, the same way --start-at-task's own
+// name-matching does); err is non-nil only for the underlying file I/O.
+func TrimPlaybookToPlay(playbookPath, playName string) (tempPath string, cleanup func(), ok bool, err error) {
+	var start int
+	found := false
+	for _, p := range parseTopLevelPlays(playbookPath) {
+		if p.name == playName {
+			start = p.startLine
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", nil, false, nil
+	}
+
+	data, err := os.ReadFile(playbookPath)
+	if err != nil {
+		return "", nil, false, err
+	}
+	lines := strings.Split(string(data), "\n")
+	if start < 1 || start > len(lines) {
+		return "", nil, false, nil
+	}
+	trimmed := strings.Join(lines[start-1:], "\n")
+
+	f, err := os.CreateTemp(filepath.Dir(playbookPath), ".tangsible-startplay-*.yml")
+	if err != nil {
+		return "", nil, false, err
+	}
+	if _, err := f.WriteString(trimmed); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", nil, false, err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", nil, false, err
+	}
+
+	path := f.Name()
+	return path, func() { os.Remove(path) }, true, nil
+}
+
 // sortedSet returns set's own keys, alphabetically sorted - a plain slice
 // is what tui.go's autocomplete matching wants, not a map. Shared by
 // BuildTaskSourceIndex's tag and task-name collection - both are just "the

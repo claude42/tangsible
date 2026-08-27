@@ -228,3 +228,218 @@ func TestBuildTaskSourceIndex_CollectsTaskNames(t *testing.T) {
 		}
 	}
 }
+
+func TestListTopLevelPlayNames(t *testing.T) {
+	playbookYAML := `
+- name: first play
+  hosts: web
+
+- hosts: db
+
+- name: "{{ templated_name }}"
+  hosts: all
+
+- name: third play
+  hosts: all
+`
+	path := filepath.Join(t.TempDir(), "site.yml")
+	if err := os.WriteFile(path, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ListTopLevelPlayNames(path)
+	want := []string{"first play", "third play"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d] = %q, want %q (nameless/templated plays must be skipped, order preserved)", i, got[i], want[i])
+		}
+	}
+}
+
+func TestListTopLevelPlayNames_NotPlaybookShaped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.yml")
+	if err := os.WriteFile(path, []byte("- name: a bare task\n  debug:\n    msg: hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ListTopLevelPlayNames(path); len(got) != 0 {
+		t.Errorf("got %v, want none for a task-list-shaped file", got)
+	}
+}
+
+func TestTrimPlaybookToPlay(t *testing.T) {
+	playbookYAML := `- name: first play
+  hosts: web
+  roles:
+    - unbound
+
+- name: second play
+  hosts: db
+  tasks:
+    - name: db task
+      debug:
+        msg: hi
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "site.yml")
+	if err := os.WriteFile(path, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tempPath, cleanup, ok, err := TrimPlaybookToPlay(path, "second play")
+	if err != nil {
+		t.Fatalf("TrimPlaybookToPlay: %v", err)
+	}
+	if !ok {
+		t.Fatal("TrimPlaybookToPlay: ok = false, want true")
+	}
+	defer cleanup()
+
+	if filepath.Dir(tempPath) != dir {
+		t.Errorf("temp file dir = %q, want %q (must sit beside the original for role/include resolution)", filepath.Dir(tempPath), dir)
+	}
+
+	got, err := os.ReadFile(tempPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "first play") {
+		t.Errorf("trimmed playbook still contains the dropped play:\n%s", got)
+	}
+	if !strings.Contains(string(got), "second play") || !strings.Contains(string(got), "db task") {
+		t.Errorf("trimmed playbook is missing the target play's own content:\n%s", got)
+	}
+
+	// A second top-level sequence, re-parsed from the trimmed file itself,
+	// must still be exactly one playbook-shaped play - confirms the slice
+	// boundary landed on a real list-item boundary, not mid-mapping.
+	if names := ListTopLevelPlayNames(tempPath); len(names) != 1 || names[0] != "second play" {
+		t.Errorf("re-parsing the trimmed file gave play names %v, want [\"second play\"]", names)
+	}
+
+	cleanup()
+	if _, err := os.Stat(tempPath); !os.IsNotExist(err) {
+		t.Errorf("cleanup() did not remove %q", tempPath)
+	}
+}
+
+func TestTrimPlaybookToPlay_NoSuchPlay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "site.yml")
+	if err := os.WriteFile(path, []byte("- name: only play\n  hosts: all\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, cleanup, ok, err := TrimPlaybookToPlay(path, "no such play")
+	if err != nil {
+		t.Fatalf("TrimPlaybookToPlay: %v", err)
+	}
+	if ok {
+		t.Error("ok = true, want false for a play name that doesn't exist")
+	}
+	if cleanup != nil {
+		t.Error("cleanup != nil, want nil alongside ok = false")
+	}
+}
+
+func TestTrimPlaybookToPlay_DuplicateNameUsesFirstMatch(t *testing.T) {
+	playbookYAML := `- name: dup
+  hosts: web
+  tasks:
+    - name: from first
+      debug:
+        msg: hi
+
+- name: dup
+  hosts: db
+  tasks:
+    - name: from second
+      debug:
+        msg: hi
+`
+	path := filepath.Join(t.TempDir(), "site.yml")
+	if err := os.WriteFile(path, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tempPath, cleanup, ok, err := TrimPlaybookToPlay(path, "dup")
+	if err != nil || !ok {
+		t.Fatalf("TrimPlaybookToPlay: ok=%v err=%v", ok, err)
+	}
+	defer cleanup()
+
+	got, err := os.ReadFile(tempPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "from first") {
+		t.Errorf("expected the first matching play to win, got:\n%s", got)
+	}
+}
+
+func TestMergeSourceIndex(t *testing.T) {
+	playbookYAML := `- name: first play
+  hosts: web
+  tasks:
+    - name: first play task
+      debug:
+        msg: hi
+
+- name: second play
+  hosts: db
+  tasks:
+    - name: second play task
+      debug:
+        msg: hi
+`
+	path := filepath.Join(t.TempDir(), "site.yml")
+	if err := os.WriteFile(path, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst, _, _ := BuildTaskSourceIndex(path)
+	if !containsSourceFor(dst, "first play task") || !containsSourceFor(dst, "second play task") {
+		t.Fatalf("sanity check failed: dst should already index both tasks from the untrimmed file: %v", dst)
+	}
+
+	tempPath, cleanup, ok, err := TrimPlaybookToPlay(path, "second play")
+	if err != nil || !ok {
+		t.Fatalf("TrimPlaybookToPlay: ok=%v err=%v", ok, err)
+	}
+	defer cleanup()
+
+	before := len(dst)
+	MergeSourceIndex(dst, tempPath)
+
+	if len(dst) <= before {
+		t.Errorf("MergeSourceIndex added no new entries (got %d, had %d) - want at least one new key for the trimmed file's own path", len(dst), before)
+	}
+	// The original file's own entries must survive the merge untouched -
+	// MergeSourceIndex only ever adds, never removes.
+	if !containsSourceFor(dst, "first play task") || !containsSourceFor(dst, "second play task") {
+		t.Errorf("MergeSourceIndex must not drop entries already present: %v", dst)
+	}
+	if !containsSourceFor(dst, "second play task") {
+		t.Errorf("expected an entry (old or new) for the trimmed file's own task: %v", dst)
+	}
+
+	foundTempKey := false
+	for k := range dst {
+		if strings.HasPrefix(k, tempPath+":") {
+			foundTempKey = true
+			break
+		}
+	}
+	if !foundTempKey {
+		t.Errorf("expected at least one entry keyed under the trimmed file's own path %q: %v", tempPath, dst)
+	}
+}
+
+func containsSourceFor(index TaskSourceIndex, taskName string) bool {
+	for _, src := range index {
+		if strings.Contains(src, "name: "+taskName) {
+			return true
+		}
+	}
+	return false
+}

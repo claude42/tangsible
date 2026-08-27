@@ -58,15 +58,19 @@ import (
 // tags were already specified in the previous run... pre-filled").
 //
 // requestRerun is called once the re-run dialog is confirmed (Enter), to
-// start a new generation with the dialog's own fields: startAtTask (empty
-// for a whole-playbook re-run, otherwise the task name to pass as
-// --start-at-task - see openRerunDialog below for how it's pre-filled) and
-// the edited tags/skipTags/hosts. main.go's implementation resets
-// processDone/exitCode/state, records the new invocation into .tangsible's
-// history, and spawns a fresh ansible-playbook invocation; this function's
-// own job is only to reset its own view state (expanded/currentID/
-// following/the freeze latches) and restart the heartbeat ticker to match
-// - see submitRerun below.
+// start a new generation with the dialog's own fields: startAtPlay (empty
+// unless a top-level play was chosen - design-docs/StartWithPlay.md; spawns
+// against a trimmed, temporary copy of the playbook with every play before
+// it dropped, rather than editing the real file), startAtTask (empty for a
+// whole-playbook re-run, otherwise the task name to pass as --start-at-task,
+// applied against whatever startAtPlay already narrowed the file down to -
+// see openRerunDialog below for how it's pre-filled), and the edited
+// tags/skipTags/hosts. main.go's implementation resets processDone/exitCode/
+// state, records the new invocation into .tangsible's history, and spawns a
+// fresh ansible-playbook invocation; this function's own job is only to
+// reset its own view state (expanded/currentID/following/the freeze
+// latches) and restart the heartbeat ticker to match - see submitRerun
+// below.
 //
 // sourceIndex (source.go) backs the output drill-down view's TASK:
 // section (see formatHostOutput) - a lookup miss (any task whose path
@@ -80,8 +84,12 @@ import (
 // knownTaskNames (BuildTaskSourceIndex's third return value) is the same
 // idea for the "Start with task" field - every literal task name: found
 // the same static way, deliberately not sourced from state.AllTasks (see
-// BuildTaskSourceIndex's own doc comment for why). Hosts need no
-// equivalent parameter: the Limit hosts field's own candidates come
+// BuildTaskSourceIndex's own doc comment for why). knownPlayNames
+// (source.ListTopLevelPlayNames) is the same idea again for the "Start
+// with play" field (design-docs/StartWithPlay.md) - every named top-level
+// play, in file order; v1 deliberately doesn't follow import_playbook, so
+// a play defined in an included file simply isn't a candidate. Hosts need
+// no equivalent parameter: the Limit hosts field's own candidates come
 // straight from state.AllHosts, already in scope.
 //
 // startExpanded governs the very first task row's own initial
@@ -136,7 +144,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownTaskNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownTaskNames, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtPlay, startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -602,6 +610,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// falls back to the plainer design agreed as the explicit fallback:
 	// one freeform Task field, never pre-filled from the cursor, empty
 	// means "whole playbook" - exactly like Tags/Hosts, no special-casing.
+	// playField (design-docs/StartWithPlay.md) is a freeform single-value
+	// field, same shape as taskField below - empty means "whole playbook."
+	// Unlike taskField's own name, though, an empty match here isn't
+	// passed straight through to ansible-playbook: requestRerun resolves
+	// it into a trimmed, temporary copy of the playbook itself before
+	// spawning (runner.NewRequestRerun), rather than any flag
+	// ansible-playbook understands natively.
+	playField := tview.NewInputField().SetLabel("Start with play: ")
 	taskField := tview.NewInputField().SetLabel("Start with task: ")
 	tagsField := tview.NewInputField().SetLabel("Limit tags to: ")
 	skipTagsField := tview.NewInputField().SetLabel("Skip tags: ")
@@ -628,6 +644,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	matchTags := func(text string) []string { return matchToken(knownTags, text) }
 	matchHosts := func(text string) []string { return matchToken(state.AllHosts, text) }
 	matchTask := func(text string) []string { return matchTaskName(knownTaskNames, text) }
+	matchPlay := func(text string) []string { return matchTaskName(knownPlayNames, text) }
 	// wireAutocomplete's apply func decides how a picked suggestion gets
 	// written back into the field: replaceLastToken for the
 	// comma-separated multi-value fields (Tags/Skip tags/Hosts - only the
@@ -662,6 +679,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	wireAutocomplete(skipTagsField, matchTags, replaceLastToken)
 	wireAutocomplete(hostsField, matchHosts, replaceLastToken)
 	wireAutocomplete(taskField, matchTask, func(current, picked string) string { return picked })
+	wireAutocomplete(playField, matchPlay, func(current, picked string) string { return picked })
 
 	// acDismissed tracks whether the user has already Escaped the
 	// currently-showing drop-down once - needed alongside the plain
@@ -678,6 +696,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// showing.
 	var acDismissed bool
 	resetDismissed := func(string) { acDismissed = false }
+	playField.SetChangedFunc(resetDismissed)
 	taskField.SetChangedFunc(resetDismissed)
 	tagsField.SetChangedFunc(resetDismissed)
 	skipTagsField.SetChangedFunc(resetDismissed)
@@ -693,6 +712,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			return false
 		}
 		switch {
+		case playField.HasFocus():
+			return len(matchPlay(playField.GetText())) > 0
 		case taskField.HasFocus():
 			return len(matchTask(taskField.GetText())) > 0
 		case tagsField.HasFocus():
@@ -707,6 +728,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	}
 
 	rerunForm := tview.NewForm().
+		AddFormItem(playField).
 		AddFormItem(taskField).
 		AddFormItem(tagsField).
 		AddFormItem(skipTagsField).
@@ -1726,11 +1748,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// rerunForm's own doc comment for why the original cursor-based
 	// pre-fill design was dropped) - like Tags/Hosts, it just keeps
 	// whatever was last typed into it, empty on the very first open of the
-	// session. Tags/Hosts specifically are pre-filled from initialTags/
-	// initialHosts (this process's own invocation) only the very first
-	// time each is opened at all - see tagsPreFilled/skipTagsPreFilled/
-	// hostsPreFilled above - every open after that leaves the field alone,
-	// whatever it now contains.
+	// session. Play (design-docs/StartWithPlay.md) follows the identical
+	// never-pre-filled rule, for the same reason - there's no single
+	// "current play" to derive one from any more reliably than there was a
+	// "current task." Tags/Hosts specifically are pre-filled from
+	// initialTags/initialHosts (this process's own invocation) only the
+	// very first time each is opened at all - see tagsPreFilled/
+	// skipTagsPreFilled/hostsPreFilled above - every open after that
+	// leaves the field alone, whatever it now contains.
 	openRerunDialog := func() {
 		rerunDialogOpen = true
 
@@ -1747,7 +1772,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			hostsPreFilled = true
 		}
 
-		rerunForm.SetFocus(0) // always start on the Task field, not
+		rerunForm.SetFocus(0) // always start on the Play field (the first,
+		// broadest-scope option - design-docs/StartWithPlay.md), not
 		// wherever focus happened to be left inside the form the last time
 		// it closed.
 		pages.ShowPage("rerun")
@@ -2015,7 +2041,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	pages.AddPage("split", splitFlex, true, false)
 	pages.AddPage("filter", uikit.CenteredModal(filterFlex, 46, 10), true, false)
 	pages.AddPage("search", uikit.CenteredModal(searchDialogFlex, 46, 11), true, false)
-	pages.AddPage("rerun", uikit.CenteredModal(rerunForm, 56, 13), true, false)
+	pages.AddPage("rerun", uikit.CenteredModal(rerunForm, 56, 15), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true)
 
@@ -2198,6 +2224,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// closes over startHeartbeat, which - like this closure itself -
 	// can't exist before `app` is assigned above.
 	submitRerun := func() {
+		startAtPlay := strings.TrimSpace(playField.GetText()) // empty
+		// means "whole playbook" - see rerunForm's own doc comment.
 		startAtTask := strings.TrimSpace(taskField.GetText()) // empty means
 		// "whole playbook" - see rerunForm's own doc comment.
 		tags := strings.TrimSpace(tagsField.GetText())
@@ -2205,7 +2233,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		hosts := strings.TrimSpace(hostsField.GetText())
 		closeDialogs()
 
-		requestRerun(startAtTask, tags, skipTags, hosts) // resets
+		requestRerun(startAtPlay, startAtTask, tags, skipTags, hosts) // resets
 		// processDone/exitCode/state synchronously (see main.go) - by the
 		// time this returns, rebuild() below already sees a running, empty
 		// generation.

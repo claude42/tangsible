@@ -185,3 +185,37 @@ func TestHistoryStringToArgsEmptyString(t *testing.T) {
 		t.Errorf("historyStringToArgs(\"\") = %v, want nil", got)
 	}
 }
+
+func TestExtractStartAtPlay(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantPlay string
+		wantRest []string
+	}{
+		{"absent", []string{"-i", "localhost,"}, "", []string{"-i", "localhost,"}},
+		{"two-token form", []string{"-i", "localhost,", "--start-at-play", "second play", "-v"}, "second play", []string{"-i", "localhost,", "-v"}},
+		{"equals form", []string{"--start-at-play=second play", "-v"}, "second play", []string{"-v"}},
+		{"last occurrence wins", []string{"--start-at-play", "first", "--start-at-play", "second"}, "second", nil},
+		{"dangling flag left untouched", []string{"-v", "--start-at-play"}, "", []string{"-v", "--start-at-play"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPlay, gotRest := ExtractStartAtPlay(tt.args)
+			if gotPlay != tt.wantPlay {
+				t.Errorf("play = %q, want %q", gotPlay, tt.wantPlay)
+			}
+			if !slices.Equal(gotRest, tt.wantRest) {
+				t.Errorf("rest = %v, want %v", gotRest, tt.wantRest)
+			}
+		})
+	}
+}
+
+func TestExtractStartAtPlay_NoneFoundReturnsSameSlice(t *testing.T) {
+	args := []string{"-i", "localhost,"}
+	_, rest := ExtractStartAtPlay(args)
+	if &rest[0] != &args[0] {
+		t.Error("rest should be the same underlying slice as args when nothing was found")
+	}
+}

@@ -29,11 +29,13 @@
 package runner
 
 import (
+	"fmt"
 	"os/exec"
 	"sync/atomic"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/source"
 )
 
 // RunOneGeneration drains one generation's stdout to completion - from
@@ -83,11 +85,28 @@ func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-c
 // is what makes it reusable identically by main.go's own run/rerun/role
 // session and revisit.go's rerun-from-within-"revisit" (Phase 3).
 //
-// startAtTask, if non-empty, is prepended as --start-at-task; tags/hosts
-// replace the original invocation's own (originalRest is always carried
-// forward unedited alongside them - see ParsedPassthroughArgs.Reassemble).
-func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome)) func(startAtTask, tags, skipTags, hosts string) {
-	return func(startAtTask, tags, skipTags, hosts string) {
+// startAtPlay, if non-empty, trims the playbook to that named top-level
+// play onward before spawning (design-docs/StartWithPlay.md) - see the
+// spawn goroutine below for the actual mechanism. startAtTask, if
+// non-empty, is prepended as --start-at-task, applied against whatever the
+// play selection already narrowed the file down to; tags/hosts replace the
+// original invocation's own (originalRest is always carried forward
+// unedited alongside them - see ParsedPassthroughArgs.Reassemble).
+//
+// sourceIndex is the caller's own live TaskSourceIndex (a map, so mutating
+// it here is visible to every closure already holding the same reference,
+// e.g. tui.go's formatHostOutput) - merged into, in place, with a trimmed
+// copy's own re-indexed entries whenever startAtPlay actually spawns
+// against one (source.MergeSourceIndex below), so the drill-down view's
+// "Task definition" tab still finds a task defined directly in the
+// top-level playbook, whose RawEvent.Task.Path now points into the
+// trimmed file rather than the original one indexed at session start.
+// Safe to mutate with no lock: this happens synchronously, on whatever
+// goroutine calls the returned func (tview's event-loop goroutine, same
+// invariant state.Reset() above already relies on), never concurrently
+// with formatHostOutput's own reads of the same map.
+func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, startAtTask, tags, skipTags, hosts string) {
+	return func(startAtPlay, startAtTask, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
 		// event-loop goroutine, from the re-run dialog's Enter handler) -
 		// by the time this returns, a QueueUpdateDraw-driven rebuild()
@@ -102,19 +121,75 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 			newArgs = append([]string{"--start-at-task", startAtTask}, newArgs...)
 		}
 
+		// fail records a generation that never actually spawned an
+		// ansible-playbook process at all - a startAtPlay that doesn't
+		// match any top-level play (checked synchronously, right below),
+		// or a later SpawnGeneration failure (rare: ansible-playbook
+		// vanished, pipes failed, ... - checked from the goroutine
+		// instead, since only that's async). Neither is fatal to the
+		// whole session the way the same failure on a session's very
+		// first invocation would be - the TUI already exists and the
+		// user is mid-session. Recorded as this one generation's own
+		// failed outcome instead; GenuineFailure renders it the same as
+		// any other failed run.
+		fail := func(err error) {
+			exitCode.Store(-1)
+			recordOutcome(GenerationOutcome{ExitCode: -1, WaitErr: err})
+			if roleDisplayName != "" {
+				_ = config.FinalizeInvocation(config.TangsibleStatePath, "", roleDisplayName, -1, "")
+			} else {
+				_ = config.FinalizeInvocation(config.TangsibleStatePath, playbook, "", -1, "")
+			}
+			processDone.Store(true)
+		}
+
+		// startAtPlay (design-docs/StartWithPlay.md) is implemented by
+		// spawning against a trimmed, temporary copy of the playbook with
+		// every play before the named one dropped, rather than by asking
+		// ansible-playbook to skip anything itself - there is no native
+		// "start at play" flag, and --start-at-task's own name-matching
+		// is exactly the unreliable mechanism this feature exists to
+		// avoid. Resolved synchronously, before the progress skeleton
+		// below (which must reflect the trimmed file's own, smaller task
+		// count, not the original's) and before spawning. spawnPlaybook
+		// is what actually gets passed to SpawnGeneration; playbook (the
+		// original path) remains what AppendInvocation/FinalizeInvocation
+		// and the progress skeleton's own history-recording peers record
+		// against throughout this function - a trimmed copy is a
+		// spawn-time implementation detail, never the identity a rerun's
+		// history is tracked under.
+		spawnPlaybook := playbook
+		var cleanupTemp func()
+		if startAtPlay != "" {
+			tempPath, cleanup, ok, err := source.TrimPlaybookToPlay(playbook, startAtPlay)
+			switch {
+			case err != nil:
+				fail(fmt.Errorf("couldn't prepare a trimmed copy of %s for play %q: %w", playbook, startAtPlay, err))
+				return
+			case !ok:
+				fail(fmt.Errorf("no play named %q found in %s", startAtPlay, playbook))
+				return
+			default:
+				spawnPlaybook, cleanupTemp = tempPath, cleanup
+				source.MergeSourceIndex(sourceIndex, spawnPlaybook)
+			}
+		}
+
 		// Rebuilt synchronously, same place/reasoning as state.Reset()
-		// just above - tags/skip-tags/hosts (and --start-at-task) can all
-		// change on a rerun, so the previous generation's own skeleton
-		// (if any) is stale the instant any of them do. --list-tasks
-		// itself ignores --start-at-task entirely (confirmed empirically -
-		// it always lists the playbook's full task set regardless), so
-		// the resulting skeleton's front few entries simply won't ever be
-		// matched - harmless, ProgressTracker's own bounded lookahead
-		// already treats "not found (yet)" as a no-op rather than an
-		// error, and the real run's own first task-start event is still
-		// found well within that window for any reasonably-early
-		// --start-at-task point.
-		progH.Store(NewProgressTracker(BuildProgressSkeleton(playbook, newArgs)))
+		// above - tags/skip-tags/hosts (and --start-at-task/startAtPlay)
+		// can all change on a rerun, so the previous generation's own
+		// skeleton (if any) is stale the instant any of them do. Built
+		// from spawnPlaybook, not playbook - a play selection changes
+		// which tasks actually exist to list, not just which one starts
+		// first. --list-tasks itself ignores --start-at-task entirely
+		// (confirmed empirically - it always lists its own file's full
+		// task set regardless), so the resulting skeleton's front few
+		// entries simply won't ever be matched - harmless, ProgressTracker's
+		// own bounded lookahead already treats "not found (yet)" as a
+		// no-op rather than an error, and the real run's own first
+		// task-start event is still found well within that window for
+		// any reasonably-early --start-at-task point.
+		progH.Store(NewProgressTracker(BuildProgressSkeleton(spawnPlaybook, newArgs)))
 
 		// Recorded the same way the original invocation was, at the top
 		// of whichever session this is - but its own error, unlike that
@@ -132,26 +207,18 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		}
 
 		go func() {
-			cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(playbook, newArgs, procH)
+			cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(spawnPlaybook, newArgs, procH)
 			if err != nil {
-				// Rare (ansible-playbook vanished, pipes failed, ...) and,
-				// unlike the same failure on a session's very first
-				// invocation, not fatal to the whole session - the TUI
-				// already exists and the user is mid-session. Recorded as
-				// this one generation's own failed outcome instead;
-				// GenuineFailure renders it the same as any other failed
-				// run.
-				exitCode.Store(-1)
-				recordOutcome(GenerationOutcome{ExitCode: -1, WaitErr: err})
-				if roleDisplayName != "" {
-					_ = config.FinalizeInvocation(config.TangsibleStatePath, "", roleDisplayName, -1, "")
-				} else {
-					_ = config.FinalizeInvocation(config.TangsibleStatePath, playbook, "", -1, "")
+				if cleanupTemp != nil {
+					cleanupTemp()
 				}
-				processDone.Store(true)
+				fail(err)
 				return
 			}
 			RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, exitCode, processDone, recordOutcome)
+			if cleanupTemp != nil {
+				cleanupTemp()
+			}
 		}()
 	}
 }

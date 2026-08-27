@@ -220,6 +220,10 @@ func TestE2E_RerunDialog_TabCyclingLandsInCorrectField(t *testing.T) {
 	s.send("r")
 	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
 
+	// The dialog opens with focus on the Play field (design-docs/
+	// StartWithPlay.md's newest, first-in-tab-order field) - Tab once to
+	// reach Task before exercising the actual regression this test guards.
+	s.send("Tab")
 	s.send("first")
 	s.waitForFieldValue("Start with task:", "first", 3*time.Second)
 	s.send("Tab")
@@ -259,6 +263,7 @@ func TestE2E_RerunDialog_StartAtTaskSkipsEarlierTasks(t *testing.T) {
 
 	s.send("r")
 	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.send("Tab") // dialog opens focused on Play - see StartWithPlay.md
 	s.send("changed task")
 	s.waitForFieldValue("Start with task:", "changed task", 3*time.Second)
 	s.send("Enter")
@@ -307,8 +312,8 @@ func TestE2E_RerunDialog_ClearedFieldStaysCleared(t *testing.T) {
 		t.Fatalf("Hosts field on first open = %q, want it pre-filled with \"host1\" from -l", lineContaining(got, "Limit hosts to:"))
 	}
 
-	// Tab from Task -> Tags -> Skip tags -> Hosts, then clear it.
-	s.send("Tab", "Tab", "Tab", "C-u")
+	// Tab from Play -> Task -> Tags -> Skip tags -> Hosts, then clear it.
+	s.send("Tab", "Tab", "Tab", "Tab", "C-u")
 	s.send("Enter")
 
 	// Both hosts' own rows must appear - confirms the clear actually took
@@ -366,5 +371,73 @@ func TestE2E_CLIRerun_ShowsDialogBeforeRunning(t *testing.T) {
 	got = s.waitFor("Playbook completed successfully", 15*time.Second)
 	if !strings.Contains(got, "ok task") {
 		t.Errorf("expected the rerun to actually execute the playbook's tasks:\n%s", got)
+	}
+}
+
+// TestE2E_CLIStartAtPlay covers design-docs/StartWithPlay.md's CLI form -
+// "tangsible run --start-at-play <name>" - end to end: the named play's
+// own tasks run and every earlier play is dropped entirely, and (the bug
+// this test would have caught) the drill-down view's own "Task
+// definition" tab still finds source for a task defined directly in the
+// trimmed play, not just tasks reached via roles/includes.
+//
+// The fixture playbook is written into this test's own isolated workDir
+// rather than added to testdata/ - a real, reproduced hazard otherwise:
+// BuildTaskSourceIndex walks a playbook's *whole* directory tree, so a
+// fixture sharing testdata/ with every other e2e test's own playbook
+// would leak its play/task names into their own autocomplete candidate
+// lists too. That's exactly how TestBuildTaskSourceIndex's own unit test
+// (source_test.go) already avoids this same hazard for a different
+// reason - same fix, applied here for the same underlying cause.
+func TestE2E_CLIStartAtPlay(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	workDir := t.TempDir()
+	playbook := filepath.Join(workDir, "site.yml")
+	playbookYAML := `- name: first play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: first play task
+      command: echo hi
+
+- name: second play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: second play task
+      command: echo hi
+`
+	if err := os.WriteFile(playbook, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s run %s --start-at-play %s -i localhost,", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote("second play")), "Enter")
+	got := s.waitFor("Playbook completed successfully", 15*time.Second)
+
+	if strings.Contains(got, "first play") {
+		t.Errorf("expected the first play to be dropped entirely by --start-at-play, but it's in the tree:\n%s", got)
+	}
+	if !strings.Contains(got, "second play task") {
+		t.Errorf("expected the named play's own task to run:\n%s", got)
+	}
+
+	// Drill into the second play's own task and confirm its "Task
+	// definition" tab is present - the regression this test guards
+	// against: a task defined directly in the top-level playbook (as
+	// opposed to one reached via a role) reports a RawEvent.Task.Path
+	// pointing into the trimmed temp copy, not the original file the
+	// session's own TaskSourceIndex was built from.
+	s.send("Home")
+	s.send("Down") // onto the (only) task row
+	s.send("Right") // expand it
+	s.send("Down") // onto the host row
+	s.send("Enter") // open the drill-down
+	got = s.waitFor("Task definition", 5*time.Second)
+	if !strings.Contains(got, "Task definition") {
+		t.Errorf("expected a \"Task definition\" tab for a task defined directly in the trimmed play:\n%s", got)
 	}
 }

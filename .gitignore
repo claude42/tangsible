@@ -41,6 +41,13 @@ profile.cov
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+# "Start with play" (design-docs/StartWithPlay.md) writes a trimmed,
+# temporary playbook copy beside the original one being run, cleaned up
+# once that generation finishes - ignored here only as a defensive
+# leftover-cleanup guard (a crash mid-run could in principle skip the
+# removal), not because it's expected to ever actually be found on disk.
+.tangsible-startplay-*.yml
+
 # Go workspace file
 go.work
 go.work.sum

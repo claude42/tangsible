@@ -91,6 +91,44 @@ func ParsePassthroughArgs(args []string) ParsedPassthroughArgs {
 	}
 }
 
+// ExtractStartAtPlay pulls a "--start-at-play NAME" or "--start-at-play=NAME"
+// flag out of args - Tangsible's own synthetic flag
+// (design-docs/StartWithPlay.md's "tangsible run --start-at-play" CLI form),
+// understood by no real ansible-playbook and so never passed through to it,
+// unlike every other passthrough flag. Only the long form is recognized -
+// there's no short flag to alias, unlike --tags/-t or --limit/-l. Multiple
+// occurrences all get removed; whichever is encountered last wins, the same
+// "last one wins" convention most CLI tools apply to a repeated flag
+// (deliberately not ParsePassthroughArgs's own "comma-join every value"
+// convention - a play name isn't a set of values to combine). A dangling
+// "--start-at-play" with no following value is left untouched in rest - the
+// same "not chased further" gap ParsePassthroughArgs's own dangling-flag
+// case documents, since ansible-playbook (never actually invoked with it,
+// but still the closest available "what would normally happen here")
+// treats an unrecognized bare flag as its own concern, not this function's.
+// No occurrence at all returns ("", args) unmodified, not a copy.
+func ExtractStartAtPlay(args []string) (startAtPlay string, rest []string) {
+	const flag = "--start-at-play"
+	found := false
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == flag && i+1 < len(args):
+			startAtPlay, found = args[i+1], true
+			i++
+		case strings.HasPrefix(a, flag+"="):
+			startAtPlay, found = strings.TrimPrefix(a, flag+"="), true
+		default:
+			out = append(out, a)
+		}
+	}
+	if !found {
+		return "", args
+	}
+	return startAtPlay, out
+}
+
 // Reassemble rebuilds a full passthrough arg list from p - the inverse of
 // parsePassthroughArgs, used once the re-run dialog's (possibly edited)
 // Tags/SkipTags/Hosts need combining back with Rest. Always emits the

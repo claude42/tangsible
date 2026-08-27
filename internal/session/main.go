@@ -73,6 +73,16 @@ func Main() {
 
 	var procH runner.ProcHandle
 	var playbook string
+	// spawnPlaybook is what's actually passed to ansible-playbook for this
+	// session's first generation - normally identical to playbook, but set
+	// to a source.TrimPlaybookToPlay copy by "run"'s own "--start-at-play"
+	// handling below (design-docs/StartWithPlay.md's CLI form). Left "" by
+	// every other Verb and defaulted to playbook right after the switch -
+	// playbook itself always remains the identity AppendInvocation/
+	// BuildTaskSourceIndex/history are recorded and built against; a
+	// trimmed copy is a spawn-time detail only, exactly as it already is
+	// for a mid-session rerun (runner.NewRequestRerun).
+	var spawnPlaybook string
 	// roleDisplayName is set only for a role-based session ("tangsible
 	// role", or "tangsible rerun" resolving to one - design-docs/Tangsible
 	// role.md): the role's own name, used in place of playbook's (here,
@@ -133,6 +143,46 @@ func Main() {
 			}
 		}
 
+		// "--start-at-play" (design-docs/StartWithPlay.md's CLI form) is
+		// Tangsible's own synthetic flag, understood by no real
+		// ansible-playbook - ExtractStartAtPlay pulls it (and its value)
+		// out of rest before anything else touches rest, so it never
+		// reaches AppendInvocation's own history string (a future bare
+		// "tangsible rerun" replays Rest verbatim, straight at
+		// ansible-playbook, which would reject an unrecognized flag) or
+		// SpawnGeneration itself.
+		var startAtPlay string
+		startAtPlay, rest = config.ExtractStartAtPlay(rest)
+		spawnPlaybook = playbook
+		if startAtPlay != "" {
+			// Resolved - and any failure reported - before AppendInvocation
+			// below, same as the "no playbook could be resolved" failure
+			// above: an invocation that's invalid before ansible-playbook
+			// is ever involved isn't worth recording into history at all.
+			tempPath, cleanupTemp, ok, err := source.TrimPlaybookToPlay(playbook, startAtPlay)
+			switch {
+			case err != nil:
+				fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a trimmed copy of %s for play %q: %v\n", playbook, startAtPlay, err)
+				os.Exit(1)
+			case !ok:
+				fmt.Fprintf(os.Stderr, "tangsible: no play named %q found in %s\n", startAtPlay, playbook)
+				os.Exit(1)
+			default:
+				spawnPlaybook = tempPath
+				// Reuses the same cleanup/defer machinery already in place
+				// for a role session's own stub playbook (see cleanup's own
+				// doc comment above) - this session has nothing else that
+				// would ever set it, "run" never being a role session
+				// itself. Ties the temp file's lifetime to the whole
+				// process, not just this first generation, exactly like the
+				// role stub's own lifetime - simpler than the per-generation
+				// cleanup runner.NewRequestRerun uses for a later,
+				// interactive rerun, and harmless at this project's
+				// interactive, short-lived-process scale.
+				cleanup = cleanupTemp
+			}
+		}
+
 		// Recorded unconditionally, before ansible-playbook is even
 		// started - same "an invocation is an invocation" semantics as
 		// shell history, independent of whether the run itself goes on to
@@ -141,14 +191,19 @@ func Main() {
 		// future rerun dialog is never worth aborting the run the user
 		// actually asked for. Unlike "rerun" (see below), "run" always
 		// records immediately - there's no confirmation step to wait for,
-		// the invocation already happened by definition.
+		// the invocation already happened by definition. Recorded against
+		// rest (startAtPlay already stripped out above, if it was there at
+		// all) and playbook (the original path, never spawnPlaybook) - a
+		// future "tangsible rerun" should replay the real playbook with
+		// real ansible-playbook args, not reach for a temp file that may
+		// already be gone.
 		if err := config.AppendInvocation(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(rest)); err != nil {
 			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
 		}
 		originalArgs = config.ParsePassthroughArgs(rest)
 
 		var showTUI bool
-		pending, showTUI = runner.StartFirstGeneration(playbook, rest, &procH, playbook, "", nil)
+		pending, showTUI = runner.StartFirstGeneration(spawnPlaybook, rest, &procH, playbook, "", cleanup)
 		if !showTUI {
 			return
 		}
@@ -223,6 +278,12 @@ func Main() {
 		// requestRerun path every later re-run already goes through.
 	}
 
+	// spawnPlaybook is only ever set above, by "run"'s own "--start-at-play"
+	// handling - every other Verb spawns against playbook itself.
+	if spawnPlaybook == "" {
+		spawnPlaybook = playbook
+	}
+
 	// Built synchronously - parsing a project's own YAML files is expected
 	// to be well under the noise floor of an interactive ansible run at
 	// this project's stated ~10-host target scale, so this isn't worth
@@ -234,6 +295,18 @@ func Main() {
 	// pending's own case above), so it's simply built before anything
 	// else instead.
 	sourceIndex, knownTags, knownTaskNames := source.BuildTaskSourceIndex(playbook)
+	knownPlayNames := source.ListTopLevelPlayNames(playbook)
+	if spawnPlaybook != playbook {
+		// "--start-at-play" spawns this first generation against a trimmed
+		// copy, not playbook itself - every RawEvent.Task.Path for a task
+		// defined directly in the top-level playbook (as opposed to one
+		// reached via roles:/include_tasks/import_tasks, whose own file is
+		// untouched) now points into that copy's own path/line numbers,
+		// which sourceIndex (built from playbook, above) can't contain.
+		// See MergeSourceIndex's own doc comment - same fix
+		// runner.NewRequestRerun applies for a later, interactive rerun.
+		source.MergeSourceIndex(sourceIndex, spawnPlaybook)
+	}
 
 	// progH holds the current (or about-to-run) generation's own
 	// "Task x/y" progress skeleton (progress.go) - an atomic.Pointer
@@ -255,7 +328,7 @@ func Main() {
 	// submitting.
 	var progH atomic.Pointer[runner.ProgressTracker]
 	if pending != nil {
-		progH.Store(runner.NewProgressTracker(runner.BuildProgressSkeleton(playbook, originalArgs.Reassemble())))
+		progH.Store(runner.NewProgressTracker(runner.BuildProgressSkeleton(spawnPlaybook, originalArgs.Reassemble())))
 	}
 
 	// Read fresh here rather than threading through the "rerun" branch's
@@ -311,7 +384,7 @@ func Main() {
 	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan runner.StreamItem, stderrLines <-chan []string, runID string, peeked ...runner.StreamItem) {
 		runner.RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, &exitCode, &processDone, recordOutcome, peeked...)
 	}
-	requestRerun := runner.NewRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome)
+	requestRerun := runner.NewRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome, sourceIndex)
 
 	// displayName is what the TUI's top bar shows - normally the resolved
 	// playbook's own filename, but a role session's playbook local holds
@@ -324,7 +397,7 @@ func Main() {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownTaskNames, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownTaskNames, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)
