@@ -49,6 +49,13 @@ import (
 // "colored as normal... differences only visualized by underlining."
 var DiffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorFuchsia).Bold(true)
 
+// DiffChromeColorName is DiffChromeStyle's own tag-name equivalent -
+// "fuchsia" - for outputTabs.SetHeaderStyle below, whose active/inactive
+// tab tags bake in a color name string rather than a tcell.Style (a
+// single style can't vary per-column - see TabbedPane.SetHeaderStyle's
+// own doc comment).
+const DiffChromeColorName = "fuchsia"
+
 // ReplayRun loads a saved run's own .jsonl (runlog.go) into a fresh
 // PlaybookState - the exact replay mechanism OpenRevisitEntry already
 // uses for showing a revisited run, reused here for diff mode's own
@@ -697,6 +704,11 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		AddItem(footer, 1, 0, false)
 
 	outputTabs := uikit.NewTabbedPane()
+	outputTabs.SetHeaderStyle(DiffChromeStyle, DiffChromeColorName) // match
+	// the verb's own fuchsia chrome - otherwise the tab bar's own
+	// "Output/Task/.../Diff" row stays TabbedPane's hardcoded navy
+	// default, the same gap fixed for tui.go's own check-mode/revisit
+	// chrome (see uikit.TabbedPane.SetHeaderStyle's own doc comment).
 	outputHeader := tview.NewTextView().SetDynamicColors(true).SetText(" tangsible diff ")
 	outputHeader.SetTextStyle(DiffChromeStyle)
 	const outputHintText = " tab/shift-tab: switch tab  /: search tab  q/esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "

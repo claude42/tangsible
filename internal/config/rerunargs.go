@@ -129,6 +129,26 @@ func ExtractStartAtPlay(args []string) (startAtPlay string, rest []string) {
 	return startAtPlay, out
 }
 
+// HasCheckFlag reports whether args contains a bare "--check" or "-C" -
+// ansible-playbook's own dry-run flag, left in Rest by ParsePassthroughArgs
+// (it isn't one of the flags that function extracts) and so still present
+// verbatim wherever Rest itself ends up: the original invocation's own
+// passthrough args, and - since a rerun's Rest is always carried forward
+// unedited from that original invocation, never exposed in the rerun
+// dialog - every later generation's too. Only recognizes the two exact
+// tokens, not a value-bearing "--check=..." form (the real flag takes no
+// value) and not an attached bundled short form like "-vC" - the same
+// "documented heuristic, not chased further" gap ParsePassthroughArgs's
+// own "-tfoo" case already accepts for the same reason.
+func HasCheckFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--check" || a == "-C" {
+			return true
+		}
+	}
+	return false
+}
+
 // Reassemble rebuilds a full passthrough arg list from p - the inverse of
 // parsePassthroughArgs, used once the re-run dialog's (possibly edited)
 // Tags/SkipTags/Hosts need combining back with Rest. Always emits the

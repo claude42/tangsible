@@ -236,3 +236,20 @@ func TestTabbedPaneRenderHeaderHighlightsActiveTab(t *testing.T) {
 		t.Errorf("header text = %q, want Output (inactive) not styled as the active tab", got)
 	}
 }
+
+func TestTabbedPaneSetHeaderStyleChangesTagColor(t *testing.T) {
+	p := NewTabbedPane()
+	p.SetTabs([]string{"Task", "Output"}, primitives(2))
+	p.SetHeaderStyle(CheckBarStyle, "olive")
+
+	got := p.header.GetText(false)
+	if !strings.Contains(got, "[olive:white:B] Task [white:olive:-]") {
+		t.Errorf("header text = %q, want the active tab wrapped in [olive:white:B]...[white:olive:-] after SetHeaderStyle", got)
+	}
+	if !strings.Contains(got, "[white:olive:-] Output [white:olive:-]") {
+		t.Errorf("header text = %q, want the inactive tab colored olive after SetHeaderStyle", got)
+	}
+	if strings.Contains(got, "navy") {
+		t.Errorf("header text = %q, want no leftover navy tags after SetHeaderStyle", got)
+	}
+}

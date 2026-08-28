@@ -219,3 +219,25 @@ func TestExtractStartAtPlay_NoneFoundReturnsSameSlice(t *testing.T) {
 		t.Error("rest should be the same underlying slice as args when nothing was found")
 	}
 }
+
+func TestHasCheckFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"absent", []string{"-i", "localhost,"}, false},
+		{"long form", []string{"-i", "localhost,", "--check"}, true},
+		{"short form", []string{"-i", "localhost,", "-C"}, true},
+		{"empty args", nil, false},
+		{"attached bundled short form not recognized", []string{"-vC"}, false},
+		{"value-bearing form not recognized", []string{"--check=true"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasCheckFlag(tt.args); got != tt.want {
+				t.Errorf("HasCheckFlag(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}

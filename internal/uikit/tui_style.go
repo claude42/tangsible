@@ -34,6 +34,20 @@ var BarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.
 // themes rather than RGB-approximated. See design-docs/Colors.md.
 var ReplayBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorPurple).Bold(true)
 
+// CheckBarStyle is the chrome for a session whose current generation was
+// invoked with --check (a dry run: ansible-playbook still runs for real,
+// but most modules only report what they *would* do rather than doing
+// it) - the same bars BarStyle normally covers switch to this instead for
+// as long as the running/finished generation is a --check one, so "this
+// didn't actually change anything" is visible in the chrome itself rather
+// than only discoverable by reading --check off the command line after
+// the fact. tcell.ColorOlive, not a hex value - a fixed base-16 ANSI
+// palette slot, same reasoning as maroon/purple/fuchsia elsewhere in this
+// file. Picked from the same "still-unused base-16 slot" shortlist
+// (olive, lime) that ReplayBarStyle's own doc comment already names as
+// having been passed over in favor of purple - see design-docs/Colors.md.
+var CheckBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorOlive).Bold(true)
+
 // SearchBarStyle is the drill-down/host-detail/template view's own bottom
 // bar style while an in-tab search (design-docs/Search.md) is being
 // composed or is currently active - black on yellow, the same "a distinct

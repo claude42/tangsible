@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -42,12 +43,17 @@ import (
 // layout; Next/Prev/HandleClick/SetTabs are the only things a caller
 // needs to drive it.
 type TabbedPane struct {
-	header  *tview.TextView
-	pages   *tview.Pages
-	root    *tview.Flex
-	names   []string
-	active  int
-	changed func()
+	header          *tview.TextView
+	pages           *tview.Pages
+	root            *tview.Flex
+	names           []string
+	active          int
+	changed         func()
+	headerColorName string // renderHeader's own tag-name equivalent of
+	// header's current base style - "navy" by default, matching BarStyle
+	// (see NewTabbedPane) - see SetHeaderStyle's own doc comment for why
+	// this needs to be kept alongside a real tcell.Style rather than
+	// derived from one.
 }
 
 // SetChangedFunc registers f to be called whenever the active tab changes,
@@ -76,7 +82,34 @@ func NewTabbedPane() *TabbedPane {
 		AddItem(header, 1, 0, false).
 		AddItem(pages, 0, 1, true)
 
-	return &TabbedPane{header: header, pages: pages, root: root}
+	return &TabbedPane{header: header, pages: pages, root: root, headerColorName: "navy"}
+}
+
+// SetHeaderStyle updates the tab bar's own chrome to match whichever of
+// BarStyle/ReplayBarStyle/CheckBarStyle/DiffChromeStyle (or a session's
+// own current pick among them - see internal/session/tui.go's
+// chromeStyle/chromeColorName, internal/diff/diff.go's DiffChromeStyle)
+// the surrounding session is actually using right now, and re-renders
+// immediately so a call after tabs already exist takes effect without
+// waiting for the next SetTabs/Next/Prev. Callers that never call this at
+// all keep the default navy/BarStyle look renderHeader has always had -
+// this exists for the sessions that switch chrome (revisit's purple,
+// check mode's olive, the diff verb's fuchsia), not a requirement on
+// every caller.
+//
+// Takes both style and colorName, not just one: style sets header's own
+// base TextStyle (the trailing blank space past the last tab's own label,
+// which renderHeader's own explicit per-tab tags don't cover), while
+// colorName is what actually gets baked into those tags themselves -
+// [<colorName>:white:B] for the active tab, [white:<colorName>:-] for
+// every inactive one - the same "a single tcell.Style can't vary
+// per-column, so the fill/tag text bakes in a tag-name string instead"
+// reasoning topBar's own ComposeTopBarLine/chromeColorName already
+// established for the exact same class of problem.
+func (p *TabbedPane) SetHeaderStyle(style tcell.Style, colorName string) {
+	p.headerColorName = colorName
+	p.header.SetTextStyle(style)
+	p.renderHeader()
 }
 
 // Primitive returns the pane's own root, for embedding in a caller's
@@ -197,16 +230,17 @@ func (p *TabbedPane) renderHeader() {
 			b.WriteString("  ")
 		}
 		if i == p.active {
-			// Explicit navy-on-white (barStyle's own white-on-navy,
-			// swapped) rather than relying on [::R]'s empty color fields
-			// to inherit the header's base TextStyle - confirmed live
-			// that inheritance doesn't reliably happen the way a bare
-			// attribute-only tag might suggest, so every segment here
-			// fully specifies its own colors instead, active and
+			// Explicit <headerColorName>-on-white (the session's own
+			// current chrome color, white-on-<name> swapped - see
+			// SetHeaderStyle) rather than relying on [::R]'s empty color
+			// fields to inherit the header's base TextStyle - confirmed
+			// live that inheritance doesn't reliably happen the way a
+			// bare attribute-only tag might suggest, so every segment
+			// here fully specifies its own colors instead, active and
 			// inactive alike, leaving nothing to inherit at all.
-			fmt.Fprintf(&b, "[navy:white:B] %s [white:navy:-]", tview.Escape(name))
+			fmt.Fprintf(&b, "[%s:white:B] %s [white:%s:-]", p.headerColorName, tview.Escape(name), p.headerColorName)
 		} else {
-			fmt.Fprintf(&b, "[white:navy:-] %s [white:navy:-]", tview.Escape(name))
+			fmt.Fprintf(&b, "[white:%s:-] %s [white:%s:-]", p.headerColorName, tview.Escape(name), p.headerColorName)
 		}
 	}
 	p.header.SetText(b.String())

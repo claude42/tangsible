@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/ansibledoc"
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/diff"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
@@ -201,6 +202,16 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// screen, no longer "old data," so chrome reverts to normal and Esc
 	// stops meaning "back to the list" (see submitRerun/SetInputCapture
 	// below).
+
+	// checkMode is fixed for this whole session, not a var re-derived per
+	// generation: passthroughArgs is the original invocation's own Rest
+	// (see this function's own doc comment), and a rerun always carries
+	// Rest forward unedited (the dialog never exposes --check for
+	// toggling), so whatever this session started with is what every
+	// later generation runs with too - live, revisit, and rerun-from-
+	// revisit alike (revisit.go threads the replayed run's own recorded
+	// Rest through identically). See CheckBarStyle's own doc comment.
+	checkMode := config.HasCheckFlag(passthroughArgs)
 	var failureCursorPlaced bool // latches true the first time rebuild()
 	// observes the run frozen - guards the one-time "jump to the failed
 	// host" placement below so it fires exactly once on the
@@ -348,14 +359,31 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		}
 	}
 
+	// liveChromeStyle/liveChromeBg/liveChromeColorName are what this
+	// session's chrome resolves to whenever it isn't showing revisit's own
+	// purple - BarStyle/navy normally, CheckBarStyle/olive for the whole
+	// lifetime of a --check session (checkMode is fixed - see its own
+	// declaration above). Read once: unlike revisitActive, checkMode never
+	// flips mid-session, so there's no "goes stale after a real rerun"
+	// concern the way chromeStyle/chromeBg (below) have for revisit.
+	liveChromeStyle := uikit.BarStyle
+	liveChromeBg := tcell.ColorNavy
+	liveChromeColorName := "navy"
+	if checkMode {
+		liveChromeStyle = uikit.CheckBarStyle
+		liveChromeBg = tcell.ColorOlive
+		liveChromeColorName = "olive"
+	}
+
 	// chromeStyle/chromeBg pick the initial look for every chrome bar/the
 	// two-pane divider below - ReplayBarStyle/purple for a revisit session,
-	// BarStyle/navy for everything else. Mutable local, not a const choice:
-	// submitRerun resets both bars and splitDivider back to BarStyle/navy
-	// directly once revisitActive goes false, so these two only ever matter
-	// for how things start out, not as an ongoing source of truth.
-	chromeStyle := uikit.BarStyle
-	chromeBg := tcell.ColorNavy
+	// liveChromeStyle/liveChromeBg for everything else. Mutable local, not
+	// a const choice: submitRerun resets both bars and splitDivider back
+	// to liveChromeStyle/liveChromeBg directly once revisitActive goes
+	// false, so these two only ever matter for how things start out, not
+	// as an ongoing source of truth.
+	chromeStyle := liveChromeStyle
+	chromeBg := liveChromeBg
 	if revisitActive {
 		chromeStyle = uikit.ReplayBarStyle
 		chromeBg = tcell.ColorPurple
@@ -363,7 +391,15 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 	// currentMainBottomBarText appends the revisit-only "Esc: back to
 	// list" hint onto MainBottomBarText for as long as revisitActive stays
-	// true - reads it fresh on every call rather than being decided once,
+	// true, and - independently, regardless of revisitActive, since
+	// checkMode never goes false once true - a "CHECK MODE" note whenever
+	// this session's generation was invoked with --check: chrome color
+	// alone doesn't reach a NO_COLOR/monochrome terminal (design-docs/
+	// Morehosts.md already established this same "color isn't the only
+	// channel" concern for the collapsed-row summary), and this is the one
+	// place a textual mode indicator was already established as the
+	// pattern for something color-driven chrome can't carry on its own.
+	// Reads both flags fresh on every call rather than being decided once,
 	// same reasoning chromeStyle/chromeBg above don't need (those are only
 	// ever applied at construction, with submitRerun resetting the actual
 	// widgets directly afterward) - bottomBar's text, unlike its style, is
@@ -379,6 +415,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// rerun-from-revisit exists).
 			text = strings.Replace(text, "r: re-run  ", "", 1)
 		}
+		if checkMode {
+			text += " [CHECK MODE - dry run] "
+		}
 		if revisitActive {
 			text += " Esc: back to list "
 		}
@@ -386,7 +425,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	}
 
 	// chromeColorName is chromeBg's own tag-name equivalent - "navy"/
-	// "purple" - for the progress-fill lines (TopBarText/
+	// "olive"/"purple" - for the progress-fill lines (TopBarText/
 	// ComposeSplitHeaderLine/outputTopBar's own plain fill, all below),
 	// which bake their unfilled-portion background into inline
 	// [white:<name>:b] tags rather than reading it from the TextView's own
@@ -404,7 +443,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if revisitActive {
 			return "purple"
 		}
-		return "navy"
+		return liveChromeColorName
 	}
 
 	// showElapsed suppresses the top/split bars' own spinner/mm:ss clock
@@ -446,6 +485,12 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// literal "[" in real command output or YAML (e.g. "tags: [a, b]")
 	// can never be misread as a color tag.
 	outputTabs := uikit.NewTabbedPane()
+	outputTabs.SetHeaderStyle(chromeStyle, chromeColorName()) // match
+	// whatever chrome this session started with (navy/purple/olive) -
+	// otherwise the tab bar's own "Output/Task/Resolved/..." row stays
+	// TabbedPane's hardcoded navy default regardless of chromeStyle,
+	// most visible in two-pane mode where it sits right next to
+	// splitDivider (already chromeBg-colored) - reported live.
 
 	// Dynamic colors on, same reason and same escaping discipline as
 	// topBar (see ProgressFillLine) - its own fill makes host/task.Name
@@ -469,7 +514,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if revisitActive {
 			return chromeStyle
 		}
-		return uikit.BarStyle
+		return liveChromeStyle
 	}
 
 	// tabSearchInput is the InputField swapped into outputFooterPages' own
@@ -2263,12 +2308,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// already-constructed widgets rather than via chromeStyle/
 			// chromeBg (those only ever governed how things started out).
 			revisitActive = false
-			topBar.SetTextStyle(uikit.BarStyle)
-			outputTopBar.SetTextStyle(uikit.BarStyle)
-			outputBottomBar.SetTextStyle(uikit.BarStyle)
-			splitHeader.SetTextStyle(uikit.BarStyle)
-			bottomBar.SetTextStyle(uikit.BarStyle)
-			splitDivider.SetBackgroundColor(tcell.ColorNavy)
+			topBar.SetTextStyle(liveChromeStyle)
+			outputTopBar.SetTextStyle(liveChromeStyle)
+			outputBottomBar.SetTextStyle(liveChromeStyle)
+			splitHeader.SetTextStyle(liveChromeStyle)
+			bottomBar.SetTextStyle(liveChromeStyle)
+			splitDivider.SetBackgroundColor(liveChromeBg)
+			outputTabs.SetHeaderStyle(liveChromeStyle, liveChromeColorName)
 			// Style alone isn't enough for bottomBar: unlike topBar/
 			// splitHeader (whose visible text is rebuilt from scratch
 			// on every rebuild() call, always reading chromeColorName/
