@@ -1,0 +1,63 @@
+.TH TANGSIBLE-ROLE 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible-role \- run a single role in isolation
+.SH SYNOPSIS
+.B tangsible role
+.I role_name
+.RI [ "ansible\-playbook args" ...]
+.SH DESCRIPTION
+Testing a single role normally means hand\-writing a temporary playbook
+around it first.
+.B role
+does that for you: it generates a minimal stub playbook
+(
+.B hosts: all
+,
+.B roles: [
+.I role_name
+.B ]
+) in the current directory, runs it exactly as
+.BR tangsible-run (1)
+would, and removes the stub again once Tangsible exits. The stub is
+written to
+.BI .tangsible\-role\- role_name .yml
+(dot\-prefixed, so it doesn't clutter a directory listing); it should be
+added to
+.BR .gitignore ,
+which Tangsible does not do automatically. If Tangsible is killed
+before it can clean up (a crash, a
+.BR "kill \-9" ),
+a stale copy can be left behind \(em safe to delete by hand.
+.PP
+The stub always targets
+.BR "hosts: all" ;
+narrow the actual target the normal way, with
+.B \-i
+/
+.B \-l
+passthrough arguments. If a
+.B ./roles/\fIrole_name\fR
+directory isn't found relative to the current directory, a warning is
+printed up front \(em the run proceeds regardless (Ansible may still
+resolve the role from
+.BR $ANSIBLE_ROLES_PATH ,
+a configured roles path, or a collection), but the drill\-down view's
+Task definition section won't be available for it, since the source
+lookup only ever walks the stub's own directory tree.
+.PP
+Everything else \(em the live tree, filtering, the rerun dialog, the
+diff picker \(em works exactly as in
+.BR tangsible-run (1).
+A rerun started from this session regenerates a fresh stub for the same
+role each time; it is never reused across separate
+.B tangsible role
+invocations.
+.SH EXIT STATUS
+Same as
+.BR tangsible-run (1);
+see
+.BR tangsible (1).
+.SH SEE ALSO
+.BR tangsible (1),
+.BR tangsible-run (1),
+.BR tangsible-rerun (1)

@@ -1,0 +1,243 @@
+.TH TANGSIBLE 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible \- a live terminal UI for ansible\-playbook
+.SH SYNOPSIS
+.B tangsible
+.I verb
+.RI [ args ...]
+.SH DESCRIPTION
+.B tangsible
+wraps
+.BR ansible-playbook (1)
+in a live, navigable tree of plays \(-> tasks \(-> hosts, color\-coded by
+outcome (OK / Changed / Skipped / Failed / Unreachable). It comes up
+immediately and updates live while the playbook is still running, and lets
+you drill into any host's result \(em task source, output, stderr,
+.B \-\-diff
+output, full JSON \(em without losing your place in the run.
+.PP
+It is a development and troubleshooting interface for
+.BR ansible-playbook ,
+not a replacement for it or an orchestration platform. Tangsible is a
+single static binary that shells out to
+.B ansible\-playbook
+exactly as you would yourself, and turns its output into something you can
+watch and navigate as it happens. It is aimed at someone running playbooks
+by hand, repeatedly, against a live-ish environment \(em not at CI
+pipelines, scheduled automation, or fleet-scale inventories.
+.PP
+Every
+.I verb
+below is documented in its own manual page. This page covers what all of
+them have in common: configuration, environment variables, and files.
+.SH VERBS
+.TP
+.BR tangsible-run (1)
+Run a playbook and show its live progress in the tree UI. The everyday
+entry point.
+.TP
+.BR tangsible-rerun (1)
+Re\-open the rerun dialog directly from the command line, pre\-filled from
+the most recent invocation.
+.TP
+.BR tangsible-role (1)
+Run a single role in isolation, without hand\-writing a wrapper playbook.
+.TP
+.BR tangsible-template (1)
+Render one Jinja2 template through Ansible's own templating engine,
+against a real inventory host.
+.TP
+.BR tangsible-host (1)
+Show everything Tangsible can determine about one host: live facts,
+inventory group membership, which plays would run, host_vars, and the raw
+.B ansible\-inventory \-\-host
+dump.
+.TP
+.BR tangsible-hosts (1)
+Browse every inventory host, then drill into any one of them with the same
+view
+.B tangsible host
+shows.
+.TP
+.BR tangsible-revisit (1)
+Browse previous runs and reopen one, exactly as it looked when it
+finished.
+.TP
+.BR tangsible-vault (1)
+Edit individually vault\-encrypted variables in a file in place, without
+hand\-running
+.B "ansible\-vault encrypt_string"
+and pasting ciphertext back yourself.
+.SH REQUIREMENTS
+.B tangsible
+requires
+.B ansible\-playbook
+and the
+.B ansible.posix
+collection to be installed and on
+.BR PATH :
+.RS
+.EX
+ansible\-galaxy collection install ansible.posix
+.EE
+.RE
+.PP
+That collection provides the
+.B jsonl
+stdout callback plugin Tangsible relies on to receive events while the
+playbook runs. Because it opens a full\-screen terminal UI, Tangsible
+requires a real TTY and cannot run in a piped or headless shell.
+.SH CONFIGURATION
+When a
+.I verb
+that needs a playbook is not given one explicitly, Tangsible resolves one
+in order from:
+.IP 1. 4
+.B $TANGSIBLE_PLAYBOOK
+.IP 2. 4
+.B .tangsible/config.toml
+in the current directory
+.IP 3. 4
+.B $XDG_CONFIG_HOME/tangsible/config.toml
+(default
+.BR ~/.config/tangsible/config.toml )
+.IP 4. 4
+.B ./site.yml ,
+if present
+.PP
+Both config files share the same TOML shape:
+.RS
+.EX
+[general]
+default_playbook = "myplaybook.yml"
+default_tree_state = "collapsed"   # "expanded" or "collapsed"
+two_pane_layout = true             # default: true
+color = true                       # default: true
+
+[vault]
+password_file = "./.vault_pass"    # tangsible\-vault(1)'s own fallback
+.EE
+.RE
+.PP
+.B default_tree_state
+and the global
+.B $XDG_CONFIG_HOME
+file's own
+.B default_tree_state
+are only ever read from the project\-local
+.B .tangsible/config.toml ,
+never the global one.
+.B two_pane_layout
+governs whether the drill\-down view keeps the tree pane visible
+alongside it on a wide enough terminal.
+.B color
+governs whether a task row's collapsed per\-host list may render in
+color at all, independent of terminal capability and
+.BR NO_COLOR .
+.B "[vault] password_file"
+is likewise only ever read from the project\-local file; see
+.BR tangsible-vault (1)
+for its full precedence order.
+.SH FILES
+.TP
+.B .tangsible/config.toml
+Project\-local, user\-authored settings, as above. Never written by
+Tangsible itself \(em safe to hand\-edit, including comments.
+.TP
+.B .tangsible/state.toml
+App\-owned invocation history and last\-run state, backing
+.BR tangsible-rerun (1)
+and
+.BR tangsible-revisit (1).
+Rewritten on every invocation of every verb; contains hostnames, tags,
+and extra\-vars from past invocations, so it should be listed in
+.BR .gitignore .
+.TP
+.B .tangsible/runs/<run\-id>.jsonl
+.TQ
+.B .tangsible/runs/<run\-id>.stderr
+One generation's raw saved event stream and stderr, kept for as long as
+its
+.B .tangsible/state.toml
+history entry references it. Backs
+.BR tangsible-revisit (1).
+.SH ENVIRONMENT
+.TP
+.B TANGSIBLE_PLAYBOOK
+Highest\-priority source for an unspecified playbook path; see
+CONFIGURATION above.
+.TP
+.B XDG_CONFIG_HOME
+Base directory for the global config file; see CONFIGURATION above.
+.TP
+.B VISUAL, EDITOR
+Consulted in that order by
+.BR tangsible-template (1)'s
+.B e
+key, and by
+.BR tangsible-vault (1)
+to open its editable view. Falls back to
+.B vi
+if neither is set.
+.TP
+.B NO_COLOR
+If set to any value (including empty), disables color in the tree's
+collapsed per\-host summary row, per the
+.UR https://no-color.org
+no\-color.org
+.UE
+convention.
+.SH EXIT STATUS
+.TP
+.B 0
+The playbook completed successfully; completed with only unreachable
+hosts and no other failure; or the run was interrupted by the user
+.RB ( q
+or
+.BR Ctrl-C ).
+None of these are treated as a Tangsible failure.
+.TP
+.B 1
+The playbook genuinely failed (any exit code other than the two benign
+cases above), or the terminal UI itself errored.
+.TP
+.B 2
+Usage error: a required argument was missing, or no playbook could be
+resolved.
+.SH LIMITATIONS
+.B strategy: free
+is not supported \(em Tangsible's data model assumes hosts progress
+through tasks together, which
+.B free
+deliberately violates; the tree stays empty for such a run even though
+the playbook itself runs and finishes normally underneath.
+Interactive input requested
+.I after
+the TUI has taken over the terminal is not supported (a bare
+.B pause:
+task with no
+.B seconds:
+does not wait;
+.B \-\-step
+crashes outright).
+.B \-\-ask\-become\-pass
+and
+.B \-\-ask\-vault\-pass
+work normally, since Ansible prompts for them before Tangsible ever
+takes over the terminal (unrelated to
+.BR tangsible-vault (1)'s
+own, same\-named
+.B \-\-ask\-vault\-pass
+flag, which is Tangsible's own prompt, not a passthrough to Ansible's).
+Tangsible is developed and tested against inventories on the order of
+ten hosts, not fleet scale.
+.SH SEE ALSO
+.BR ansible-playbook (1),
+.BR tangsible-run (1),
+.BR tangsible-rerun (1),
+.BR tangsible-role (1),
+.BR tangsible-template (1),
+.BR tangsible-host (1),
+.BR tangsible-hosts (1),
+.BR tangsible-revisit (1),
+.BR tangsible-vault (1)

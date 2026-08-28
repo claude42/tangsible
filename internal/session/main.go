@@ -119,6 +119,16 @@ func Main() {
 	// unedited, since the dialog only ever exposes Task/Tags/Hosts. Set by
 	// whichever Verb's branch below runs; read the same way by both.
 	var originalArgs config.ParsedPassthroughArgs
+	// initialPlay is this session's own --start-at-play, if any (empty for
+	// "role", which has no concept of it) - threaded through to
+	// NewLiveTUI's own initialPlay param to pre-fill the re-run dialog's
+	// Play field the first time it's opened, the same way originalArgs.Tags/
+	// Hosts already pre-fill Tags/Hosts. Never itself recorded into
+	// .tangsible/state.toml (see ExtractStartAtPlay's own doc comment), so
+	// there is nothing for a later bare "tangsible rerun" to fall back to -
+	// only an explicit --start-at-play on the "run"/"rerun" command line
+	// that started *this* session ever populates it.
+	var initialPlay string
 	// pending is non-nil only for "run" and "role" - see PendingGeneration's
 	// own doc comment.
 	var pending *runner.PendingGeneration
@@ -153,6 +163,7 @@ func Main() {
 		// SpawnGeneration itself.
 		var startAtPlay string
 		startAtPlay, rest = config.ExtractStartAtPlay(rest)
+		initialPlay = startAtPlay
 		spawnPlaybook = playbook
 		if startAtPlay != "" {
 			// Resolved - and any failure reported - before AppendInvocation
@@ -242,13 +253,29 @@ func Main() {
 		}
 
 	case config.VerbRerun:
+		// "--start-at-play" is pulled out of args before ResolveRerun ever
+		// sees the rest - same reasoning and same helper as "run"'s own
+		// handling above: it's Tangsible's own synthetic flag, understood
+		// by no real ansible-playbook, so it must never survive into
+		// ResolveRerun's own Rest (which a later bare "tangsible rerun"
+		// would otherwise replay verbatim, straight at ansible-playbook,
+		// which would reject it as unrecognized). Unlike "run", it's never
+		// resolved/validated here - there's no generation to spawn yet,
+		// just the dialog to pre-fill (see initialPlay below); the exact
+		// same TrimPlaybookToPlay validation "run" does synchronously here
+		// instead runs at dialog-confirm time, in requestRerun
+		// (runner.NewRequestRerun), whether the Play field's value came
+		// from this pre-fill or was typed by hand.
+		var rerunArgs []string
+		initialPlay, rerunArgs = config.ExtractStartAtPlay(args)
+
 		// No history/CLI-args resolution happens for "run" (its playbook
 		// argument is passed straight through, verbatim, same as always) -
 		// this is entirely new machinery, see rerunresolve.go. Read fresh
 		// rather than threaded through from anywhere else, since this is
 		// the only place in "rerun"'s own flow that needs it.
 		cfg := config.ReadState(config.TangsibleStatePath)
-		res, resolved := config.ResolveRerun(args, cfg)
+		res, resolved := config.ResolveRerun(rerunArgs, cfg)
 		if !resolved {
 			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 			fmt.Fprintln(os.Stderr, "no playbook or role given, and nothing has ever been run in this project to rerun")
@@ -397,7 +424,7 @@ func Main() {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownTaskNames, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownTaskNames, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)

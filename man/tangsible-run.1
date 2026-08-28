@@ -1,0 +1,170 @@
+.TH TANGSIBLE-RUN 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible-run \- run a playbook with a live, navigable tree UI
+.SH SYNOPSIS
+.B tangsible run
+.RI [ playbook.yml ]
+.RI [ \-\-start\-at\-play
+.IR name ]
+.RI [ "ansible\-playbook args" ...]
+.SH DESCRIPTION
+.B run
+starts
+.I playbook.yml
+under
+.BR ansible-playbook (1)
+and shows its progress as a live tree of plays \(-> tasks \(-> hosts,
+updating incrementally as the run proceeds. Any trailing arguments are
+passed straight through to
+.B ansible\-playbook
+unchanged (inventory, tags, limit, extra\-vars, verbosity,
+.BR \-\-start\-at\-task ,
+and so on all continue to work exactly as they would calling
+.B ansible\-playbook
+directly) \(em with one exception,
+.BR \-\-start\-at\-play ,
+covered in STARTING PARTWAY THROUGH below.
+.B \-\-diff
+is appended automatically to every invocation, whether or not it was
+already given, so the drill\-down view's Diff tab always has something
+to show.
+.PP
+If
+.I playbook.yml
+is omitted, it is resolved as described in
+.BR tangsible (1)'s
+CONFIGURATION section. If no playbook can be resolved at all,
+.B run
+exits with a usage error.
+.PP
+A pre\-flight failure \(em a bad playbook path, a parse error, a missing
+inventory \(em is reported directly to stderr, exactly as plain
+.B ansible\-playbook
+would; the TUI itself is never shown for a run that fails before its
+first real event.
+.SH STARTING PARTWAY THROUGH
+.TP
+.BI \-\-start\-at\-task " name"
+A real
+.BR ansible-playbook (1)
+flag, passed straight through like any other. Skips ahead to the first
+task named
+.I name
+and runs to the end from there. Since task names are not required to be
+unique \(em most playbooks are thin wrappers around roles, and a role's
+own first task tends to be named the same way across every play that
+uses it \(em this can't always target one exact position by itself; see
+.B \-\-start\-at\-play
+below for a way to narrow it further.
+.TP
+.BI \-\-start\-at\-play " name"
+Tangsible's own flag, understood by no real
+.BR ansible-playbook :
+it is stripped out of the argument list before anything else touches
+it, so it is never passed through and never recorded into
+.BR .tangsible/state.toml \(aqs
+invocation history. Rather than editing
+.I playbook.yml
+itself, Tangsible builds a throwaway copy trimmed to start at the named
+top\-level play \(em including everything after it \(em in the same
+directory as the original file (so any
+.BR roles: / include_tasks / import_tasks
+reference still resolves exactly as it would have), runs
+.B ansible\-playbook
+against that copy instead, and removes it once the run finishes. Only a
+playbook's own top\-level plays can be targeted this way; a play pulled
+in via
+.B import_playbook
+or one with no
+.B name:
+at all cannot be. If no play named
+.I name
+exists in
+.IR playbook.yml ,
+.B run
+fails immediately with a clear error and a non\-zero exit, before
+anything is recorded to history and before
+.B ansible\-playbook
+is ever invoked \(em the same posture taken when no playbook can be
+resolved at all.
+.PP
+The two combine: giving both
+.B \-\-start\-at\-play
+and
+.B \-\-start\-at\-task
+first trims the file down to the named play, then starts partway into
+it at the named task \(em useful when a task name that would otherwise
+be ambiguous across the whole playbook is unique within one play.
+Both are also available as fields in the rerun dialog (\c
+.BR r ,
+below, or
+.BR tangsible-rerun (1)),
+autocompleted from every top\-level play/task name found in
+.IR playbook.yml .
+.B \-\-start\-at\-play
+is also accepted directly on the
+.B rerun
+command line, to pre\-fill that dialog's own Play field \(em see
+.BR tangsible-rerun (1)
+for how its handling there differs slightly from
+.BR run 's.
+.SH KEY BINDINGS
+Full reference:
+.IR Keyboard-shortcuts.md
+in the project's
+.B design-docs
+directory. The essentials:
+.TP
+.BR "Up/Down " "or " "j/k"
+Move the cursor (stops autoscrolling).
+.TP
+.B Left / Right
+Collapse / expand the task under the cursor.
+.TP
+.B E / C
+Expand / collapse every task at once.
+.TP
+.B n / N
+Jump to the next / previous task.
+.TP
+.B F
+Resume autoscrolling to the newest row.
+.TP
+.B f
+Open the filter dialog: All / Interesting / Changed / Failed.
+.TP
+.B /
+Search filter (task name, source, and output).
+.TP
+.B Enter
+Toggle a task's host rows, or open a host's full result if the cursor
+is on one.
+.TP
+.B r
+Open the rerun dialog, once the run has finished. See
+.BR tangsible-rerun (1)
+for what it does.
+.TP
+.B d
+Open the diff picker: choose a previous run to compare this one
+against. Requires at least one other completed run recorded in
+.BR .tangsible/state.toml ;
+otherwise this key does nothing. See
+.BR tangsible-revisit (1),
+whose own list picker this reuses.
+.TP
+.B q / Ctrl\-C
+While the playbook is still running, interrupt it (forwarded as
+.BR SIGINT ,
+exactly as pressing Ctrl\-C on a plain
+.B ansible\-playbook
+invocation would). Once it has finished, quit.
+.SH EXIT STATUS
+See
+.BR tangsible (1).
+.SH SEE ALSO
+.BR tangsible (1),
+.BR ansible-playbook (1),
+.BR tangsible-rerun (1),
+.BR tangsible-role (1),
+.BR tangsible-revisit (1)

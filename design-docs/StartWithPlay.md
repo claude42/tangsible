@@ -110,9 +110,20 @@ history and before ansible-playbook (or the TUI) is ever involved - the
 same "resolve and validate everything before recording" ordering `run`
 already uses for "no playbook could be resolved."
 
-`rerun --start-at-play <name>` (pre-filling the dialog's own Play field,
-mirroring how `-l`/`--tags` already pre-fill Hosts/Tags) is a natural,
-small follow-on this doesn't implement yet.
+`rerun --start-at-play <name>` also works, pre-filling the dialog's own
+Play field the same way `-l`/`--tags` already pre-fill Hosts/Tags -
+extracted before `ResolveRerun` ever sees the rest of the args (same
+`ExtractStartAtPlay` helper `run` uses, same reason: it must never survive
+into `ResolveRerun`'s own `Rest`, which a later bare `tangsible rerun`
+replays verbatim, straight at `ansible-playbook`). Unlike `run`, `rerun`
+never resolves/validates it on the spot - there's no generation to spawn
+yet at that point, just the dialog to pre-fill - so a bad play name isn't
+caught until the dialog is confirmed, at which point it fails exactly the
+same way a hand-typed one in the Play field already would (see
+`runner.NewRequestRerun`'s own `TrimPlaybookToPlay` handling). Also never
+recorded into history, for the same reason it's stripped out to begin
+with - a later bare `tangsible rerun` has nothing to fall back to for it,
+unlike Tags/Hosts.
 
 ## A drill-down gap this surfaced, and the fix
 

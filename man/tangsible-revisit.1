@@ -1,0 +1,77 @@
+.TH TANGSIBLE-REVISIT 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible-revisit \- browse and reopen previous runs
+.SH SYNOPSIS
+.B tangsible revisit
+.RI [ "playbook.yml or role name" ]
+.RI [ "\-\-tags | \-t"
+.IR tags ]
+.RI [ "\-\-limit | \-l"
+.IR hosts ]
+.SH DESCRIPTION
+.B revisit
+lists every past invocation that still has its raw event data saved
+under
+.B .tangsible/runs/
+(see FILES in
+.BR tangsible (1)),
+newest first. Selecting one replays its saved
+.B .jsonl
+event stream into a fresh tree \(em the exact same live tree UI
+.BR tangsible-run (1)
+uses, already frozen with that run's own final outcome, tags, and
+hosts.
+.PP
+With no arguments, every recorded run across every playbook and role is
+shown. An optional
+.I playbook.yml
+or
+.I role
+argument narrows the list to just that target;
+.B \-\-tags
+/
+.B \-t
+and
+.B \-\-limit
+/
+.B \-l
+narrow it further, to runs whose own recorded tags/hosts overlap the
+given value.
+.PP
+Once a run is open, every normal live\-tree key applies (see
+.BR tangsible-run (1)),
+including
+.B r
+to rerun it (starting a real, live invocation from that point) and
+.B d
+to diff it against another recorded run. The one difference: pressing
+.B Esc
+at the bare tree level (not inside a dialog) closes that entry and
+returns to the
+.B revisit
+list, rather than quitting the program \(em only
+.B q
+/
+.B Ctrl\-C
+at the list itself does that. If a rerun is started from within a
+revisited entry and then interrupted or finishes,
+.B q
+/
+.B Ctrl\-C
+there still only returns to the list, never exits outright.
+.SH EXIT STATUS
+.TP
+.B 0
+The list was shown (and browsed, however briefly) and closed normally
+with
+.B q
+/
+.BR Ctrl\-C .
+.TP
+.B 1
+No recorded run matched the given filters, and the list was never shown
+at all.
+.SH SEE ALSO
+.BR tangsible (1),
+.BR tangsible-run (1),
+.BR tangsible-rerun (1)

@@ -50,13 +50,17 @@ import (
 // shared with the caller: this function only reads processDone and only
 // writes quitting.
 //
-// initialTags/initialSkipTags/initialHosts pre-fill the re-run dialog's own
-// Tags/Skip tags/Hosts fields the first time it's opened (and every time
-// after, until the user edits them - the dialog's own fields, once opened,
-// keep whatever the user last left in them across repeated 'r' presses) -
-// the --tags/--skip-tags/--limit values this process was itself invoked
-// with, parsed out by main.go via ParsePassthroughArgs (Rerun.md's "if
-// tags were already specified in the previous run... pre-filled").
+// initialPlay/initialTags/initialSkipTags/initialHosts pre-fill the re-run
+// dialog's own Play/Tags/Skip tags/Hosts fields the first time it's opened
+// (and every time after, until the user edits them - the dialog's own
+// fields, once opened, keep whatever the user last left in them across
+// repeated 'r' presses) - the --start-at-play/--tags/--skip-tags/--limit
+// values this process was itself invoked with, parsed out by main.go
+// (ExtractStartAtPlay/ParsePassthroughArgs respectively) - design-docs/
+// StartWithPlay.md's own "small follow-on" for --start-at-play, once
+// "run"/"rerun" could both already resolve one, mirroring how --tags/
+// --limit already pre-fill Tags/Hosts (Rerun.md's "if tags were already
+// specified in the previous run... pre-filled").
 //
 // requestRerun is called once the re-run dialog is confirmed (Enter), to
 // start a new generation with the dialog's own fields: startAtPlay (empty
@@ -145,7 +149,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownTaskNames, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtPlay, startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownTaskNames, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtPlay, startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -1785,7 +1789,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// latch has no such ambiguity: once a field has been pre-filled once,
 	// it is never touched by this function again, regardless of what the
 	// user does with it afterward, empty included.
-	var tagsPreFilled, skipTagsPreFilled, hostsPreFilled bool
+	var playPreFilled, tagsPreFilled, skipTagsPreFilled, hostsPreFilled bool
 
 	// openRerunDialog (Rerun.md's 'r' key - see SetInputCapture below,
 	// gated there on processDone since re-running only makes sense once a
@@ -1793,17 +1797,23 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// rerunForm's own doc comment for why the original cursor-based
 	// pre-fill design was dropped) - like Tags/Hosts, it just keeps
 	// whatever was last typed into it, empty on the very first open of the
-	// session. Play (design-docs/StartWithPlay.md) follows the identical
-	// never-pre-filled rule, for the same reason - there's no single
-	// "current play" to derive one from any more reliably than there was a
-	// "current task." Tags/Hosts specifically are pre-filled from
-	// initialTags/initialHosts (this process's own invocation) only the
-	// very first time each is opened at all - see tagsPreFilled/
-	// skipTagsPreFilled/hostsPreFilled above - every open after that
-	// leaves the field alone, whatever it now contains.
+	// session. Play is never pre-filled from the tree cursor either, for
+	// the same reason - there's no single "current play" to derive one
+	// from any more reliably than there was a "current task" - but unlike
+	// Task, it IS pre-filled from initialPlay (this process's own
+	// invocation's own --start-at-play, if any - design-docs/
+	// StartWithPlay.md), the same way Tags/Hosts pre-fill from
+	// initialTags/initialHosts: only the very first time the dialog is
+	// opened at all - see playPreFilled/tagsPreFilled/skipTagsPreFilled/
+	// hostsPreFilled above - every open after that leaves the field alone,
+	// whatever it now contains.
 	openRerunDialog := func() {
 		rerunDialogOpen = true
 
+		if !playPreFilled {
+			playField.SetText(initialPlay)
+			playPreFilled = true
+		}
 		if !tagsPreFilled {
 			tagsField.SetText(initialTags)
 			tagsPreFilled = true

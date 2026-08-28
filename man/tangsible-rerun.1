@@ -1,0 +1,95 @@
+.TH TANGSIBLE-RERUN 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible-rerun \- reopen the rerun dialog from the command line
+.SH SYNOPSIS
+.B tangsible rerun
+.RI [ "playbook.yml or role name" ]
+.RI [ \-\-start\-at\-play
+.IR name ]
+.RI [ "ansible\-playbook args" ...]
+.SH DESCRIPTION
+.B rerun
+is the same live tree UI as
+.BR tangsible-run (1),
+except it starts with the rerun dialog already open instead of an
+already\-running playbook, pre\-filled from the most recent matching
+invocation recorded in
+.BR .tangsible/state.toml .
+Confirming the dialog (Enter) starts the run exactly as
+.B tangsible run
+would have.
+.PP
+Resolution follows this precedence, each field decided independently:
+.IP \(bu 3
+An explicit
+.I playbook
+or
+.I role
+argument always wins over history.
+.IP \(bu 3
+Explicit
+.B \-\-tags
+/
+.BR \-t ,
+.BR \-\-skip\-tags ,
+or
+.B \-\-limit
+/
+.BR \-l ,
+if given, win over that target's own history, field by field \(em
+otherwise the history entry's own tags/skip\-tags/hosts pre\-fill the
+dialog.
+.IP \(bu 3
+Any
+.I other
+passthrough argument given on the command line (inventory,
+extra\-vars, verbosity, \&...) replaces the history entry's own
+remembered arguments outright, rather than merging with them.
+.IP \(bu 3
+With no target given at all,
+.B rerun
+falls back to whichever playbook or role was invoked most recently, by
+any verb. If nothing has ever been recorded for this project,
+.B rerun
+exits with a usage error.
+.PP
+A target with no recorded history at all (never run before) still
+works \(em every dialog field simply starts empty.
+.PP
+The dialog itself offers
+.B "Start with play"
+and
+.B "Start with task"
+fields, both autocompleted from
+.IR playbook.yml \(aqs
+own top\-level play/task names \(em see
+.BR tangsible-run (1)'s
+STARTING PARTWAY THROUGH section for what each does.
+.B \-\-start\-at\-play
+.I name
+on the
+.B rerun
+command line pre\-fills the dialog's
+.B "Start with play"
+field, the same way
+.B \-\-tags
+/
+.B \-\-limit
+pre\-fill Tags/Hosts above \(em but unlike those, it is extracted
+.I before
+the precedence rules above ever see it, is never itself part of the
+target's recorded history, and a bad play name is not caught until the
+dialog is confirmed (exactly as if it had been typed into the field by
+hand), rather than up front the way
+.BR tangsible-run (1)
+checks it.
+.SH EXIT STATUS
+Same as
+.BR tangsible-run (1);
+see
+.BR tangsible (1).
+Resolving no target at all (see above) is a usage error.
+.SH SEE ALSO
+.BR tangsible (1),
+.BR tangsible-run (1),
+.BR tangsible-role (1)

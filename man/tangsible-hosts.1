@@ -1,0 +1,61 @@
+.TH TANGSIBLE-HOSTS 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible-hosts \- browse every inventory host
+.SH SYNOPSIS
+.B tangsible hosts
+.RI [ playbook.yml ]
+.RI [ "ansible\-playbook args" ...]
+.SH DESCRIPTION
+.B hosts
+lists every host reported by
+.B ansible\-inventory \-\-list
+(alphabetically), and opens the same five\-tab detail view
+.BR tangsible-host (1)
+shows for whichever one you select \(em without needing to know a
+hostname up front. If
+.I playbook.yml
+is omitted, it is resolved the same way as
+.BR tangsible-run (1)
+(see
+.BR tangsible (1)).
+.SH KEY BINDINGS
+.TP
+.B "Cursor keys / j\-k"
+Move the selection in the list.
+.TP
+.B Enter
+Open the selected host's detail view.
+.TP
+.B Esc
+From the detail view, clears an active search if there is one; otherwise
+goes back to the list.
+.TP
+.B n / N
+From the detail view, switch to the next / previous host in the list,
+keeping the currently active tab.
+.TP
+.B Tab / Shift\-Tab
+Switch tabs within the detail view.
+.TP
+.B /
+Search the active tab's text; while a search is active,
+.B n / N
+jump to the next / previous match instead of the next / previous host.
+.TP
+.B Ctrl\-A / Ctrl\-E
+Jump to the top / bottom of whichever list or tab is active.
+.TP
+.B q / Ctrl\-C
+Quit, from either the list or a detail view.
+.SH EXIT STATUS
+.TP
+.B 0
+Normal exit, however the view was closed.
+.TP
+.B 1
+The inventory couldn't be listed, it reported no hosts at all, or a
+throwaway stub playbook this view depends on internally couldn't be
+written.
+.SH SEE ALSO
+.BR tangsible (1),
+.BR tangsible-host (1)

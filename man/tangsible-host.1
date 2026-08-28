@@ -1,0 +1,92 @@
+.TH TANGSIBLE-HOST 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible-host \- everything Tangsible can determine about one host
+.SH SYNOPSIS
+.B tangsible host
+.I hostname
+.RI [ playbook.yml ]
+.RI [ "ansible\-playbook args" ...]
+.SH DESCRIPTION
+.B host
+is a standalone, five\-tab view of one inventory host, entirely
+separate from the live tree UI \(em there is no run to watch here, just
+information gathered up front. If
+.I playbook.yml
+is omitted, it is resolved the same way
+.BR tangsible-run (1)
+resolves one (see
+.BR tangsible (1)),
+though a playbook is only strictly required for the Plays tab; the
+others work without one.
+.SH TABS
+.TP
+.B Summary
+Live\-gathered facts (FQDN, IP addresses, OS, architecture, RAM,
+virtualization, and more), fetched via a throwaway
+.B ansible.builtin.setup
+task.
+.TP
+.B Groups
+Every inventory group this host belongs to, direct or transitive \(em
+a host\-centric view of the group membership an inventory file only
+ever expresses the other way around (group \(-> hosts).
+.TP
+.B Plays
+Every play in
+.I playbook.yml
+that would actually run against this host, narrowed with
+.B \-\-limit
+.I hostname
+.B \-\-list\-tasks \-\-list\-hosts
+under the hood. Requires a resolved playbook; reports its own absence
+gracefully otherwise.
+.TP
+.B host_vars
+The host's own
+.B host_vars
+files, if any are found alongside the playbook or inventory.
+.TP
+.B "Everything known"
+The raw
+.B ansible\-inventory \-\-host
+.I hostname
+dump, unfiltered.
+.SH KEY BINDINGS
+.TP
+.B Tab / Shift\-Tab
+Switch tabs (wraps at both ends).
+.TP
+.B "Cursor keys / j\-k, Ctrl\-A/E"
+Scroll the active tab; Ctrl\-A/E jump to its top/bottom.
+.TP
+.B /
+Search the active tab's text; while a search has at least one match,
+.B n / N
+jump to the next / previous match.
+.TP
+.B q / Ctrl\-C
+Quit.
+.PP
+.B Esc
+clears an active search if there is one; otherwise it's deliberately
+inert, same reasoning as
+.BR tangsible-template (1):
+only q/Ctrl\-C quit, so idly browsing tabs can never close the program
+by reflex.
+.SH EXIT STATUS
+.TP
+.B 0
+Normal exit, however the view was closed.
+.TP
+.B 1
+A throwaway stub playbook this view depends on internally couldn't be
+written.
+.TP
+.B 2
+Usage error: no
+.I hostname
+was given.
+.SH SEE ALSO
+.BR tangsible (1),
+.BR tangsible-hosts (1),
+.BR tangsible-template (1)

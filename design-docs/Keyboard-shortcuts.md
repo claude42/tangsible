@@ -261,9 +261,10 @@ outside the box does nothing. Neither button is Tab-reachable - see below.
 ## Re-run dialog
 
 Opened with `r` from the main tree, only once the playbook has finished
-(see Rerun.md). A real form with four fields - Start with task, Limit tags
-to, Skip tags, Limit hosts to - plus Cancel/Re-run buttons, right-aligned
-in that order (Cancel left, Re-run right).
+(see Rerun.md and design-docs/StartWithPlay.md). A real form with five
+fields - Start with play, Start with task, Limit tags to, Skip tags,
+Limit hosts to - plus Cancel/Re-run buttons, right-aligned in that order
+(Cancel left, Re-run right).
 
 * Tab / Backtab    - move to the next / previous field, then to the
                      Cancel/Re-run buttons (wraps back to the first field
@@ -287,22 +288,32 @@ in that order (Cancel left, Re-run right).
 * Ctrl-C           - cancel back out *and* quit/interrupt the playbook,
                      same as Ctrl-C always does outside the dialog
 
-Task is empty by default and never pre-filled from the cursor's position in
-the tree - leaving it empty re-runs the whole playbook; typing a task name
-passes it as `--start-at-task`, so the re-run skips straight to it. Tags,
+Play and Task are both empty by default and never pre-filled from the
+cursor's position in the tree - leaving either empty runs/starts from the
+whole playbook. Typing a task name passes it as `--start-at-task`, a real
+`ansible-playbook` flag, so the re-run skips straight to it; typing a play
+name instead triggers `--start-at-play` (design-docs/StartWithPlay.md) -
+Tangsible's own synthetic mechanism, trimming a throwaway copy of the
+playbook down to that play before spawning `ansible-playbook` against it.
+The two compose: a play name *and* a task name together first trim to the
+play, then start partway into it at the task - useful when a task name
+that's ambiguous across the whole playbook is unique within one play. Tags,
 Skip tags, and Hosts pre-fill from whatever `--tags`/`--skip-tags`/`--limit`
 this run itself was started with (once, the first time each field is opened
-while still empty) - editing them changes what the re-run uses. All four
+while still empty) - editing them changes what the re-run uses. All five
 fields keep whatever was last typed into them across repeated `r` presses
 within the same session, the same way the search dialog's box remembers the
 last search term.
 
-**Autocomplete** (Tags/Skip tags/Hosts fields only - see
-design-docs/Autocomplete.md): typing the start of a tag or hostname opens a
-drop-down of matches for the comma-separated value currently being typed,
-sourced from every tag literally written in the playbook/role plus
-Ansible's reserved tag names (Tags/Skip tags), or every host seen so far
-this run (Hosts).
+**Autocomplete** (all five fields - see design-docs/Autocomplete.md):
+typing the start of a value opens a drop-down of matches for whatever's
+currently being typed (the comma-separated value so far, for Tags/Skip
+tags/Hosts - a single value for Play/Task). Sourced from: every tag
+literally written in the playbook/role plus Ansible's reserved tag names
+(Tags/Skip tags); every host seen so far this run (Hosts); every task/
+top-level play name found by statically scanning the playbook, not the
+live event stream (Task/Play - has to work in the `rerun` verb's very
+first dialog, before any generation has run).
 
 * Down             - open the drop-down (if not already open), or move to
                      the next suggestion

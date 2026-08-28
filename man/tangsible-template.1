@@ -1,0 +1,112 @@
+.TH TANGSIBLE-TEMPLATE 1 "August 2026" "Tangsible" "Tangsible Manual"
+.SH NAME
+tangsible-template \- debug a Jinja2 template against a real inventory host
+.SH SYNOPSIS
+.B tangsible template
+.I path
+.RI [ hostname ]
+.RI [ "ansible\-playbook args" ...]
+.SH DESCRIPTION
+.B template
+renders
+.I path
+through Ansible's own templating engine \(em not a standalone Jinja2
+implementation \(em by generating a throwaway playbook that templates it
+via a real
+.B ansible.builtin.template
+task, delegated to localhost so the rendered file lands where Tangsible
+can read it back, against exactly one inventory host. This is a
+separate, standalone program from
+.BR tangsible-run (1)
+and friends: there is no tree here, just the render itself.
+.PP
+If
+.I hostname
+is omitted, the first host reported by
+.B ansible\-inventory \-\-list
+is used. Extra variables can be supplied with
+.BR \-e ,
+same as any
+.B ansible\-playbook
+invocation. If
+.I path
+lives in a role's conventional
+.B templates/
+directory, that role's own
+.B defaults/main.yml
+and
+.B vars/main.yml
+are made available automatically (the role itself is never invoked, only
+its variable files \(em a template preview must never have side
+effects). If rendering fails, the Jinja2 error is shown in place of the
+output.
+.SH VIEWS
+Two tabs, Rendered and Source, switched with
+.B Tab
+/
+.BR "Shift\-Tab" .
+.SH KEY BINDINGS
+.TP
+.B "Cursor keys, Page Up/Down, Home/End"
+Scroll the active tab (also the usual
+.B tview
+vim aliases:
+.BR g / G / j / k / h / l ,
+.BR Ctrl\-F / Ctrl\-B ).
+.TP
+.B Ctrl\-A / Ctrl\-E
+Same as Home / End.
+.TP
+.B e
+Open
+.I path
+in
+.B $VISUAL
+(or
+.B $EDITOR
+, or
+.B vi
+if neither is set) as a foreground subprocess, suspending the TUI \(em
+the same way
+.B git commit
+would. Re\-renders unconditionally once the editor exits, whether or
+not anything was actually saved.
+.TP
+.B h
+Open the "change host" dialog: type a new hostname, Enter to
+re\-render against it, Esc to cancel.
+.TP
+.B /
+Search the active tab's text; while a search has at least one match,
+.B n / N
+jump to the next / previous match.
+.TP
+.B q / Ctrl\-C
+Quit. There is no interrupt\-vs\-quit distinction here (each render is
+one synchronous, already\-finished
+.B ansible\-playbook
+invocation, never a long\-running process to interrupt). Ctrl\-C also
+closes an open search prompt first, same as elsewhere, before quitting.
+.PP
+.B Esc
+clears an active search if there is one; otherwise it's deliberately
+inert outside the change\-host dialog \(em it used to quit too, which
+made it too easy to close the whole program by reflex while just
+browsing the tabs.
+.SH EXIT STATUS
+.TP
+.B 0
+Normal exit, however the view was closed.
+.TP
+.B 1
+.I path
+couldn't be read, no host could be resolved from the inventory, or a
+scratch file this view depends on internally couldn't be created.
+.TP
+.B 2
+Usage error: no
+.I path
+was given.
+.SH SEE ALSO
+.BR tangsible (1),
+.BR tangsible-host (1)
