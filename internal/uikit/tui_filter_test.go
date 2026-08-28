@@ -42,8 +42,31 @@ func TestTaskHasAnyOutcome(t *testing.T) {
 	}
 }
 
+func TestTaskHasAnyWarningAndStderr(t *testing.T) {
+	withWarning := &playbook.TaskNode{Warnings: map[string]bool{"web1": false, "web2": true}}
+	if !TaskHasAnyWarning(withWarning) {
+		t.Error("expected TaskHasAnyWarning to find web2's warning")
+	}
+	if TaskHasAnyStderr(withWarning) {
+		t.Error("expected TaskHasAnyStderr false: HasStderr is nil on this fixture")
+	}
+
+	withStderr := &playbook.TaskNode{HasStderr: map[string]bool{"web1": true}}
+	if !TaskHasAnyStderr(withStderr) {
+		t.Error("expected TaskHasAnyStderr to find web1's stderr")
+	}
+
+	if TaskHasAnyWarning(&playbook.TaskNode{}) {
+		t.Error("expected TaskHasAnyWarning false on a task with a nil Warnings map")
+	}
+	if TaskHasAnyStderr(&playbook.TaskNode{}) {
+		t.Error("expected TaskHasAnyStderr false on a task with a nil HasStderr map")
+	}
+}
+
 func TestTaskVisible(t *testing.T) {
 	all := FilterQuery{Mode: FilterAll}
+	interesting := FilterQuery{Mode: FilterInteresting}
 	changed := FilterQuery{Mode: FilterChanged}
 	failed := FilterQuery{Mode: FilterFailed}
 
@@ -85,10 +108,10 @@ func TestTaskVisible(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "Failed-only task (no Changed host) also matches filterChanged",
+			name: "Failed-only task (no Changed host) does not match filterChanged - Changed is narrow now",
 			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeFailed}},
 			q:    changed,
-			want: true,
+			want: false,
 		},
 		{
 			name: "OK-only task does not match filterChanged",
@@ -102,6 +125,54 @@ func TestTaskVisible(t *testing.T) {
 			q:        failed,
 			isActive: true,
 			want:     true,
+		},
+		{
+			name: "Changed host matches filterInteresting",
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeChanged}},
+			q:    interesting,
+			want: true,
+		},
+		{
+			name: "Failed-only task matches filterInteresting even though it no longer matches filterChanged",
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeFailed}},
+			q:    interesting,
+			want: true,
+		},
+		{
+			name: "Unreachable-only task matches filterInteresting",
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeUnreachable}},
+			q:    interesting,
+			want: true,
+		},
+		{
+			name: "OK task with a warning on one host matches filterInteresting",
+			task: &playbook.TaskNode{
+				Hosts:    map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+				Warnings: map[string]bool{"web1": true},
+			},
+			q:    interesting,
+			want: true,
+		},
+		{
+			name: "OK task with stderr on one host matches filterInteresting",
+			task: &playbook.TaskNode{
+				Hosts:     map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+				HasStderr: map[string]bool{"web1": true},
+			},
+			q:    interesting,
+			want: true,
+		},
+		{
+			name: "plain OK task, no warning, no stderr does not match filterInteresting",
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK}},
+			q:    interesting,
+			want: false,
+		},
+		{
+			name: "Skipped task does not match filterInteresting",
+			task: &playbook.TaskNode{Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeSkipped}},
+			q:    interesting,
+			want: false,
 		},
 	}
 	for _, c := range cases {

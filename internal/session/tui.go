@@ -296,11 +296,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// after live use showed the combined version made it too easy to hit
 	// the wrong key). Each gets its own "is this one open" bool rather
 	// than a single shared enum, since the two are modal in genuinely
-	// different ways: filterDialogOpen (menu mode - a/c/f/Esc/q are the
+	// different ways: filterDialogOpen (menu mode - a/i/c/f/Esc/q are the
 	// only keys that do anything, everything else is swallowed) vs
 	// searchDialogOpen (text-entry mode - every key except Ctrl-C passes
 	// straight through to the search box's own editing, including 'q' and
-	// 'a'/'c'/'f', since a real search term might contain any of those
+	// 'a'/'i'/'c'/'f', since a real search term might contain any of those
 	// letters). See SetInputCapture below for exactly how each is modal.
 	var filterDialogOpen bool
 	var searchDialogOpen bool
@@ -2084,7 +2084,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	pages.AddPage("main", flex, true, true)
 	pages.AddPage("output", outputFlex, true, false)
 	pages.AddPage("split", splitFlex, true, false)
-	pages.AddPage("filter", uikit.CenteredModal(filterFlex, 46, 10), true, false)
+	pages.AddPage("filter", uikit.CenteredModal(filterFlex, 46, 11), true, false)
 	pages.AddPage("search", uikit.CenteredModal(searchDialogFlex, 46, 11), true, false)
 	pages.AddPage("rerun", uikit.CenteredModal(rerunForm, 56, 15), true, false)
 
@@ -2530,6 +2530,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				closeDialogs()
 			case event.Key() == tcell.KeyRune && event.Rune() == 'a':
 				applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
+			case event.Key() == tcell.KeyRune && event.Rune() == 'i':
+				applyFilter(uikit.FilterQuery{Mode: uikit.FilterInteresting})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'c':
 				applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'f':
@@ -2924,18 +2926,20 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			}
 			if action == tview.MouseLeftClick && uikit.InRect(x, y, filterDialog) {
 				// FilterDialogText's own fixed layout: row 0 headline, row
-				// 1 blank, rows 2/3/4 = All/Changed/Failed. filterDialog
-				// itself has no border of its own (that lives on
-				// filterFlex instead), so GetRect()'s own y is already the
-				// first content row - unlike the dialogs below, which are
-				// bordered themselves.
+				// 1 blank, rows 2/3/4/5 = All/Interesting/Changed/Failed.
+				// filterDialog itself has no border of its own (that lives
+				// on filterFlex instead), so GetRect()'s own y is already
+				// the first content row - unlike the dialogs below, which
+				// are bordered themselves.
 				_, ry, _, _ := filterDialog.GetRect()
 				switch y - ry {
 				case 2:
 					applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
 				case 3:
-					applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
+					applyFilter(uikit.FilterQuery{Mode: uikit.FilterInteresting})
 				case 4:
+					applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
+				case 5:
 					applyFilter(uikit.FilterQuery{Mode: uikit.FilterFailed})
 				}
 				return nil, action

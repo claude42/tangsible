@@ -92,6 +92,12 @@ type TaskNode struct {
 	// JoinedStringList's own multi-shape text-joining, so duplicating that
 	// much is a deliberately small, self-contained trade.
 	Warnings map[string]bool
+	// HasStderr mirrors Warnings - same shape, same reasoning, same
+	// "computed once in record from this event's own raw bytes" timing -
+	// just a third independent axis (Filters.md's "Interesting" filter
+	// needs "changed/failed/unreachable, has stderr output, or has a
+	// warning" without decoding every host's raw JSON on every rebuild).
+	HasStderr map[string]bool
 }
 
 func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage) {
@@ -101,6 +107,7 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage) {
 	t.Hosts[host] = o
 	t.Raw[host] = raw
 	t.Warnings[host] = hasNonEmptyWarnings(raw)
+	t.HasStderr[host] = hasNonEmptyStderr(raw)
 }
 
 func (t *TaskNode) Counts() (ok, changed, skipped, failed, unreachable int) {
@@ -245,6 +252,7 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 				Hosts:     map[string]Outcome{},
 				Raw:       map[string]json.RawMessage{},
 				Warnings:  map[string]bool{},
+				HasStderr: map[string]bool{},
 			}
 			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
 			if s.OnTaskAdded != nil {

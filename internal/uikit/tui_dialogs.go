@@ -52,12 +52,12 @@ func InRect(x, y int, p tview.Primitive) bool {
 }
 
 // FilterDialogText renders the filter dialog's body - a headline and the
-// three filters this dialog itself offers (All/Changed/Failed - the search
-// filter is a separate dialog, see NewLiveTUI's searchDialog), each with a
-// small marker next to whichever one is currently active. No marker shown
-// at all if a search filter is currently active instead - none of these
-// three apply then. No tview.Escape() needed - every piece of text here is
-// a fixed literal, never external content (same reasoning as
+// four filters this dialog itself offers (All/Interesting/Changed/Failed -
+// the search filter is a separate dialog, see NewLiveTUI's searchDialog),
+// each with a small marker next to whichever one is currently active. No
+// marker shown at all if a search filter is currently active instead -
+// none of these four apply then. No tview.Escape() needed - every piece of
+// text here is a fixed literal, never external content (same reasoning as
 // formatHostOutput's own fixed labels).
 //
 // The old trailing "Esc/q to cancel" hint line is gone - replaced by a real
@@ -74,8 +74,9 @@ func FilterDialogText(active FilterQuery) string {
 	return fmt.Sprintf(
 		" [::b]Select filter[::-]\n\n"+
 			" %s A - Show all\n"+
-			" %s C - Show changed (includes failed)\n"+
+			" %s I - Show interesting tasks\n"+
+			" %s C - Show only changed tasks\n"+
 			" %s F - Show only failed tasks",
-		mark(FilterAll), mark(FilterChanged), mark(FilterFailed),
+		mark(FilterAll), mark(FilterInteresting), mark(FilterChanged), mark(FilterFailed),
 	)
 }

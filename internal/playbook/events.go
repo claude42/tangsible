@@ -128,3 +128,20 @@ func hasNonEmptyWarnings(raw json.RawMessage) bool {
 	}
 	return false
 }
+
+// hasNonEmptyStderr reports whether raw carries a non-empty "stderr"
+// field - the same field tui_drilldown.go's own Errors section reads
+// (BuildOutputTabs: `stderr, _ := decoded["stderr"].(string)`). Unlike
+// warnings, ansible's own "stderr" field is always a plain string, never
+// a list - command/shell-family modules are the only ones that ever set
+// it at all, so there's no multi-shape case to handle the way
+// hasNonEmptyWarnings has to.
+func hasNonEmptyStderr(raw json.RawMessage) bool {
+	var decoded struct {
+		Stderr string `json:"stderr"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return false
+	}
+	return decoded.Stderr != ""
+}

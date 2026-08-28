@@ -75,6 +75,25 @@ func TestApply_RecordsWarnings(t *testing.T) {
 	}
 }
 
+// TestApply_RecordsHasStderr mirrors TestApply_RecordsWarnings above, for
+// TaskNode.HasStderr - the same "computed once per host, in record" shape,
+// just a different field/JSON key.
+func TestApply_RecordsHasStderr(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+	s.Apply(taskStartEvent("task with stderr", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom","stderr":"connection refused"}`)))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web2", json.RawMessage(`{"changed":false}`)))
+
+	task := s.Plays[0].Tasks[0]
+	if !task.HasStderr["web1"] {
+		t.Error(`task.HasStderr["web1"] = false, want true`)
+	}
+	if task.HasStderr["web2"] {
+		t.Error(`task.HasStderr["web2"] = true, want false (no stderr field at all)`)
+	}
+}
+
 func TestApply_DistinguishesChangedFromOK(t *testing.T) {
 	s := &PlaybookState{}
 	s.Apply(playStartEvent("my play"))

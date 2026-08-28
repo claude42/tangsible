@@ -57,8 +57,8 @@ worth a second look while reviewing this list, not necessarily bugs.
                      Possible inconsistencies below)
 * F                - move cursor to end of list and resume autoscrolling -
                      the only shortcut that resumes it
-* f                - open the filter dialog (All/Changed/Failed - see
-                     below). Not available while the command output view
+* f                - open the filter dialog (All/Interesting/Changed/Failed
+                     - see below). Not available while the command output view
                      is shown.
 * /                - open the search dialog (see below). Not available
                      while the command output view is shown.
@@ -197,16 +197,18 @@ restored the moment the search clears.
 ## Filter dialog
 
 Opened with `f` from the main tree (see Filters.md for the full feature
-spec). A plain menu (A/C/F) plus a Cancel button - no text entry.
+spec). A plain menu (A/I/C/F) plus a Cancel button - no text entry.
 
-* a / c / f  - show all tasks / show only tasks with a changed-or-failed
-              host / show only tasks with a failed-or-unreachable host.
-              Applies immediately and closes the dialog.
+* a / i / c / f - show all tasks / show only "interesting" tasks (a
+              changed, failed, or unreachable host, stderr output, or a
+              warning) / show only tasks with a changed host / show only
+              tasks with a failed-or-unreachable host. Applies
+              immediately and closes the dialog.
 * Esc / q    - close the dialog, no change to the active filter
 * Ctrl-C     - close the dialog *and* quit/interrupt the playbook, same as
               Ctrl-C always does outside the dialog
 
-(The dialog itself displays a/c/f as A/C/F to stand out next to each
+(The dialog itself displays a/i/c/f as A/I/C/F to stand out next to each
 option's description, but typed as lower case.)
 
 `q` deliberately does *not* quit here, unlike everywhere else in the app -
@@ -216,7 +218,7 @@ quit. Ctrl-C is the one exception: since its intent (abort) is always
 unambiguous, it closes the dialog *and* still quits/interrupts, exactly as
 it would if the dialog weren't open.
 
-**Mouse** - a click inside the dialog's own box works; a click on the A/C/F
+**Mouse** - a click inside the dialog's own box works; a click on the A/I/C/F
 menu lines applies that filter (same as typing the letter); a click on the
 Cancel button (bottom-right) closes the dialog with no change. A click
 outside the box does nothing (correctly doesn't leak through to the tree

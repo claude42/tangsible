@@ -136,3 +136,27 @@ func TestHasNonEmptyWarnings(t *testing.T) {
 		})
 	}
 }
+
+// TestHasNonEmptyStderr checks the same "presence and non-empty" rule
+// hasNonEmptyWarnings above does, against the field tui_drilldown.go's own
+// Errors section reads (`decoded["stderr"].(string)`) - unlike warnings,
+// stderr is always a plain string, never a list.
+func TestHasNonEmptyStderr(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"no stderr field at all", `{"changed":false}`, false},
+		{"stderr: empty string", `{"stderr":""}`, false},
+		{"stderr: non-empty string", `{"stderr":"connection refused"}`, true},
+		{"malformed JSON", `not json`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := hasNonEmptyStderr(json.RawMessage(c.raw)); got != c.want {
+				t.Errorf("hasNonEmptyStderr(%s) = %v, want %v", c.raw, got, c.want)
+			}
+		})
+	}
+}

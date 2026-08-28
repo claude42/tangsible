@@ -28,6 +28,7 @@ type FilterMode int
 
 const (
 	FilterAll FilterMode = iota
+	FilterInteresting
 	FilterChanged
 	FilterFailed
 	FilterSearch // Filters.md's "Contents"/M filter - see filterQuery.search
@@ -54,6 +55,8 @@ type FilterQuery struct {
 // dialog.
 func (q FilterQuery) label() string {
 	switch q.Mode {
+	case FilterInteresting:
+		return "Interesting"
 	case FilterChanged:
 		return "Changed"
 	case FilterFailed:
@@ -77,6 +80,29 @@ func TaskHasAnyOutcome(t *playbook.TaskNode, outcomes ...playbook.Outcome) bool 
 	}
 	return false
 }
+
+// taskHasAnyTrueHost reports whether m (TaskNode.Warnings or
+// TaskNode.HasStderr - both "did this host report X for this task" maps,
+// same shape) has at least one true entry. Reading from a nil map (a task
+// built without either field set, e.g. in a test fixture) is safe in Go
+// and correctly reports false, same as an empty one.
+func taskHasAnyTrueHost(m map[string]bool) bool {
+	for _, v := range m {
+		if v {
+			return true
+		}
+	}
+	return false
+}
+
+// TaskHasAnyWarning reports whether any of t's hosts reported a warning
+// for this task - backs the "Interesting" filter (Filters.md) below.
+func TaskHasAnyWarning(t *playbook.TaskNode) bool { return taskHasAnyTrueHost(t.Warnings) }
+
+// TaskHasAnyStderr reports whether any of t's hosts reported non-empty
+// stderr for this task - backs the "Interesting" filter (Filters.md)
+// below.
+func TaskHasAnyStderr(t *playbook.TaskNode) bool { return taskHasAnyTrueHost(t.HasStderr) }
 
 // TaskOutputText returns primaryOutputField's text for host's result on
 // task, or "" if there's none (no result recorded yet, undecodable, or the
@@ -150,28 +176,38 @@ func TaskMatchesSearch(t *playbook.TaskNode, term string, sourceIndex map[string
 
 // TaskVisible reports whether t should get a row under q - see Filters.md's
 // Acceptance criteria. A task's status for filtering purposes is
-// host-level: it matches "Changed"/"Failed" if *at least one* of its hosts
-// has that outcome (a task can have hosts in different states), and when
-// it matches, flattenRows below shows all of its hosts - not just the
-// matching ones. Unreachable hosts count as a failure for this purpose too
-// - same bucket lastFailedTaskAndHost already treats it as for the
-// auto-jump-on-failure feature. isActive means t is the run's current
-// in-progress task (see PlaybookState.CurrentTask) - always shown
-// regardless of filter, since it may simply not have recorded any host
-// outcome yet (and, for filterSearch specifically, wouldn't have any
-// output to search yet either).
+// host-level: it matches "Changed"/"Failed"/"Interesting" if *at least
+// one* of its hosts has the relevant outcome (a task can have hosts in
+// different states), and when it matches, flattenRows below shows all of
+// its hosts - not just the matching ones. Unreachable hosts count as a
+// failure for this purpose too - same bucket lastFailedTaskAndHost already
+// treats it as for the auto-jump-on-failure feature. isActive means t is
+// the run's current in-progress task (see PlaybookState.CurrentTask) -
+// always shown regardless of filter, since it may simply not have
+// recorded any host outcome yet (and, for filterSearch specifically,
+// wouldn't have any output to search yet either).
+//
+// FilterChanged is Changed-only now, not "Changed or Failed" - narrowed
+// per Filters.md's own revision; FilterInteresting is what covers the
+// broader "anything worth a second look" case instead: Changed, Failed,
+// Unreachable, a non-empty stderr, or a warning, on any host.
 func TaskVisible(t *playbook.TaskNode, q FilterQuery, sourceIndex map[string]string, isActive bool) bool {
 	if isActive || q.Mode == FilterAll {
 		return true
 	}
 	failed := TaskHasAnyOutcome(t, playbook.OutcomeFailed, playbook.OutcomeUnreachable)
+	changed := TaskHasAnyOutcome(t, playbook.OutcomeChanged)
 	switch q.Mode {
 	case FilterFailed:
 		return failed
+	case FilterChanged:
+		return changed
+	case FilterInteresting:
+		return failed || changed || TaskHasAnyWarning(t) || TaskHasAnyStderr(t)
 	case FilterSearch:
 		return TaskMatchesSearch(t, q.Search, sourceIndex)
-	default: // filterChanged
-		return failed || TaskHasAnyOutcome(t, playbook.OutcomeChanged)
+	default:
+		return true
 	}
 }
 
