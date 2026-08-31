@@ -12,6 +12,10 @@ version: 2
 
 project_name: tangsible
 
+# Forgejo's runner auto-injects GITHUB_TOKEN alongside our GITEA_TOKEN;
+# without this GoReleaser errors "multiple tokens found".
+force_token: gitea
+
 before:
   hooks:
     - go mod tidy
