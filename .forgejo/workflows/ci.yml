@@ -1,0 +1,55 @@
+# Forgejo Actions — build / vet / test on every push to main, plus a
+# GoReleaser dry run so release config problems surface before a tag.
+#
+# Doc-only pushes are skipped (see paths-ignore). Tag pushes are handled
+# by release.yml, not here.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "design-docs/**"
+      - "**.md"
+      - "man/**"
+      - "completions/**"
+      - "assets/**"
+      - "LICENSE"
+      - ".gitignore"
+  workflow_dispatch:   # adds a manual "Run workflow" button in the Aktionen tab
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: docker
+    container:
+      image: code.forgejo.org/oci/node:20-bookworm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # GoReleaser wants full history + tags
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.4"
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...   # unit suite only; ansible-vault interop tests self-skip when the binary is absent
+
+      - name: GoReleaser dry run
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@latest
+          goreleaser check
+          goreleaser release --snapshot --clean

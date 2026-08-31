@@ -1,0 +1,86 @@
+# GoReleaser config — https://goreleaser.com
+#
+# Local dry run (no publish, no tag needed):
+#   goreleaser release --snapshot --clean
+# Real release (on a pushed tag vX.Y.Z, with GITEA_TOKEN set):
+#   goreleaser release --clean
+#
+# The Forgejo instance at code.aw.net speaks the Gitea v1 API, so the
+# "gitea" publisher and gitea_urls below target it unchanged.
+
+version: 2
+
+project_name: tangsible
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+
+builds:
+  - id: tangsible
+    main: .
+    binary: tangsible
+    env:
+      - CGO_ENABLED=0            # tview/tcell are pure Go -> static binary
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: tangsible
+    formats: [tar.gz]
+    # tangsible_0.3.0_linux_amd64.tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Extract into a subdir of the same name instead of spilling into cwd.
+    wrap_in_directory: true
+    # The binary lands at the wrapper dir's root; everything else is grouped
+    # so the install script can place each component with its own prompt.
+    files:
+      - LICENSE
+      - README.md
+      - src: man/*.1
+        dst: man
+      - src: completions/*
+        dst: completions
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "Merge branch"
+
+release:
+  gitea:
+    owner: claude
+    name: tangsible
+  draft: false
+  prerelease: auto   # vX.Y.Z-rc1 etc. are flagged automatically
+
+gitea_urls:
+  api: https://code.aw.net/api/v1
+  download: https://code.aw.net
+  skip_tls_verify: false

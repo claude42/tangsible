@@ -1,0 +1,50 @@
+# Forgejo Actions — cut a release when a vX.Y.Z tag is pushed.
+#
+#   git tag -a v0.3.0 -m "v0.3.0"
+#   git push origin v0.3.0
+#
+# Requires a registered Forgejo runner with a Docker or host executor and
+# outbound network access (Go module proxy, github.com for goreleaser).
+#
+# Only actions/checkout and actions/setup-go are used — both mirrored on
+# code.forgejo.org, so this works with the stock DEFAULT_ACTIONS_URL.
+# GoReleaser is installed directly rather than via goreleaser/goreleaser-action
+# (not in the actions/ namespace, not mirrored).
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # create the release + upload attachments
+
+jobs:
+  goreleaser:
+    runs-on: docker
+    container:
+      image: code.forgejo.org/oci/node:20-bookworm   # generic CI image: git + Node for JS actions
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # GoReleaser needs full history + tags for the changelog
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.4"
+          check-latest: true
+
+      - name: Run GoReleaser
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@latest
+          goreleaser release --clean
+        env:
+          # Auto-injected by the Forgejo runner, scoped to this repo.
+          # Swap for a dedicated PAT secret (Settings -> Applications,
+          # scope write:repository) if your instance restricts the
+          # automatic token from writing releases.
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
