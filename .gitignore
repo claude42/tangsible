@@ -22,6 +22,10 @@ profile.cov
 # in the repo root)
 /tangsible
 
+# GoReleaser build output (`goreleaser release`/`--snapshot`, see
+# .goreleaser.yaml) - cross-compiled binaries, archives, checksums.
+/dist/
+
 # Per-directory invocation-history state `run`/`rerun`/`role` auto-write to
 # the cwd (see CLAUDE.md's Rerun section) - local run history, not project
 # source, and can carry hostnames/tags/extra-vars from past invocations.

@@ -19,8 +19,7 @@ on:
       - ".gitignore"
   workflow_dispatch:   # adds a manual "Run workflow" button in the Aktionen tab
 
-permissions:
-  contents: read
+# No `permissions:` block — Forgejo doesn't implement it (see release.yml).
 
 jobs:
   build:
@@ -36,7 +35,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.4"
+          go-version: "1.27.0"
           check-latest: true
 
       - name: Build

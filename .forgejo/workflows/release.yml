@@ -18,8 +18,9 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write   # create the release + upload attachments
+# No `permissions:` block — Forgejo doesn't implement it and skips any job
+# that carries one. The auto-injected token's scope comes from repo/instance
+# settings; by default it can create releases on its own repo.
 
 jobs:
   goreleaser:
@@ -35,7 +36,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.4"
+          go-version: "1.27.0"
           check-latest: true
 
       - name: Run GoReleaser
