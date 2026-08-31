@@ -17,7 +17,7 @@
 # completion, the same "good enough, not chased further" heuristic
 # tangsible's own source uses for similar judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts revisit"
+_tangsible_verbs="run rerun role template host hosts revisit vault version"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards

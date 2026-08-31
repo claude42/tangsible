@@ -41,6 +41,8 @@ complete -c tangsible -n '__fish_is_nth_token 1' -a template -d 'Debug a Jinja2 
 complete -c tangsible -n '__fish_is_nth_token 1' -a host -d 'Inspect one inventory host'
 complete -c tangsible -n '__fish_is_nth_token 1' -a hosts -d 'List inventory hosts, then inspect one'
 complete -c tangsible -n '__fish_is_nth_token 1' -a revisit -d 'Browse and reopen a previous run'
+complete -c tangsible -n '__fish_is_nth_token 1' -a vault -d 'Edit vault-encrypted variables in place'
+complete -c tangsible -n '__fish_is_nth_token 1' -a version -d 'Print version and build info, then exit'
 
 # --- Verb-specific positionals ---
 

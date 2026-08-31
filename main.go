@@ -21,6 +21,16 @@ package main
 
 import "code.aw.net/claude/tangsible/internal/session"
 
+// Overwritten at release time by GoReleaser via -ldflags -X (see
+// .goreleaser.yaml). Left at these defaults for a plain `go build`, where
+// session.RunVersion falls back to the VCS data the Go toolchain embeds
+// automatically.
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
+
 func main() {
-	session.Main()
+	session.Main(session.BuildInfo{Version: version, Commit: commit, Date: date})
 }

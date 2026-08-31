@@ -36,11 +36,15 @@ import (
 	"code.aw.net/claude/tangsible/internal/vault"
 )
 
-func Main() {
+func Main(build BuildInfo) {
 	v, args, ok := config.ParseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|vault> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|vault|version> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
+	}
+
+	if v == config.VerbVersion {
+		os.Exit(RunVersion(build))
 	}
 
 	// "template" (design-docs/Tangsible template.md), "host"/"hosts"

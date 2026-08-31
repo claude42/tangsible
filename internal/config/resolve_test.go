@@ -51,6 +51,13 @@ func TestParseVerb(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name:     "version verb alone",
+			args:     []string{"version"},
+			wantVerb: VerbVersion,
+			wantRest: nil,
+			wantOK:   true,
+		},
+		{
 			name:   "unrecognized verb",
 			args:   []string{"site.yml", "-v"},
 			wantOK: false,

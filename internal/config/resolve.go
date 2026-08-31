@@ -141,8 +141,9 @@ func ColorEnabledByUser(cfg SettingsConfig) bool {
 // "run" (the direct successor of the original bare-playbook invocation),
 // "rerun" (see Rerun.md), "role" (see design-docs/Tangsible role.md),
 // "template" (see design-docs/Tangsible template.md), "host"/"hosts"
-// (see design-docs/HostVerb.md), or "vault" (see design-docs/Vault.md,
-// per-variable vault editing - no TUI at all, unlike every other Verb).
+// (see design-docs/HostVerb.md), "vault" (see design-docs/Vault.md,
+// per-variable vault editing - no TUI at all, unlike every other Verb),
+// or "version" (print build stamps and exit - no TUI, no inventory).
 // A Verb is now mandatory: unlike the playbook argument, there's no
 // shape-based way to tell "no Verb given" from "Verb given" (every Verb
 // looks like a plain word, same as a playbook path), and more verbs were
@@ -160,6 +161,7 @@ const (
 	VerbHosts    Verb = "hosts"
 	VerbRevisit  Verb = "revisit"
 	VerbVault    Verb = "vault"
+	VerbVersion  Verb = "version"
 )
 
 // ParseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
@@ -170,7 +172,7 @@ func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 		return "", nil, false
 	}
 	switch Verb(args[0]) {
-	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbRevisit, VerbVault:
+	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbRevisit, VerbVault, VerbVersion:
 		return Verb(args[0]), args[1:], true
 	default:
 		return "", nil, false
