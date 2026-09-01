@@ -121,13 +121,13 @@ normally require writing temporary playbooks.
 
 ### With one line
 
+Interactive:
 ```
-# interactive
 curl -fsSL https://gettangsible.aw.net/ | sh
 ```
 
+Unattended:
 ```
-# unattended
 curl -fsSL https://gettangsible.aw.net/ | sh -s -- --yes
 ```
 
@@ -358,8 +358,10 @@ complete `ansible-playbook` feature parity.
 - **`strategy: free`** is not supported. Tangsible's current data model
   assumes a shared task progression across hosts, whereas `free` allows each
   host to progress independently.
-- **Interactive input after the TUI starts is not supported**. For example, a
-  bare pause: task does not wait for input. Timed pauses work normally.
+- **Execution environments** are so far not supported.
+- **Interactive input after the TUI starts is not supported**. For example, a bare pause: task does not wait for input. `--step` will not work, neither will the ansible debugger.
+  
+  Timed pauses work normally.
   `--ask-become-pass` and `--ask-vault-pass` work normally because Ansible
   handles those prompts before Tangsible takes over the terminal.
 - **Scale**: Tangsible is developed and tested primarily against relatively
