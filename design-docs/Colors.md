@@ -3,15 +3,21 @@
 A reference of every color the TUI uses, what it means in each place it
 appears, and — where the code documents it — why that particular color
 was picked. Compiled from the current state of the code
-(`internal/uikit/tui_style.go`, `tui_layout.go`, `tui_drilldown.go`,
-`search.go`, `tabs.go`, `treelist.go`; `internal/session/tui.go`,
-`recap.go`; `internal/host/host.go`; `internal/template/template.go`;
+(`internal/uikit/tui_style.go`, `tui_layout.go`, `tui_rows.go`,
+`tui_dialogs.go`, `tui_drilldown.go`, `search.go`, `tabsearchbar.go`,
+`tabs.go`, `treelist.go`; `internal/session/tui.go`, `recap.go`;
+`internal/host/host.go`; `internal/template/template.go`;
 `internal/diff/diff.go`; `internal/revisit/revisit.go`), not aspirational;
 update this alongside any future color change rather than letting it
-drift. (Reviewed and refreshed after the Phase 4/5 package restructuring
-moved every file above out of a flat `package main`, and after the
-in-tab-search feature added several new colors — see their own sections
-below.)
+drift. (Last swept end-to-end after the `--check` chrome/tab-bar-color
+work and the Filters.md "Interesting" filter — neither added a new color,
+but the sweep also caught a few pre-existing gaps: `aqua`'s second
+meaning, the shared "async fetch/render failed" red heading, and
+`host.go`'s own reuse of the outcome palette, none previously
+documented here. Reviewed and refreshed once before that too, after the
+Phase 4/5 package restructuring moved every file above out of a flat
+`package main`, and after the in-tab-search feature added several new
+colors — see their own sections below.)
 
 ## The five outcome colors
 
@@ -51,6 +57,12 @@ Everywhere else in the app that colors something by outcome calls
   see "Diff verb: content coloring" below) — the *same* five colors,
   reused rather than re-derived, with attribute flags layered on top to
   mark what changed.
+- `tangsible host`/`tangsible hosts`' own Summary tab (`internal/host/host.go`)
+  — a throwaway connectivity probe against the target host reuses `maroon`/
+  `red` literally (not via `ColorTag`, but the same two outcome colors) to
+  head a `[maroon::b]Unreachable[-::-]`/`[red::b]Failed[-::-]` block when
+  the probe itself couldn't reach or run against the host, before falling
+  back to a plain facts summary otherwise.
 
 ## Gray — two related but distinct meanings
 
@@ -86,7 +98,9 @@ A task row's own title text (both host-list mode and Morehosts.md's
 summary mode) is `"silver"`, deliberately distinct from both `gray`
 (which already means "hasn't reported yet") and `white` (which already
 means play rows) — a third, neutral shade so the title reads as its own
-thing rather than blurring into either existing convention.
+thing rather than blurring into either existing convention. `tangsible
+diff`'s own task rows (`DiffTaskRowText`, `internal/diff/diff.go`) reuse
+the identical convention rather than re-deriving it.
 
 ## White — several distinct roles
 
@@ -156,7 +170,13 @@ Colors here are deliberately chosen *outside* the five-outcome palette,
 so a reader never confuses "this is the STDERR section" with "this
 host's outcome is Failed":
 
-- **`aqua`** — the Output tab's own Output section (stdout/msg text).
+- **`aqua`** — the Output tab's own Output section (stdout/msg text). A
+  second, unrelated meaning: `FilterDialogText`'s own `*` marker
+  (`internal/uikit/tui_dialogs.go`) next to whichever filter is currently
+  active, in the `f` filter dialog — chosen from outside both the
+  five-outcome palette and the section-color set above so it doesn't read
+  as either; happens to share `aqua`'s own name with the Output section
+  purely by reuse, not by any shared meaning between the two.
 - **`WarningColor`** (hotpink) — the Output tab's Warnings section.
 - **`yellow`** — the Output tab's Items section (loop-item bullets) —
   note this is the same tag name as the Changed outcome, but an
@@ -171,6 +191,23 @@ host's outcome is Failed":
 The Resolved/Docs/Details tabs are plain, uncolored text — each is its
 own tab now (see Tabbed UI.md) rather than a stacked section needing a
 heading color to separate it from its neighbors.
+
+## Async fetch/render errors — `[red::b]Error[-::-]`
+
+A shared, unlabeled convention (no constant of its own — each call site
+spells out the literal tag) for a background operation that failed
+outright, distinct from both the Failed outcome and the Output tab's own
+Error section above: a bold red "Error" heading followed by the error
+text itself, replacing whatever the view would otherwise show.
+
+- `internal/host/host.go`'s `fetch` helper — shared by all five of the
+  host-verb view's tabs (Summary, Groups, Plays, host_vars, Everything),
+  each populated by its own async goroutine; a failure in any one of them
+  renders this in just that tab, independent of the other four.
+- `internal/template/template.go` — the Source tab, if the template file
+  itself can't be read; the Rendered tab, if the synchronous
+  `ansible.builtin.template` re-render itself fails or returns its own
+  `ErrMsg`.
 
 ## Diff tab colors (the output drill-down's own Diff tab)
 
@@ -280,6 +317,11 @@ and was fixed at the same time.
   background, explicitly matching `BarStyle` rather than a brighter
   named "blue," so the divider reads as the same chrome rather than a
   clashing second shade.
+- **`tangsible host`/`tangsible hosts` and `tangsible template`** — both
+  standalone verbs (no revisit/`--check`/comparison mode of their own)
+  apply `uikit.BarStyle` directly to their own top/bottom bars, always,
+  with no chrome-switching logic at all - the same navy every other
+  verb's default state uses, just never anything else for these two.
 
 ## Chrome: purple (design-docs/Revisit.md)
 
@@ -430,8 +472,11 @@ theme/palette remapping.
 | Progress-sweep fill background (top bar) | ProgressFillColor (`#146414`) | No |
 | Warning glyph (task/host rows); Warnings section; "warnings" recap category | WarningColor = hotpink | No |
 | Output tab's Output section | aqua | Yes |
+| Filter dialog: current-selection marker | aqua | Yes |
 | Output tab's Items section | yellow | Yes |
 | Output tab's Error section | red | Yes |
+| Async fetch/render error heading (`host`/`hosts`, `template`) | red | Yes |
+| Host-verb view's Summary tab: probe Unreachable/Failed heading | maroon/red | Yes |
 | Task-definition tab's YAML key highlighting | orange | No |
 | Host-verb view's section headers | orange | No |
 | Diff tab: added lines | green | Yes |
@@ -466,6 +511,9 @@ Random thoughts first, basis for discussion, don't implement yet...
 
 chrome_divier -> remove, divider should always be the same color as
 current chrome_..._bg
+(already true as of the `--check` chrome work: `splitDivider` always
+tracks `chromeBg`/`liveChromeBg` now, in every one of navy/purple/olive -
+see the Chrome sections above)
 
 PureBlack seems to be hardly different to #000000 so probably not necessary
 to differentiate.

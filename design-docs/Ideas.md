@@ -3,23 +3,6 @@
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
 
-* A summary page (comparable to what ansible-playbook does) would be nice
-
-* Need concept on how / when to display global stderr output
-
-* Search in drill down window
-
-* Summary line sometimes not visible - beyond the screen (still?)
-
-* Errors before / during execution
-
-* OK/Changed/Skipped sumamry instead of individual hosts when space is
-  constrained or if --color=no
-
-* Show full log (won't be possible)
-
-* show file
-
 * tangsible template seems to be run from /tmp/ - shows in some variables
 
 * Strategy free
@@ -40,20 +23,31 @@ immediately implemented.
 
 * "What differs?" functionality for a specific host
 
-* Filter for "interesting" things, i.e. failed, unreachable, changed, stderr,
-  warning
-
 * Show corresponding file in drilldown view
 
-* Rerun Failed, Current, Start with Current, Select Tasks, Failed Hosts, All
-  hosts, Current host, select
-
-* auto-complete e.g. for entering hosts or tags in rerun dialog
-
-* --check - at least visualization
+* More Rerun Options: Failed, Current, Start with Current, Select Tasks, Failed Hosts, All
+  hosts
 
 * Show global stderr after summary page
 
 * tangsible config
 
-* tangsible export
+* export previous runs, rename previous runs
+
+* Easily decrypt individual variables, overwrite existing variables, not sure
+  what's still open?
+  https://claude.ai/share/a7d53130-a437-403f-9e31-c18cba4ec47e
+
+* Do our own plugin?
+
+* tangsible info (version information all around)
+
+* Show task times somewhere (where?)
+
+* Double coding (instead of just colors)
+
+* tangsible run --dialog, tangsible role --dialog
+
+* CHANGELOG
+
+* Sign checksums, let install.sh verify
