@@ -83,6 +83,9 @@ release:
     name: tangsible
   draft: false
   prerelease: auto   # vX.Y.Z-rc1 etc. are flagged automatically
+  # Don't hard-fail if the release already exists (e.g. re-running a job
+  # that died in the later GitHub-mirror step) — just add missing files.
+  mode: keep-existing
 
 gitea_urls:
   api: https://code.aw.net/api/v1

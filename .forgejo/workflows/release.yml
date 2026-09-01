@@ -10,6 +10,12 @@
 # code.forgejo.org, so this works with the stock DEFAULT_ACTIONS_URL.
 # GoReleaser is installed directly rather than via goreleaser/goreleaser-action
 # (not in the actions/ namespace, not mirrored).
+#
+# GoReleaser publishes the release to code.aw.net (the canonical repo). A
+# final step copies the same dist/ artifacts onto the GitHub mirror's
+# release, since a git push-mirror replicates refs but not release assets.
+# Needs a GitHub PAT (Contents: read+write on claude42/tangsible) stored as
+# the Forgejo Actions secret GH_MIRROR_TOKEN.
 
 name: release
 
@@ -49,3 +55,26 @@ jobs:
           # scope write:repository) if your instance restricts the
           # automatic token from writing releases.
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+
+      - name: Mirror artifacts to the GitHub release
+        run: |
+          set -eu
+          TAG="${GITHUB_REF_NAME}"
+          REPO="claude42/tangsible"
+
+          # gh is not in the base image — fetch the static binary.
+          GH_VERSION=2.63.2
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+
+          # The mirror only pushes the tag; create the release object if it
+          # isn't there yet, otherwise reuse it.
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes-file dist/CHANGELOG.md
+
+          gh release upload "$TAG" --repo "$REPO" --clobber \
+            dist/*.tar.gz dist/*_checksums.txt
+        env:
+          GH_TOKEN: ${{ secrets.GH_MIRROR_TOKEN }}
+          GH_HOST: github.com
+          GITHUB_TOKEN: ""   # Forgejo injects its own; keep gh off it
