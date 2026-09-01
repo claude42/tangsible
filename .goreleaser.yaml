@@ -50,10 +50,14 @@ archives:
     # Extract into a subdir of the same name instead of spilling into cwd.
     wrap_in_directory: true
     # The binary lands at the wrapper dir's root; everything else is grouped
-    # so the install script can place each component with its own prompt.
+    # so install.sh (also bundled) can place each component with its own
+    # prompt — run from the unpacked archive it installs in "local" mode.
     files:
       - LICENSE
       - README.md
+      - src: install.sh
+        info:
+          mode: 0755
       - src: man/*.1
         dst: man
       - src: completions/*
