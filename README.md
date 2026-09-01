@@ -119,7 +119,35 @@ normally require writing temporary playbooks.
 
 ## Install
 
-Currently, Tangsible is built from source:
+### With one line
+
+```
+# interactive
+curl -fsSL https://gettangsible.aw.net/ | sh
+```
+
+```
+# unattended
+curl -fsSL https://gettangsible.aw.net/ | sh -s -- --yes
+```
+
+Will install into the users home directory (i.e. `~/.local/bin`, `~/.local/share`) but will also honer `--prefix`.
+
+### From a binary archive
+
+Go to [Releases](https://code.aw.net/claude/tangsible/releases) and download a binary archive and install via `install.sh`.
+
+### Via go install
+
+Use
+
+```
+go install code.aw.net/claude/tangsible@latest
+```
+
+to install it in `$GOPATH/bin` (usually `~/go/bin`).
+
+### From source
 
 ```
 git clone https://code.aw.net/claude/tangsible
@@ -127,15 +155,10 @@ cd tangsible
 go build ./...
 ```
 
-This produces a `tangsible` binary in the current directory.
+This produces a `tangsible` binary in the current directory. You can use the provided `install.sh` to install it.
 
-Or you can simply do
-```
-go install code.aw.net/claude/tangsible@latest
-```
-to install it in `$GOPATH/bin` (usually `~/go/bin`).
 
-Pre-built binaries will follow soon.
+
 
 ## Quick start
 
