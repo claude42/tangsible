@@ -91,12 +91,12 @@ func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 		}
 		shownAnything = true
 
-		selected, ok := RunRevisitListTUI(entries, lastRunID)
+		selected, ok, rerun := RunRevisitListTUI(entries, lastRunID, true)
 		if !ok {
 			return 0
 		}
 		lastRunID = selected.RunID
-		OpenRevisitEntry(selected, newLiveTUI)
+		OpenRevisitEntry(selected, newLiveTUI, rerun)
 	}
 }
 
@@ -303,7 +303,14 @@ func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, select
 // where it was, rather than always resetting to the first row. "" (or no
 // match - e.g. the entry has since been pruned) falls back to the top,
 // same as before this parameter existed.
-func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntry, bool) {
+//
+// allowRerun adds an 'r' key that picks the highlighted entry *and* asks
+// the caller to open it straight into the re-run dialog (the third return
+// value, rerunRequested) - the same thing 'r' does once inside an entry's
+// tree view, just without the intervening Enter. "revisit" passes true;
+// "diff"'s own reuse of this list (RunDiffFlow) passes false - re-running
+// makes no sense when you're picking a run to compare against.
+func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun bool) (RevisitEntry, bool, bool) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -312,8 +319,11 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntr
 	header := tview.NewTextView().SetDynamicColors(true).
 		SetText(fmt.Sprintf(" %d previous run(s) - tangsible revisit ", len(entries)))
 	header.SetTextStyle(uikit.BarStyle)
-	footer := tview.NewTextView().SetDynamicColors(true).
-		SetText(" enter: open  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
+	footerHelp := " enter: open  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	if allowRerun {
+		footerHelp = " enter: open  r: re-run  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	}
+	footer := tview.NewTextView().SetDynamicColors(true).SetText(footerHelp)
 	footer.SetTextStyle(uikit.BarStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -347,6 +357,7 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntr
 
 	var selected RevisitEntry
 	chosen := false
+	rerunRequested := false
 
 	selectedIdx := 0
 	for i, e := range entries {
@@ -385,6 +396,16 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntr
 		case event.Key() == tcell.KeyCtrlC, event.Key() == tcell.KeyRune && event.Rune() == 'q':
 			app.Stop()
 			return nil
+		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'r':
+			// Pick the highlighted entry and ask RunRevisitVerb to open it
+			// straight into the re-run dialog - same as Enter then 'r'.
+			if selectedIdx >= 0 && selectedIdx < len(entries) {
+				selected = entries[selectedIdx]
+				chosen = true
+				rerunRequested = true
+				app.Stop()
+			}
+			return nil
 		case event.Key() == tcell.KeyCtrlA:
 			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyCtrlE:
@@ -401,7 +422,7 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntr
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}
-	return selected, chosen
+	return selected, chosen, rerunRequested
 }
 
 // OpenRevisitEntry replays e's own saved .jsonl (runlog.go) into a fresh
@@ -429,7 +450,11 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string) (RevisitEntr
 // "playbook" local's own doc comment below for why this is built
 // unconditionally, and what it does/doesn't fix about the historical
 // drill-down's own source lookup.
-func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc) {
+// startWithRerunDialog opens the entry straight into the re-run dialog
+// instead of the frozen tree - set when the user pressed 'r' on the list
+// rather than Enter (RunRevisitVerb). Cancelling the dialog drops back to
+// the frozen tree exactly as an in-tree 'r' cancel does.
+func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunDialog bool) {
 	jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, e.RunID)
 	f, err := os.Open(jsonlPath)
 	if err != nil {
@@ -531,7 +556,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc) {
 		// after it - --start-at-play is never recorded into invArgs (see
 		// ExtractStartAtPlay's own doc comment), so there is nothing for a
 		// revisited entry to have remembered in the first place.
-		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, false, requestRerun, invArgs.Rest, &progH, revisitReturn,
+		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, startWithRerunDialog, requestRerun, invArgs.Rest, &progH, revisitReturn,
 		e.Playbook, e.Role)
 
 	runErr := app.Run()

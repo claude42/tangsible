@@ -191,15 +191,19 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// back to the cursor on every call - including the heartbeat ticker's,
 	// every 200ms, while a run is still live, fighting any mouse-wheel
 	// panning the user just did. See RestoreCurrentItem's own doc comment.
-	following := true                    // auto-follow the newest row until the user navigates away
-	var jumpingToEnd bool                // true only while our own 'F' handler drives SetCurrentItem
-	everStarted := !startWithRerunDialog // false only for the "rerun"
-	// Verb's startup dialog, until submitRerun's first-ever call flips it
-	// true - see rebuild()'s own use of it below: processDone starts true
-	// in that one case (see startWithRerunDialog's own doc comment above)
-	// even though nothing has actually run, which would otherwise make
-	// rebuild() render a "Playbook completed successfully" status row
-	// before anything ever happened.
+	following := true     // auto-follow the newest row until the user navigates away
+	var jumpingToEnd bool // true only while our own 'F' handler drives SetCurrentItem
+	// everStarted is false only for the "rerun" Verb's startup dialog, until
+	// submitRerun's first-ever call flips it true - see rebuild()'s own use
+	// of it below: processDone starts true in that one case (see
+	// startWithRerunDialog's own doc comment above) even though nothing has
+	// actually run, which would otherwise make rebuild() render a "Playbook
+	// completed successfully" status row before anything ever happened. A
+	// revisit session opened straight into the re-run dialog ('r' on the
+	// list) also sets startWithRerunDialog, but there a run genuinely *has*
+	// happened (replayed frozen), so its status row/recap must still show
+	// behind the dialog - hence the revisitReturn != nil exception.
+	everStarted := !startWithRerunDialog || revisitReturn != nil
 	revisitActive := revisitReturn != nil // true for the whole lifetime of
 	// a revisit session until a real rerun is confirmed (submitRerun) -
 	// once that happens there's a live/finished generation of its own on

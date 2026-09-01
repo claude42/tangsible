@@ -125,7 +125,7 @@ func RunDiffFlow(currentState *playbook.PlaybookState, targetPlaybook, targetRol
 			// !processDone.
 		}
 
-		selected, ok := revisit.RunRevisitListTUI(candidates, lastSelectedRunID)
+		selected, ok, _ := revisit.RunRevisitListTUI(candidates, lastSelectedRunID, false)
 		if !ok {
 			return
 		}
