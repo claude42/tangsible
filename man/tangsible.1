@@ -70,8 +70,16 @@ hand\-running
 and pasting ciphertext back yourself.
 .TP
 .B tangsible version
-Print the version, git commit, build date, and Go toolchain, then exit.
-Opens no UI and reads no inventory.
+Print tangsible's own version, git commit, build date and Go toolchain,
+the host OS, and the versions of the components it shells out to
+\(em
+.B ansible\-playbook \-\-version
+and the
+.B ansible.posix
+collection (which provides the jsonl callback)
+\(em
+then exit. A missing binary or collection is reported, not treated as an
+error. Opens no UI and reads no inventory.
 .SH REQUIREMENTS
 .B tangsible
 requires
