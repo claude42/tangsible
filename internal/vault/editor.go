@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/template"
@@ -87,40 +88,44 @@ func askFixOrRevert() (bool, error) {
 }
 
 // runEditorLoop drives design-docs/Vault.md's edit/validate/reopen cycle
-// for one target file: create a 0600 temp file holding view's plaintext,
-// invoke edit repeatedly until the user produces something valid or
-// chooses to revert (askFixOrRevert), and on success write the result to
-// targetPath. Returns the process exit code.
+// for one target file: create a private 0700 scratch dir holding view's
+// plaintext in a 0600 file, invoke edit repeatedly until the user
+// produces something valid or chooses to revert (askFixOrRevert), and on
+// success write the result to targetPath. Returns the process exit code.
 //
-// ctx is expected to come from signal.NotifyContext(..., os.Interrupt) -
-// see RunVaultVerb - and still guards the moments where tangsible itself
-// is doing the blocking (the password prompt, askFixOrRevert, reading
-// files): a genuine, unhandled SIGINT there would otherwise bypass Go's
-// own deferred cleanup and leave the scratch file behind. It is *not*
-// the primary way to escape a detected problem, though - see
-// askFixOrRevert's own doc comment for why Ctrl-C can't reliably reach
-// tangsible at all while a real full-screen editor is open.
+// ctx is expected to come from signal.NotifyContext(..., os.Interrupt,
+// SIGTERM, SIGHUP) - see RunVaultVerb - and still guards the moments
+// where tangsible itself is doing the blocking (the password prompt,
+// askFixOrRevert, reading files): a genuine, unhandled terminating
+// signal there would otherwise bypass Go's own deferred cleanup and
+// leave the decrypted scratch dir behind. It is *not* the primary way to
+// escape a detected problem, though - see askFixOrRevert's own doc
+// comment for why Ctrl-C can't reliably reach tangsible at all while a
+// real full-screen editor is open.
 func runEditorLoop(targetPath string, view vaultfile.DecryptedView, password string, edit editorFunc, askFixOrRevert askFixOrRevertFunc, ctx context.Context) int {
-	tmp, err := os.CreateTemp("", "tangsible-vault-*.yml")
+	// A private scratch *directory* (0700), not a bare file in the shared
+	// /tmp - design-docs/Vault.md point 6's "restrictive permissions" for
+	// a file briefly holding decrypted secrets, hardened two ways:
+	//   - the plaintext never lands directly in a world-traversable
+	//     directory, only inside this per-run 0700 dir;
+	//   - os.RemoveAll sweeps the whole dir on the way out, so an editor's
+	//     own spill files (vim's .swp, backups, persistent-undo files) -
+	//     which land next to the scratch file and also hold the decrypted
+	//     plaintext - are cleaned up too, where a bare os.Remove of just
+	//     the scratch file would leave them behind.
+	dir, err := os.MkdirTemp("", "tangsible-vault-*")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't create a scratch file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't create a private scratch directory: %v\n", err)
 		return 1
 	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer os.RemoveAll(dir)
 
-	if _, err := tmp.WriteString(view.PlaintextYAML); err != nil {
-		tmp.Close()
+	// Named .yml (rather than a random basename) purely so $EDITOR picks
+	// up YAML syntax - safe to be predictable now that it lives inside a
+	// 0700 dir nothing else can traverse.
+	tmpPath := filepath.Join(dir, "vault.yml")
+	if err := os.WriteFile(tmpPath, []byte(view.PlaintextYAML), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't write the scratch file: %v\n", err)
-		return 1
-	}
-	tmp.Close()
-	// Explicit chmod, self-documenting even though os.CreateTemp already
-	// creates with 0600 on this platform - design-docs/Vault.md point 6's
-	// "restrictive permissions" requirement for a file briefly holding
-	// decrypted secrets.
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't restrict the scratch file's permissions: %v\n", err)
 		return 1
 	}
 

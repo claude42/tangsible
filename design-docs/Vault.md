@@ -220,7 +220,27 @@ every reopen-loop round before anything else inspects the edited content.
 The decrypted plaintext has to live in a temp file while the editor has it
 open. Same discipline `ansible-vault edit` itself uses: restrictive
 permissions (0600), cleaned up even if the editor crashes or tangsible
-itself is interrupted mid-edit. Nothing beyond that is required.
+itself is interrupted mid-edit.
+
+Two hardenings on top of the bare "0600 file in `/tmp`" version:
+
+- The scratch file lives inside a per-run **0700 directory**
+  (`os.MkdirTemp`), not directly in the world-traversable `/tmp`, and
+  cleanup is `os.RemoveAll` of that whole directory. This sweeps up an
+  editor's own spill files too - vim's `.swp`, `~` backups, persistent-undo
+  files - which land next to the scratch file and also hold the decrypted
+  plaintext; removing just the one scratch file would leave them behind.
+- The signal trap (`signal.NotifyContext`) covers `SIGTERM` (plain `kill`,
+  a session manager on logout, system shutdown) and `SIGHUP` (controlling
+  terminal going away) in addition to `SIGINT`, so those also unwind
+  through Go's deferred cleanup rather than killing the process with the
+  decrypted directory still on disk. `SIGKILL` is uncatchable and accepted
+  as out of scope.
+
+Not done: shredding (overwrite-before-unlink) the scratch file, the way
+ansible-core's `_shred_file` does. On a tmpfs `/tmp` it's a no-op, and on
+modern SSD/CoW filesystems the guarantee doesn't really hold anyway;
+revisit only if a concrete threat model calls for it.
 
 7. Crypto: native Go implementation, not shelling out
 

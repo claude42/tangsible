@@ -152,6 +152,42 @@ func TestRunEditorLoop_SuccessfulEditWrites(t *testing.T) {
 	}
 }
 
+// TestRunEditorLoop_SweepsPrivateScratchDir checks design-docs/Vault.md
+// point 6's cleanup guarantee: the whole private scratch directory - not
+// just the one scratch file - is removed on return, so an editor's own
+// spill files (a .swp here) can't leave decrypted plaintext behind.
+func TestRunEditorLoop_SweepsPrivateScratchDir(t *testing.T) {
+	view, targetPath := setupEditorLoopFixture(t)
+
+	var scratchDir, swapFile string
+	edit := func(ctx context.Context, path string) error {
+		scratchDir = filepath.Dir(path)
+		if base := filepath.Base(scratchDir); !strings.HasPrefix(base, "tangsible-vault-") {
+			t.Errorf("scratch file not in a private per-run dir: %s", path)
+		}
+		if info, err := os.Stat(scratchDir); err != nil {
+			t.Fatalf("stat scratch dir: %v", err)
+		} else if perm := info.Mode().Perm(); perm != 0o700 {
+			t.Errorf("scratch dir perm = %o, want 700", perm)
+		}
+		// Simulate vim dropping a swap file next to the scratch file.
+		swapFile = filepath.Join(scratchDir, ".vault.yml.swp")
+		writeFile(t, swapFile, "decrypted secrets in here")
+		return nil
+	}
+
+	code := runEditorLoop(targetPath, view, testFixturePassword, edit, askFailsIfCalled(t), context.Background())
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if _, err := os.Stat(scratchDir); !os.IsNotExist(err) {
+		t.Errorf("scratch dir %s survived, err = %v", scratchDir, err)
+	}
+	if _, err := os.Stat(swapFile); !os.IsNotExist(err) {
+		t.Errorf("editor spill file %s survived, err = %v", swapFile, err)
+	}
+}
+
 // TestRunEditorLoop_ProblemReopensThenSucceeds exercises the "fix" branch
 // of the fix-or-revert prompt: choosing to fix reopens the editor with
 // the problem annotated, exactly as before this prompt existed.

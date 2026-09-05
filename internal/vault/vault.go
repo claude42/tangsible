@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"golang.org/x/term"
 
@@ -157,9 +158,13 @@ func RunVaultVerb(args []string) int {
 	// the terminal's own SIGINT-on-Ctrl-C generation for the whole shared
 	// terminal while running, not just for themselves. This still matters
 	// for the moments tangsible itself is blocking (the password prompt,
-	// askFixOrRevert, file reads): a genuine, unhandled SIGINT there would
-	// bypass Go's own deferred cleanup and leave the scratch file behind.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// askFixOrRevert, file reads): a genuine, unhandled terminating signal
+	// there would bypass Go's own deferred cleanup and leave the decrypted
+	// scratch dir behind. SIGTERM (plain `kill`, a session manager on
+	// logout, system shutdown) and SIGHUP (the controlling terminal going
+	// away) are trapped alongside SIGINT for exactly that reason; SIGKILL
+	// is uncatchable and accepted as out of scope.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	password, err := resolvePassword(passwordFile, askPass)
