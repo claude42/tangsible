@@ -248,14 +248,10 @@ as mutually exclusive. Resolution precedence, most-explicit-wins:
    the standard, most common place ansible users already configure this;
    found the same way `ansible` itself does (`$ANSIBLE_CONFIG`, then
    `./ansible.cfg`, then `~/.ansible.cfg`, then
-   `/etc/ansible/ansible.cfg`). Ranked above tangsible's own config
-   specifically because it's the user's real, pre-existing ansible
-   configuration — tangsible's own setting exists only as a fallback for
-   projects that don't already have one.
-5. `.tangsible/config.toml`'s `[vault] password_file`
-6. an interactive prompt, as a last resort
+   `/etc/ansible/ansible.cfg`).
+5. an interactive prompt, as a last resort
 
-Step 6 is a deliberate divergence from real `ansible-vault`, which errors
+Step 5 is a deliberate divergence from real `ansible-vault`, which errors
 ("no vault secrets found") instead of prompting when nothing is configured.
 Accepted here because this verb is inherently interactive by nature — there
 is no batch/CI use case for "edit one variable" the way there is for
@@ -269,6 +265,14 @@ prompted every time. Added as its own precedence step rather than folded
 into the env-var check, since it needed its own discovery logic
 (`internal/vault/ansiblecfg.go`'s `locateAnsibleConfig`/`iniValue` — a
 small, deliberately non-general INI reader, not a full ansible.cfg parser).
+
+Dropped after that: a `.tangsible/config.toml` `[vault] password_file`
+step used to sit between 4 and the prompt. Removed because a `config.toml`
+that points at a vault password file makes the whole file secret-adjacent
+(it wants restrictive permissions and a `.gitignore` entry, unlike the
+rest of `config.toml`, which is meant to be shared/tracked), while adding
+nothing a project can't already get from `ansible.cfg`, the env var, or
+the flag. Any project that uses vault already has one of those.
 
 ## Deferred to v2
 

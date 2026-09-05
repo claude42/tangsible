@@ -84,26 +84,6 @@ type SettingsConfig struct {
 		// instead - see tui.go's colorEnabledByUser callers.
 		Color *bool `toml:"color"`
 	} `toml:"general"`
-	// Vault holds settings specific to the "vault" Verb (design-docs/
-	// Vault.md) - its own table rather than folded into General, since
-	// General is otherwise entirely TUI/session-behavior settings and a
-	// credentials-adjacent path doesn't belong there.
-	Vault struct {
-		// PasswordFile is a default --vault-password-file path, used when
-		// the vault Verb is invoked with neither --vault-password-file
-		// nor --ask-vault-pass nor $ANSIBLE_VAULT_PASSWORD_FILE set - see
-		// VaultPasswordFile.
-		PasswordFile string `toml:"password_file"`
-	} `toml:"vault"`
-}
-
-// VaultPasswordFile returns cfg.Vault.PasswordFile - the project's
-// configured default vault password file, or "" if unset. A thin
-// accessor purely for symmetry with DefaultTreeExpanded/
-// TwoPaneLayoutEnabled/ColorEnabledByUser above, all of which read
-// SettingsConfig through a named function rather than the raw field.
-func VaultPasswordFile(cfg SettingsConfig) string {
-	return cfg.Vault.PasswordFile
 }
 
 // DefaultTreeExpanded reports whether cfg.General.DefaultTreeState says a

@@ -16,7 +16,6 @@ import (
 
 	"golang.org/x/term"
 
-	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/vaultfile"
 )
 
@@ -70,32 +69,28 @@ func ParseVaultArgs(args []string) (filename, passwordFile string, askPass bool,
 	return filename, passwordFile, askPass, nil
 }
 
-// passwordSourceKind identifies which of design-docs/Vault.md's five
+// passwordSourceKind identifies which of design-docs/Vault.md's four
 // password sources won, per chosePasswordSource's precedence.
 type passwordSourceKind int
 
 const (
 	passwordSourcePromptKind passwordSourceKind = iota
-	passwordSourceFileKind                      // file is a path to read (flag, env var, ansible.cfg, or tangsible config)
+	passwordSourceFileKind                      // file is a path to read (flag, env var, or ansible.cfg)
 )
 
 // choosePasswordSource is the pure precedence decision behind
 // resolvePassword: an explicit CLI flag wins over
 // $ANSIBLE_VAULT_PASSWORD_FILE wins over the project's own ansible.cfg
 // ([defaults] vault_password_file - the standard, most common place
-// ansible users already configure this) wins over tangsible's own
-// .tangsible/config.toml default wins over an interactive no-echo prompt
-// as a last resort - a deliberate divergence from real ansible-vault,
-// which errors instead of prompting when nothing is configured; accepted
-// here because this verb is inherently interactive, with no batch/CI use
-// case for editing one variable. ansible.cfg is ranked above tangsible's
-// own config specifically because it's the user's real, pre-existing
-// ansible configuration - tangsible's own setting exists only as a
-// fallback for projects that don't already have one. Takes plain
+// ansible users already configure this) wins over an interactive no-echo
+// prompt as a last resort - a deliberate divergence from real
+// ansible-vault, which errors instead of prompting when nothing is
+// configured; accepted here because this verb is inherently interactive,
+// with no batch/CI use case for editing one variable. Takes plain
 // strings/bools, not the environment/filesystem directly, so the
 // precedence logic itself is testable without a real filesystem or
 // terminal.
-func choosePasswordSource(flagFile string, askFlag bool, envFile string, ansibleCfgFile string, tangsibleCfgFile string) (kind passwordSourceKind, file string) {
+func choosePasswordSource(flagFile string, askFlag bool, envFile string, ansibleCfgFile string) (kind passwordSourceKind, file string) {
 	switch {
 	case flagFile != "":
 		return passwordSourceFileKind, flagFile
@@ -105,8 +100,6 @@ func choosePasswordSource(flagFile string, askFlag bool, envFile string, ansible
 		return passwordSourceFileKind, envFile
 	case ansibleCfgFile != "":
 		return passwordSourceFileKind, ansibleCfgFile
-	case tangsibleCfgFile != "":
-		return passwordSourceFileKind, tangsibleCfgFile
 	}
 	return passwordSourcePromptKind, ""
 }
@@ -114,9 +107,8 @@ func choosePasswordSource(flagFile string, askFlag bool, envFile string, ansible
 func resolvePassword(flagFile string, askFlag bool) (string, error) {
 	envFile := os.Getenv("ANSIBLE_VAULT_PASSWORD_FILE")
 	ansibleCfgFile := ansibleCfgVaultPasswordFile()
-	tangsibleCfgFile := config.VaultPasswordFile(config.ReadSettingsConfig(config.TangsibleConfigPath))
 
-	kind, file := choosePasswordSource(flagFile, askFlag, envFile, ansibleCfgFile, tangsibleCfgFile)
+	kind, file := choosePasswordSource(flagFile, askFlag, envFile, ansibleCfgFile)
 	if kind == passwordSourceFileKind {
 		return readPasswordFile(file)
 	}

@@ -46,25 +46,23 @@ func TestParseVaultArgs(t *testing.T) {
 
 func TestChoosePasswordSource(t *testing.T) {
 	cases := []struct {
-		name             string
-		flagFile         string
-		askFlag          bool
-		envFile          string
-		ansibleCfgFile   string
-		tangsibleCfgFile string
-		wantKind         passwordSourceKind
-		wantFile         string
+		name           string
+		flagFile       string
+		askFlag        bool
+		envFile        string
+		ansibleCfgFile string
+		wantKind       passwordSourceKind
+		wantFile       string
 	}{
-		{"flag wins over everything", "flag.txt", true, "env.txt", "ansible.txt", "cfg.txt", passwordSourceFileKind, "flag.txt"},
-		{"ask flag wins over env, ansible.cfg, and config", "", true, "env.txt", "ansible.txt", "cfg.txt", passwordSourcePromptKind, ""},
-		{"env wins over ansible.cfg and config", "", false, "env.txt", "ansible.txt", "cfg.txt", passwordSourceFileKind, "env.txt"},
-		{"ansible.cfg wins over tangsible's own config", "", false, "", "ansible.txt", "cfg.txt", passwordSourceFileKind, "ansible.txt"},
-		{"tangsible config is the last file-backed fallback", "", false, "", "", "cfg.txt", passwordSourceFileKind, "cfg.txt"},
-		{"prompt when nothing is configured", "", false, "", "", "", passwordSourcePromptKind, ""},
+		{"flag wins over everything", "flag.txt", true, "env.txt", "ansible.txt", passwordSourceFileKind, "flag.txt"},
+		{"ask flag wins over env and ansible.cfg", "", true, "env.txt", "ansible.txt", passwordSourcePromptKind, ""},
+		{"env wins over ansible.cfg", "", false, "env.txt", "ansible.txt", passwordSourceFileKind, "env.txt"},
+		{"ansible.cfg is the last file-backed fallback", "", false, "", "ansible.txt", passwordSourceFileKind, "ansible.txt"},
+		{"prompt when nothing is configured", "", false, "", "", passwordSourcePromptKind, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			kind, file := choosePasswordSource(c.flagFile, c.askFlag, c.envFile, c.ansibleCfgFile, c.tangsibleCfgFile)
+			kind, file := choosePasswordSource(c.flagFile, c.askFlag, c.envFile, c.ansibleCfgFile)
 			if kind != c.wantKind || file != c.wantFile {
 				t.Errorf("got (%v, %q), want (%v, %q)", kind, file, c.wantKind, c.wantFile)
 			}
