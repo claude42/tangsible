@@ -10,7 +10,9 @@ playbook is still running.
 
 You can also rerun playbooks or parts of it as well as revisit and compare previous runs.
 
-In addition tangsible provides useful functionality for debugging Jinja2 templates, editing individual encrypted variables and analyzing host information.
+In addition tangsible provides useful functionality for debugging Jinja2
+templates, editing individual encrypted variables and analyzing host
+information.
 
 ![Tangsible demo](assets/demo.gif)
 
@@ -28,11 +30,11 @@ watching it, not just kicking it off and walking away:
   multi-host, multi-task run is, or which hosts have diverged from the
   rest, until it's already finished (or you've lost the scrollback).
 
-Tangsible turns that stream of text into a structured view that you can 
+Tangsible turns that stream of text into a structured view that you can
 scroll through. You can inspect earlier results while later tasks are still
-executing. Once something fails, you can jump straight to it. You can view the task as
-written, its output, and the full result, side by side, instead of spread across
-your scrollback.
+executing. Once something fails, you can jump straight to it. You can view
+the task as written, its output, and the full result, side by side, instead
+of spread across your scrollback.
 
 ## Who it's for
 
@@ -49,15 +51,25 @@ unattended automation:
   Tangsible isn't intended as a fleet-management UI.
 
 It is *not* aimed at CI pipelines, scheduled/unattended runs, or
-orchestrating jobs across a team. For those purposes, other tools will be a better fit than Tangsible ever intends to be.
+orchestrating jobs across a team. For those purposes, other tools will be a
+better fit than Tangsible ever intends to be.
 
 ## Why not ansible-navigator?
 
-[ansible-navigator](https://github.com/ansible/ansible-navigator/) is a great tool. It provides a comprehensive TUI for Ansible - including things like browsing inventory, collections or configuration options.
+[ansible-navigator](https://github.com/ansible/ansible-navigator/) is a great
+tool. It provides a comprehensive TUI for Ansible - including things like
+browsing inventory, collections or configuration options.
 
-Unfortunately ansible-navigator didn't solve my particular problems when developing and debugging playbooks, roles and templates. Because of this, **Tangsible** focuses on workflows such as navigating tasks and hosts, inspecting diffs and resolved variables, or revisiting and comparing previous runs. It also lets you debug Jinja2 templates and inspect host variables.
+Unfortunately ansible-navigator didn't solve my particular problems when
+developing and debugging playbooks, roles and templates. Because of this,
+**Tangsible** focuses on workflows such as navigating tasks and hosts,
+inspecting diffs and resolved variables, or revisiting and comparing previous
+runs. It also lets you debug Jinja2 templates and inspect host variables.
 
-I think it also features a very capable yet intuitive user interface. I modeled its TUI after the information and options I needed for specific tasks. I'm eager to hear if it also fits your requirements or what changes might be necessary.
+I think it also features a very capable yet intuitive user interface. I
+modeled its TUI after the information and options I needed for specific
+tasks. I'm eager to hear if it also fits your requirements or what changes
+might be necessary.
 
 ## Features
 
@@ -77,7 +89,8 @@ I think it also features a very capable yet intuitive user interface. I modeled 
 
 ### Iterate
 
-Tangsible is designed around the development loop of finding something wrong, changing it and trying again.
+Tangsible is designed around the development loop of finding something wrong,
+changing it and trying again.
 
 - **Re-run from the TUI** - rerun the whole playbook or start at a specific task
   or limit tags and hosts in subsequent runs
@@ -123,11 +136,13 @@ Unattended:
 curl -fsSL https://gettangsible.aw.net/ | sh -s -- --yes
 ```
 
-Will install into the users home directory (i.e. `~/.local/bin`, `~/.local/share`) but will also honer `--prefix`.
+Will install into the users home directory (i.e. `~/.local/bin`,
+`~/.local/share`) but will also honer `--prefix`.
 
 ### From a binary archive
 
-Go to [Releases](https://code.aw.net/claude/tangsible/releases) and download a binary archive and install via `install.sh`.
+Go to [Releases](https://code.aw.net/claude/tangsible/releases) and download
+a binary archive and install via `install.sh`.
 
 ### Via go install
 
@@ -147,10 +162,8 @@ cd tangsible
 go build ./...
 ```
 
-This produces a `tangsible` binary in the current directory. You can use the provided `install.sh` to install it.
-
-
-
+This produces a `tangsible` binary in the current directory. You can use the
+provided `install.sh` to install it.
 
 ## Quick start
 
@@ -202,9 +215,11 @@ Pick a previous run with
 tangsible revisit
 ```
 
-and analyze / drill down into all results and outcomes in the same ways as if it just ran.
+and analyze / drill down into all results and outcomes in the same ways as if
+it just ran.
 
-Press `d` after a run or revisit to get a visuall diff of its outcomes compared to a previous run.
+Press `d` after a run or revisit to get a visuall diff of its outcomes
+compared to a previous run.
 
 ## Running a role in isolation
 
@@ -246,13 +261,19 @@ after saving.
 
 ## Encrypt individual variables
 
-`ansible-vault`either allows you to encrypt a whole file via `edit` or `encrypt`- which will result in huge diff on every change or you can create individually encrypted variables via `encrypt_string` which involves specifying secrets on the command line, copy/pasting encrypted strings and decryption is even more messy.
+`ansible-vault`either allows you to encrypt a whole file via `edit` or
+`encrypt`- which will result in huge diff on every change or you can create
+individually encrypted variables via `encrypt_string` which involves
+specifying secrets on the command line, copy/pasting encrypted strings and
+decryption is even more messy.
 
 ```
 tangsible vault <filename>
 ```
 
-provides an `ansible-vault edit` like experience but operates on individual variables. One can simply add / edit / remove encrypted variables in the text editor while diffs stay minimal.
+provides an `ansible-vault edit` like experience but operates on individual
+variables. One can simply add / edit / remove encrypted variables in the text
+editor while diffs stay minimal.
 
 ## Analyze hosts
 
@@ -380,7 +401,8 @@ There are also end-to-end smoke tests that run the real binary inside a
 go test -tags e2e ./...
 ```
 
-These require `tmux` and `ansible-playbook` and are excluded from the normal test run.
+These require `tmux` and `ansible-playbook` and are excluded from the normal
+test run.
 
 ## License
 
