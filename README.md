@@ -8,9 +8,10 @@ navigable tree of plays → tasks → hosts. You can inspect results,
 stdout/stderr, diffs and variables without losing your place - even while the
 playbook is still running.
 
-You can also rerun playbooks or parts of it as well as revisit and compare previous runs.
+You can also rerun whole playbooks or parts of them as well as revisit and
+compare previous runs.
 
-In addition tangsible provides useful functionality for debugging Jinja2
+In addition, tangsible provides useful functionality for debugging Jinja2
 templates, editing individual encrypted variables and analyzing host
 information.
 
@@ -30,18 +31,17 @@ watching it, not just kicking it off and walking away:
   multi-host, multi-task run is, or which hosts have diverged from the
   rest, until it's already finished (or you've lost the scrollback).
 
-Tangsible turns that stream of text into a structured view that you can
-scroll through. You can inspect earlier results while later tasks are still
-executing. Once something fails, you can jump straight to it. You can view
-the task as written, its output, and the full result, side by side, instead
-of spread across your scrollback.
+Tangsible turns that stream of text into a structure you can navigate.  You
+can inspect earlier results while later tasks are still executing. Once
+something fails, you can jump straight to it. You can view the task as
+written, its output, and the full result, side by side, instead of spread
+across your scrollback.
 
 ## Who it's for
 
-Anyone running `ansible-playbook` **by hand, repeatedly, against a
-development, staging, or otherwise interactive environments** - the
-edit-run-inspect-rerun loop of writing or debugging a playbook or role, not
-unattended automation:
+Anyone running `ansible-playbook` **by hand, repeatedly, against development,
+staging, or otherwise interactive environments** - the edit-run-inspect-rerun
+loop of writing or debugging a playbook or role, not unattended automation:
 
 - Developers and platform engineers iterating on playbooks/roles against
   dev or staging boxes.
@@ -66,10 +66,9 @@ developing and debugging playbooks, roles and templates. Because of this,
 inspecting diffs and resolved variables, or revisiting and comparing previous
 runs. It also lets you debug Jinja2 templates and inspect host variables.
 
-I think it also features a very capable yet intuitive user interface. I
-modeled its TUI after the information and options I needed for specific
-tasks. I'm eager to hear if it also fits your requirements or what changes
-might be necessary.
+I designed Tangsible's UI around the information and options I need for these
+specific tasks.  I'm eager to hear if it also fits your requirements or what
+changes might be necessary.
 
 ## Features
 
@@ -97,7 +96,7 @@ changing it and trying again.
 - **Edit tags and hosts** before rerunning.
 - **`tangsible rerun`** - open the same rerun workflow directly from the command
   line, pre-filled from the previous invocation.
-- **Revisit** all results and outputs of a previous runs and compare differences between two runs.
+- **Revisit** all results and outputs of previous runs and compare differences between two runs.
 - 
 ### Develop Ansible
 
@@ -106,7 +105,7 @@ normally require writing temporary playbooks.
 
 - **Run / test a role in isolation** with `tangsible role <role>`.
 - **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
-- **Easily edited individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
+- **Easily edit individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
 - A **host-centric view** of all relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, groups, plays, host_vars
 
 ## Requirements
@@ -137,7 +136,7 @@ curl -fsSL https://gettangsible.aw.net/ | sh -s -- --yes
 ```
 
 Will install into the users home directory (i.e. `~/.local/bin`,
-`~/.local/share`) but will also honer `--prefix`.
+`~/.local/share`) but will also honor `--prefix`.
 
 ### From a binary archive
 
@@ -218,7 +217,7 @@ tangsible revisit
 and analyze / drill down into all results and outcomes in the same ways as if
 it just ran.
 
-Press `d` after a run or revisit to get a visuall diff of its outcomes
+Press `d` after a run or revisit to get a visual diff of its outcomes
 compared to a previous run.
 
 ## Running a role in isolation
@@ -261,7 +260,7 @@ after saving.
 
 ## Encrypt individual variables
 
-`ansible-vault`either allows you to encrypt a whole file via `edit` or
+`ansible-vault` either allows you to encrypt a whole file via `edit` or
 `encrypt`- which will result in huge diff on every change or you can create
 individually encrypted variables via `encrypt_string` which involves
 specifying secrets on the command line, copy/pasting encrypted strings and
