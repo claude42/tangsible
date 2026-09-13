@@ -40,8 +40,6 @@ immediately implemented.
 
 * Do our own plugin?
 
-* tangsible info (version information all around)
-
 * Show task times somewhere (where?)
 
 * Double coding (instead of just colors)
