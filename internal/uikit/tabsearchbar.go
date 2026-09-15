@@ -163,9 +163,17 @@ func (b *TabSearchBar) statusText() string {
 	return fmt.Sprintf(" /%s - %s   n/N: next/prev match  Esc: clear  tab/shift-tab: switch tab ", b.search.Query(), status)
 }
 
-// Clear drops the active search (a no-op if none), restoring the footer
-// to its normal hint text/style.
+// Clear drops the active search, if any, and always restores the footer
+// to its normal hint text/style regardless - the "regardless" matters
+// beyond just search: it's also what makes a transient ShowMessage (e.g.
+// the 'y' clipboard-copy confirmation) go away the instant something that
+// would otherwise have cleared a search happens instead (a tab switch via
+// SetChangedFunc below, or an explicit Esc) - ShowMessage itself has no
+// separate lifecycle of its own to manage.
 func (b *TabSearchBar) Clear() {
+	b.footer.SetTextStyle(BarStyle)
+	b.footer.SetText(b.hint)
+	b.pages.SwitchToPage("hint")
 	if b.search == nil {
 		return
 	}
@@ -174,8 +182,18 @@ func (b *TabSearchBar) Clear() {
 	// left every match still visibly highlighted (live feedback).
 	b.search = nil
 	b.view = nil
+}
+
+// ShowMessage flashes text on the footer, in place of the normal hint -
+// for one-off transient feedback that isn't itself a search result
+// (currently just the 'y' clipboard-copy confirmation/error,
+// design-docs/CopyToClipboard.md). Superseded the same way the hint text
+// itself is: the next tab switch, explicit Esc-clear, or a fresh search
+// starting all restore it via Clear/done above, so a stale "copied"
+// message can't outlive the moment it stops describing anything current.
+func (b *TabSearchBar) ShowMessage(text string) {
 	b.footer.SetTextStyle(BarStyle)
-	b.footer.SetText(b.hint)
+	b.footer.SetText(text)
 	b.pages.SwitchToPage("hint")
 }
 

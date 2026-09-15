@@ -711,7 +711,7 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 	// chrome (see uikit.TabbedPane.SetHeaderStyle's own doc comment).
 	outputHeader := tview.NewTextView().SetDynamicColors(true).SetText(" tangsible diff ")
 	outputHeader.SetTextStyle(DiffChromeStyle)
-	const outputHintText = " tab/shift-tab: switch tab  /: search tab  q/esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	const outputHintText = " tab/shift-tab: switch tab  /: search tab  y: copy tab  q/esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 	outputFooter := tview.NewTextView().SetDynamicColors(true).SetText(outputHintText)
 	outputFooter.SetTextStyle(DiffChromeStyle)
 
@@ -752,15 +752,19 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		return fmt.Sprintf(" Search: %s - %s   n/N: next/prev match  Esc: clear  tab/shift-tab: switch tab ", ts.Query(), status)
 	}
 	clearTabSearch := func() {
+		// Always resets outputFooter, even with no search active - see
+		// tui.go's identically-shaped clearTabSearch for why: this is
+		// also what clears a transient 'y' clipboard-copy status message,
+		// which has no lifecycle of its own beyond being superseded here.
+		outputFooter.SetTextStyle(DiffChromeStyle)
+		outputFooter.SetText(outputHintText)
+		outputFooterPages.SwitchToPage("hint")
 		if tabSearch == nil {
 			return
 		}
 		tabSearch.Stop() // restores the tab's own original content -
 		// without this, clearing left every match still highlighted.
 		tabSearch = nil
-		outputFooter.SetTextStyle(DiffChromeStyle)
-		outputFooter.SetText(outputHintText)
-		outputFooterPages.SwitchToPage("hint")
 	}
 	// outputTabs.SetChangedFunc: switching tabs makes an active search
 	// irrelevant (it only ever describes the tab that was active when it
@@ -971,6 +975,10 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == '/':
 				openTabSearch()
+				return nil
+			case event.Key() == tcell.KeyRune && event.Rune() == 'y':
+				outputFooter.SetTextStyle(DiffChromeStyle)
+				outputFooter.SetText(uikit.CopyActiveTabStatus(outputTabs))
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == 'j':
 				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)

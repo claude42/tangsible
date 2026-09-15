@@ -131,6 +131,23 @@ func TestTabSearchBarNextPrevNoOpWithoutActiveSearch(t *testing.T) {
 	}
 }
 
+func TestTabSearchBarShowMessage(t *testing.T) {
+	bar, _, _ := newTestTabSearchBar(t)
+
+	bar.ShowMessage(" copied \"Only\" tab to clipboard (5 bytes) ")
+	if got := bar.footer.GetText(true); got != " copied \"Only\" tab to clipboard (5 bytes) " {
+		t.Errorf("footer after ShowMessage = %q, want the message text", got)
+	}
+
+	// Clear() has no active search, but should still supersede the
+	// message and restore the normal hint - ShowMessage has no lifecycle
+	// of its own beyond being superseded the same way a real search is.
+	bar.Clear()
+	if got := bar.footer.GetText(true); got != " hint text " {
+		t.Errorf("footer after Clear() = %q, want the hint text back even though no search was active", got)
+	}
+}
+
 func TestTabSearchBarClearForView(t *testing.T) {
 	bar, _, tv := newTestTabSearchBar(t)
 	bar.Open()

@@ -9,6 +9,9 @@
   or were unreachable in the previous run.
 - `rerun` verb: matching `--only-failed`, `--only-unreachable`,
   `--resume-where-failed` flags to pre-fill/pre-check those checkboxes.
+- `y` copies the currently active tab's content to the clipboard (via OSC
+  52, working over SSH/tmux too) in every tabbed view: the drill-down,
+  the diff view, `tangsible hosts`/`host`, and `tangsible template`.
 
 ### Removed
 

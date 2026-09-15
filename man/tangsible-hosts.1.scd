@@ -36,6 +36,9 @@ Standard *ansible-playbook*(1) arguments can be used, e.g. *--inventory* or
 */*
 	Search the active tab's text.
 
+*y*
+	Copy the active tab's content to the clipboard.
+
 *n / N*
 	Jump to the next / previous match when search is active.
 

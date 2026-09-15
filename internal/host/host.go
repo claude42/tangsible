@@ -1046,7 +1046,7 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
-	footerText := " tab/shift-tab: switch tab  /: search tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	footerText := " tab/shift-tab: switch tab  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -1087,6 +1087,9 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 			return nil
 		case event.Key() == tcell.KeyRune && event.Rune() == '/':
 			searchBar.Open()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'y':
+			searchBar.ShowMessage(uikit.CopyActiveTabStatus(tabs))
 			return nil
 		}
 		return event
@@ -1172,7 +1175,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		currentHostname string
 	)
 
-	detailFooterText := " tab/shift-tab: switch tab  n/N: next/prev host  /: search tab  esc: back to list  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	detailFooterText := " tab/shift-tab: switch tab  n/N: next/prev host  /: search tab  y: copy tab  esc: back to list  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 
 	showDetail := func(hostname string) {
 		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, detailFooterText)
@@ -1321,6 +1324,9 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 			return nil
 		case event.Rune() == '/':
 			detailSearch.Open()
+			return nil
+		case event.Rune() == 'y':
+			detailSearch.ShowMessage(uikit.CopyActiveTabStatus(detailTabs))
 			return nil
 		}
 		return event

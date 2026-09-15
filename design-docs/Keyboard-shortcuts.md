@@ -3,11 +3,13 @@
 Covers both `tangsible run`/`rerun`/`role` (the live tree UI, `tui.go`) and
 `tangsible template` (the standalone template-debugging UI, `template.go`)
 - two separate programs with their own key/mouse handling, noted separately
-below. `tangsible hosts`/`tangsible host` (`host.go`) and `tangsible diff`
-(`diff.go`) aren't otherwise covered by this document, but share the same
-in-tab search feature described below, so that one section applies to them
-too. A short "Possible inconsistencies" section at the end collects things
-worth a second look while reviewing this list, not necessarily bugs.
+below. `tangsible hosts`/`tangsible host` (`host.go`) and the diff view
+(`diff.go`, opened with the `d` hotkey below - not a CLI verb of its own)
+aren't otherwise covered by this document, but share the same in-tab
+search and copy-to-clipboard features described below, so those two
+sections apply to them too. A short "Possible inconsistencies" section at
+the end collects things worth a second look while reviewing this list, not
+necessarily bugs.
 
 ## In the main tree view
 
@@ -139,6 +141,8 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
                      the already-recorded result for this task, unaffected
                      by any edit made to its source afterward. A no-op if
                      the task's source location couldn't be determined.
+* y                - copy the currently active tab's content to the
+                     clipboard (see "Copy to clipboard" below)
 
 When you close the view (Escape/Enter/q), the tree's own cursor updates to
 match whatever (task, host) was last shown - including if you navigated to
@@ -155,7 +159,7 @@ tree auto-expands so that row is visible.
 
 design-docs/Search.md. Opened with `/` from the drill-down view above, the
 `template` verb, `tangsible hosts`'/`tangsible host`'s own detail view, or
-`tangsible diff`'s own drill-down - same key, same behavior, in every case
+the diff view's own drill-down - same key, same behavior, in every case
 scoped to whichever *tab* is currently active, not the whole session.
 Replaces the bottom bar itself
 (no floating dialog box, unlike the Filter/Search/Re-run dialogs below) -
@@ -193,6 +197,36 @@ While a search is active, the searched tab shows only its plain text plus
 match highlighting - not its own supplementary coloring (Diff's line
 colors, Task's `key:` highlighting) - a deliberate simplification;
 restored the moment the search clears.
+
+## Copy to clipboard
+
+design-docs/CopyToClipboard.md. `y` copies the currently active tab's
+content (the same plain text in-tab search reads - a Diff tab's line
+colors/Task's `key:` highlighting aren't preserved, matching search's own
+simplification) to the system clipboard, via an OSC 52 terminal escape
+sequence rather than relying on the terminal's own select-and-copy - which
+may not reach the real clipboard at all depending on the setup (e.g. inside
+tmux, or the two-pane layout). Works the same way, same key, in every
+tabbed view this document covers: the drill-down, the diff view,
+`tangsible hosts`/`tangsible host`, and the `template` verb.
+
+* y - copy the active tab's plain-text content to the clipboard. A status
+      message ("copied \"<tab>\" tab to clipboard (N bytes)", or a failure
+      reason) briefly replaces the footer's normal hint text - superseded,
+      not timed, by whatever would next change the footer anyway (switching
+      tabs, navigating to a different host/task, opening a search, an async
+      fetch landing) the same way an in-tab search's own "match N of Y"
+      status is.
+
+Under tmux (`$TMUX` set), the escape sequence is automatically wrapped in
+tmux's own DCS passthrough envelope, since tmux's terminfo entry isn't
+marked as supporting OSC 52 directly and the terminal itself never sees a
+bare sequence tmux swallows. This needs `set -g allow-passthrough on` in
+tmux itself (>= 3.3) to actually reach the outer terminal - the one piece
+of setup this doesn't automate away. Content larger than OSC 52's own
+practical limit (xterm's long-standing ~100KB default) fails with an error
+shown the same way, rather than sending a truncated payload some terminals
+would otherwise silently drop.
 
 ## Filter dialog
 
@@ -366,6 +400,8 @@ template against one host. Two tabs - Rendered, Source.
 * /                - open the in-tab search prompt (see "In-tab search"
                      above) - scoped to whichever of Rendered/Source is
                      currently active
+* y                - copy the currently active tab's content to the
+                     clipboard (see "Copy to clipboard" below)
 * n / N            - next / previous search match, once a search has at
                      least one - otherwise unbound (this view had no
                      other use for n/N before search existed)

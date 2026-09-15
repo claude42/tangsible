@@ -50,6 +50,10 @@ proceeds. Any trailing arguments are passed straight through to
 *Tab / Shift-Tab*
 	Switch tabs.
 
+*y*
+	Copy the active tab's content to the clipboard (only while showing a
+	host's full results).
+
 *r*
 	Open the rerun dialog, once the run has finished. See *tangsible-rerun*(1) for what it does.
 

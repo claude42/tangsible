@@ -515,7 +515,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	outputTopBar := tview.NewTextView().SetDynamicColors(true)
 	outputTopBar.SetTextStyle(chromeStyle)
 
-	const outputHintBarText = " tab/shift-tab: switch tab  n/N: next/prev task  ←/→: prev/next host  /: search tab  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	const outputHintBarText = " tab/shift-tab: switch tab  n/N: next/prev task  ←/→: prev/next host  /: search tab  y: copy tab  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 	outputBottomBar := tview.NewTextView().SetText(outputHintBarText)
 	outputBottomBar.SetTextStyle(chromeStyle)
 
@@ -1071,16 +1071,22 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// feedback). Harmless when the tab's content is about to be rebuilt
 	// fresh anyway by whatever triggered this call (renderOutputTabs,
 	// below, calls this before rebuilding for exactly that reason) - the
-	// restore is simply superseded a moment later.
+	// restore is simply superseded a moment later. Always resets
+	// outputBottomBar, even with no search active - this is also what
+	// clears a transient 'y' clipboard-copy status message (below), which
+	// has no separate lifecycle of its own and relies on every one of
+	// this function's own call sites (a tab switch, host/task navigation,
+	// closing the view) to supersede it the same way they already
+	// supersede a real search.
 	clearTabSearch := func() {
+		outputBottomBar.SetTextStyle(outputBottomBarNormalStyle())
+		outputBottomBar.SetText(outputHintBarText)
+		outputFooterPages.SwitchToPage("hint")
 		if tabSearch == nil {
 			return
 		}
 		tabSearch.Stop()
 		tabSearch = nil
-		outputBottomBar.SetTextStyle(outputBottomBarNormalStyle())
-		outputBottomBar.SetText(outputHintBarText)
-		outputFooterPages.SwitchToPage("hint")
 	}
 	// outputTabs.SetChangedFunc: switching tabs makes an active search
 	// irrelevant (it only ever describes the tab that was active when it
@@ -2956,6 +2962,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == '/':
 				openTabSearch()
+				return nil
+			case event.Key() == tcell.KeyRune && event.Rune() == 'y':
+				outputBottomBar.SetTextStyle(outputBottomBarNormalStyle())
+				outputBottomBar.SetText(uikit.CopyActiveTabStatus(outputTabs))
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == 'e':
 				// Opens the file the currently displayed task's own source

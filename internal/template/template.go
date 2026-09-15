@@ -356,7 +356,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	// the same "long-lived TextViews, content arrives via SetText" shape
 	// host.go's detail view does, unlike tui.go/diff.go's own drill-downs.
 	searchBar := uikit.NewTabSearchBar(app, tabs,
-		" tab/shift-tab: switch tab  e: edit template  h: change host  /: search tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ",
+		" tab/shift-tab: switch tab  e: edit template  h: change host  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ",
 		tabs.Primitive())
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -543,6 +543,9 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 			return nil
 		case event.Key() == tcell.KeyRune && event.Rune() == '/':
 			searchBar.Open()
+			return nil
+		case event.Key() == tcell.KeyRune && event.Rune() == 'y':
+			searchBar.ShowMessage(uikit.CopyActiveTabStatus(tabs))
 			return nil
 		case event.Key() == tcell.KeyCtrlA:
 			// Not natively handled by tview.TextView (unlike Home/End,

@@ -31,6 +31,9 @@ If _hostname_ is omitted, the first host reported by *ansible-inventory --list* 
 */*
 	Search the active tab's text.
 
+*y*
+	Copy the active tab's content to the clipboard.
+
 *n / N*
 	Jump to the next / previous match when search is active.
 
