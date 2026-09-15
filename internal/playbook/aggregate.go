@@ -315,6 +315,63 @@ func (s *PlaybookState) CurrentTask() *TaskNode {
 	return s.currentTask
 }
 
+// FailedHosts returns the sorted, deduplicated set of hosts that recorded
+// OutcomeFailed on any task, anywhere in this run - design-docs/Rerun.md's
+// "Only failed hosts" checkbox and the host-half of "Resume where failed."
+// Deliberately reuses OutcomeFailed as-is, same as everywhere else in this
+// package: a host whose only failure was an ignore_errors: true task is
+// still counted here, matching this app's existing simplification (Ansible
+// itself would count that toward "ok" + a separate "ignored" tally, not
+// "failed" - see TaskNode.Counts' own doc comment history).
+func (s *PlaybookState) FailedHosts() []string {
+	return s.hostsWithOutcome(OutcomeFailed)
+}
+
+// UnreachableHosts returns the sorted, deduplicated set of hosts that
+// recorded OutcomeUnreachable on any task, anywhere in this run -
+// design-docs/Rerun.md's "Only unreachable hosts" checkbox.
+func (s *PlaybookState) UnreachableHosts() []string {
+	return s.hostsWithOutcome(OutcomeUnreachable)
+}
+
+// hostsWithOutcome walks every play's every task's Hosts map, collecting
+// every host that was ever recorded as target at least once, sorted and
+// deduplicated - shared by FailedHosts/UnreachableHosts so the two can't
+// silently drift on how "recorded as X anywhere in the run" is computed.
+func (s *PlaybookState) hostsWithOutcome(target Outcome) []string {
+	seen := map[string]bool{}
+	var hosts []string
+	for _, play := range s.Plays {
+		for _, task := range play.Tasks {
+			for host, o := range task.Hosts {
+				if o == target && !seen[host] {
+					seen[host] = true
+					hosts = append(hosts, host)
+				}
+			}
+		}
+	}
+	sort.Strings(hosts)
+	return hosts
+}
+
+// EarliestFailingPlay returns the name of the first play, in run order,
+// containing at least one host recorded as OutcomeFailed on any of its
+// tasks - design-docs/Rerun.md's "Resume where failed" own "Start with
+// play" default. Returns "" if there were no failures at all this run.
+func (s *PlaybookState) EarliestFailingPlay() string {
+	for _, play := range s.Plays {
+		for _, task := range play.Tasks {
+			for _, o := range task.Hosts {
+				if o == OutcomeFailed {
+					return play.Name
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // noteHost adds host to AllHosts, keeping it sorted, the first time it's
 // seen run-wide (across any task). A plain linear scan plus an unconditional
 // re-sort on every new host is dead simple and more than fast enough at this

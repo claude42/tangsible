@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -66,10 +67,7 @@ import (
 // start a new generation with the dialog's own fields: startAtPlay (empty
 // unless a top-level play was chosen - design-docs/StartWithPlay.md; spawns
 // against a trimmed, temporary copy of the playbook with every play before
-// it dropped, rather than editing the real file), startAtTask (empty for a
-// whole-playbook re-run, otherwise the task name to pass as --start-at-task,
-// applied against whatever startAtPlay already narrowed the file down to -
-// see openRerunDialog below for how it's pre-filled), and the edited
+// it dropped, rather than editing the real file) and the edited
 // tags/skipTags/hosts. main.go's implementation resets processDone/exitCode/
 // state, records the new invocation into .tangsible's history, and spawns a
 // fresh ansible-playbook invocation; this function's own job is only to
@@ -86,16 +84,26 @@ import (
 // value) is every literal tags: value found in the playbook/role tree,
 // unioned with source.ReservedTagNames - the re-run dialog's Tags/Skip
 // tags fields' own autocomplete candidate list (design-docs/Autocomplete.md).
-// knownTaskNames (BuildTaskSourceIndex's third return value) is the same
-// idea for the "Start with task" field - every literal task name: found
-// the same static way, deliberately not sourced from state.AllTasks (see
-// BuildTaskSourceIndex's own doc comment for why). knownPlayNames
-// (source.ListTopLevelPlayNames) is the same idea again for the "Start
-// with play" field (design-docs/StartWithPlay.md) - every named top-level
-// play, in file order; v1 deliberately doesn't follow import_playbook, so
-// a play defined in an included file simply isn't a candidate. Hosts need
-// no equivalent parameter: the Limit hosts field's own candidates come
-// straight from state.AllHosts, already in scope.
+// knownPlayNames (source.ListTopLevelPlayNames) is the same idea for the
+// "Start with play" field (design-docs/StartWithPlay.md) - every named
+// top-level play, in file order; v1 deliberately doesn't follow
+// import_playbook, so a play defined in an included file simply isn't a
+// candidate. Hosts need no equivalent parameter: the Limit hosts field's
+// own candidates come straight from state.AllHosts, already in scope.
+//
+// initialRerunDefaults (runner.InitialRerunDefaults) is design-docs/
+// Rerun.md's "Extend rerun dialog" own data for the three checkboxes'
+// very first appearance: the "rerun" verb's own --only-failed/--only-
+// unreachable/--resume-where-failed flags (main.go, pre-validated against
+// data actually available before this is ever called) plus the failed/
+// unreachable hosts and earliest failing play replayed from that target's
+// last saved run log (runner.ReplayRunLog), since nothing has run yet in
+// *this* process for state itself to answer that from. Every other case -
+// "run"/"role"'s own first 'r' press, a revisit session, or any dialog
+// reopen once a generation has actually produced events in this process -
+// ignores this and recomputes the same three things fresh from state
+// itself instead (rebuildRerunForm, below); zero value for every Verb but
+// "rerun".
 //
 // startExpanded governs the very first task row's own initial
 // expand/collapse state (`.tangsible`'s general.default_tree_state - see
@@ -149,7 +157,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownTaskNames, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtPlay, startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -648,33 +656,157 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// convenience method) so openRerunDialog/submitRerun below can keep
 	// direct references to them.
 	//
-	// No checkbox gating taskField, despite that being the original design
-	// (a "Start at task" checkbox enabling/disabling it via SetDisabled,
-	// pre-filled from the cursor's current task either way): live testing
-	// surfaced a genuine tview quirk that made it actively worse than
-	// simpler alternatives - InputField.SetDisabled unconditionally calls
-	// its own finished(-1), which - once any real Tab/Enter has happened
-	// anywhere in the form's lifetime - replays that same navigation key
-	// (confirmed against inputfield.go/form.go: Form's shared handler's
-	// default case does exactly this for a negative key). So toggling the
-	// checkbox silently advanced focus by one, *in addition to* whatever
-	// Tab the user pressed right after - text reproducibly landed one
-	// field over from where it was typed. Rather than fight that, this
-	// falls back to the plainer design agreed as the explicit fallback:
-	// one freeform Task field, never pre-filled from the cursor, empty
-	// means "whole playbook" - exactly like Tags/Hosts, no special-casing.
+	// There used to be a "Start with task" field here too, gated by its own
+	// checkbox in the original design - dropped for two independent
+	// reasons. First, design-docs/Rerun.md's "Extend rerun dialog" item 1:
+	// task names aren't unique (most playbooks are thin per-play tasks
+	// naming the role they call, which repeats across plays), so
+	// --start-at-task can't reliably target one exact position - a user
+	// can still pass it by hand as a raw ansible-playbook passthrough arg,
+	// just with no dedicated field/autocomplete for it here. Second, and
+	// still relevant to the checkboxes below even with the field itself
+	// gone: live testing of that original "Start at task" checkbox found a
+	// genuine tview quirk - InputField.SetDisabled unconditionally calls
+	// its own finished(-1), which, once any real Tab/Enter has happened
+	// anywhere in the form's lifetime, Form's shared handler replays as a
+	// stray navigation key (confirmed against inputfield.go/form.go's own
+	// default case for a negative key) - so toggling the checkbox silently
+	// advanced focus by one, *in addition to* whatever Tab the user pressed
+	// right after, landing text one field over from where it was typed.
+	// Checkbox.SetDisabled has the exact same unconditional finished(-1)
+	// call (checkbox.go) - so "Resume where failed"/"Only failed"/"Only
+	// unreachable" below deliberately never call SetDisabled on anything:
+	// they write into playField/hostsField instead of disabling them, and
+	// omit themselves from the form entirely (rebuildRerunForm, below)
+	// rather than appearing disabled, when there's nothing for them to do.
+	//
 	// playField (design-docs/StartWithPlay.md) is a freeform single-value
-	// field, same shape as taskField below - empty means "whole playbook."
-	// Unlike taskField's own name, though, an empty match here isn't
-	// passed straight through to ansible-playbook: requestRerun resolves
-	// it into a trimmed, temporary copy of the playbook itself before
-	// spawning (runner.NewRequestRerun), rather than any flag
-	// ansible-playbook understands natively.
+	// field - empty means "whole playbook." Unlike Tags/Hosts, an empty
+	// match here isn't passed straight through to ansible-playbook:
+	// requestRerun resolves it into a trimmed, temporary copy of the
+	// playbook itself before spawning (runner.NewRequestRerun), rather
+	// than any flag ansible-playbook understands natively.
 	playField := tview.NewInputField().SetLabel("Start with play: ")
-	taskField := tview.NewInputField().SetLabel("Start with task: ")
 	tagsField := tview.NewInputField().SetLabel("Limit tags to: ")
 	skipTagsField := tview.NewInputField().SetLabel("Skip tags: ")
 	hostsField := tview.NewInputField().SetLabel("Limit hosts to: ")
+
+	// resumeCheckbox/onlyFailedCheckbox/onlyUnreachableCheckbox
+	// (design-docs/Rerun.md's "Extend rerun dialog", items 2-4) sync with
+	// playField/hostsField one-way-at-a-time rather than via SetDisabled -
+	// see the comment block above for why. currentFailedHosts/
+	// currentUnreachableHosts/currentResumePlay are recomputed fresh every
+	// time the dialog opens (rebuildRerunForm, below) from whichever
+	// PlaybookState is relevant - the just-finished generation's own
+	// live state for every case except the "rerun" verb's very first
+	// dialog open, where nothing has run yet in this process and
+	// initialRerunDefaults (computed from a replayed run log,
+	// runner.ReplayRunLog) is used once instead. The checkboxes'
+	// changed-handlers below always read these three closures' current
+	// values, never values captured at construction time.
+	var currentFailedHosts, currentUnreachableHosts []string
+	var currentResumePlay string
+
+	// syncingPlayField/syncingHostsField mark "this SetText call is a
+	// checkbox's own doing, not a keystroke" so playField's/hostsField's
+	// own changed-handlers (below) can tell the difference and skip
+	// reacting to their own checkbox-driven writes - without this, checking
+	// a box would immediately observe its own write as if the user had
+	// just typed it and instantly undo the very check that caused it.
+	var syncingPlayField, syncingHostsField bool
+	// suppressPlayClear/suppressHostsClear mark the opposite direction:
+	// "this checkbox is being unchecked *because* the user just edited its
+	// linked field, not because they clicked the checkbox itself" - per
+	// Rerun.md, unchecking a checkbox this way must leave the field's new
+	// text alone (the user's own edit), while unchecking it by clicking it
+	// directly must clear the field. Both paths fire the exact same
+	// SetChangedFunc callback below, so this is what tells them apart.
+	var suppressPlayClear, suppressHostsClear bool
+
+	resumeCheckbox := tview.NewCheckbox().SetLabel("Resume where failed")
+	onlyFailedCheckbox := tview.NewCheckbox().SetLabel("Only failed")
+	onlyUnreachableCheckbox := tview.NewCheckbox().SetLabel("Only unreachable")
+
+	setPlayField := func(text string) {
+		syncingPlayField = true
+		playField.SetText(text)
+		syncingPlayField = false
+	}
+	// setHostsFieldFromCheckboxes takes both checkboxes' checked state as
+	// explicit parameters rather than querying onlyFailedCheckbox.IsChecked()/
+	// onlyUnreachableCheckbox.IsChecked() itself - confirmed live (and
+	// against checkbox.go's own SetChecked): SetChecked invokes the
+	// "changed" callback *before* updating its own internal checked field,
+	// so a checkbox reading its own IsChecked() from inside its own
+	// changed-handler sees the state it's *leaving*, not the one it's
+	// being set to - the resumeCheckbox -> onlyFailedCheckbox cascade
+	// below is exactly such a call, and silently computed an empty hosts
+	// list until this was passed explicitly instead. Each of the two
+	// checkboxes' own handlers below passes its own new checked value
+	// directly and only ever queries the *other* one's IsChecked() (safe -
+	// neither checkbox's own SetChecked call is ever nested inside the
+	// other's).
+	setHostsFieldFromCheckboxes := func(onlyFailed, onlyUnreachable bool) {
+		if suppressHostsClear {
+			return // this uncheck came from hostsField's own edit handler
+			// below - it already holds the text the user just typed, and
+			// recomputing here would fight that edit.
+		}
+		// A host can genuinely be both failed (on one task) and unreachable
+		// (on another) within the same run, so this dedupes rather than
+		// just concatenating - a plain append could otherwise list such a
+		// host twice when both checkboxes are checked.
+		seen := map[string]bool{}
+		var hosts []string
+		addHosts := func(hs []string) {
+			for _, h := range hs {
+				if !seen[h] {
+					seen[h] = true
+					hosts = append(hosts, h)
+				}
+			}
+		}
+		if onlyFailed {
+			addHosts(currentFailedHosts)
+		}
+		if onlyUnreachable {
+			addHosts(currentUnreachableHosts)
+		}
+		sort.Strings(hosts)
+		syncingHostsField = true
+		hostsField.SetText(strings.Join(hosts, ","))
+		syncingHostsField = false
+	}
+
+	resumeCheckbox.SetChangedFunc(func(checked bool) {
+		if checked {
+			setPlayField(currentResumePlay)
+			onlyFailedCheckbox.SetChecked(true) // cascades into
+			// setHostsFieldFromCheckboxes via onlyFailedCheckbox's own
+			// handler below - a real, intended cascade, not a field edit,
+			// so no suppress flag needed here.
+		} else {
+			if !suppressPlayClear {
+				setPlayField("")
+			}
+			// Unlike playField above, Only failed's own uncheck here is
+			// unconditional - not gated on suppressPlayClear - per
+			// Rerun.md: unchecking "Resume where failed" always takes
+			// "Only failed" down with it, whether that happened by
+			// clicking the checkbox directly or as the side effect of
+			// editing playField just above. A no-op if it's already
+			// unchecked (the user broke that half of the link separately
+			// - see onlyFailedCheckbox's own comment below for why that's
+			// allowed to stand on its own).
+			onlyFailedCheckbox.SetChecked(false)
+		}
+	})
+	onlyFailedCheckbox.SetChangedFunc(func(checked bool) {
+		setHostsFieldFromCheckboxes(checked, onlyUnreachableCheckbox.IsChecked())
+	})
+	onlyUnreachableCheckbox.SetChangedFunc(func(checked bool) {
+		setHostsFieldFromCheckboxes(onlyFailedCheckbox.IsChecked(), checked)
+	})
 
 	// Autocomplete (design-docs/Autocomplete.md): tagsField/skipTagsField
 	// share one candidate list (knownTags, built once by source.go's
@@ -682,13 +814,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// the only way to source any tag at all, since Ansible's own event
 	// stream never carries a task's tags); hostsField reads state.AllHosts
 	// fresh on every call via closure, so its own candidates keep growing
-	// as the run discovers more hosts; taskField shares knownTags'
-	// static-scan origin (BuildTaskSourceIndex's third return value,
-	// knownTaskNames) rather than the live state.AllTasks - see
-	// BuildTaskSourceIndex's own doc comment for why. matchTags/matchHosts/
-	// matchTask are also called directly from SetInputCapture below
-	// (autocompleteOpenNow) - recomputed from the field's own current text
-	// on every check rather than mirrored into a bool set only inside
+	// as the run discovers more hosts; playField shares knownPlayNames'
+	// static-scan origin (source.ListTopLevelPlayNames). matchTags/
+	// matchHosts/matchPlay are also called directly from SetInputCapture
+	// below (autocompleteOpenNow) - recomputed from the field's own current
+	// text on every check rather than mirrored into a bool set only inside
 	// these callbacks, since InputField.Blur() clears its drop-down
 	// internally without re-invoking this callback, which would let a
 	// mirrored flag go stale across a mouse-driven focus change.
@@ -696,14 +826,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// Escape-specific reason - see its own comment.
 	matchTags := func(text string) []string { return matchToken(knownTags, text) }
 	matchHosts := func(text string) []string { return matchToken(state.AllHosts, text) }
-	matchTask := func(text string) []string { return matchTaskName(knownTaskNames, text) }
 	matchPlay := func(text string) []string { return matchTaskName(knownPlayNames, text) }
 	// wireAutocomplete's apply func decides how a picked suggestion gets
 	// written back into the field: replaceLastToken for the
 	// comma-separated multi-value fields (Tags/Skip tags/Hosts - only the
 	// token currently being typed is replaced, everything before the last
 	// comma is carried through untouched), or a plain whole-field replace
-	// for taskField, which - unlike the other three - has only ever one
+	// for playField, which - unlike the other three - has only ever one
 	// value to begin with, so there's no earlier token to preserve.
 	wireAutocomplete := func(field *tview.InputField, match func(string) []string, apply func(current, picked string) string) {
 		field.SetAutocompleteFunc(match).
@@ -731,7 +860,6 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	wireAutocomplete(tagsField, matchTags, replaceLastToken)
 	wireAutocomplete(skipTagsField, matchTags, replaceLastToken)
 	wireAutocomplete(hostsField, matchHosts, replaceLastToken)
-	wireAutocomplete(taskField, matchTask, func(current, picked string) string { return picked })
 	wireAutocomplete(playField, matchPlay, func(current, picked string) string { return picked })
 
 	// acDismissed tracks whether the user has already Escaped the
@@ -749,11 +877,33 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// showing.
 	var acDismissed bool
 	resetDismissed := func(string) { acDismissed = false }
-	playField.SetChangedFunc(resetDismissed)
-	taskField.SetChangedFunc(resetDismissed)
+	// playField/hostsField each combine resetDismissed with the "the user
+	// just edited me directly, not via a checkbox - break the link"
+	// half of the sync logic above (SetChangedFunc holds exactly one
+	// callback, so these can't be wired separately). syncingPlayField/
+	// syncingHostsField distinguish a checkbox's own SetText call (skip
+	// reacting) from a real keystroke (react by unchecking); see their own
+	// doc comments above for why suppressPlayClear/suppressHostsClear are
+	// also needed alongside them.
+	playField.SetChangedFunc(func(text string) {
+		resetDismissed(text)
+		if !syncingPlayField && resumeCheckbox.IsChecked() {
+			suppressPlayClear = true
+			resumeCheckbox.SetChecked(false)
+			suppressPlayClear = false
+		}
+	})
 	tagsField.SetChangedFunc(resetDismissed)
 	skipTagsField.SetChangedFunc(resetDismissed)
-	hostsField.SetChangedFunc(resetDismissed)
+	hostsField.SetChangedFunc(func(text string) {
+		resetDismissed(text)
+		if !syncingHostsField && (onlyFailedCheckbox.IsChecked() || onlyUnreachableCheckbox.IsChecked()) {
+			suppressHostsClear = true
+			onlyFailedCheckbox.SetChecked(false)
+			onlyUnreachableCheckbox.SetChecked(false)
+			suppressHostsClear = false
+		}
+	})
 
 	// autocompleteOpenNow reports whether the currently focused re-run
 	// dialog field has any live autocomplete matches for its current text -
@@ -767,8 +917,6 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		switch {
 		case playField.HasFocus():
 			return len(matchPlay(playField.GetText())) > 0
-		case taskField.HasFocus():
-			return len(matchTask(taskField.GetText())) > 0
 		case tagsField.HasFocus():
 			return len(matchTags(tagsField.GetText())) > 0
 		case skipTagsField.HasFocus():
@@ -780,13 +928,76 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		}
 	}
 
-	rerunForm := tview.NewForm().
-		AddFormItem(playField).
-		AddFormItem(taskField).
-		AddFormItem(tagsField).
-		AddFormItem(skipTagsField).
-		AddFormItem(hostsField)
+	rerunForm := tview.NewForm()
 	rerunForm.SetBorder(true).SetTitle(" Re-run (enter: run, esc: cancel) ")
+
+	// appliedInitialRerunFlags is a one-shot latch, same shape as
+	// playPreFilled/tagsPreFilled/... below: --only-failed/--only-
+	// unreachable/--resume-where-failed (initialRerunDefaults) only ever
+	// get to pre-check a box once, the very first time this runs - a later
+	// reopen (the user cancelled and pressed 'r' again) must never re-check
+	// a box the user has since unchecked by hand.
+	appliedInitialRerunFlags := false
+
+	// rebuildRerunForm re-derives currentFailedHosts/currentUnreachableHosts/
+	// currentResumePlay and rebuilds rerunForm's own item list to match -
+	// called every time the dialog opens (openRerunDialog, below), not just
+	// once here, since "which hosts failed/were unreachable last time" is
+	// tied to whichever generation most recently finished, not a sticky
+	// user preference the way playField/tagsField/hostsField's own text is.
+	//
+	// len(state.Plays) == 0 is what distinguishes "nothing has run yet in
+	// this process" (only ever true for the "rerun" verb's very first
+	// dialog open - a "run"/"role" session's first 'r' press, and a
+	// revisit session's own replayed state, both already have real plays
+	// by the time a dialog can open at all) from every other case, where
+	// state itself - live or replayed - is always the right source over
+	// initialRerunDefaults, which only that one first-open case ever
+	// populates.
+	//
+	// tview.Form.Clear(false) only clears the form's own item list
+	// (f.items = nil) - confirmed via form.go - it never touches the
+	// underlying *InputField/*Checkbox instances' own text/checked state,
+	// so re-adding the same instances below is exactly as safe as never
+	// having removed them.
+	rebuildRerunForm := func() {
+		if len(state.Plays) == 0 {
+			currentFailedHosts = initialRerunDefaults.FailedHosts
+			currentUnreachableHosts = initialRerunDefaults.UnreachableHosts
+			currentResumePlay = initialRerunDefaults.ResumePlay
+		} else {
+			currentFailedHosts = state.FailedHosts()
+			currentUnreachableHosts = state.UnreachableHosts()
+			currentResumePlay = state.EarliestFailingPlay()
+		}
+
+		rerunForm.Clear(false)
+		rerunForm.AddFormItem(playField)
+		if currentResumePlay != "" {
+			rerunForm.AddFormItem(resumeCheckbox)
+		}
+		rerunForm.AddFormItem(tagsField)
+		rerunForm.AddFormItem(skipTagsField)
+		rerunForm.AddFormItem(hostsField)
+		if len(currentFailedHosts) > 0 {
+			rerunForm.AddFormItem(onlyFailedCheckbox)
+		}
+		if len(currentUnreachableHosts) > 0 {
+			rerunForm.AddFormItem(onlyUnreachableCheckbox)
+		}
+
+		if !appliedInitialRerunFlags {
+			appliedInitialRerunFlags = true
+			if initialRerunDefaults.CheckResumeWhereFailed {
+				resumeCheckbox.SetChecked(true)
+			} else if initialRerunDefaults.CheckOnlyFailed {
+				onlyFailedCheckbox.SetChecked(true)
+			}
+			if initialRerunDefaults.CheckOnlyUnreachable {
+				onlyUnreachableCheckbox.SetChecked(true)
+			}
+		}
+	}
 
 	// outputTask/outputHost track which (task, host) pair the output page
 	// is currently showing, so navigateOutputTask (below) knows where
@@ -1797,20 +2008,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 	// openRerunDialog (Rerun.md's 'r' key - see SetInputCapture below,
 	// gated there on processDone since re-running only makes sense once a
-	// run has finished). Task is deliberately never pre-filled (see
-	// rerunForm's own doc comment for why the original cursor-based
-	// pre-fill design was dropped) - like Tags/Hosts, it just keeps
-	// whatever was last typed into it, empty on the very first open of the
-	// session. Play is never pre-filled from the tree cursor either, for
-	// the same reason - there's no single "current play" to derive one
-	// from any more reliably than there was a "current task" - but unlike
-	// Task, it IS pre-filled from initialPlay (this process's own
-	// invocation's own --start-at-play, if any - design-docs/
-	// StartWithPlay.md), the same way Tags/Hosts pre-fill from
-	// initialTags/initialHosts: only the very first time the dialog is
-	// opened at all - see playPreFilled/tagsPreFilled/skipTagsPreFilled/
-	// hostsPreFilled above - every open after that leaves the field alone,
-	// whatever it now contains.
+	// run has finished). Play is never pre-filled from the tree cursor -
+	// there's no single "current play" to derive one from reliably - but it
+	// IS pre-filled from initialPlay (this process's own invocation's own
+	// --start-at-play, if any - design-docs/StartWithPlay.md), the same way
+	// Tags/Hosts pre-fill from initialTags/initialHosts: only the very
+	// first time the dialog is opened at all - see playPreFilled/
+	// tagsPreFilled/skipTagsPreFilled/hostsPreFilled above - every open
+	// after that leaves the field alone, whatever it now contains.
 	openRerunDialog := func() {
 		rerunDialogOpen = true
 
@@ -1830,6 +2035,23 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			hostsField.SetText(initialHosts)
 			hostsPreFilled = true
 		}
+
+		// rebuildRerunForm runs after the one-shot text pre-fills above,
+		// deliberately - on the "rerun" verb's very first open, its own
+		// CLI-flag-driven checkbox pre-check (initialRerunDefaults) writes
+		// into playField/hostsField too (via the checkboxes' own
+		// SetChangedFunc cascade), and that write needs to be the one that
+		// wins. Running this first (tried live, reverted) let the plain
+		// initialPlay/initialHosts pre-fill above - "" for both, since a
+		// --resume-where-failed/--only-failed invocation has no
+		// --start-at-play/-l of its own - clobber right back over what the
+		// checkbox cascade had just filled in. Every open after the first
+		// re-derives the three checkboxes' own availability/defaults fresh
+		// regardless (see its own doc comment for why this, unlike the
+		// text fields' one-shot latches above, is never itself
+		// one-time-only) - reordering relative to those latches only
+		// matters for the one open where both fire.
+		rebuildRerunForm()
 
 		rerunForm.SetFocus(0) // always start on the Play field (the first,
 		// broadest-scope option - design-docs/StartWithPlay.md), not
@@ -2100,7 +2322,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	pages.AddPage("split", splitFlex, true, false)
 	pages.AddPage("filter", uikit.CenteredModal(filterFlex, 46, 11), true, false)
 	pages.AddPage("search", uikit.CenteredModal(searchDialogFlex, 46, 11), true, false)
-	pages.AddPage("rerun", uikit.CenteredModal(rerunForm, 56, 15), true, false)
+	// Sized for the max case (all three checkboxes present: 7 form items,
+	// up from the original 5) - a little empty space in the modal when
+	// fewer of them are offered (Rerun.md's "Extend rerun dialog") is a
+	// non-issue; the exact number was tuned live rather than computed.
+	pages.AddPage("rerun", uikit.CenteredModal(rerunForm, 56, 19), true, false)
 
 	app = tview.NewApplication().SetRoot(pages, true)
 
@@ -2284,15 +2510,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// can't exist before `app` is assigned above.
 	submitRerun := func() {
 		startAtPlay := strings.TrimSpace(playField.GetText()) // empty
-		// means "whole playbook" - see rerunForm's own doc comment.
-		startAtTask := strings.TrimSpace(taskField.GetText()) // empty means
-		// "whole playbook" - see rerunForm's own doc comment.
+		// means "whole playbook" - see playField's own doc comment.
 		tags := strings.TrimSpace(tagsField.GetText())
 		skipTags := strings.TrimSpace(skipTagsField.GetText())
 		hosts := strings.TrimSpace(hostsField.GetText())
 		closeDialogs()
 
-		requestRerun(startAtPlay, startAtTask, tags, skipTags, hosts) // resets
+		requestRerun(startAtPlay, tags, skipTags, hosts) // resets
 		// processDone/exitCode/state synchronously (see main.go) - by the
 		// time this returns, rebuild() below already sees a running, empty
 		// generation.

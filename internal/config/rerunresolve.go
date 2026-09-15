@@ -35,6 +35,15 @@ type RerunResolution struct {
 	SkipTags string
 	Hosts    string
 	Rest     []string
+	// RunID is the resolved target's last invocation's own RunID (history.go),
+	// if any - design-docs/Rerun.md's "Extend rerun dialog" own
+	// Only-failed/Only-unreachable/Resume-where-failed defaults replay this
+	// invocation's saved run log (runner.ReplayRunLog) to compute them.
+	// Empty when that invocation never saved one (best-effort CreateRunLog
+	// failure, a build predating design-docs/Revisit.md, or - see main.go's
+	// own PruneMissingRunLogs call before ResolveRerun - the saved file has
+	// since gone missing).
+	RunID string
 }
 
 // ResolveRerun computes a rerunResolution from the "rerun" verb's own args
@@ -72,8 +81,9 @@ func ResolveRerun(args []string, cfg StateConfig) (res RerunResolution, ok bool)
 	var histParsed ParsedPassthroughArgs
 	if explicit {
 		res.Playbook = playbook
-		hist, _ := LastInvocation(cfg, playbook)
-		histParsed = ParsePassthroughArgs(HistoryStringToArgs(hist))
+		rec, _ := LastInvocationRecord(cfg, playbook)
+		res.RunID = rec.RunID
+		histParsed = ParsePassthroughArgs(HistoryStringToArgs(rec.Args))
 	} else {
 		entry, has := LastTarget(cfg)
 		if !has {
@@ -83,7 +93,9 @@ func ResolveRerun(args []string, cfg StateConfig) (res RerunResolution, ok bool)
 		res.Role = entry.Role
 		var hist string
 		if len(entry.Invocations) > 0 {
-			hist = entry.Invocations[len(entry.Invocations)-1].Args
+			last := entry.Invocations[len(entry.Invocations)-1]
+			hist = last.Args
+			res.RunID = last.RunID
 		}
 		histParsed = ParsePassthroughArgs(HistoryStringToArgs(hist))
 	}

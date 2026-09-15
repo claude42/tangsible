@@ -129,6 +129,43 @@ func ExtractStartAtPlay(args []string) (startAtPlay string, rest []string) {
 	return startAtPlay, out
 }
 
+// RerunFlags bundles the three synthetic boolean flags design-docs/
+// Rerun.md's "Extend rerun dialog" adds to the "rerun" verb - --only-failed,
+// --only-unreachable, --resume-where-failed - mirroring their own dialog
+// checkboxes one-for-one. Like --start-at-play (ExtractStartAtPlay), none
+// of these is a real ansible-playbook flag, so all three are stripped by
+// ExtractRerunFlags before anything reaches ansible-playbook itself.
+type RerunFlags struct {
+	OnlyFailed        bool
+	OnlyUnreachable   bool
+	ResumeWhereFailed bool
+}
+
+// ExtractRerunFlags pulls RerunFlags's three bare flags out of args,
+// returning the remainder with all matching tokens removed - the same
+// "synthetic flag, strip before ansible-playbook ever sees it" shape as
+// ExtractStartAtPlay, simplified since these take no value: presence
+// anywhere in args is enough, so (unlike ExtractStartAtPlay's own "last
+// occurrence wins" for a value-bearing flag) a repeated flag is a no-op,
+// not tracked specially. No occurrence of a given flag leaves its own
+// RerunFlags field at its zero value (false).
+func ExtractRerunFlags(args []string) (flags RerunFlags, rest []string) {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		switch a {
+		case "--only-failed":
+			flags.OnlyFailed = true
+		case "--only-unreachable":
+			flags.OnlyUnreachable = true
+		case "--resume-where-failed":
+			flags.ResumeWhereFailed = true
+		default:
+			out = append(out, a)
+		}
+	}
+	return flags, out
+}
+
 // HasCheckFlag reports whether args contains a bare "--check" or "-C" -
 // ansible-playbook's own dry-run flag, left in Rest by ParsePassthroughArgs
 // (it isn't one of the flags that function extracts) and so still present

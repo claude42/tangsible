@@ -220,6 +220,38 @@ func TestExtractStartAtPlay_NoneFoundReturnsSameSlice(t *testing.T) {
 	}
 }
 
+func TestExtractRerunFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		want     RerunFlags
+		wantRest []string
+	}{
+		{"absent", []string{"-i", "localhost,"}, RerunFlags{}, []string{"-i", "localhost,"}},
+		{"only-failed", []string{"--only-failed", "-v"}, RerunFlags{OnlyFailed: true}, []string{"-v"}},
+		{"only-unreachable", []string{"--only-unreachable"}, RerunFlags{OnlyUnreachable: true}, nil},
+		{"resume-where-failed", []string{"--resume-where-failed"}, RerunFlags{ResumeWhereFailed: true}, nil},
+		{
+			"all three, interleaved with unrelated args",
+			[]string{"-i", "localhost,", "--only-failed", "--resume-where-failed", "-v", "--only-unreachable"},
+			RerunFlags{OnlyFailed: true, OnlyUnreachable: true, ResumeWhereFailed: true},
+			[]string{"-i", "localhost,", "-v"},
+		},
+		{"repeated flag is a no-op, not tracked specially", []string{"--only-failed", "--only-failed"}, RerunFlags{OnlyFailed: true}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotRest := ExtractRerunFlags(tt.args)
+			if got != tt.want {
+				t.Errorf("flags = %+v, want %+v", got, tt.want)
+			}
+			if !slices.Equal(gotRest, tt.wantRest) {
+				t.Errorf("rest = %v, want %v", gotRest, tt.wantRest)
+			}
+		})
+	}
+}
+
 func TestHasCheckFlag(t *testing.T) {
 	tests := []struct {
 		name string

@@ -129,6 +129,54 @@ func TestResolveRerun(t *testing.T) {
 		}
 	})
 
+	t.Run("RunID propagates from history - no playbook given", func(t *testing.T) {
+		cfg := cfgWithHistory("site.yml", PlaybookHistory{
+			Playbook: "site.yml",
+			Invocations: []InvocationRecord{
+				{Args: "-l old", RunID: "run-1"},
+				{Args: "-l somehost", RunID: "run-2"},
+			},
+		})
+		res, ok := ResolveRerun(nil, cfg)
+		if !ok {
+			t.Fatal("resolveRerun() ok = false, want true")
+		}
+		if res.RunID != "run-2" {
+			t.Errorf("res.RunID = %q, want %q (the last invocation's own)", res.RunID, "run-2")
+		}
+	})
+
+	t.Run("RunID propagates from history - explicit playbook given", func(t *testing.T) {
+		cfg := cfgWithHistory("other.yml", PlaybookHistory{
+			Playbook: "site.yml",
+			Invocations: []InvocationRecord{
+				{Args: "-l old", RunID: "run-1"},
+				{Args: "-l somehost", RunID: "run-2"},
+			},
+		})
+		res, ok := ResolveRerun([]string{"site.yml"}, cfg)
+		if !ok {
+			t.Fatal("resolveRerun() ok = false, want true")
+		}
+		if res.RunID != "run-2" {
+			t.Errorf("res.RunID = %q, want %q (the last invocation's own)", res.RunID, "run-2")
+		}
+	})
+
+	t.Run("RunID empty when the target has never saved one", func(t *testing.T) {
+		cfg := cfgWithHistory("site.yml", PlaybookHistory{
+			Playbook:    "site.yml",
+			Invocations: []InvocationRecord{{Args: "-l somehost"}},
+		})
+		res, ok := ResolveRerun(nil, cfg)
+		if !ok {
+			t.Fatal("resolveRerun() ok = false, want true")
+		}
+		if res.RunID != "" {
+			t.Errorf("res.RunID = %q, want \"\"", res.RunID)
+		}
+	})
+
 	t.Run("an explicit playbook positional always resolves to Playbook, never Role", func(t *testing.T) {
 		// Rerun.md/design-docs/Tangsible role.md scope decision: there's
 		// no "tangsible rerun <role>" form - a positional argument to

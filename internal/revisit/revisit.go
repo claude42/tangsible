@@ -55,7 +55,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownTaskNames, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, startWithRerunDialog bool, requestRerun func(startAtPlay, startAtTask, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -456,19 +456,11 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun b
 // the frozen tree exactly as an in-tree 'r' cancel does.
 func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunDialog bool) {
 	jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, e.RunID)
-	f, err := os.Open(jsonlPath)
+	state, err := runner.ReplayRunLog(jsonlPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't open saved run data: %v\n", err)
 		return
 	}
-
-	state := &pb.PlaybookState{}
-	for item := range runner.ScanEvents(f, nil) {
-		if item.IsEvent {
-			state.Apply(item.Ev)
-		}
-	}
-	f.Close()
 
 	// playbook is what a rerun (Phase 3, below) would actually spawn -
 	// e.Playbook itself for a plain playbook entry, or a freshly generated
@@ -498,7 +490,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	if cleanup != nil {
 		defer cleanup()
 	}
-	sourceIndex, knownTags, knownTaskNames := source.BuildTaskSourceIndex(playbook)
+	sourceIndex, knownTags, _ := source.BuildTaskSourceIndex(playbook)
 	knownPlayNames := source.ListTopLevelPlayNames(playbook)
 
 	settings := config.ReadSettingsConfig(config.TangsibleConfigPath)
@@ -551,12 +543,16 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	}
 
 	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
-		sourceIndex, knownTags, knownTaskNames, knownPlayNames, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
+		sourceIndex, knownTags, knownPlayNames, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
 		// initialPlay is always "" here, unlike Tags/SkipTags/Hosts just
 		// after it - --start-at-play is never recorded into invArgs (see
 		// ExtractStartAtPlay's own doc comment), so there is nothing for a
 		// revisited entry to have remembered in the first place.
-		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, startWithRerunDialog, requestRerun, invArgs.Rest, &progH, revisitReturn,
+		// initialRerunDefaults is always the zero value here too - state is
+		// already fully populated by the replay above, so NewLiveTUI's own
+		// rebuildRerunForm recomputes the three checkboxes' defaults from
+		// it directly instead (see NewLiveTUI's own doc comment).
+		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, runner.InitialRerunDefaults{}, startWithRerunDialog, requestRerun, invArgs.Rest, &progH, revisitReturn,
 		e.Playbook, e.Role)
 
 	runErr := app.Run()

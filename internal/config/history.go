@@ -330,6 +330,27 @@ func LastInvocation(cfg StateConfig, playbook string) (string, bool) {
 	return "", false
 }
 
+// LastInvocationRecord is LastInvocation's own sibling, returning the
+// whole InvocationRecord rather than just its Args - needed by
+// ResolveRerun (rerunresolve.go) for design-docs/Rerun.md's "Extend rerun
+// dialog": the "rerun" verb's own Only-failed/Only-unreachable/
+// Resume-where-failed defaults need that invocation's RunID to replay its
+// saved run log (runner.ReplayRunLog), which Args alone can't provide.
+// LastInvocation itself is left untouched - every other caller only ever
+// wanted Args.
+func LastInvocationRecord(cfg StateConfig, playbook string) (InvocationRecord, bool) {
+	for _, h := range cfg.History {
+		if h.Playbook != playbook {
+			continue
+		}
+		if len(h.Invocations) == 0 {
+			return InvocationRecord{}, false
+		}
+		return h.Invocations[len(h.Invocations)-1], true
+	}
+	return InvocationRecord{}, false
+}
+
 // PruneMissingRunLogs reads path (state.toml), clears the RunID of every
 // invocationRecord whose saved .jsonl file (runlog.go's runLogPaths) no
 // longer exists on disk, writes the result back if anything changed, and

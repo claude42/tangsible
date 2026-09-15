@@ -78,6 +78,30 @@ func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-c
 	processDone.Store(true)
 }
 
+// InitialRerunDefaults carries design-docs/Rerun.md's "Extend rerun
+// dialog" own data for the re-run dialog's three checkboxes' very first
+// appearance in a session where nothing has run yet in this process (only
+// the "rerun" verb's own startup can be in that state - see NewLiveTUI's
+// own doc comment in tui.go) - FailedHosts/UnreachableHosts/ResumePlay
+// come from replaying that target's last saved run log (ReplayRunLog);
+// the three Check* fields mirror the "rerun" verb's own --only-failed/
+// --only-unreachable/--resume-where-failed flags, already validated
+// against that same data by the caller (session.Main) before this is ever
+// built. Every other case - "run"/"role"'s own first 'r' press, a revisit
+// session, or any dialog reopen once a generation has produced real events
+// in this process - ignores this entirely and recomputes the same three
+// things fresh from the live PlaybookState instead; this is the zero value
+// there.
+type InitialRerunDefaults struct {
+	FailedHosts      []string
+	UnreachableHosts []string
+	ResumePlay       string
+
+	CheckOnlyFailed        bool
+	CheckOnlyUnreachable   bool
+	CheckResumeWhereFailed bool
+}
+
 // NewRequestRerun builds tui.go's requestRerun hook (Rerun.md) - starting a
 // new generation mid-session, called once the re-run dialog is confirmed.
 // Every parameter is exactly what this one mechanism needs from its own
@@ -87,11 +111,15 @@ func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-c
 //
 // startAtPlay, if non-empty, trims the playbook to that named top-level
 // play onward before spawning (design-docs/StartWithPlay.md) - see the
-// spawn goroutine below for the actual mechanism. startAtTask, if
-// non-empty, is prepended as --start-at-task, applied against whatever the
-// play selection already narrowed the file down to; tags/hosts replace the
+// spawn goroutine below for the actual mechanism. tags/hosts replace the
 // original invocation's own (originalRest is always carried forward
-// unedited alongside them - see ParsedPassthroughArgs.Reassemble).
+// unedited alongside them - see ParsedPassthroughArgs.Reassemble). There
+// used to be a startAtTask parameter here too (--start-at-task), dropped
+// along with the dialog's own "Start with task" field - design-docs/
+// Rerun.md's "Extend rerun dialog" item 1: task names aren't unique, so
+// --start-at-task was never a reliable way to target one exact position. A
+// user can still pass it by hand as a raw ansible-playbook passthrough arg
+// (originalRest), just with no dedicated mechanism here.
 //
 // sourceIndex is the caller's own live TaskSourceIndex (a map, so mutating
 // it here is visible to every closure already holding the same reference,
@@ -105,8 +133,8 @@ func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-c
 // goroutine calls the returned func (tview's event-loop goroutine, same
 // invariant state.Reset() above already relies on), never concurrently
 // with formatHostOutput's own reads of the same map.
-func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, startAtTask, tags, skipTags, hosts string) {
-	return func(startAtPlay, startAtTask, tags, skipTags, hosts string) {
+func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, tags, skipTags, hosts string) {
+	return func(startAtPlay, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
 		// event-loop goroutine, from the re-run dialog's Enter handler) -
 		// by the time this returns, a QueueUpdateDraw-driven rebuild()
@@ -117,9 +145,6 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		processDone.Store(false)
 
 		newArgs := config.ParsedPassthroughArgs{Tags: tags, SkipTags: skipTags, Hosts: hosts, Rest: originalRest}.Reassemble()
-		if startAtTask != "" {
-			newArgs = append([]string{"--start-at-task", startAtTask}, newArgs...)
-		}
 
 		// fail records a generation that never actually spawned an
 		// ansible-playbook process at all - a startAtPlay that doesn't

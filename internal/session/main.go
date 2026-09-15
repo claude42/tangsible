@@ -133,6 +133,12 @@ func Main(build BuildInfo) {
 	// only an explicit --start-at-play on the "run"/"rerun" command line
 	// that started *this* session ever populates it.
 	var initialPlay string
+	// rerunDefaults is design-docs/Rerun.md's "Extend rerun dialog" own
+	// data for the "rerun" verb's very first dialog open - see
+	// runner.InitialRerunDefaults' own doc comment. Zero value (never
+	// touched) for "run"/"role", which never has anything to compute this
+	// from at session start.
+	var rerunDefaults runner.InitialRerunDefaults
 	// pending is non-nil only for "run" and "role" - see PendingGeneration's
 	// own doc comment.
 	var pending *runner.PendingGeneration
@@ -273,18 +279,80 @@ func Main(build BuildInfo) {
 		var rerunArgs []string
 		initialPlay, rerunArgs = config.ExtractStartAtPlay(args)
 
-		// No history/CLI-args resolution happens for "run" (its playbook
-		// argument is passed straight through, verbatim, same as always) -
-		// this is entirely new machinery, see rerunresolve.go. Read fresh
-		// rather than threaded through from anywhere else, since this is
-		// the only place in "rerun"'s own flow that needs it.
-		cfg := config.ReadState(config.TangsibleStatePath)
+		// --only-failed/--only-unreachable/--resume-where-failed
+		// (design-docs/Rerun.md's "Extend rerun dialog", item 7) are
+		// Tangsible's own synthetic flags too, same reasoning as
+		// --start-at-play just above: stripped before ResolveRerun ever
+		// sees rerunArgs, so none of them can leak into a later bare
+		// "tangsible rerun"'s own replayed Rest.
+		var rerunFlags config.RerunFlags
+		rerunFlags, rerunArgs = config.ExtractRerunFlags(rerunArgs)
+		if rerunFlags.ResumeWhereFailed && initialPlay != "" {
+			fmt.Fprintln(os.Stderr, "tangsible: --resume-where-failed cannot be combined with --start-at-play")
+			os.Exit(2)
+		}
+
+		// PruneMissingRunLogs first (same as RunRevisitVerb already does)
+		// so a dangling RunID (saved run log deleted, evicted from
+		// history, ...) is already normalized back to "" by the time
+		// ResolveRerun reads it below - everything after this only ever
+		// has to handle "RunID is empty" as the one not-available case,
+		// never a stale one.
+		cfg, err := config.PruneMissingRunLogs(config.TangsibleStatePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't update invocation history in %s: %v\n", config.TangsibleStatePath, err)
+		}
 		res, resolved := config.ResolveRerun(rerunArgs, cfg)
 		if !resolved {
 			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 			fmt.Fprintln(os.Stderr, "no playbook or role given, and nothing has ever been run in this project to rerun")
 			os.Exit(2)
 		}
+
+		// rerunDefaults (runner.InitialRerunDefaults) is what the re-run
+		// dialog's three checkboxes need for their very first appearance -
+		// see its own doc comment. Computed by replaying the resolved
+		// target's own last saved run log (res.RunID, empty if none was
+		// ever saved or PruneMissingRunLogs just cleared a stale one) -
+		// nothing has run yet in this process for PlaybookState itself to
+		// answer this from, unlike every other Verb/dialog-reopen case.
+		if res.RunID != "" {
+			jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, res.RunID)
+			replayed, err := runner.ReplayRunLog(jsonlPath)
+			if err != nil {
+				if rerunFlags.OnlyFailed || rerunFlags.OnlyUnreachable || rerunFlags.ResumeWhereFailed {
+					fmt.Fprintf(os.Stderr, "tangsible: couldn't read saved run data to resolve --only-failed/--only-unreachable/--resume-where-failed: %v\n", err)
+					os.Exit(2)
+				}
+				// Otherwise: no flag asked for this data, so a failed
+				// replay just means the checkboxes end up with nothing to
+				// offer (rerunDefaults stays at its zero value) - not
+				// fatal to the rerun itself.
+			} else {
+				rerunDefaults.FailedHosts = replayed.FailedHosts()
+				rerunDefaults.UnreachableHosts = replayed.UnreachableHosts()
+				rerunDefaults.ResumePlay = replayed.EarliestFailingPlay()
+			}
+		}
+		// Each flag is validated against the data actually available -
+		// design-docs/Rerun.md item 7's "if a flag asks for unavailable
+		// data, fail with a corresponding error message" - never a silent
+		// ignore, unlike a plain missing-data checkbox omission.
+		if rerunFlags.OnlyFailed && len(rerunDefaults.FailedHosts) == 0 {
+			fmt.Fprintln(os.Stderr, "tangsible: --only-failed given, but no failed hosts are recorded from the last run (or no run data is available)")
+			os.Exit(2)
+		}
+		if rerunFlags.OnlyUnreachable && len(rerunDefaults.UnreachableHosts) == 0 {
+			fmt.Fprintln(os.Stderr, "tangsible: --only-unreachable given, but no unreachable hosts are recorded from the last run (or no run data is available)")
+			os.Exit(2)
+		}
+		if rerunFlags.ResumeWhereFailed && rerunDefaults.ResumePlay == "" {
+			fmt.Fprintln(os.Stderr, "tangsible: --resume-where-failed given, but no failures are recorded from the last run (or no run data is available)")
+			os.Exit(2)
+		}
+		rerunDefaults.CheckOnlyFailed = rerunFlags.OnlyFailed
+		rerunDefaults.CheckOnlyUnreachable = rerunFlags.OnlyUnreachable
+		rerunDefaults.CheckResumeWhereFailed = rerunFlags.ResumeWhereFailed
 		// res.Role set (rather than res.Playbook) means the most recent
 		// invocation in this project was "tangsible role", not
 		// "tangsible run" (design-docs/Tangsible role.md) - only possible
@@ -325,7 +393,7 @@ func Main(build BuildInfo) {
 	// doesn't pay for it - "rerun" has no such gate to be after (see
 	// pending's own case above), so it's simply built before anything
 	// else instead.
-	sourceIndex, knownTags, knownTaskNames := source.BuildTaskSourceIndex(playbook)
+	sourceIndex, knownTags, _ := source.BuildTaskSourceIndex(playbook)
 	knownPlayNames := source.ListTopLevelPlayNames(playbook)
 	if spawnPlaybook != playbook {
 		// "--start-at-play" spawns this first generation against a trimmed
@@ -428,7 +496,7 @@ func Main(build BuildInfo) {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownTaskNames, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)

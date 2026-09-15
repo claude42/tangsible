@@ -235,6 +235,47 @@ func TestLastInvocationEntryWithNoInvocations(t *testing.T) {
 	}
 }
 
+// TestLastInvocationRecord covers design-docs/Rerun.md's "Extend rerun
+// dialog": ResolveRerun needs the last invocation's own RunID (to replay
+// its saved run log), which LastInvocation's own (string, bool) return
+// can't provide - LastInvocationRecord returns the whole InvocationRecord
+// instead, LastInvocation itself untouched.
+func TestLastInvocationRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+		t.Fatalf("appendInvocation() first call: %v", err)
+	}
+	if err := AppendInvocation(path, "site.yml", "", "--tags foo,bar"); err != nil {
+		t.Fatalf("appendInvocation() second call: %v", err)
+	}
+	if err := FinalizeInvocation(path, "site.yml", "", 0, "20260101T000000.000000000Z"); err != nil {
+		t.Fatalf("finalizeInvocation(): %v", err)
+	}
+
+	cfg := ReadState(path)
+
+	rec, ok := LastInvocationRecord(cfg, "site.yml")
+	if !ok {
+		t.Fatal("lastInvocationRecord(site.yml) ok = false, want true")
+	}
+	if rec.Args != "--tags foo,bar" {
+		t.Errorf("rec.Args = %q, want %q", rec.Args, "--tags foo,bar")
+	}
+	if rec.RunID != "20260101T000000.000000000Z" {
+		t.Errorf("rec.RunID = %q, want %q", rec.RunID, "20260101T000000.000000000Z")
+	}
+
+	if _, ok := LastInvocationRecord(cfg, "unknown.yml"); ok {
+		t.Error("lastInvocationRecord(unknown.yml) ok = true, want false")
+	}
+
+	empty := StateConfig{History: []PlaybookHistory{{Playbook: "site.yml"}}}
+	if _, ok := LastInvocationRecord(empty, "site.yml"); ok {
+		t.Error("lastInvocationRecord() on an entry with no Invocations, ok = true, want false")
+	}
+}
+
 // TestFinalizeInvocation covers design-docs/Revisit.md's two-phase record:
 // appendInvocation stamps Args/Time up front (before a generation is even
 // spawned); finalizeInvocation fills in ExitCode/RunID once it's actually

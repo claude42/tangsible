@@ -312,3 +312,31 @@ func ScanEvents(r io.Reader, logFile *os.File) <-chan StreamItem {
 	}()
 	return ch
 }
+
+// ReplayRunLog opens a saved generation's jsonl file (config.RunLogPaths)
+// and replays its events into a fresh pb.PlaybookState via ScanEvents +
+// state.Apply - the same reconstruction revisit.go's own OpenRevisitEntry
+// needs to show a historical run's tree, factored out here so other
+// callers (design-docs/Rerun.md's "Extend rerun dialog": the "rerun"
+// verb's own Only-failed/Only-unreachable/Resume-where-failed defaults,
+// computed from a fresh process with nothing in memory yet) can reuse it
+// without duplicating the loop. Returns whatever os.Open itself returns on
+// failure (missing file, permissions, ...) - callers decide how to treat
+// "couldn't replay" (revisit.go's own PruneMissingRunLogs already keeps
+// jsonlPath trustworthy before this is ever called, so a failure here is
+// usually just a genuine race, not the common case).
+func ReplayRunLog(jsonlPath string) (*pb.PlaybookState, error) {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	state := &pb.PlaybookState{}
+	for item := range ScanEvents(f, nil) {
+		if item.IsEvent {
+			state.Apply(item.Ev)
+		}
+	}
+	return state, nil
+}

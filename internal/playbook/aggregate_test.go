@@ -304,3 +304,91 @@ func TestReset_ClearsRunDataButNotHooks(t *testing.T) {
 		t.Errorf("Plays after post-Reset Apply = %v, want a single \"second play\"", s.Plays)
 	}
 }
+
+// TestFailedUnreachableHostsAndEarliestFailingPlay covers design-docs/
+// Rerun.md's "Extend rerun dialog": a multi-play run where web1 fails in
+// the second play, web2 goes unreachable in the third, and web3 never has
+// any trouble - FailedHosts/UnreachableHosts/EarliestFailingPlay must
+// agree on exactly who/where, in run order, not aggregate/task order.
+func TestFailedUnreachableHostsAndEarliestFailingPlay(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("play one"))
+	s.Apply(taskStartEvent("task 1", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web2", json.RawMessage(`{"changed":false}`)))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web3", json.RawMessage(`{"changed":false}`)))
+
+	s.Apply(playStartEvent("play two"))
+	s.Apply(taskStartEvent("task 2", "/pb.yml:9"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom"}`)))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web3", json.RawMessage(`{"changed":false}`)))
+
+	s.Apply(playStartEvent("play three"))
+	s.Apply(taskStartEvent("task 3", "/pb.yml:15"))
+	s.Apply(hostResultEvent("v2_runner_on_unreachable", "web2", json.RawMessage(`{}`)))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web3", json.RawMessage(`{"changed":false}`)))
+
+	if got, want := s.FailedHosts(), []string{"web1"}; !slices.Equal(got, want) {
+		t.Errorf("FailedHosts() = %v, want %v", got, want)
+	}
+	if got, want := s.UnreachableHosts(), []string{"web2"}; !slices.Equal(got, want) {
+		t.Errorf("UnreachableHosts() = %v, want %v", got, want)
+	}
+	if got, want := s.EarliestFailingPlay(), "play two"; got != want {
+		t.Errorf("EarliestFailingPlay() = %q, want %q", got, want)
+	}
+}
+
+func TestFailedHostsEmptyWhenNoFailures(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("play one"))
+	s.Apply(taskStartEvent("task 1", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+
+	if got := s.FailedHosts(); len(got) != 0 {
+		t.Errorf("FailedHosts() = %v, want empty", got)
+	}
+	if got := s.UnreachableHosts(); len(got) != 0 {
+		t.Errorf("UnreachableHosts() = %v, want empty", got)
+	}
+	if got := s.EarliestFailingPlay(); got != "" {
+		t.Errorf("EarliestFailingPlay() = %q, want \"\"", got)
+	}
+}
+
+// TestFailedHosts_IgnoreErrorsStillCountsAsFailed locks in design-docs/
+// Rerun.md's explicit "stick with current behavior for ignore_errors:
+// true" decision: OutcomeFailed doesn't distinguish an ignored failure
+// from a genuine one anywhere else in this package (TaskNode.Counts', own
+// doc-comment history), and FailedHosts/EarliestFailingPlay deliberately
+// don't special-case it either - a host whose only failure was
+// ignore_errors: true is still "failed" for both.
+func TestFailedHosts_IgnoreErrorsStillCountsAsFailed(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("play one"))
+	s.Apply(taskStartEvent("task with ignore_errors", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom","ignore_errors":true}`)))
+
+	if got, want := s.FailedHosts(), []string{"web1"}; !slices.Equal(got, want) {
+		t.Errorf("FailedHosts() = %v, want %v (ignore_errors still counts as failed)", got, want)
+	}
+	if got, want := s.EarliestFailingPlay(), "play one"; got != want {
+		t.Errorf("EarliestFailingPlay() = %q, want %q", got, want)
+	}
+}
+
+// TestHostsWithOutcome_DedupesAcrossTasks covers a host recorded with the
+// same outcome on more than one task within the run - FailedHosts must
+// list it once, not once per task.
+func TestHostsWithOutcome_DedupesAcrossTasks(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("play one"))
+	s.Apply(taskStartEvent("task 1", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom"}`)))
+	s.Apply(taskStartEvent("task 2", "/pb.yml:9"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom again"}`)))
+
+	if got, want := s.FailedHosts(), []string{"web1"}; !slices.Equal(got, want) {
+		t.Errorf("FailedHosts() = %v, want %v (deduped)", got, want)
+	}
+}
