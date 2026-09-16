@@ -146,4 +146,6 @@ ideas for what could build on top of this (a more powerful, opt-in,
 full-fidelity mode that actually re-runs the playbook for real for full
 `register`/`set_fact` visibility was discussed and deliberately deferred,
 not ruled out) once this first version is in place and has proven itself
-useful in practice.
+useful in practice. See `design-docs/Tangsible role, Debug mode.md` for a
+scoped-down version of that idea - real re-execution, but of one role at a
+time via the existing `tangsible role` verb.
