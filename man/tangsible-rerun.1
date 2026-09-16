@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-rerun" "1" "2026-09-05" "Tangsible" "Tangsible Manual"
+.TH "tangsible-rerun" "1" "2026-09-16" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-rerun - repeat the last playbook run
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible rerun\fR [\fIplaybook.\&yml or role name\fR] [--start-at-play \fIname\fR] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible rerun\fR [\fIplaybook.\&yml or role name\fR] [--start-at-play \fIname\fR] [--dialog | --no-dialog] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -47,6 +47,18 @@ The rerun dialog itself offers options for \fBStart with play\fR, \fBStart with
 task\fR, \fBLimit tags\fR, \fBSkip tags\fR, and \fBLimit hosts\fR - each corresponding to
 the respective options.\&
 .PP
+.SH ADDITIONAL OPTIONS
+.PP
+\fB--dialog\fR
+.RS 4
+Show run dialog, potentially overrides the \fBrun_dialog\fR setting (\fBtangsible\fR(1)) for this invocation.\&
+.PP
+.RE
+\fB--no-dialog\fR
+.RS 4
+Skip the dialog and start rerun immediately.\&
+.PP
+.RE
 .SH EXIT STATUS
 .PP
 Same as \fBtangsible-run\fR(1); see \fBtangsible\fR(1).\& Resolving no target at all

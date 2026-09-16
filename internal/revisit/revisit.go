@@ -55,7 +55,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -552,7 +552,11 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		// already fully populated by the replay above, so NewLiveTUI's own
 		// rebuildRerunForm recomputes the three checkboxes' defaults from
 		// it directly instead (see NewLiveTUI's own doc comment).
-		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, runner.InitialRerunDefaults{}, startWithRerunDialog, requestRerun, invArgs.Rest, &progH, revisitReturn,
+		// showDialogAtStartup is always startWithRerunDialog's own value
+		// here - design-docs/RerunDialog.md is explicitly out of scope for
+		// "revisit" (Phase 2/3): whenever this entry opens straight into
+		// the dialog at all, it should actually render, never auto-submit.
+		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, runner.InitialRerunDefaults{}, startWithRerunDialog, startWithRerunDialog, requestRerun, invArgs.Rest, &progH, revisitReturn,
 		e.Playbook, e.Role)
 
 	runErr := app.Run()

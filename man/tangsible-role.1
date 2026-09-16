@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-role" "1" "2026-09-05" "Tangsible" "Tangsible Manual"
+.TH "tangsible-role" "1" "2026-09-16" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-role - run a single role in isolation
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible role\fR \fIrole_name\fR [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible role\fR \fIrole_name\fR [--dialog | --no-dialog] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -35,6 +35,18 @@ directory tree.\&
 Everything else — the live tree, filtering, the rerun dialog, the diff
 picker — works exactly as in \fBtangsible-run\fR(1).\&
 .PP
+.SH ADDITIONAL OPTIONS
+.PP
+\fB--dialog\fR
+.RS 4
+Show the run dialog before starting, instead of running immediately — see \fBtangsible-rerun\fR(1) for what it offers.\& 
+.PP
+.RE
+\fB--no-dialog\fR
+.RS 4
+Don'\&t show run dialog, potentially overrides the \fBrun_dialog\fR setting (\fBtangsible\fR(1)) for this invocation.\&
+.PP
+.RE
 .SH EXIT STATUS
 .PP
 Same as \fBtangsible-run\fR(1); see \fBtangsible\fR(1).\&

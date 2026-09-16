@@ -83,6 +83,13 @@ type SettingsConfig struct {
 		// to a plain OK/Changed/Skipped/Failed/Unreachable count summary
 		// instead - see tui.go's colorEnabledByUser callers.
 		Color *bool `toml:"color"`
+		// RunDialog governs whether the re-run dialog opens at a session's
+		// startup (design-docs/RerunDialog.md) - "default" (show for
+		// "rerun", not for "run"/"role" - the pre-existing behavior),
+		// "never", or "always", case-insensitive (see
+		// RunDialogPreference). An explicit --dialog/--no-dialog on the
+		// command line overrides this per invocation.
+		RunDialog string `toml:"run_dialog"`
 	} `toml:"general"`
 }
 
@@ -115,6 +122,35 @@ func TwoPaneLayoutEnabled(cfg SettingsConfig) bool {
 // ever render in color.
 func ColorEnabledByUser(cfg SettingsConfig) bool {
 	return cfg.General.Color == nil || *cfg.General.Color
+}
+
+// DialogPreference is General.RunDialog's parsed form (design-docs/
+// RerunDialog.md): DialogPreferenceDefault leaves each Verb's own built-in
+// dialog-visibility behavior alone; DialogPreferenceNever/Always force it
+// off/on regardless of Verb - see ResolveDialogVisibility, which combines
+// this with an explicit --dialog/--no-dialog CLI override.
+type DialogPreference int
+
+const (
+	DialogPreferenceDefault DialogPreference = iota
+	DialogPreferenceNever
+	DialogPreferenceAlways
+)
+
+// RunDialogPreference reads cfg.General.RunDialog as a DialogPreference,
+// case-insensitively - "never"/"always" match explicitly; everything else,
+// including an unset or unrecognized value, falls back to
+// DialogPreferenceDefault, the same "swallow and fall back" convention as
+// DefaultTreeExpanded.
+func RunDialogPreference(cfg SettingsConfig) DialogPreference {
+	switch {
+	case strings.EqualFold(cfg.General.RunDialog, "never"):
+		return DialogPreferenceNever
+	case strings.EqualFold(cfg.General.RunDialog, "always"):
+		return DialogPreferenceAlways
+	default:
+		return DialogPreferenceDefault
+	}
 }
 
 // Verb identifies which top-level command Tangsible was invoked with -

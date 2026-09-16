@@ -43,6 +43,16 @@ func Main(build BuildInfo) {
 		os.Exit(2)
 	}
 
+	// --dialog/--no-dialog (design-docs/RerunDialog.md) are only meaningful
+	// for run/rerun/role, which each read them via ExtractDialogFlag below
+	// - every other Verb rejects them outright with a usage error, rather
+	// than silently letting them leak through as an arg none of these
+	// verbs' own parsers recognize.
+	if v != config.VerbRun && v != config.VerbRerun && v != config.VerbRole && config.HasDialogFlag(args) {
+		fmt.Fprintln(os.Stderr, "tangsible: --dialog/--no-dialog are only supported for run, rerun, and role")
+		os.Exit(2)
+	}
+
 	if v == config.VerbVersion {
 		os.Exit(RunVersion(build))
 	}
@@ -142,6 +152,19 @@ func Main(build BuildInfo) {
 	// pending is non-nil only for "run" and "role" - see PendingGeneration's
 	// own doc comment.
 	var pending *runner.PendingGeneration
+	// showDialog is design-docs/RerunDialog.md's own resolved decision -
+	// combining this invocation's --dialog/--no-dialog (if any), the
+	// run_dialog config preference, and the Verb's own built-in default -
+	// for whether the re-run dialog should open at this session's startup.
+	// Set by whichever Verb's branch below runs, same as originalArgs/
+	// initialPlay; consulted both here (for "run"/"role", to decide
+	// whether to spawn the first generation eagerly at all, below) and
+	// after the switch (passed to NewLiveTUI). Read once, up front rather
+	// than after the switch alongside startExpanded/twoPaneLayout/
+	// colorEnabled: unlike those, "run"/"role" need it *during* the switch
+	// to make that spawn-timing decision.
+	runDialogPref := config.RunDialogPreference(config.ReadSettingsConfig(config.TangsibleConfigPath))
+	var showDialog bool
 
 	switch v {
 	case config.VerbRun:
@@ -174,59 +197,91 @@ func Main(build BuildInfo) {
 		var startAtPlay string
 		startAtPlay, rest = config.ExtractStartAtPlay(rest)
 		initialPlay = startAtPlay
+
+		// --dialog/--no-dialog (design-docs/RerunDialog.md) - stripped
+		// before AppendInvocation below for the same reason
+		// --start-at-play just above already is: neither is a real
+		// ansible-playbook flag, so neither may ever reach a recorded
+		// history string a later bare "tangsible rerun" would replay
+		// verbatim.
+		var dialogOverride config.DialogOverride
+		var dialogOK bool
+		dialogOverride, rest, dialogOK = config.ExtractDialogFlag(rest)
+		if !dialogOK {
+			fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, "--dialog and --no-dialog cannot be combined")
+			os.Exit(2)
+		}
+		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, false)
+
 		spawnPlaybook = playbook
-		if startAtPlay != "" {
-			// Resolved - and any failure reported - before AppendInvocation
-			// below, same as the "no playbook could be resolved" failure
-			// above: an invocation that's invalid before ansible-playbook
-			// is ever involved isn't worth recording into history at all.
-			tempPath, cleanupTemp, ok, err := source.TrimPlaybookToPlay(playbook, startAtPlay)
-			switch {
-			case err != nil:
-				fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a trimmed copy of %s for play %q: %v\n", playbook, startAtPlay, err)
-				os.Exit(1)
-			case !ok:
-				fmt.Fprintf(os.Stderr, "tangsible: no play named %q found in %s\n", startAtPlay, playbook)
-				os.Exit(1)
-			default:
-				spawnPlaybook = tempPath
-				// Reuses the same cleanup/defer machinery already in place
-				// for a role session's own stub playbook (see cleanup's own
-				// doc comment above) - this session has nothing else that
-				// would ever set it, "run" never being a role session
-				// itself. Ties the temp file's lifetime to the whole
-				// process, not just this first generation, exactly like the
-				// role stub's own lifetime - simpler than the per-generation
-				// cleanup runner.NewRequestRerun uses for a later,
-				// interactive rerun, and harmless at this project's
-				// interactive, short-lived-process scale.
-				cleanup = cleanupTemp
+		if showDialog {
+			// Deferred start (design-docs/RerunDialog.md): mirror "rerun"'s
+			// own startup below rather than "run"'s usual eager spawn -
+			// nothing is recorded into history or spawned here at all.
+			// pending stays nil; the re-run dialog opens immediately
+			// instead (NewLiveTUI's startWithRerunDialog), and the first
+			// generation only starts once the user confirms it, via the
+			// exact same requestRerun path a later re-run already goes
+			// through - including its own --start-at-play trimming
+			// (runner.NewRequestRerun) and its own AppendInvocation, once
+			// there's an actual invocation to record.
+			originalArgs = config.ParsePassthroughArgs(rest)
+		} else {
+			if startAtPlay != "" {
+				// Resolved - and any failure reported - before
+				// AppendInvocation below, same as the "no playbook could
+				// be resolved" failure above: an invocation that's invalid
+				// before ansible-playbook is ever involved isn't worth
+				// recording into history at all.
+				tempPath, cleanupTemp, ok, err := source.TrimPlaybookToPlay(playbook, startAtPlay)
+				switch {
+				case err != nil:
+					fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a trimmed copy of %s for play %q: %v\n", playbook, startAtPlay, err)
+					os.Exit(1)
+				case !ok:
+					fmt.Fprintf(os.Stderr, "tangsible: no play named %q found in %s\n", startAtPlay, playbook)
+					os.Exit(1)
+				default:
+					spawnPlaybook = tempPath
+					// Reuses the same cleanup/defer machinery already in place
+					// for a role session's own stub playbook (see cleanup's own
+					// doc comment above) - this session has nothing else that
+					// would ever set it, "run" never being a role session
+					// itself. Ties the temp file's lifetime to the whole
+					// process, not just this first generation, exactly like the
+					// role stub's own lifetime - simpler than the per-generation
+					// cleanup runner.NewRequestRerun uses for a later,
+					// interactive rerun, and harmless at this project's
+					// interactive, short-lived-process scale.
+					cleanup = cleanupTemp
+				}
 			}
-		}
 
-		// Recorded unconditionally, before ansible-playbook is even
-		// started - same "an invocation is an invocation" semantics as
-		// shell history, independent of whether the run itself goes on to
-		// succeed, fail, or never gets past ansible-playbook's own
-		// pre-flight checks. Non-fatal: losing the ability to pre-fill a
-		// future rerun dialog is never worth aborting the run the user
-		// actually asked for. Unlike "rerun" (see below), "run" always
-		// records immediately - there's no confirmation step to wait for,
-		// the invocation already happened by definition. Recorded against
-		// rest (startAtPlay already stripped out above, if it was there at
-		// all) and playbook (the original path, never spawnPlaybook) - a
-		// future "tangsible rerun" should replay the real playbook with
-		// real ansible-playbook args, not reach for a temp file that may
-		// already be gone.
-		if err := config.AppendInvocation(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(rest)); err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
-		}
-		originalArgs = config.ParsePassthroughArgs(rest)
+			// Recorded unconditionally, before ansible-playbook is even
+			// started - same "an invocation is an invocation" semantics as
+			// shell history, independent of whether the run itself goes on to
+			// succeed, fail, or never gets past ansible-playbook's own
+			// pre-flight checks. Non-fatal: losing the ability to pre-fill a
+			// future rerun dialog is never worth aborting the run the user
+			// actually asked for. Unlike "rerun" (see below), "run" always
+			// records immediately - there's no confirmation step to wait for,
+			// the invocation already happened by definition. Recorded against
+			// rest (startAtPlay already stripped out above, if it was there at
+			// all) and playbook (the original path, never spawnPlaybook) - a
+			// future "tangsible rerun" should replay the real playbook with
+			// real ansible-playbook args, not reach for a temp file that may
+			// already be gone.
+			if err := config.AppendInvocation(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(rest)); err != nil {
+				fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
+			}
+			originalArgs = config.ParsePassthroughArgs(rest)
 
-		var showTUI bool
-		pending, showTUI = runner.StartFirstGeneration(spawnPlaybook, rest, &procH, playbook, "", cleanup)
-		if !showTUI {
-			return
+			var showTUI bool
+			pending, showTUI = runner.StartFirstGeneration(spawnPlaybook, rest, &procH, playbook, "", cleanup)
+			if !showTUI {
+				return
+			}
 		}
 
 	case config.VerbRole:
@@ -243,23 +298,45 @@ func Main(build BuildInfo) {
 			os.Exit(2)
 		}
 
+		// --dialog/--no-dialog (design-docs/RerunDialog.md) - same
+		// reasoning and same helper as "run"'s own handling above: stripped
+		// before AppendInvocation below, never a real ansible-playbook flag.
+		var dialogOverride config.DialogOverride
+		var dialogOK bool
+		dialogOverride, rest, dialogOK = config.ExtractDialogFlag(rest)
+		if !dialogOK {
+			fmt.Fprintf(os.Stderr, "usage: %s role <role_name> [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, "--dialog and --no-dialog cannot be combined")
+			os.Exit(2)
+		}
+		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, false)
+
+		// StartRoleSession's own stub playbook is built unconditionally
+		// either way - only the actual ansible-playbook spawn below is what
+		// a forced dialog defers.
 		playbook, cleanup = role.StartRoleSession(roleName)
 		roleDisplayName = roleName
 
-		// Recorded unconditionally, before ansible-playbook is even
-		// started - same "an invocation is an invocation" semantics "run"
-		// already has, and for the same reason: losing the ability to
-		// pre-fill a future rerun is never worth aborting the run the user
-		// actually asked for.
-		if err := config.AppendInvocation(config.TangsibleStatePath, "", roleName, config.ArgsToHistoryString(rest)); err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
-		}
-		originalArgs = config.ParsePassthroughArgs(rest)
+		if showDialog {
+			// Deferred start - see "run"'s own doc comment above for the
+			// full reasoning; identical here.
+			originalArgs = config.ParsePassthroughArgs(rest)
+		} else {
+			// Recorded unconditionally, before ansible-playbook is even
+			// started - same "an invocation is an invocation" semantics "run"
+			// already has, and for the same reason: losing the ability to
+			// pre-fill a future rerun is never worth aborting the run the user
+			// actually asked for.
+			if err := config.AppendInvocation(config.TangsibleStatePath, "", roleName, config.ArgsToHistoryString(rest)); err != nil {
+				fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
+			}
+			originalArgs = config.ParsePassthroughArgs(rest)
 
-		var showTUI bool
-		pending, showTUI = runner.StartFirstGeneration(playbook, rest, &procH, "", roleName, cleanup)
-		if !showTUI {
-			return
+			var showTUI bool
+			pending, showTUI = runner.StartFirstGeneration(playbook, rest, &procH, "", roleName, cleanup)
+			if !showTUI {
+				return
+			}
 		}
 
 	case config.VerbRerun:
@@ -278,6 +355,19 @@ func Main(build BuildInfo) {
 		// from this pre-fill or was typed by hand.
 		var rerunArgs []string
 		initialPlay, rerunArgs = config.ExtractStartAtPlay(args)
+
+		// --dialog/--no-dialog (design-docs/RerunDialog.md) - same
+		// "synthetic flag, strip before ResolveRerun ever sees it"
+		// reasoning as --start-at-play just above.
+		var dialogOverride config.DialogOverride
+		var dialogOK bool
+		dialogOverride, rerunArgs, dialogOK = config.ExtractDialogFlag(rerunArgs)
+		if !dialogOK {
+			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, "--dialog and --no-dialog cannot be combined")
+			os.Exit(2)
+		}
+		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, true)
 
 		// --only-failed/--only-unreachable/--resume-where-failed
 		// (design-docs/Rerun.md's "Extend rerun dialog", item 7) are
@@ -496,7 +586,7 @@ func Main(build BuildInfo) {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)

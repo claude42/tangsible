@@ -292,3 +292,27 @@ func TestDefaultTreeExpanded(t *testing.T) {
 		})
 	}
 }
+
+func TestRunDialogPreference(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  DialogPreference
+	}{
+		{"unset - defaults to default", "", DialogPreferenceDefault},
+		{"default", "default", DialogPreferenceDefault},
+		{"never", "never", DialogPreferenceNever},
+		{"mixed case still matches", "NeVeR", DialogPreferenceNever},
+		{"always", "always", DialogPreferenceAlways},
+		{"unrecognized value falls back to default", "sideways", DialogPreferenceDefault},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var cfg SettingsConfig
+			cfg.General.RunDialog = c.value
+			if got := RunDialogPreference(cfg); got != c.want {
+				t.Errorf("RunDialogPreference(%q) = %v, want %v", c.value, got, c.want)
+			}
+		})
+	}
+}
