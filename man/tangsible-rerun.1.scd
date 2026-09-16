@@ -6,7 +6,7 @@ tangsible-rerun - repeat the last playbook run
 
 # SYNOPSIS
 
-*tangsible rerun* [_playbook.yml or role name_] [--start-at-play _name_] [_ansible-playbook args_ ...]
+*tangsible rerun* [_playbook.yml or role name_] [--start-at-play _name_] [--dialog | --no-dialog] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -33,6 +33,14 @@ every dialog field simply starts empty.
 The rerun dialog itself offers options for *Start with play*, *Start with
 task*, *Limit tags*, *Skip tags*, and *Limit hosts* - each corresponding to
 the respective options.
+
+# ADDITIONAL OPTIONS
+
+*--dialog*
+	Show run dialog, potentially overrides the *run_dialog* setting (*tangsible*(1)) for this invocation.
+
+*--no-dialog*
+	Skip the dialog and start rerun immediately.
 
 # EXIT STATUS
 

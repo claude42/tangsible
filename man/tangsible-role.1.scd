@@ -6,7 +6,7 @@ tangsible-role - run a single role in isolation
 
 # SYNOPSIS
 
-*tangsible role* _role_name_ [_ansible-playbook args_ ...]
+*tangsible role* _role_name_ [--dialog | --no-dialog] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -27,6 +27,14 @@ directory tree.
 
 Everything else — the live tree, filtering, the rerun dialog, the diff
 picker — works exactly as in *tangsible-run*(1).
+
+# ADDITIONAL OPTIONS
+
+*--dialog*
+	Show the run dialog before starting, instead of running immediately — see *tangsible-rerun*(1) for what it offers. 
+
+*--no-dialog*
+	Don't show run dialog, potentially overrides the *run_dialog* setting (*tangsible*(1)) for this invocation.
 
 # EXIT STATUS
 

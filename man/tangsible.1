@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible" "1" "2026-09-05" "Tangsible" "Tangsible Manual"
+.TH "tangsible" "1" "2026-09-16" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -106,8 +106,17 @@ default_playbook = "myplaybook\&.yml"
 default_tree_state = "collapsed"   # "expanded" or "collapsed"
 two_pane_layout = true             # default: true
 color = true                       # default: true
+run_dialog = "default"             # "default", "never", or "always"
 .fi
 .RE
+.PP
+\fBrun_dialog\fR governs whether the re-run dialog (\fBtangsible-rerun\fR(1)) opens
+at a session'\&s startup, regardless of which verb started it: \fB"default"\fR
+keeps the built-in per-verb behavior (shown for \fBrerun\fR, not for \fBrun\fR or
+\fBrole\fR); \fB"never"\fR/\fB"always"\fR force it off/on across all three.\& An explicit
+\fB--dialog\fR/\fB--no-dialog\fR on the command line to \fBtangsible-run\fR(1),
+\fBtangsible-rerun\fR(1), or \fBtangsible-role\fR(1) overrides this for that one
+invocation.\&
 .PP
 .SH FILES
 .PP

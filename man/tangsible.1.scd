@@ -72,7 +72,16 @@ default_playbook = "myplaybook.yml"
 default_tree_state = "collapsed"   # "expanded" or "collapsed"
 two_pane_layout = true             # default: true
 color = true                       # default: true
+run_dialog = "default"             # "default", "never", or "always"
 ```
+
+*run_dialog* governs whether the re-run dialog (*tangsible-rerun*(1)) opens
+at a session's startup, regardless of which verb started it: *"default"*
+keeps the built-in per-verb behavior (shown for *rerun*, not for *run* or
+*role*); *"never"*/*"always"* force it off/on across all three. An explicit
+*--dialog*/*--no-dialog* on the command line to *tangsible-run*(1),
+*tangsible-rerun*(1), or *tangsible-role*(1) overrides this for that one
+invocation.
 
 # FILES
 

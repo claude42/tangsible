@@ -6,7 +6,7 @@ tangsible-run - run a playbook with a live, navigable tree UI
 
 # SYNOPSIS
 
-*tangsible run* [_playbook.yml_] [--start-at-play _name_] [_ansible-playbook args_ ...]
+*tangsible run* [_playbook.yml_] [--start-at-play _name_] [--dialog | --no-dialog] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -19,6 +19,12 @@ proceeds. Any trailing arguments are passed straight through to
 
 *--start-at-play* _name_
 	Starts executing the playbook at the given play. Will only work with the playbook's top-level plays, not with play pulled in via *import_playbook*.
+
+*--dialog*
+	Show the run dialog before starting, instead of running immediately — see *tangsible-rerun*(1) for what it offers.
+
+*--no-dialog*
+	Don't show run dialog, potentially overrides the *run_dialog* setting (*tangsible*(1)) for this invocation.
 
 # KEY BINDINGS
 

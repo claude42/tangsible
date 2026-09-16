@@ -113,17 +113,31 @@ import (
 // state.OnTaskAdded below - so this value only ever actually governs one
 // row per generation (the very first task added since the last Reset()).
 //
-// startWithRerunDialog is true only for the "rerun" Verb's own startup
-// (Rerun.md): no ansible-playbook invocation exists yet at all - not even
-// a first one in flight, unlike every other case this function handles -
-// so the re-run dialog opens immediately instead of waiting for 'r', and
-// processDone is expected to already be true when this is called (main.go
-// sets it before constructing the TUI): accurate ("no generation is
-// currently in flight"), and what safely unlocks the dialog-opening/
-// quit-outright behavior the rest of this function already has for a
-// frozen run - see everStarted below for the one place that distinction
-// actually matters once frozen means "genuinely nothing has run yet"
-// rather than "a run finished."
+// startWithRerunDialog is true for the "rerun" Verb's own startup
+// (Rerun.md), and - since design-docs/RerunDialog.md - also for a "run"/
+// "role" session whose dialog was forced on (--dialog or
+// run_dialog=always): either way, no ansible-playbook invocation exists
+// yet at all - not even a first one in flight, unlike every other case
+// this function handles - so the dialog-or-auto-submit startup flow below
+// runs instead of waiting for 'r', and processDone is expected to already
+// be true when this is called (main.go sets it before constructing the
+// TUI): accurate ("no generation is currently in flight"), and what safely
+// unlocks the dialog-opening/quit-outright behavior the rest of this
+// function already has for a frozen run - see everStarted below for the
+// one place that distinction actually matters once frozen means
+// "genuinely nothing has run yet" rather than "a run finished."
+//
+// showDialogAtStartup, consulted only when startWithRerunDialog is true,
+// is design-docs/RerunDialog.md's own resolved decision for whether that
+// dialog should actually render (true) or be auto-submitted immediately
+// with its own pre-filled values, never visibly shown (false) - see the
+// startWithRerunDialog handling at the very end of this function. Always
+// true for "run"/"role" (main.go only ever leaves their own generation
+// unspawned - the condition startWithRerunDialog tests - when this was
+// already true); the one case where it can differ from
+// startWithRerunDialog is "rerun" with --no-dialog/run_dialog=never, which
+// still has nothing spawned yet (startWithRerunDialog true) but skips
+// rendering the dialog to get there (showDialogAtStartup false).
 // passthroughArgs is this session's own current-generation passthrough
 // args (main.go's originalArgs.Rest - importantly -i/-e, never
 // -l/--limit, which ParsePassthroughArgs already extracts separately) -
@@ -157,7 +171,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(playbook.RawEvent)) {
 	startedAt := time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
 	// from any event.
@@ -3326,8 +3340,19 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 	if startWithRerunDialog {
 		openRerunDialog() // no 'r' keypress to wait for - this is the
-		// "rerun" Verb's own startup (Rerun.md): nothing has run yet, so
-		// the dialog IS the first thing the user sees.
+		// "rerun" Verb's own startup (Rerun.md), or a "run"/"role" session
+		// whose dialog was forced on (design-docs/RerunDialog.md): nothing
+		// has run yet, so the dialog IS the first thing the user sees -
+		// unless showDialogAtStartup says otherwise, right below.
+		if !showDialogAtStartup {
+			// design-docs/RerunDialog.md's --no-dialog/run_dialog=never:
+			// openRerunDialog above already pre-filled every field (and, on
+			// "rerun"'s own first open, ran the checkbox cascade too) -
+			// submitRerun reads exactly that state and spawns immediately.
+			// Both calls happen before app.Run() is ever invoked by the
+			// caller, so the dialog never actually renders a frame.
+			submitRerun()
+		}
 	}
 
 	return app, applyLive

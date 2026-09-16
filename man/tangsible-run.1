@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-run" "1" "2026-09-15" "Tangsible" "Tangsible Manual"
+.TH "tangsible-run" "1" "2026-09-16" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-run - run a playbook with a live, navigable tree UI
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible run\fR [\fIplaybook.\&yml\fR] [--start-at-play \fIname\fR] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible run\fR [\fIplaybook.\&yml\fR] [--start-at-play \fIname\fR] [--dialog | --no-dialog] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -27,6 +27,16 @@ proceeds.\& Any trailing arguments are passed straight through to
 \fB--start-at-play\fR \fIname\fR
 .RS 4
 Starts executing the playbook at the given play.\& Will only work with the playbook'\&s top-level plays, not with play pulled in via \fBimport_playbook\fR.\&
+.PP
+.RE
+\fB--dialog\fR
+.RS 4
+Show the run dialog before starting, instead of running immediately — see \fBtangsible-rerun\fR(1) for what it offers.\&
+.PP
+.RE
+\fB--no-dialog\fR
+.RS 4
+Don'\&t show run dialog, potentially overrides the \fBrun_dialog\fR setting (\fBtangsible\fR(1)) for this invocation.\&
 .PP
 .RE
 .SH KEY BINDINGS
