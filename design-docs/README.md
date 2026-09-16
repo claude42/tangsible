@@ -1,0 +1,1 @@
+These are documents used to draft features with Claude Code. Sometimes rather cryptic, sometimes full of AI slop ond most times very much outdated.
