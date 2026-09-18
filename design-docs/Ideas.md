@@ -46,6 +46,34 @@ immediately implemented.
 
 * tangsible run --dialog, tangsible role --dialog
 
-* CHANGELOG
-
 * Sign checksums, let install.sh verify
+
+* Interactive --step, --pause, debugger
+
+* Variable resolution explorer - show expansion of a variable on every host
+
+* Desktop notifications with OSC 9 / OSC 777, notify send, terminal-notifier
+
+* git-aware rerun suggestions (git diff --name-only)
+
+* Watch mode (check for changes to playbook etc and then run automatically) -
+  probably not
+
+* Execution environments
+
+* Directed graph visualizing dependencies between tasks - probably not
+
+* Mistral's ideas
+
+* Copy-as-ansible-playbook-invocation
+  One key that puts the exact ansible-playbook ... command (including the effective limit/tags/extra-vars that were used) onto the clipboard, ready to paste into a ticket or a CI job.
+
+* --check -> visualize items which do not support --check
+
+* add ignored to the OK:x/Chgd:x/Skip:x/Fail:x/Unrch:x fallback
+
+------
+
+* Klick auf leere Zeile in Dialog
+* Knoten im Tree öffnen, der auf letzter Zeile ist --> sollte runter
+  scrollen, damit Inhalt sichtbar ist

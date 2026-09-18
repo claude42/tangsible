@@ -15,11 +15,11 @@ line in the treeview
 In addition to anything that might have gone to stdout already, please also
 print either
 
-Filename: <dest>
+Filename: &lt;dest&gt;
 
 or
 
-Filename: <path>
+Filename: &lt;path&gt;
 
 depending on which field exists in the results. Also add this to the host
 line in the treeview.
@@ -28,7 +28,7 @@ line in the treeview.
 
 Similar behavior as the actions above, but use
 
-Command: <cmd>
+Command: &lt;cmd&gt;
 
 
 # New
@@ -37,32 +37,32 @@ Command: <cmd>
 
 Similar behavior as ansible.builtin.command, but use
 
-Command: <cmd>
+Command: &lt;cmd&gt;
 
 ## ansible.builtin.apt_repository
 
 Same as above, use
 
-Filename: <sources_added>
+Filename: &lt;sources_added&gt;
 
 ## ansible.builtin.assemble, ansible.builtin.git
 
 Same behavior as e.g. ansible.builtin.copy.
 
-Filename: <dest>
+Filename: &lt;dest&gt;
 
 ## ansible.builtin.user
 
 Print the following on the drilldown page
 
-User: <name>
-SSH public key: <ssh_public_key>
+User: &lt;name&gt;
+SSH public key: &lt;ssh_public_key&gt;
 
-In the host line add (User: <name>, SSH public key: <ssh_public_key>)
+In the host line add (User: &lt;name&gt;, SSH public key: &lt;ssh_public_key&gt;)
 
 ## Warnings in general
 
-If the results contain a <warnings> field. Add another section to the
+If the results contain a &lt;warnings&gt; field. Add another section to the
 drilldown page (between Output and Error) and print the contents of the
 warnigns field there.
 
