@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible" "1" "2026-09-16" "Tangsible" "Tangsible Manual"
+.TH "tangsible" "1" "2026-09-17" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -107,6 +107,9 @@ default_tree_state = "collapsed"   # "expanded" or "collapsed"
 two_pane_layout = true             # default: true
 color = true                       # default: true
 run_dialog = "default"             # "default", "never", or "always"
+notify_playbook_finished = "off"   # "off", "osc9", "osc777", "osc99", or "bell"
+notify_task_failed = "off"         # same values as notify_playbook_finished
+notify_task_failed_max = 5         # default: 5
 .fi
 .RE
 .PP
@@ -117,6 +120,17 @@ keeps the built-in per-verb behavior (shown for \fBrerun\fR, not for \fBrun\fR o
 \fB--dialog\fR/\fB--no-dialog\fR on the command line to \fBtangsible-run\fR(1),
 \fBtangsible-rerun\fR(1), or \fBtangsible-role\fR(1) overrides this for that one
 invocation.\&
+.PP
+\fBnotify_playbook_finished\fR/\fBnotify_task_failed\fR send a terminal notification
+(a desktop notification via OSC 9, OSC 777, or kitty'\&s OSC 99, or a plain
+terminal bell) when the playbook finishes, or when a task fails,
+respectively.\& There'\&s no auto-detection of which protocol a terminal
+supports; pick the one yours understands.\& Neither fires for a
+user-interrupted run (\fBq\fR/\fBCtrl-C\fR) or for a pre-flight failure (bad
+playbook path, missing inventory, .\&.\&.\&).\& \fBnotify_task_failed_max\fR caps how
+many individual task-failed notifications fire per run; once reached,
+further failures are counted silently and reported as a single "N further
+task failures suppressed" notification once the run finishes.\&
 .PP
 .SH FILES
 .PP

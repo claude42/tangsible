@@ -63,7 +63,12 @@ osc9/osc777/osc99 types.
 
 * notify_task_failed should limit the number of notifications fired per run.
   See configuration option notify_task_failed_max. Default should be 5
-* When ignore_errors: true, no task failed notification should be fired
+* ignore_errors: true cannot actually be excluded - ansible.posix.jsonl
+  never includes that field in the events it emits at all (confirmed by
+  reading its source directly). Decision: drop this exclusion for v1;
+  notify_task_failed fires for every recorded failure, ignore_errors or
+  not. Revisit once design-docs/OwnCallbackPlugin.md's own callback fork
+  ships and can carry that field.
 * Notify_playbook_finished should not be fired when it's a direct, immediate
   result of a user interaction (e.g. ctrl-c or pre-flight-gate failures)
 * benign-unreachable should count as "finished"

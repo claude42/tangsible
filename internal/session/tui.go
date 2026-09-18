@@ -242,6 +242,30 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// revisit alike (revisit.go threads the replayed run's own recorded
 	// Rest through identically). See CheckBarStyle's own doc comment.
 	checkMode := config.HasCheckFlag(passthroughArgs)
+
+	// Notification settings (design-docs/Notifications.md) - read once and
+	// fixed for the whole session, same convention checkMode just above
+	// already follows (none of these can change mid-session; there's no
+	// dialog field for them, unlike tags/hosts).
+	notifyCfg := config.ReadSettingsConfig(config.TangsibleConfigPath)
+	notifyPlaybookFinishedKind := config.NotifyPlaybookFinishedKind(notifyCfg)
+	notifyTaskFailedKind := config.NotifyTaskFailedKind(notifyCfg)
+	notifyTaskFailedMax := config.NotifyTaskFailedMax(notifyCfg)
+	// taskFailedNotifyCount/suppressedTaskFailures both reset per
+	// generation (submitRerun below) - notify_task_failed_max's own cap is
+	// per run, not per session (design-docs/Notifications.md: "Failure
+	// counter will reset at each rerun"). suppressedTaskFailures counts
+	// failures beyond the cap; the "N further task failures suppressed"
+	// notice can only be sent once the generation actually finishes (only
+	// then is the final count known), so it's fired alongside
+	// notify_playbook_finished below rather than at the moment the cap is
+	// first exceeded.
+	var taskFailedNotifyCount int
+	var suppressedTaskFailures int
+	var finishedNotifySent bool // latches true the first time rebuild()
+	// observes the run frozen - same one-shot-per-generation shape as
+	// failureCursorPlaced just below, guarding notify_playbook_finished so
+	// it fires exactly once per generation.
 	var failureCursorPlaced bool // latches true the first time rebuild()
 	// observes the run frozen - guards the one-time "jump to the failed
 	// host" placement below so it fires exactly once on the
@@ -1574,6 +1598,37 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			}
 		}
 
+		// notify_playbook_finished (design-docs/Notifications.md) - same
+		// one-shot running-to-frozen transition as the auto-jump just
+		// above, gated on everStarted for the same reason hasStatusRow
+		// below is: a "rerun" session's startup dialog starts frozen with
+		// nothing having actually run yet (see everStarted's own doc
+		// comment), which must never read as a finished playbook.
+		// Excluded for a user-interrupted generation (exit 99) - design-
+		// docs/Notifications.md's "should not be fired when it's a direct,
+		// immediate result of a user interaction" - the user just pressed
+		// q/Ctrl-C themselves, so a notification telling them that would be
+		// pure noise. The doc's other named exclusion, a pre-flight-gate
+		// failure, needs no code here at all: that path never spawns a TUI
+		// in the first place (see runner.StartFirstGeneration), so
+		// rebuild() - and this whole closure - never runs for it.
+		// Also fires suppressedTaskFailures' own one-time "N further task
+		// failures suppressed" notice, right alongside, if notify_task_failed
+		// suppressed any - only knowable now that the generation is done.
+		if frozen && everStarted && !finishedNotifySent {
+			finishedNotifySent = true
+			if code := int(exitCode.Load()); code != runner.AnsibleUserInterruptedExitCode {
+				if notifyPlaybookFinishedKind != config.NotificationOff {
+					genuineFailure := uikit.GenuineFailure(code, state.HadUnreachable, runner.AnsibleUserInterruptedExitCode)
+					body := uikit.PlaybookFinishedBody(playbookName, genuineFailure, state.HadUnreachable)
+					_ = uikit.SendNotification(notifyPlaybookFinishedKind, uikit.NotificationTitle, body)
+				}
+				if suppressedTaskFailures > 0 && notifyTaskFailedKind != config.NotificationOff {
+					_ = uikit.SendNotification(notifyTaskFailedKind, uikit.NotificationTitle, uikit.SuppressedTaskFailuresBody(suppressedTaskFailures))
+				}
+			}
+		}
+
 		activeTask := activeTaskNow()
 
 		// treeAllHosts is state.AllHosts normally, or nil while a two-pane
@@ -2548,6 +2603,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		failureCursorPlaced = false
 		haveFrozenElapsed = false
 		frozenElapsed = 0
+		finishedNotifySent = false
+		taskFailedNotifyCount = 0
+		suppressedTaskFailures = 0
 		lastAppliedSelectedIndex = -1 // a fresh generation's row 0 must not
 		// be mistaken for "no change" just because it happens to match
 		// whatever index the previous generation last applied.
@@ -3335,6 +3393,29 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	applyLive = func(ev playbook.RawEvent) {
 		app.QueueUpdateDraw(func() {
 			state.Apply(ev)
+
+			// notify_task_failed (design-docs/Notifications.md). No
+			// ignore_errors exclusion: the ansible.posix.jsonl callback
+			// never includes that field in the events it emits at all
+			// (confirmed by reading its source directly - see recap.go's
+			// own doc comment for the identical finding) - so, same as
+			// this app's Fail-rollup elsewhere, an ignore_errors: true
+			// failure notifies exactly like a real one, until a future
+			// custom callback plugin (design-docs/OwnCallbackPlugin.md)
+			// can supply that field. v2_runner_on_failed's own hosts map
+			// always carries exactly one entry (jsonl.py records one
+			// host's result per event) - ranging over it is just how a
+			// single-entry map is read, not an assumption of more.
+			if ev.Event == "v2_runner_on_failed" && notifyTaskFailedKind != config.NotificationOff && ev.Task != nil {
+				for host := range ev.Hosts {
+					if taskFailedNotifyCount < notifyTaskFailedMax {
+						taskFailedNotifyCount++
+						_ = uikit.SendNotification(notifyTaskFailedKind, uikit.NotificationTitle, uikit.TaskFailedBody(ev.Task.Name, host))
+					} else {
+						suppressedTaskFailures++
+					}
+				}
+			}
 		})
 	}
 

@@ -316,3 +316,51 @@ func TestRunDialogPreference(t *testing.T) {
 		})
 	}
 }
+
+func TestParseNotificationKind(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  NotificationKind
+	}{
+		{"unset - defaults to off", "", NotificationOff},
+		{"off", "off", NotificationOff},
+		{"osc9", "osc9", NotificationOSC9},
+		{"osc777", "osc777", NotificationOSC777},
+		{"osc99", "osc99", NotificationOSC99},
+		{"bell", "bell", NotificationBell},
+		{"mixed case still matches", "OsC99", NotificationOSC99},
+		{"unrecognized value falls back to off", "desktop", NotificationOff},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ParseNotificationKind(c.value); got != c.want {
+				t.Errorf("ParseNotificationKind(%q) = %v, want %v", c.value, got, c.want)
+			}
+		})
+	}
+}
+
+func TestNotifyPlaybookFinishedAndTaskFailedKind(t *testing.T) {
+	var cfg SettingsConfig
+	cfg.General.NotifyPlaybookFinished = "osc9"
+	cfg.General.NotifyTaskFailed = "bell"
+	if got := NotifyPlaybookFinishedKind(cfg); got != NotificationOSC9 {
+		t.Errorf("NotifyPlaybookFinishedKind = %v, want NotificationOSC9", got)
+	}
+	if got := NotifyTaskFailedKind(cfg); got != NotificationBell {
+		t.Errorf("NotifyTaskFailedKind = %v, want NotificationBell", got)
+	}
+}
+
+func TestNotifyTaskFailedMax(t *testing.T) {
+	var cfg SettingsConfig
+	if got := NotifyTaskFailedMax(cfg); got != defaultNotifyTaskFailedMax {
+		t.Errorf("NotifyTaskFailedMax with unset config = %d, want default %d", got, defaultNotifyTaskFailedMax)
+	}
+	explicit := 10
+	cfg.General.NotifyTaskFailedMax = &explicit
+	if got := NotifyTaskFailedMax(cfg); got != 10 {
+		t.Errorf("NotifyTaskFailedMax with explicit config = %d, want 10", got)
+	}
+}

@@ -73,6 +73,9 @@ default_tree_state = "collapsed"   # "expanded" or "collapsed"
 two_pane_layout = true             # default: true
 color = true                       # default: true
 run_dialog = "default"             # "default", "never", or "always"
+notify_playbook_finished = "off"   # "off", "osc9", "osc777", "osc99", or "bell"
+notify_task_failed = "off"         # same values as notify_playbook_finished
+notify_task_failed_max = 5         # default: 5
 ```
 
 *run_dialog* governs whether the re-run dialog (*tangsible-rerun*(1)) opens
@@ -82,6 +85,12 @@ keeps the built-in per-verb behavior (shown for *rerun*, not for *run* or
 *--dialog*/*--no-dialog* on the command line to *tangsible-run*(1),
 *tangsible-rerun*(1), or *tangsible-role*(1) overrides this for that one
 invocation.
+
+*notify_playbook_finished*/*notify_task_failed* send a terminal notification
+(a desktop notification via OSC 9, OSC 777, or kitty's OSC 99, or a plain
+terminal bell) when the playbook finishes, or when a task fails,
+respectively. *notify_task_failed_max* caps how many individual task-failed
+notifications fire per run.
 
 # FILES
 

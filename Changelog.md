@@ -9,15 +9,12 @@
   or were unreachable in the previous run.
 - `rerun` verb: matching `--only-failed`, `--only-unreachable`,
   `--resume-where-failed` flags to pre-fill/pre-check those checkboxes.
-- `y` copies the currently active tab's content to the clipboard (via OSC
-  52, working over SSH/tmux too) in every tabbed view: the drill-down,
-  the diff view, `tangsible hosts`/`host`, and `tangsible template`.
+- `y` copies the currently active tab's content to the clipboard (via OSC 52)
+- Terminal notifications on playbook finish / task failure
 
 ### Removed
 
-- Re-run dialog: dropped the "Start with task" field. `--start-at-task`
-  can't reliably target one exact task (task names aren't unique); it's
-  still usable as a raw `ansible-playbook` passthrough arg.
+- Re-run dialog: dropped the "Start with task" field.
 
 ## [0.1.3] - 2026-09-05
 

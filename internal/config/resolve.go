@@ -90,7 +90,90 @@ type SettingsConfig struct {
 		// RunDialogPreference). An explicit --dialog/--no-dialog on the
 		// command line overrides this per invocation.
 		RunDialog string `toml:"run_dialog"`
+		// NotifyPlaybookFinished/NotifyTaskFailed govern design-docs/
+		// Notifications.md's terminal notifications - "off" (the default),
+		// "osc9", "osc777", "osc99", or "bell", case-insensitive (see
+		// ParseNotificationKind). No auto-detection: the design doc's own
+		// first draft proposed a "desktop" option that guessed which OSC
+		// variant the terminal supported, dropped after review since
+		// there's no reliable way to query that (the same reasoning
+		// CopyToClipboard.md already applied to reject tcell's own
+		// XTermLike-gated clipboard detection) - the user picks the exact
+		// protocol their terminal supports instead.
+		NotifyPlaybookFinished string `toml:"notify_playbook_finished"`
+		NotifyTaskFailed       string `toml:"notify_task_failed"`
+		// NotifyTaskFailedMax caps how many notify_task_failed
+		// notifications fire per generation (design-docs/Notifications.md)
+		// - a *int, nil-means-default-5, same shape as TwoPaneLayout/Color
+		// above, so an unset key doesn't collide with the meaningful value
+		// 0. See NotifyTaskFailedMax's own doc comment for what happens
+		// once the cap is reached.
+		NotifyTaskFailedMax *int `toml:"notify_task_failed_max"`
 	} `toml:"general"`
+}
+
+// NotificationKind is General.NotifyPlaybookFinished/NotifyTaskFailed's
+// parsed form (design-docs/Notifications.md) - which terminal escape
+// sequence, if any, a notification event should send. See
+// uikit.SendNotification for how each kind is actually turned into bytes.
+type NotificationKind int
+
+const (
+	NotificationOff NotificationKind = iota
+	NotificationOSC9
+	NotificationOSC777
+	NotificationOSC99
+	NotificationBell
+)
+
+// ParseNotificationKind reads a General.NotifyPlaybookFinished/
+// NotifyTaskFailed value as a NotificationKind, case-insensitively -
+// "osc9"/"osc777"/"osc99"/"bell" match explicitly; everything else,
+// including an unset or unrecognized value, falls back to NotificationOff,
+// the same "swallow and fall back" convention as DefaultTreeExpanded/
+// RunDialogPreference.
+func ParseNotificationKind(s string) NotificationKind {
+	switch {
+	case strings.EqualFold(s, "osc9"):
+		return NotificationOSC9
+	case strings.EqualFold(s, "osc777"):
+		return NotificationOSC777
+	case strings.EqualFold(s, "osc99"):
+		return NotificationOSC99
+	case strings.EqualFold(s, "bell"):
+		return NotificationBell
+	default:
+		return NotificationOff
+	}
+}
+
+// NotifyPlaybookFinishedKind reads cfg.General.NotifyPlaybookFinished as a
+// NotificationKind (design-docs/Notifications.md).
+func NotifyPlaybookFinishedKind(cfg SettingsConfig) NotificationKind {
+	return ParseNotificationKind(cfg.General.NotifyPlaybookFinished)
+}
+
+// NotifyTaskFailedKind reads cfg.General.NotifyTaskFailed as a
+// NotificationKind (design-docs/Notifications.md).
+func NotifyTaskFailedKind(cfg SettingsConfig) NotificationKind {
+	return ParseNotificationKind(cfg.General.NotifyTaskFailed)
+}
+
+// defaultNotifyTaskFailedMax is design-docs/Notifications.md's own default
+// for General.NotifyTaskFailedMax.
+const defaultNotifyTaskFailedMax = 5
+
+// NotifyTaskFailedMax reads cfg.General.NotifyTaskFailedMax, defaulting to
+// defaultNotifyTaskFailedMax when unset (design-docs/Notifications.md).
+// Once this many notify_task_failed notifications have fired in one
+// generation, further failures are counted but not individually notified -
+// see session.tui.go's own use of this for the "N further task failures
+// suppressed" notice sent once the generation finishes.
+func NotifyTaskFailedMax(cfg SettingsConfig) int {
+	if cfg.General.NotifyTaskFailedMax == nil {
+		return defaultNotifyTaskFailedMax
+	}
+	return *cfg.General.NotifyTaskFailedMax
 }
 
 // DefaultTreeExpanded reports whether cfg.General.DefaultTreeState says a
