@@ -154,12 +154,14 @@ func LastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, s
 // readout - frame is the shared spinner frame for this rebuild pass (see
 // spinnerAt), computed once and passed in rather than each row picking
 // its own, so every active indicator in the UI ticks in lockstep.
-// showOutput is called when a host row is selected (Enter), to display
-// that host's full result for that task. sourceIndex is only read by
-// taskVisible's filterSearch case, to search a task's own source text.
-// useColor is threaded straight through to each row's own taskLabel call
-// - see its doc comment (design-docs/Morehosts.md).
-func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout HostColumnLayout, allHosts []string, activeTask *playbook.TaskNode, frame rune, filter FilterQuery, sourceIndex map[string]string, showOutput func(task *playbook.TaskNode, host string), useColor bool) []Row {
+// durationLayout (see DurationLayout/HostAndDurationPrefix) is HostLabel's
+// own per-rebuild column-alignment counterpart to layout above - computed
+// once for the same reason. showOutput is called when a host row is
+// selected (Enter), to display that host's full result for that task.
+// sourceIndex is only read by taskVisible's filterSearch case, to search a
+// task's own source text. useColor is threaded straight through to each
+// row's own taskLabel call - see its doc comment (design-docs/Morehosts.md).
+func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout HostColumnLayout, durationLayout DurationLayout, allHosts []string, activeTask *playbook.TaskNode, frame rune, filter FilterQuery, sourceIndex map[string]string, showOutput func(task *playbook.TaskNode, host string), useColor bool) []Row {
 	var rows []Row
 	for _, play := range state.Plays {
 		var playRows []Row
@@ -177,7 +179,7 @@ func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]
 				for _, host := range t.HostOrder {
 					h := host
 					playRows = append(playRows, Row{
-						Text:     HostLabel(t, h, false),
+						Text:     HostLabel(t, h, durationLayout, false),
 						ID:       HostRowID{t, h},
 						Selected: func() { showOutput(t, h) },
 					})

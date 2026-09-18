@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Shells out to ansible-playbook using the ansible.posix.jsonl stdout
-// callback and streams events live into an interactive TUI as they arrive.
+// Shells out to ansible-playbook using tangsible's own bundled aggregate
+// callback plugin (design-docs/OwnCallbackPlugin.md, a GPL-3.0 fork of
+// ansible.posix.jsonl) and streams events live into an interactive TUI as
+// they arrive.
 package session
 
 import (
@@ -607,10 +609,14 @@ func Main(build BuildInfo) {
 	// mid-session rerun doesn't erase what an earlier generation reported -
 	// that generation's own tree view is long gone by the time Tangsible
 	// finally exits (Rerun.md's re-run forgets the previous run's results),
-	// so this is the only remaining record of it.
+	// so this is the only remaining record of it - except for
+	// FilterRedundantWarnings' own [WARNING]: lines, which are dropped
+	// here specifically because that generation's own JSON events (the
+	// same data behind those [WARNING]: lines) got saved to a run log and
+	// stay reachable via "tangsible revisit" even after this session ends.
 	for _, o := range all {
 		if o.ExitCode != runner.AnsibleUserInterruptedExitCode {
-			for _, l := range o.ChildStderr {
+			for _, l := range runner.FilterRedundantWarnings(o.ChildStderr) {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
 		}

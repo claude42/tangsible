@@ -118,6 +118,13 @@ DOC_DIR="$DATA_DIR/doc/tangsible"
 # <data dir>/... via $XDG_DATA_DIRS, so these follow --prefix / $XDG_DATA_HOME.
 BASH_COMP_DIR="$DATA_DIR/bash-completion/completions"
 FISH_COMP_DIR="$DATA_DIR/fish/vendor_completions.d"
+# Sibling to the binary itself, not under $DATA_DIR: ResolveCallbackPluginDir
+# (Go side, design-docs/OwnCallbackPlugin.md) looks for a "callback"
+# directory next to the running executable specifically because that's the
+# one location that stays correct under --prefix without any extra
+# resolution logic on either side - $DATA_DIR/tangsible only lines up with
+# the Go side's own $XDG_DATA_HOME fallback in the no-prefix case.
+CALLBACK_DIR="$BIN_DIR/callback"
 
 # ----------------------------------------------------------------------
 # helpers
@@ -165,7 +172,8 @@ fetch_stdout() {
 # ----------------------------------------------------------------------
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || echo ".")
 looks_local() {
-	[ -f "$SELF_DIR/tangsible" ] && [ -d "$SELF_DIR/man" ] && [ -f "$SELF_DIR/LICENSE" ]
+	[ -f "$SELF_DIR/tangsible" ] && [ -d "$SELF_DIR/man" ] && [ -f "$SELF_DIR/LICENSE" ] &&
+		[ -f "$SELF_DIR/callback/tangsible_jsonl.py" ]
 }
 if [ "$MODE" = auto ]; then
 	if looks_local; then MODE=local; else MODE=download; fi
@@ -181,6 +189,7 @@ if [ "$DO_UNINSTALL" = 1 ]; then
 	say "Removing a per-user tangsible install."
 	say ""
 	confirm "Remove $BIN_DIR/tangsible?" && rm -f "$BIN_DIR/tangsible"
+	confirm "Remove the bundled callback plugin $CALLBACK_DIR/ ?" && rm -rf "$CALLBACK_DIR"
 	confirm "Remove man pages $MAN_DIR/tangsible*.1?" && rm -f "$MAN_DIR"/tangsible*.1
 	confirm "Remove $DOC_DIR/ ?" && rm -rf "$DOC_DIR"
 	confirm "Remove shell completions?" && {
@@ -275,6 +284,7 @@ else
 fi
 
 [ -f "$SRC/tangsible" ] || err "no ./tangsible in $SRC"
+[ -f "$SRC/callback/tangsible_jsonl.py" ] || err "no ./callback/tangsible_jsonl.py in $SRC"
 
 # ----------------------------------------------------------------------
 # plan
@@ -291,11 +301,12 @@ if [ -n "$CURRENT" ]; then
 	say "  (replacing: $CURRENT at $(command -v tangsible))"
 fi
 say "  1. binary            -> $BIN_DIR/tangsible"
-say "  2. man pages         -> $MAN_DIR/"
-say "  3. README + LICENSE  -> $DOC_DIR/"
+say "  2. callback plugin   -> $CALLBACK_DIR/  (GPL-3.0, see README's License section)"
+say "  3. man pages         -> $MAN_DIR/"
+say "  4. README + LICENSE  -> $DOC_DIR/"
 if [ "$WANT_COMPLETIONS" = 1 ]; then
-	say "  4. bash completion   -> $BASH_COMP_DIR/tangsible"
-	say "  5. fish completion   -> $FISH_COMP_DIR/tangsible.fish"
+	say "  5. bash completion   -> $BASH_COMP_DIR/tangsible"
+	say "  6. fish completion   -> $FISH_COMP_DIR/tangsible.fish"
 fi
 say ""
 say "  No sudo. Nothing outside your home directory."
@@ -313,7 +324,18 @@ if confirm "Install the tangsible binary to $BIN_DIR/tangsible ?"; then
 	did_bin=1
 fi
 
-# 2. man pages
+# 2. callback plugin - required for "run"/"rerun" to work at all (it's how
+# tangsible actually gets its event stream from ansible-playbook); asked
+# for like everything else here rather than forced, for consistency, but
+# skipping it leaves an otherwise-working install that can't run a
+# playbook.
+if confirm "Install the bundled callback plugin (GPL-3.0) to $CALLBACK_DIR/ - required for tangsible run/rerun ?"; then
+	mkdir -p "$CALLBACK_DIR"
+	cp "$SRC/callback/tangsible_jsonl.py" "$SRC/callback/LICENSE" "$CALLBACK_DIR/"
+	say "    installed $CALLBACK_DIR/"
+fi
+
+# 3. man pages
 if confirm "Install the man pages to $MAN_DIR/ ?"; then
 	mkdir -p "$MAN_DIR"
 	n=0
@@ -325,7 +347,7 @@ if confirm "Install the man pages to $MAN_DIR/ ?"; then
 	say "    installed $n man page(s)"
 fi
 
-# 3. docs
+# 4. docs
 if confirm "Install README and LICENSE to $DOC_DIR/ ?"; then
 	mkdir -p "$DOC_DIR"
 	for f in README.md LICENSE; do
@@ -334,7 +356,7 @@ if confirm "Install README and LICENSE to $DOC_DIR/ ?"; then
 	say "    installed $DOC_DIR/"
 fi
 
-# 4/5. completions
+# 5/6. completions
 if [ "$WANT_COMPLETIONS" = 1 ]; then
 	if [ -f "$SRC/completions/tangsible.bash" ] &&
 		confirm "Install bash completion to $BASH_COMP_DIR/tangsible ?"; then

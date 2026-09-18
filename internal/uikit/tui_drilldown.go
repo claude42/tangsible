@@ -248,61 +248,77 @@ func AdditionalOutputLines(decoded map[string]interface{}) []string {
 	return nil
 }
 
-// OutputSummary returns the parenthesized detail hostLabel appends after
-// "OK"/"Changed"/"Failed" - the single line of output verbatim if
-// primaryOutputField's chosen text is exactly one line, or its line count
-// otherwise, plus additionalOutputLines' own extra line(s) - comma-joined
-// into one part - when any apply, semicolon-joined against the primary
-// summary when both are present. "" (nothing appended) if neither yields
-// anything, e.g. a module like template with nothing changed and no
-// filename fields set (shouldn't happen for a real template result, but
-// not trusted blindly - same caveat as formatHostOutput's own decode
-// below).
-func OutputSummary(raw json.RawMessage) string {
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return ""
-	}
-	_, text := PrimaryOutputField(decoded)
-	text = strings.TrimRight(text, "\n")
-
-	var parts []string
-	if text != "" {
-		lines := strings.Split(text, "\n")
-		if len(lines) == 1 {
-			parts = append(parts, lines[0])
-		} else {
-			parts = append(parts, fmt.Sprintf("%d lines of output", len(lines)))
-		}
-	}
-	if extra := AdditionalOutputLines(decoded); len(extra) > 0 {
-		parts = append(parts, strings.Join(extra, ", "))
-	}
+// wrapDetailParts joins parts (already-computed pieces of a host row's
+// parenthetical detail, e.g. output summary, skip reason, duration) with
+// "; " and wraps the result in " (...)" - shared by OutputSummary/
+// SkipDetail/OutcomeDetail's own Unreachable case so all three agree on
+// exactly how multiple detail pieces get merged into the single
+// parenthetical hostLabel appends. "" (nothing appended) for no parts at
+// all.
+func wrapDetailParts(parts []string) string {
 	if len(parts) == 0 {
 		return ""
 	}
 	return fmt.Sprintf(" (%s)", strings.Join(parts, "; "))
 }
 
+// OutputSummary returns the parenthesized detail hostLabel appends after
+// "OK"/"Changed"/"Failed" - the single line of output verbatim if
+// primaryOutputField's chosen text is exactly one line, or its line count
+// otherwise, plus additionalOutputLines' own extra line(s) - comma-joined
+// into one part - when any apply, plus extra (OutcomeDetail's own
+// HostDuration figure, when known), semicolon-joined together via
+// wrapDetailParts. "" (nothing appended) if none of these yield anything,
+// e.g. a module like template with nothing changed and no filename fields
+// set (shouldn't happen for a real template result, but not trusted
+// blindly - same caveat as formatHostOutput's own decode below). raw
+// failing to decode no longer suppresses extra - a malformed/unexpected
+// output payload shouldn't also hide an otherwise-known duration.
+func OutputSummary(raw json.RawMessage, extra ...string) string {
+	var parts []string
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err == nil {
+		_, text := PrimaryOutputField(decoded)
+		text = strings.TrimRight(text, "\n")
+		if text != "" {
+			lines := strings.Split(text, "\n")
+			if len(lines) == 1 {
+				parts = append(parts, lines[0])
+			} else {
+				parts = append(parts, fmt.Sprintf("%d lines of output", len(lines)))
+			}
+		}
+		if moreLines := AdditionalOutputLines(decoded); len(moreLines) > 0 {
+			parts = append(parts, strings.Join(moreLines, ", "))
+		}
+	}
+	parts = append(parts, extra...)
+	return wrapDetailParts(parts)
+}
+
 // SkipDetail returns the parenthesized "(skip_reason: false_condition)"
 // detail hostLabel appends after "Skipped", pulled straight from the
-// task's own recorded result for that host - "" if skip_reason wasn't
-// present (shouldn't happen for a real v2_runner_on_skipped event, but
-// this is live external jsonl, not trusted blindly - same caveat as
-// formatHostOutput's own decode below).
-func SkipDetail(raw json.RawMessage) string {
+// task's own recorded result for that host, plus extra (OutcomeDetail's
+// own HostDuration figure, when known) - "" for the skip_reason half if it
+// wasn't present (shouldn't happen for a real v2_runner_on_skipped event,
+// but this is live external jsonl, not trusted blindly - same caveat as
+// formatHostOutput's own decode below), same "don't let a decode/field
+// miss suppress extra" reasoning as OutputSummary above.
+func SkipDetail(raw json.RawMessage, extra ...string) string {
+	var parts []string
 	var decoded map[string]interface{}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return ""
+	if err := json.Unmarshal(raw, &decoded); err == nil {
+		reason, _ := decoded["skip_reason"].(string)
+		if reason != "" {
+			if cond, ok := decoded["false_condition"].(string); ok && cond != "" {
+				parts = append(parts, fmt.Sprintf("%s: %s", reason, cond))
+			} else {
+				parts = append(parts, reason)
+			}
+		}
 	}
-	reason, _ := decoded["skip_reason"].(string)
-	if reason == "" {
-		return ""
-	}
-	if cond, ok := decoded["false_condition"].(string); ok && cond != "" {
-		return fmt.Sprintf(" (%s: %s)", reason, cond)
-	}
-	return fmt.Sprintf(" (%s)", reason)
+	parts = append(parts, extra...)
+	return wrapDetailParts(parts)
 }
 
 // SkipOutputText builds formatHostOutput's Output section text for a

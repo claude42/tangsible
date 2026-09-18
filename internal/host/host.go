@@ -598,12 +598,13 @@ func FetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 		}
 	}
 
+	pluginEnv, err := runner.CallbackPluginEnv()
+	if err != nil {
+		return "", err
+	}
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
 	cmd := exec.Command("ansible-playbook", args...)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
-		"ANSIBLE_JSON_INDENT=0",
-	)
+	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()

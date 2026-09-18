@@ -57,6 +57,15 @@ type TaskNode struct {
 	// carry one (shouldn't happen for a real run, but not trusted
 	// blindly - same caveat as this file's other event-derived fields).
 	Path string
+	// IsHandler is RawEvent.Task.IsHandler at the moment this task started
+	// - see that field's own doc comment (design-docs/
+	// OwnCallbackPlugin.md). Always false for a pre-fork run log, or for
+	// any task-start event this app's own plugin didn't stamp. Used by
+	// uikit.TaskLabel to render a "[Handler]" tag and by runner.
+	// ProgressTracker.Advance to treat a handler's own miss against the
+	// progress skeleton (which never lists handlers at all - progress.go's
+	// own doc comment) as expected rather than evidence of drift.
+	IsHandler bool
 	// StartedAt is from the starting event's own _timestamp
 	// (RawEvent.Timestamp()), not our wall-clock time.Now() at the moment
 	// we process it - "when did Ansible itself start this task." Zero if
@@ -98,9 +107,40 @@ type TaskNode struct {
 	// needs "changed/failed/unreachable, has stderr output, or has a
 	// warning" without decoding every host's raw JSON on every rebuild).
 	HasStderr map[string]bool
+	// Ignored mirrors Warnings/HasStderr - same shape, same "computed once
+	// in record" timing - true when this host's own result carried
+	// "ignore_errors": true (design-docs/OwnCallbackPlugin.md's
+	// hasIgnoreErrors), which only a Failed outcome ever sets. Deliberately
+	// doesn't change what Outcome itself is: a host whose only failure was
+	// ignore_errors: true still records as OutcomeFailed everywhere that
+	// matters operationally (tree coloring, FailedHosts, rerun's "Only
+	// failed") - this is purely an additional, additive signal for
+	// renderers that want to distinguish the two without touching that
+	// established, deliberate simplification (see FailedHosts' own doc
+	// comment).
+	Ignored map[string]bool
+	// Started is each host's own "v2_runner_on_start" timestamp - see
+	// RawEvent.Host's own doc comment for why this event (and so this map)
+	// didn't used to exist under the linear strategy. This is what
+	// disambiguates real per-host execution time from queue-wait
+	// (design-docs/PerHostTaskTiming.md's "the problem: this delta doesn't
+	// mean what it looks like it means"), once paired with Finished below.
+	// Absent entry (zero time.Time) means "no v2_runner_on_start ever
+	// arrived for this host" - true for every run recorded before this
+	// fork existed, and the same "zero means unknown" convention StartedAt
+	// already uses.
+	Started map[string]time.Time
+	// Finished is each host's own outcome-event timestamp (the same
+	// ev.Timestamp() already used to decide task.duration.end), recorded
+	// per host rather than just once per task - parallel to Hosts/Raw,
+	// populated alongside them in record. Combined with Started, this
+	// gives a real per-host duration; used alone (Started absent, e.g. a
+	// pre-fork run log) it's not meaningful on its own, same caveat
+	// PerHostTaskTiming.md raised for the finish-only approach.
+	Finished map[string]time.Time
 }
 
-func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage) {
+func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedAt time.Time) {
 	if _, seen := t.Hosts[host]; !seen {
 		t.HostOrder = append(t.HostOrder, host)
 	}
@@ -108,6 +148,8 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage) {
 	t.Raw[host] = raw
 	t.Warnings[host] = hasNonEmptyWarnings(raw)
 	t.HasStderr[host] = hasNonEmptyStderr(raw)
+	t.Ignored[host] = hasIgnoreErrors(raw)
+	t.Finished[host] = finishedAt
 }
 
 func (t *TaskNode) Counts() (ok, changed, skipped, failed, unreachable int) {
@@ -248,11 +290,15 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 			s.currentTask = &TaskNode{
 				Name:      ev.Task.Name,
 				Path:      ev.Task.Path,
+				IsHandler: ev.Task.IsHandler,
 				StartedAt: ev.Timestamp(),
 				Hosts:     map[string]Outcome{},
 				Raw:       map[string]json.RawMessage{},
 				Warnings:  map[string]bool{},
 				HasStderr: map[string]bool{},
+				Ignored:   map[string]bool{},
+				Started:   map[string]time.Time{},
+				Finished:  map[string]time.Time{},
 			}
 			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
 			if s.OnTaskAdded != nil {
@@ -267,31 +313,43 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 			if r.Changed {
 				o = OutcomeChanged
 			}
-			s.recordHost(host, o, raw)
+			s.recordHost(host, o, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_skipped":
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, OutcomeSkipped, raw)
+			s.recordHost(host, OutcomeSkipped, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_failed":
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, OutcomeFailed, raw)
+			s.recordHost(host, OutcomeFailed, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_unreachable":
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, OutcomeUnreachable, raw)
+			s.recordHost(host, OutcomeUnreachable, raw, ev.Timestamp())
+		}
+
+	// Only ever arrives from this app's own bundled callback plugin fork
+	// (RawEvent.Host's own doc comment) - a pre-fork run log, or a
+	// strategy other than linear/debug that our fork doesn't cover either,
+	// simply never produces this case, leaving Started empty exactly like
+	// every other "unknown" event-derived field in this package. No
+	// task-ID correlation needed: currentTask is already the right task,
+	// same assumption every other case here already relies on.
+	case "v2_runner_on_start":
+		if s.currentTask != nil && ev.Host != "" {
+			s.currentTask.Started[ev.Host] = ev.Timestamp()
 		}
 	}
 }
 
-func (s *PlaybookState) recordHost(host string, o Outcome, raw json.RawMessage) {
+func (s *PlaybookState) recordHost(host string, o Outcome, raw json.RawMessage, finishedAt time.Time) {
 	if s.currentTask == nil {
 		return
 	}
-	s.currentTask.record(host, o, raw)
+	s.currentTask.record(host, o, raw, finishedAt)
 	s.noteHost(host)
 	if o == OutcomeUnreachable {
 		s.HadUnreachable = true

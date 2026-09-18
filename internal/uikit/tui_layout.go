@@ -486,7 +486,7 @@ func ComputeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 
 	desiredTitleWidth := 0
 	for _, t := range AllTasks(state) {
-		if w := len([]rune(t.Name)); w > desiredTitleWidth {
+		if w := len([]rune(TaskDisplayName(t))); w > desiredTitleWidth {
 			desiredTitleWidth = w
 		}
 	}
@@ -666,6 +666,23 @@ func ComputeHostColumnLayout(state *playbook.PlaybookState, allHosts []string, a
 // (hostSummaryColoredText) or not; the per-host list's own coloring
 // (below) is untouched by it, since Morehosts.md scopes this feature to
 // summary mode alone, not a whole-app monochrome option.
+// TaskDisplayName is the text TaskLabel actually measures, truncates, and
+// renders as a task's own title - task.Name, prefixed with "[Handler] "
+// when task.IsHandler (design-docs/OwnCallbackPlugin.md), so a handler
+// task reads distinctly from a regular one in the collapsed tree row.
+// Shared by ComputeHostColumnLayout's own title-width measurement and
+// TaskLabel's rendering so both agree on exactly what "this task's title"
+// means - a handler's display name is always wider than its raw
+// task.Name, and the shared column has to actually reserve room for that,
+// not just the raw name, or the tag itself would get silently truncated
+// away first.
+func TaskDisplayName(task *playbook.TaskNode) string {
+	if task.IsHandler {
+		return "[Handler] " + task.Name
+	}
+	return task.Name
+}
+
 func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
 	// One prefix fills taskIndent's single slot (see its own doc comment) -
 	// the active spinner takes priority; otherwise a warningColor ⚠ if the
@@ -688,7 +705,7 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 		prefix = tview.Escape(TaskIndent)
 	}
 
-	nameRunes := []rune(task.Name)
+	nameRunes := []rune(TaskDisplayName(task))
 	haveHosts := len(allHosts) > 0
 
 	// Normally a foreground-only tag (background left untouched, so it
@@ -832,17 +849,64 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 	return prefix + styledTitle + strings.Repeat(" ", padding) + strings.Join(hostSegments, " ")
 }
 
-// OutcomeDetail returns the extra parenthesized bit hostLabel (and
-// recap.go's own recapTaskRowText) append after a host's outcome for one
-// task - what it is depends on the outcome: only OK/Changed/Failed and
-// Skipped have one defined so far; "" for Unreachable, rendering exactly
-// as before.
-func OutcomeDetail(task *playbook.TaskNode, host string) string {
+// OutcomeDetailText is OutcomeDetail without any duration merged in -
+// OK/Changed/Failed and Skipped each have their own module-specific detail
+// (OutputSummary/SkipDetail); Unreachable has none of its own. Used
+// directly by HostLabel, which shows duration via its own front-loaded,
+// column-aligned HostAndDurationPrefix instead of trailing it after this
+// text the way OutcomeDetail does - alignment across many rows needs a
+// fixed column, which a variable-length trailing detail can't give it
+// (the concrete problem that prompted DurationLayout).
+//
+// A Failed result additionally gets "ignored" merged in when
+// task.Ignored[host] (design-docs/OwnCallbackPlugin.md) - the live tree's
+// own signal that this failure came from an ignore_errors: true task, so
+// it reads differently from a genuine one at a glance without needing to
+// wait for the recap's own "ignored" category (recap.go), which only
+// exists once the run has finished.
+func OutcomeDetailText(task *playbook.TaskNode, host string) string {
 	switch task.Hosts[host] {
-	case playbook.OutcomeOK, playbook.OutcomeChanged, playbook.OutcomeFailed:
+	case playbook.OutcomeOK, playbook.OutcomeChanged:
 		return OutputSummary(task.Raw[host])
+	case playbook.OutcomeFailed:
+		var extra []string
+		if task.Ignored[host] {
+			extra = []string{"ignored"}
+		}
+		return OutputSummary(task.Raw[host], extra...)
 	case playbook.OutcomeSkipped:
 		return SkipDetail(task.Raw[host])
+	}
+	return ""
+}
+
+// OutcomeDetail returns the extra parenthesized bit recap.go's own
+// recapTaskRowText and diff.go's own host-row rendering append after a
+// host's outcome for one task - OutcomeDetailText's module-specific detail
+// with HostDuration's figure merged in at the end when known (design-docs/
+// OwnCallbackPlugin.md/PerHostTaskTiming.md), "" when it isn't (e.g. a
+// pre-fork run log replay that never recorded a per-host start time).
+// Unlike HostLabel (see OutcomeDetailText), these two callers' own rows
+// aren't rendered side by side for at-a-glance comparison across hosts the
+// same way - recap rows are already host-namespaced by tree position, and
+// the diff view aligns two independently-timed runs - so a trailing,
+// unaligned figure is still the right shape there. Unreachable gets a
+// detail from this path alone (via wrapDetailParts) - "how long before it
+// gave up" is worth showing regardless of the per-host-timing queueing
+// caveat, which doesn't apply to it the way it does to a genuinely running
+// task (PerHostTaskTiming.md).
+func OutcomeDetail(task *playbook.TaskNode, host string) string {
+	var extra []string
+	if d, ok := HostDuration(task, host); ok {
+		extra = []string{FormatDuration(d)}
+	}
+	switch task.Hosts[host] {
+	case playbook.OutcomeOK, playbook.OutcomeChanged, playbook.OutcomeFailed:
+		return OutputSummary(task.Raw[host], extra...)
+	case playbook.OutcomeSkipped:
+		return SkipDetail(task.Raw[host], extra...)
+	case playbook.OutcomeUnreachable:
+		return wrapDetailParts(extra)
 	}
 	return ""
 }
@@ -893,6 +957,11 @@ func TaskHasWarnings(task *playbook.TaskNode) bool {
 // black bold text on the outcome color as a background, instead of the
 // outcome color as a foreground.
 //
+// layout (see DurationLayout/HostAndDurationPrefix) is what makes every
+// row's duration figure - when there is one - line up in the same column
+// instead of trailing at a different position depending on that row's own
+// detail text length.
+//
 // The returned text includes its own leading indent (hostIndent): a
 // warningColor ⚠ in column 1, followed by plain spaces out to
 // hostIndent's own width, when this host's own result for task carries a
@@ -905,9 +974,12 @@ func TaskHasWarnings(task *playbook.TaskNode) bool {
 // leading marker one column right of column 1 - both reverted after live
 // use: a marker at the row's very first column, with the hostname itself
 // never shifting regardless of whether it's showing, reads clearest.
-func HostLabel(task *playbook.TaskNode, host string, selected bool) string {
+func HostLabel(task *playbook.TaskNode, host string, layout DurationLayout, selected bool) string {
 	o := task.Hosts[host]
-	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(OutcomeDetail(task, host)))
+	// The whole prefix (not just host) is escaped as one unit - safe even
+	// though most of it (parens, digits, the fixed padding) is never
+	// untrusted text, since tview.Escape only ever touches '[' characters.
+	line := fmt.Sprintf("%s%s%s", tview.Escape(HostAndDurationPrefix(task, host, layout)), o, tview.Escape(OutcomeDetailText(task, host)))
 	prefix := tview.Escape(HostIndent)
 	if task.Warnings[host] {
 		prefix = fmt.Sprintf("[%s]⚠[-]%s", WarningColor, strings.Repeat(" ", len(HostIndent)-1))

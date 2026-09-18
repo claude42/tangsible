@@ -308,6 +308,23 @@ func ConfigHome() string {
 	return filepath.Join(home, ".config")
 }
 
+// DataHome mirrors ConfigHome for the XDG Base Directory Specification's
+// data-home rule: $XDG_DATA_HOME if set and non-empty, else
+// $HOME/.local/share. Used by runner.ResolveCallbackPluginDir to find the
+// bundled ansible callback plugin's installed location (design-docs/
+// OwnCallbackPlugin.md's "Shipping the .py"). Returns "" if neither can be
+// determined, same convention as ConfigHome.
+func DataHome() string {
+	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share")
+}
+
 // ReadTOMLFile decodes path as TOML into a T, returning T's zero value if
 // the file doesn't exist (silently - the common case for most of
 // resolvePlaybook's sources, not worth a warning) or can't be parsed (a

@@ -22,6 +22,13 @@ profile.cov
 # in the repo root)
 /tangsible
 
+# callback/ (design-docs/OwnCallbackPlugin.md) is a Python file, not Go -
+# CPython's own bytecode cache, written the moment anything imports/runs it
+# (including ansible-playbook itself during local testing). Must never ship
+# in a release archive (.goreleaser.yaml's callback/* glob would otherwise
+# happily pick it up) or get committed alongside the tracked .py source.
+callback/__pycache__/
+
 # GoReleaser build output (`goreleaser release`/`--snapshot`, see
 # .goreleaser.yaml) - cross-compiled binaries, archives, checksums.
 /dist/

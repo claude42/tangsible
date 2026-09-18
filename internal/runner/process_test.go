@@ -79,6 +79,51 @@ func TestStreamStderr(t *testing.T) {
 	})
 }
 
+// TestFilterRedundantWarnings covers the real example that prompted this
+// (design-docs/OwnCallbackPlugin.md): a per-host [WARNING]: line, already
+// duplicated into that host's own JSON result and so redundant once
+// printed a second time after the TUI closes - dropped here - alongside
+// genuine errors, which have no other home and must survive unfiltered.
+func TestFilterRedundantWarnings(t *testing.T) {
+	t.Run("drops [WARNING]: lines, keeps everything else", func(t *testing.T) {
+		lines := []string{
+			`[WARNING]: Found existing ssh key private file "/home/user/.ssh/id_ed25519", no force, so skipping ssh-keygen generation`,
+			"fatal: [host1]: FAILED! => some real error",
+			`[WARNING]: Host 'host1' is using the discovered Python interpreter`,
+			"a plain traceback line",
+		}
+		want := []string{
+			"fatal: [host1]: FAILED! => some real error",
+			"a plain traceback line",
+		}
+		got := FilterRedundantWarnings(lines)
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Errorf("FilterRedundantWarnings() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("leading whitespace before [WARNING]: is still matched", func(t *testing.T) {
+		got := FilterRedundantWarnings([]string{"   [WARNING]: indented notice"})
+		if len(got) != 0 {
+			t.Errorf("FilterRedundantWarnings() = %v, want no lines", got)
+		}
+	})
+
+	t.Run("no warnings at all passes everything through unchanged", func(t *testing.T) {
+		lines := []string{"line one", "line two"}
+		got := FilterRedundantWarnings(lines)
+		if len(got) != 2 || got[0] != lines[0] || got[1] != lines[1] {
+			t.Errorf("FilterRedundantWarnings() = %v, want %v unchanged", got, lines)
+		}
+	})
+
+	t.Run("empty input yields no lines", func(t *testing.T) {
+		if got := FilterRedundantWarnings(nil); len(got) != 0 {
+			t.Errorf("FilterRedundantWarnings(nil) = %v, want no lines", got)
+		}
+	})
+}
+
 func TestScanEvents(t *testing.T) {
 	t.Run("valid JSON line then a garbage line", func(t *testing.T) {
 		input := `{"_event":"v2_playbook_on_play_start","play":{"name":"my play"}}` + "\n" +

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+	"time"
 )
 
 // A couple of tiny constructors, just to avoid repeating the same struct
@@ -31,8 +32,20 @@ func taskStartEvent(name, path string) RawEvent {
 	return RawEvent{Event: "v2_playbook_on_task_start", Task: &TaskRef{Name: name, Path: path}}
 }
 
+func handlerTaskStartEvent(name, path string) RawEvent {
+	return RawEvent{Event: "v2_playbook_on_handler_task_start", Task: &TaskRef{Name: name, Path: path, IsHandler: true}}
+}
+
 func hostResultEvent(event, host string, raw json.RawMessage) RawEvent {
 	return RawEvent{Event: event, Hosts: map[string]json.RawMessage{host: raw}}
+}
+
+func hostResultEventAt(event, host string, raw json.RawMessage, ts string) RawEvent {
+	return RawEvent{Event: event, Hosts: map[string]json.RawMessage{host: raw}, TimestampText: ts}
+}
+
+func runnerOnStartEvent(host, ts string) RawEvent {
+	return RawEvent{Event: "v2_runner_on_start", Host: host, TimestampText: ts}
 }
 
 func TestApply_RecordsBasicOKOutcome(t *testing.T) {
@@ -138,6 +151,30 @@ func TestApply_HandlerTaskDoesNotCorruptPriorTask(t *testing.T) {
 	}
 	if got := string(handlerB.Raw["web1"]); got != `{"changed":true,"msg":"result from B"}` {
 		t.Errorf("handler B's raw payload missing/wrong: got %s", got)
+	}
+}
+
+// TestApply_RecordsIsHandler covers design-docs/OwnCallbackPlugin.md's
+// is_handler field: only a "v2_playbook_on_handler_task_start" event
+// (only ever emitted by this app's own bundled plugin fork with
+// IsHandler set - RawEvent.Task.IsHandler's own doc comment) produces a
+// TaskNode with IsHandler true; a regular task-start event never does,
+// even one that happens to be named like a handler.
+func TestApply_RecordsIsHandler(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+	s.Apply(taskStartEvent("regular task", "/pb.yml:3"))
+	s.Apply(handlerTaskStartEvent("my handler", "/pb.yml:9"))
+
+	if len(s.Plays[0].Tasks) != 2 {
+		t.Fatalf("got %d tasks, want 2", len(s.Plays[0].Tasks))
+	}
+	regular, handler := s.Plays[0].Tasks[0], s.Plays[0].Tasks[1]
+	if regular.IsHandler {
+		t.Error("regular task: IsHandler = true, want false")
+	}
+	if !handler.IsHandler {
+		t.Error("handler task: IsHandler = false, want true")
 	}
 }
 
@@ -377,6 +414,42 @@ func TestFailedHosts_IgnoreErrorsStillCountsAsFailed(t *testing.T) {
 	}
 }
 
+// TestApply_RecordsIgnored covers design-docs/OwnCallbackPlugin.md's
+// ignore_errors field, additive alongside the "still counts as failed"
+// simplification TestFailedHosts_IgnoreErrorsStillCountsAsFailed above
+// locks in: Ignored[host] is true only for a Failed result whose task set
+// ignore_errors: true, false for an ordinary failure and for every other
+// outcome kind.
+func TestApply_RecordsIgnored(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+
+	s.Apply(taskStartEvent("ignored failure", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom","ignore_errors":true}`)))
+
+	s.Apply(taskStartEvent("ordinary failure", "/pb.yml:6"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom"}`)))
+
+	s.Apply(taskStartEvent("ok task", "/pb.yml:9"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+
+	ignoredTask, ordinaryTask, okTask := s.Plays[0].Tasks[0], s.Plays[0].Tasks[1], s.Plays[0].Tasks[2]
+	if !ignoredTask.Ignored["web1"] {
+		t.Error(`ignored failure: Ignored["web1"] = false, want true`)
+	}
+	if ordinaryTask.Ignored["web1"] {
+		t.Error(`ordinary failure: Ignored["web1"] = true, want false`)
+	}
+	if okTask.Ignored["web1"] {
+		t.Error(`ok task: Ignored["web1"] = true, want false`)
+	}
+	// Both still record as OutcomeFailed - Ignored is purely additive, per
+	// TestFailedHosts_IgnoreErrorsStillCountsAsFailed above.
+	if ignoredTask.Hosts["web1"] != OutcomeFailed || ordinaryTask.Hosts["web1"] != OutcomeFailed {
+		t.Error("both failures must still record as OutcomeFailed regardless of Ignored")
+	}
+}
+
 // TestHostsWithOutcome_DedupesAcrossTasks covers a host recorded with the
 // same outcome on more than one task within the run - FailedHosts must
 // list it once, not once per task.
@@ -390,5 +463,100 @@ func TestHostsWithOutcome_DedupesAcrossTasks(t *testing.T) {
 
 	if got, want := s.FailedHosts(), []string{"web1"}; !slices.Equal(got, want) {
 		t.Errorf("FailedHosts() = %v, want %v (deduped)", got, want)
+	}
+}
+
+// TestApply_RecordsPerHostStartTime covers design-docs/OwnCallbackPlugin.md
+// step 4: a "v2_runner_on_start" event (only ever emitted by this app's own
+// bundled plugin fork - RawEvent.Host's own doc comment) records that
+// host's dispatch timestamp on the current task, keyed by host, without
+// needing any task-ID correlation - the same "currentTask is already
+// right" assumption every other case in Apply already relies on.
+func TestApply_RecordsPerHostStartTime(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+	s.Apply(taskStartEvent("my task", "/pb.yml:3"))
+	s.Apply(runnerOnStartEvent("web1", "2026-09-18T08:00:00.000000Z"))
+	s.Apply(runnerOnStartEvent("web2", "2026-09-18T08:00:01.270000Z"))
+
+	task := s.Plays[0].Tasks[0]
+	want1, _ := time.Parse(time.RFC3339, "2026-09-18T08:00:00.000000Z")
+	want2, _ := time.Parse(time.RFC3339, "2026-09-18T08:00:01.270000Z")
+	if got := task.Started["web1"]; !got.Equal(want1) {
+		t.Errorf(`task.Started["web1"] = %v, want %v`, got, want1)
+	}
+	if got := task.Started["web2"]; !got.Equal(want2) {
+		t.Errorf(`task.Started["web2"] = %v, want %v`, got, want2)
+	}
+}
+
+// TestApply_RunnerOnStartNoopBeforeAnyTaskStarted mirrors
+// TestRecordHost_NoopBeforeAnyTaskStarted - a "v2_runner_on_start" arriving
+// with no task ever having started (shouldn't happen for a real run, but
+// nothing here should assume it can't) must not panic or fabricate a task.
+func TestApply_RunnerOnStartNoopBeforeAnyTaskStarted(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(runnerOnStartEvent("web1", "2026-09-18T08:00:00.000000Z"))
+
+	if len(s.Plays) != 0 {
+		t.Errorf("got %d plays, want 0 (no task has started yet)", len(s.Plays))
+	}
+}
+
+// TestApply_RunnerOnStartIgnoredWithoutHost covers a malformed/pre-fork
+// "v2_runner_on_start" event with no "host" field at all - must not record
+// a spurious Started[""] entry.
+func TestApply_RunnerOnStartIgnoredWithoutHost(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+	s.Apply(taskStartEvent("my task", "/pb.yml:3"))
+	s.Apply(runnerOnStartEvent("", "2026-09-18T08:00:00.000000Z"))
+
+	task := s.Plays[0].Tasks[0]
+	if len(task.Started) != 0 {
+		t.Errorf("task.Started = %v, want empty (event carried no host)", task.Started)
+	}
+}
+
+// TestApply_RecordsPerHostFinishTimeForEveryOutcomeKind covers all four
+// v2_runner_on_* outcome events threading ev.Timestamp() into
+// TaskNode.Finished, not just v2_runner_on_ok - a plain "it compiles"
+// check wouldn't catch e.g. one case accidentally passing a zero
+// time.Time instead of ev.Timestamp().
+func TestApply_RecordsPerHostFinishTimeForEveryOutcomeKind(t *testing.T) {
+	for _, event := range []string{
+		"v2_runner_on_ok", "v2_runner_on_skipped", "v2_runner_on_failed", "v2_runner_on_unreachable",
+	} {
+		t.Run(event, func(t *testing.T) {
+			s := &PlaybookState{}
+			s.Apply(playStartEvent("my play"))
+			s.Apply(taskStartEvent("my task", "/pb.yml:3"))
+			s.Apply(hostResultEventAt(event, "web1", json.RawMessage(`{}`), "2026-09-18T08:00:02.500000Z"))
+
+			want, _ := time.Parse(time.RFC3339, "2026-09-18T08:00:02.500000Z")
+			task := s.Plays[0].Tasks[0]
+			if got := task.Finished["web1"]; !got.Equal(want) {
+				t.Errorf("task.Finished[\"web1\"] = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// TestApply_StartedAndFinishedGiveARealDuration is the actual payoff this
+// whole step exists for (design-docs/PerHostTaskTiming.md): once both
+// Started and Finished are populated for a host, the difference between
+// them is real per-host execution time, disambiguated from queue-wait -
+// unlike the finish-only approximation that doc rejected.
+func TestApply_StartedAndFinishedGiveARealDuration(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+	s.Apply(taskStartEvent("my task", "/pb.yml:3"))
+	s.Apply(runnerOnStartEvent("web1", "2026-09-18T08:00:01.000000Z"))
+	s.Apply(hostResultEventAt("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`), "2026-09-18T08:00:01.340000Z"))
+
+	task := s.Plays[0].Tasks[0]
+	got := task.Finished["web1"].Sub(task.Started["web1"])
+	if want := 340 * time.Millisecond; got != want {
+		t.Errorf("Finished - Started = %v, want %v", got, want)
 	}
 }

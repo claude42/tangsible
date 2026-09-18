@@ -15,13 +15,14 @@
 package session
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"runtime/debug"
 	"strings"
+
+	"code.aw.net/claude/tangsible/internal/runner"
 )
 
 // BuildInfo carries the version stamps the root main package injects at
@@ -90,10 +91,15 @@ func RunVersion(b BuildInfo) int {
 	return 0
 }
 
-// printAnsibleEnv reports the ansible-playbook and ansible.posix versions
-// tangsible would actually use - the jsonl callback lives in
-// ansible.posix, so a missing or mismatched collection there is a real
-// failure mode worth surfacing.
+// printAnsibleEnv reports the ansible-playbook version tangsible would
+// actually use, plus whether its own bundled callback plugin
+// (design-docs/OwnCallbackPlugin.md) actually resolves - since decision 3
+// dropped the ansible.posix dependency entirely, there's no longer a
+// separate collection to version-check; ResolveCallbackPluginDir's own
+// search (dev override, sibling-to-binary, XDG data dir) is now the one
+// thing that can actually go wrong, so this reuses its exact error message
+// (which already names every location tried) rather than inventing a
+// second diagnostic message that could drift from it.
 func printAnsibleEnv() {
 	if path, err := exec.LookPath("ansible-playbook"); err != nil {
 		fmt.Println("ansible-playbook: not found on PATH")
@@ -107,48 +113,11 @@ func printAnsibleEnv() {
 	}
 
 	fmt.Println()
-	if v, loc, ok := ansiblePosixVersion(); ok {
-		fmt.Printf("ansible.posix: %s  (%s)\n", v, loc)
+	if dir, err := runner.ResolveCallbackPluginDir(); err == nil {
+		fmt.Printf("tangsible callback plugin: found in %s\n", dir)
 	} else {
-		fmt.Println("ansible.posix: NOT INSTALLED - required for the jsonl callback")
-		fmt.Println("               (ansible-galaxy collection install ansible.posix)")
+		fmt.Printf("tangsible callback plugin: %v\n", err)
 	}
-}
-
-// ansiblePosixVersion shells out to `ansible-galaxy collection list
-// ansible.posix --format json` and pulls the version out of it.
-func ansiblePosixVersion() (version, location string, ok bool) {
-	gx, err := exec.LookPath("ansible-galaxy")
-	if err != nil {
-		return "", "", false
-	}
-	out, err := exec.Command(gx, "collection", "list", "ansible.posix", "--format", "json").Output()
-	if err != nil {
-		return "", "", false
-	}
-	return parseCollectionVersion(out, "ansible.posix")
-}
-
-// parseCollectionVersion reads `ansible-galaxy collection list --format
-// json` output, whose shape is
-// { "<install path>": { "<collection>": { "version": "x.y.z" } } }.
-func parseCollectionVersion(jsonOut []byte, name string) (version, location string, ok bool) {
-	var byPath map[string]map[string]struct {
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal(jsonOut, &byPath); err != nil {
-		return "", "", false
-	}
-	// In practice ansible.posix is installed in exactly one place; if it
-	// somehow isn't, any real version is more useful in a bug report than
-	// none, so the first match wins (map order is not resolution order,
-	// but this is a diagnostic, not a resolver).
-	for path, colls := range byPath {
-		if c, present := colls[name]; present && c.Version != "" && c.Version != "*" {
-			return c.Version, path, true
-		}
-	}
-	return "", "", false
 }
 
 // osDescription is a one-line human OS label: distro PRETTY_NAME on Linux,

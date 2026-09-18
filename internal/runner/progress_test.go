@@ -122,7 +122,7 @@ func TestProgressTracker(t *testing.T) {
 
 	t.Run("nil tracker is a safe no-op", func(t *testing.T) {
 		var tr *ProgressTracker
-		tr.Advance("P", "one")
+		tr.Advance("P", "one", false)
 		pos, total := tr.Position()
 		if pos != 0 || total != 0 {
 			t.Errorf("Position() = (%d, %d), want (0, 0)", pos, total)
@@ -131,7 +131,7 @@ func TestProgressTracker(t *testing.T) {
 
 	t.Run("empty skeleton reports (0, 0) and never matches", func(t *testing.T) {
 		tr := NewProgressTracker(nil)
-		tr.Advance("P", "one")
+		tr.Advance("P", "one", false)
 		pos, total := tr.Position()
 		if pos != 0 || total != 0 {
 			t.Errorf("Position() = (%d, %d), want (0, 0)", pos, total)
@@ -140,15 +140,15 @@ func TestProgressTracker(t *testing.T) {
 
 	t.Run("sequential matches advance position monotonically", func(t *testing.T) {
 		tr := NewProgressTracker(skeleton)
-		tr.Advance("P", "one")
+		tr.Advance("P", "one", false)
 		if pos, total := tr.Position(); pos != 1 || total != 3 {
 			t.Fatalf("after 'one': Position() = (%d, %d), want (1, 3)", pos, total)
 		}
-		tr.Advance("P", "two")
+		tr.Advance("P", "two", false)
 		if pos, total := tr.Position(); pos != 2 || total != 3 {
 			t.Fatalf("after 'two': Position() = (%d, %d), want (2, 3)", pos, total)
 		}
-		tr.Advance("P", "three")
+		tr.Advance("P", "three", false)
 		if pos, total := tr.Position(); pos != 3 || total != 3 {
 			t.Fatalf("after 'three': Position() = (%d, %d), want (3, 3)", pos, total)
 		}
@@ -156,10 +156,29 @@ func TestProgressTracker(t *testing.T) {
 
 	t.Run("a miss (e.g. a handler) leaves the position untouched", func(t *testing.T) {
 		tr := NewProgressTracker(skeleton)
-		tr.Advance("P", "one")
-		tr.Advance("P", "my handler") // not in the skeleton at all
+		tr.Advance("P", "one", false)
+		tr.Advance("P", "my handler", true) // not in the skeleton at all
 		if pos, total := tr.Position(); pos != 1 || total != 3 {
 			t.Errorf("after miss: Position() = (%d, %d), want (1, 3) unchanged", pos, total)
+		}
+	})
+
+	t.Run("a handler's own miss does not inflate missStreak", func(t *testing.T) {
+		// design-docs/OwnCallbackPlugin.md: a handler miss is fully
+		// explained (handlers can never be in the skeleton at all - see
+		// BuildProgressSkeleton's own doc comment), unlike an ordinary
+		// task's miss, which genuinely signals the skeleton may have
+		// drifted from reality and so should widen the search window.
+		tr := NewProgressTracker(skeleton)
+		tr.Advance("P", "a handler", true)
+		tr.Advance("P", "another handler", true)
+		if tr.missStreak != 0 {
+			t.Errorf("missStreak = %d after two handler misses, want 0", tr.missStreak)
+		}
+
+		tr.Advance("P", "not in the skeleton", false)
+		if tr.missStreak != 1 {
+			t.Errorf("missStreak = %d after one ordinary miss, want 1", tr.missStreak)
 		}
 	})
 
@@ -174,15 +193,15 @@ func TestProgressTracker(t *testing.T) {
 			{Play: "P", Task: "shared"},
 		}
 		tr := NewProgressTracker(dup)
-		tr.Advance("P", "shared")
+		tr.Advance("P", "shared", false)
 		if pos, _ := tr.Position(); pos != 1 {
 			t.Fatalf("first 'shared': Position() pos = %d, want 1", pos)
 		}
-		tr.Advance("P", "unique")
+		tr.Advance("P", "unique", false)
 		if pos, _ := tr.Position(); pos != 2 {
 			t.Fatalf("'unique': Position() pos = %d, want 2", pos)
 		}
-		tr.Advance("P", "shared")
+		tr.Advance("P", "shared", false)
 		if pos, _ := tr.Position(); pos != 3 {
 			t.Errorf("second 'shared': Position() pos = %d, want 3 (not back to 1)", pos)
 		}
@@ -195,7 +214,7 @@ func TestProgressTracker(t *testing.T) {
 		}
 		far[ProgressBaseLookahead+2] = ProgressEntry{Play: "P", Task: "distant"}
 		tr := NewProgressTracker(far)
-		tr.Advance("P", "distant")
+		tr.Advance("P", "distant", false)
 		if pos, _ := tr.Position(); pos != 0 {
 			t.Errorf("Position() pos = %d, want 0 (match was outside the base window)", pos)
 		}
@@ -218,9 +237,9 @@ func TestProgressTracker(t *testing.T) {
 		// dynamic block's own children) - each one misses and widens the
 		// window for the next.
 		for i := 0; i < 10; i++ {
-			tr.Advance("P", "some dynamically-included task")
+			tr.Advance("P", "some dynamically-included task", false)
 		}
-		tr.Advance("P", "unique finisher")
+		tr.Advance("P", "unique finisher", false)
 		if pos, total := tr.Position(); pos != gap+1 || total != gap+1 {
 			t.Errorf("Position() = (%d, %d), want (%d, %d) - the finisher should eventually be found", pos, total, gap+1, gap+1)
 		}
@@ -238,21 +257,21 @@ func TestProgressTracker(t *testing.T) {
 		tr := NewProgressTracker(skeleton)
 		// Widen the window with misses, then land on "recovered".
 		for i := 0; i < 6; i++ {
-			tr.Advance("P", "dynamic child")
+			tr.Advance("P", "dynamic child", false)
 		}
-		tr.Advance("P", "recovered")
+		tr.Advance("P", "recovered", false)
 		if pos, _ := tr.Position(); pos != 201 {
 			t.Fatalf("after 'recovered': pos = %d, want 201", pos)
 		}
 		// Immediately after a hit, a distant unrelated match must NOT be
 		// trusted - if the window failed to reset, this would wrongly
 		// jump straight to "far away" instead of stalling.
-		tr.Advance("P", "far away")
+		tr.Advance("P", "far away", false)
 		if pos, _ := tr.Position(); pos != 201 {
 			t.Errorf("after reset, distant match wrongly accepted: pos = %d, want unchanged 201", pos)
 		}
 		// A nearby match (within the reset base window) still works.
-		tr.Advance("P", "next")
+		tr.Advance("P", "next", false)
 		if pos, _ := tr.Position(); pos != 211 {
 			t.Errorf("after 'next': pos = %d, want 211", pos)
 		}
@@ -288,7 +307,7 @@ func TestProgressTrackerAdvanceToPlay(t *testing.T) {
 		// The real play's own one task now fires for real, and Advance
 		// (tight base window, since AdvanceToPlay resets missStreak) must
 		// still be able to claim it.
-		tr.Advance("Real play", "unique finisher")
+		tr.Advance("Real play", "unique finisher", false)
 		if pos, total := tr.Position(); pos != 41 || total != 41 {
 			t.Errorf("after the real task: Position() = (%d, %d), want (41, 41)", pos, total)
 		}
@@ -301,7 +320,7 @@ func TestProgressTrackerAdvanceToPlay(t *testing.T) {
 			{Play: "C", Task: "c1"},
 		}
 		tr := NewProgressTracker(skeleton)
-		tr.Advance("A", "a1")
+		tr.Advance("A", "a1", false)
 		if pos, _ := tr.Position(); pos != 1 {
 			t.Fatalf("after 'a1': pos = %d, want 1", pos)
 		}

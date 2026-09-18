@@ -112,14 +112,12 @@ normally require writing temporary playbooks.
 
 - Go 1.24+ to build.
 - `ansible-playbook`
-- The `ansible.posix` collection:
-  ```
-  ansible-galaxy collection install ansible.posix
-  ```
-  Tangsible relies on that collection's `jsonl` callback plugin to receive
-  Ansible events while the playbook is running.
 - A real terminal (TTY) - Tangsible opens a full-screen UI and cannot run in
   a piped or headless shell.
+
+Tangsible ships its own bundled ansible callback plugin to receive Ansible
+events while a playbook runs, so no extra collection install is needed -
+see [License](#license) for the (GPL-3.0) plugin's own licensing.
 
 ## Install
 
@@ -151,7 +149,14 @@ Use
 go install code.aw.net/claude/tangsible@latest
 ```
 
-to install it in `$GOPATH/bin` (usually `~/go/bin`).
+to install it in `$GOPATH/bin` (usually `~/go/bin`). This installs only the
+binary, not the bundled callback plugin every other install method also
+places next to it (see [License](#license)) - fetch `callback/` from this
+repo and either drop it next to the installed binary, place it at
+`$XDG_DATA_HOME/tangsible/` (default `~/.local/share/tangsible/`), or point
+`$TANGSIBLE_CALLBACK_DIR` at it, or `tangsible run`/`rerun` will fail with a
+clear error naming what it tried. `tangsible version` reports whether it
+was actually found.
 
 ### From source
 
@@ -393,6 +398,16 @@ go vet ./...     # lint
 go test ./...    # unit tests
 ```
 
+`go build`/`go run .` alone won't have the bundled callback plugin sitting
+next to the binary the way a real release archive does (see
+[License](#license)), so a plain build from source needs
+`$TANGSIBLE_CALLBACK_DIR` pointed at the repo's `callback/` directory to run
+a playbook, e.g.:
+
+```
+TANGSIBLE_CALLBACK_DIR="$PWD/callback" go run . run site.yml
+```
+
 There are also end-to-end smoke tests that run the real binary inside a
 `tmux` pane:
 
@@ -405,4 +420,11 @@ test run.
 
 ## License
 
-Apache-2.0 - see `LICENSE`.
+The `tangsible` binary/CLI is **Apache-2.0** - see `LICENSE`.
+
+The bundled `callback/tangsible_jsonl.py` Ansible callback plugin is a
+**GPL-3.0-or-later** derivative of `ansible.posix.jsonl` - see
+`callback/LICENSE` and the file's own header. The two are separate works
+communicating at arm's length (the plugin runs inside `ansible-playbook`, a
+separate process, writing to a pipe) - see `design-docs/
+OwnCallbackPlugin.md`'s Licensing section for the full reasoning.

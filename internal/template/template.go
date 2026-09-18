@@ -32,6 +32,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -209,12 +210,13 @@ type TemplateResult struct {
 // since that's the normal, expected outcome this whole tool exists to
 // surface.
 func RenderTemplate(stubPath, outputPath, hostname string, rest []string) (TemplateResult, error) {
+	pluginEnv, err := runner.CallbackPluginEnv()
+	if err != nil {
+		return TemplateResult{}, err
+	}
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
 	cmd := exec.Command("ansible-playbook", args...)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
-		"ANSIBLE_JSON_INDENT=0",
-	)
+	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()

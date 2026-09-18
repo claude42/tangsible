@@ -85,10 +85,11 @@ func BenchmarkFlattenRowsTree(b *testing.B) {
 			}
 		}
 		layout := uikit.ComputeHostColumnLayout(state, state.AllHosts, 200, false)
+		durationLayout := uikit.ComputeDurationLayout(state, state.AllHosts)
 		noop := func(*playbook.TaskNode, string) {}
 		b.Run(fmt.Sprintf("hosts=%d", n), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_ = uikit.FlattenRows(state, expanded, 200, layout, state.AllHosts, nil, ' ', uikit.FilterQuery{}, nil, noop, true)
+				_ = uikit.FlattenRows(state, expanded, 200, layout, durationLayout, state.AllHosts, nil, ' ', uikit.FilterQuery{}, nil, noop, true)
 			}
 		})
 	}

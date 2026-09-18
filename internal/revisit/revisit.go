@@ -581,7 +581,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	outcomesMu.Unlock()
 	for _, o := range all {
 		if o.ExitCode != runner.AnsibleUserInterruptedExitCode {
-			for _, l := range o.ChildStderr {
+			for _, l := range runner.FilterRedundantWarnings(o.ChildStderr) {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
 		}

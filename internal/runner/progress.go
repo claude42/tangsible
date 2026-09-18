@@ -239,6 +239,15 @@ const ProgressMaxMissShift = 12
 // Undercounting during that widening (the bar stalls while catching up)
 // is still the deliberately preferred failure mode over ever jumping
 // backward or overcounting.
+//
+// A handler's own miss (Advance's own isHandler parameter, design-docs/
+// OwnCallbackPlugin.md) never counts toward missStreak - it's a fully
+// explained, expected miss (handlers structurally can never be in the
+// skeleton at all, see above), not evidence the skeleton has drifted
+// from reality the way an unpredicted regular task's miss is. Excluding
+// it keeps the window tight around genuine drift instead of needlessly
+// widening - and so more resistant to a coincidental wrong-occurrence
+// match - every time a playbook happens to fire a notified handler.
 type ProgressTracker struct {
 	skeleton   []ProgressEntry
 	cursor     int // index of the first not-yet-matched skeleton entry
@@ -259,12 +268,15 @@ func NewProgressTracker(skeleton []ProgressEntry) *ProgressTracker {
 // comment for how that window grows on repeated misses). On a match, the
 // cursor moves just past it, that match's own 1-based position becomes
 // the tracker's new Position(), and missStreak resets to zero; on a
-// miss, the tracker's cursor/matched are left completely untouched and
-// missStreak grows by one, widening the next call's own window. Safe to
-// call on a nil *ProgressTracker (a no-op) - the state before this
-// session's very first skeleton has ever been built, or hasn't been
-// built for this particular generation yet.
-func (t *ProgressTracker) Advance(play, task string) {
+// miss, the tracker's cursor/matched are left completely untouched, and
+// missStreak grows by one - widening the next call's own window - unless
+// isHandler is true, in which case missStreak is left untouched too (see
+// ProgressTracker's own doc comment for why a handler's miss is fully
+// expected, not evidence of drift). Safe to call on a nil *ProgressTracker
+// (a no-op) - the state before this session's very first skeleton has
+// ever been built, or hasn't been built for this particular generation
+// yet.
+func (t *ProgressTracker) Advance(play, task string, isHandler bool) {
 	if t == nil || len(t.skeleton) == 0 {
 		return
 	}
@@ -282,7 +294,9 @@ func (t *ProgressTracker) Advance(play, task string) {
 			return
 		}
 	}
-	t.missStreak++
+	if !isHandler {
+		t.missStreak++
+	}
 }
 
 // AdvanceToPlay resyncs the tracker directly to the start of playName's

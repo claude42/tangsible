@@ -415,8 +415,11 @@ func (s *liveSession) rebuild() {
 	// aligns to the identical column every other row uses (see
 	// ComputeHostColumnLayout).
 	layout := uikit.ComputeHostColumnLayout(s.state, treeAllHosts, width, !s.useColor)
+	// durationLayout is HostLabel's own counterpart to layout above - same
+	// "computed once per rebuild" reasoning (ComputeDurationLayout).
+	durationLayout := uikit.ComputeDurationLayout(s.state, treeAllHosts)
 
-	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, treeAllHosts, activeTask, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor)
+	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, durationLayout, treeAllHosts, activeTask, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor)
 	hasStatusRow := false
 	if frozen && s.everStarted {
 		if text := uikit.StatusRowText(int(s.exitCode.Load()), s.state.HadUnreachable, runner.AnsibleUserInterruptedExitCode); text != "" {
@@ -506,7 +509,7 @@ func (s *liveSession) rebuild() {
 	case *playbook.TaskNode:
 		s.currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, id == activeTask, uikit.SpinnerAt(elapsed), true, s.useColor)
 	case uikit.HostRowID:
-		s.currentRows[selectedIndex].Text = uikit.HostLabel(id.Task, id.Host, true)
+		s.currentRows[selectedIndex].Text = uikit.HostLabel(id.Task, id.Host, durationLayout, true)
 	case recapHostRowID:
 		s.currentRows[selectedIndex].Text = recapHostRowText(string(id), recapForHost(s.state, string(id)), recapComputeColumnWidths(s.state), true)
 	case recapCategoryRowID:
