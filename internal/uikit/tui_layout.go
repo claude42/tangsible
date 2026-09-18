@@ -683,6 +683,30 @@ func TaskDisplayName(task *playbook.TaskNode) string {
 	return task.Name
 }
 
+// HostColorTag is the single source of truth for TaskLabel's own
+// per-host segment on the collapsed row, HostLabel's own whole-row
+// color use, and (via internal/diff's own DiffColorTag) the diff view's
+// per-host coloring: GrayTag if host hasn't reported for task yet
+// (TaskLabel's own case only - HostLabel/the diff view are never called
+// before a host has reported), IgnoredColor (not the plain Failed red)
+// if it reported Failed specifically because of an ignore_errors: true
+// task (design-docs/OwnCallbackPlugin.md) - a failure the user explicitly
+// told Ansible not to worry about shouldn't read as alarming as a genuine
+// one, collapsed or expanded - or ColorTag(o) otherwise. Deliberately
+// per-host, not a task-level aggregate marker the way the ⚠ warning
+// glyph is: two hosts can disagree about whether their own failure on
+// the same task was ignored, and both TaskLabel's collapsed segments and
+// HostLabel's own rows are already per-host for exactly this reason.
+func HostColorTag(task *playbook.TaskNode, host string, o playbook.Outcome, done bool) string {
+	if !done {
+		return GrayTag
+	}
+	if o == playbook.OutcomeFailed && task.Ignored[host] {
+		return IgnoredColor
+	}
+	return ColorTag(o)
+}
+
 func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
 	// One prefix fills taskIndent's single slot (see its own doc comment) -
 	// the active spinner takes priority; otherwise a warningColor ⚠ if the
@@ -815,10 +839,7 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 		var prevTag string
 		for i, h := range allHosts {
 			o, done := task.Hosts[h]
-			tag := GrayTag
-			if done {
-				tag = ColorTag(o)
-			}
+			tag := HostColorTag(task, h, o, done)
 			name := tview.Escape(layout.HostDisplay[i])
 			if i == 0 {
 				fmt.Fprintf(&b, "[%s:%s:b] %s[-:-:-]", PureBlack, tag, name)
@@ -839,10 +860,7 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 	hostSegments := make([]string, len(allHosts))
 	for i, h := range allHosts {
 		o, done := task.Hosts[h]
-		tag := GrayTag
-		if done {
-			tag = ColorTag(o)
-		}
+		tag := HostColorTag(task, h, o, done)
 		hostSegments[i] = fmt.Sprintf("[%s]%s[-]", tag, tview.Escape(layout.HostDisplay[i]))
 	}
 
@@ -984,8 +1002,15 @@ func HostLabel(task *playbook.TaskNode, host string, layout DurationLayout, sele
 	if task.Warnings[host] {
 		prefix = fmt.Sprintf("[%s]⚠[-]%s", WarningColor, strings.Repeat(" ", len(HostIndent)-1))
 	}
+	// done is always true here - HostLabel is only ever called for a host
+	// that's already in task.Hosts (see FlattenRows' own t.HostOrder loop),
+	// so hostColorTag's "hasn't reported yet" branch never actually applies;
+	// passed through anyway so this stays the exact same single source of
+	// truth TaskLabel's own collapsed-row segments already use, rather than
+	// a second, easy-to-drift copy of the "Failed + Ignored" special case.
+	tag := HostColorTag(task, host, o, true)
 	if selected {
-		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", PureBlack, ColorTag(o), line)
+		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", PureBlack, tag, line)
 	}
-	return prefix + fmt.Sprintf("[%s]%s[-]", ColorTag(o), line)
+	return prefix + fmt.Sprintf("[%s]%s[-]", tag, line)
 }

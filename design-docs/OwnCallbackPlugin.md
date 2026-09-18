@@ -442,13 +442,46 @@ having to resolve the aggregation-vs-combination question at all - see
 
 Mechanism: the release archive carries `tangsible` +
 `tangsible-jsonl.py` side by side. The installer drops the `.py` at a
-known path (`$XDG_DATA_HOME/tangsible/` or `/usr/local/share/tangsible/`),
-and the binary points `ANSIBLE_CALLBACK_PLUGINS` there directly (`:`-join
-with any existing value, don't clobber) and adds our stem to
-`ANSIBLE_CALLBACKS_ENABLED` (union, don't clobber - see roadblock 5). No
-temp-dir write, no per-run file rewrite. Cost: `go install`-from-source
-users need a one-line manual fetch of the `.py`, which the `version` /
-startup check should detect and explain.
+known path, and the binary points `ANSIBLE_CALLBACK_PLUGINS` there
+directly (`:`-join with any existing value, don't clobber) and adds our
+stem to `ANSIBLE_CALLBACKS_ENABLED` (union, don't clobber - see
+roadblock 5). No temp-dir write, no per-run file rewrite. Cost: `go
+install`-from-source users need a one-line manual fetch of the `.py`,
+which the `version` / startup check should detect and explain.
+
+**Implementation note (2026-09-18): the "known path" is `<prefix>/share/
+tangsible`, derived structurally from the running executable's own path**
+(its `bin/` dir's own parent + `/share/tangsible`), not from
+`$XDG_DATA_HOME` directly and not a `callback/` directory sibling to the
+binary itself (an earlier, briefly-shipped choice - see below for why it
+didn't hold up). Data belongs under `.../share`, not mixed into `.../bin`
+alongside the executable - the whole reason this needed a second look.
+The structural derivation is what makes one rule correctly cover both the
+default install (`~/.local/bin/tangsible` → `~/.local/share/tangsible`,
+exactly `$XDG_DATA_HOME`'s own default) and a `--prefix` one
+(`/opt/x/bin/tangsible` → `/opt/x/share/tangsible`, exactly what
+`install.sh`'s own `--prefix`-aware `DATA_DIR` computes) without
+`install.sh` and the Go binary ever needing to agree on anything at
+install time - confirmed live, both directions, actually installing and
+running the resulting binary with zero env overrides. `$XDG_DATA_HOME/
+tangsible` remains a second, lower-priority candidate, for the one case
+where the two genuinely diverge: a default (no-`--prefix`) install with
+`$XDG_DATA_HOME` set to something other than `~/.local/share` -
+`install.sh`'s own `DATA_DIR` already follows that override in the
+no-`--prefix` case, so this candidate is what actually finds it then.
+
+**Not `~/.ansible/plugins/callback`** (ansible's own default callback
+plugin search path) either - confirmed live it would work with zero
+`ANSIBLE_CALLBACK_PLUGINS` needed at all, but two reasons against it: the
+plugin is purpose-built for tangsible, not a general-purpose callback
+worth placing somewhere other tooling/the user's own plugins might also
+live; and it wouldn't actually remove the need for `ANSIBLE_CALLBACK_PLUGINS`'s
+own union logic anyway - confirmed `ANSIBLE_CALLBACK_PLUGINS` replaces
+rather than adds to the default search path (same non-additive behavior
+roadblock 5 already found for `ANSIBLE_CALLBACKS_ENABLED`), so a user
+with their own `callback_plugins` customization in `ansible.cfg` would
+still silently lose our plugin there too, unless tangsible actively
+re-unions its own location in - the exact same mechanism either way.
 
 (Rejected: `//go:embed`-ing the file and writing it to a per-version
 temp dir on startup. Mechanically straightforward - the file is small

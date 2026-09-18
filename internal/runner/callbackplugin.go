@@ -37,14 +37,27 @@ const callbackPluginFile = callbackPluginName + ".py"
 //
 //  1. $TANGSIBLE_CALLBACK_DIR - an explicit override. This is the only
 //     candidate that resolves during local development/testing, since
-//     neither location below exists until the release-packaging step
+//     none of the locations below exist until the release-packaging step
 //     (OwnCallbackPlugin.md's "Shipping the .py from a Go binary") is
 //     actually built.
-//  2. A "callback" directory sibling to the running executable - the
-//     shape decision 6 (ship as a release-archive sibling file, never
-//     //go:embed) ships for real.
-//  3. $XDG_DATA_HOME/tangsible (or ~/.local/share/tangsible) - the
-//     installed-package location that same decision documents.
+//  2. "<prefix>/share/tangsible", where <prefix> is derived structurally
+//     from the running executable's own path (its bin/ dir's own parent) -
+//     not from any environment variable or install-time state. This is
+//     deliberately not "$XDG_DATA_HOME/tangsible sibling to the binary" -
+//     data belongs under .../share, not mixed into .../bin (install.sh's
+//     own CALLBACK_DIR comment) - and it's what makes a single rule
+//     correctly cover both the default install (~/.local/bin/tangsible ->
+//     ~/.local/share/tangsible, exactly $XDG_DATA_HOME's own default) and
+//     a --prefix one (/opt/x/bin/tangsible -> /opt/x/share/tangsible,
+//     exactly what install.sh's own --prefix-aware DATA_DIR computes)
+//     without the two ever needing to agree via a shared environment
+//     variable at install time.
+//  3. $XDG_DATA_HOME/tangsible (or ~/.local/share/tangsible) - only
+//     diverges from 2 when $XDG_DATA_HOME has been customized independently
+//     of where the binary itself was installed (a default, no-prefix
+//     install with a non-default $XDG_DATA_HOME) - install.sh's own
+//     DATA_DIR already follows $XDG_DATA_HOME in that same case, so this
+//     candidate is what actually finds it then.
 //
 // Returns an error naming every location tried if none of them panned out.
 func ResolveCallbackPluginDir() (string, error) {
@@ -58,7 +71,7 @@ func ResolveCallbackPluginDir() (string, error) {
 	}
 
 	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Join(filepath.Dir(exe), "callback")
+		dir := prefixRelativeShareDir(exe)
 		tried = append(tried, dir)
 		if hasCallbackPlugin(dir) {
 			return dir, nil
@@ -82,6 +95,16 @@ func ResolveCallbackPluginDir() (string, error) {
 func hasCallbackPlugin(dir string) bool {
 	info, err := os.Stat(filepath.Join(dir, callbackPluginFile))
 	return err == nil && !info.IsDir()
+}
+
+// prefixRelativeShareDir returns "<prefix>/share/tangsible" for an
+// executable living at "<prefix>/bin/<name>" - the structural derivation
+// ResolveCallbackPluginDir's own doc comment explains, split out here as
+// a pure function of exe's path so it's directly testable without a real
+// os.Executable() call or any filesystem state.
+func prefixRelativeShareDir(exe string) string {
+	prefix := filepath.Dir(filepath.Dir(exe))
+	return filepath.Join(prefix, "share", "tangsible")
 }
 
 // CallbackPluginEnv returns the env vars any ansible-playbook invocation

@@ -13,6 +13,13 @@
 - Terminal notifications on playbook finish / task failure
 - New drill-down tab: File displays the contents of the file associated to
   the task
+- Tangsible now ships its own bundled ansible callback plugin
+  instead of relying on the `ansible.posix` collection's `jsonl` callback.
+- Per-host task durations and total runtimes
+- Handler tasks are now tagged `[Handler]` in the tree, distinguishing them
+  from regular tasks.
+- A task that failed with `ignore_errors: true` is now tagged `ignored` in
+  the tree, and the end-of-run summary gains a matching "ignored" category.
 
 ### Changed
 
@@ -35,6 +42,7 @@
 ### Removed
 
 - Re-run dialog: dropped the "Start with task" field.
+- The `ansible.posix` collection is no longer required.
 
 ## [0.1.3] - 2026-09-05
 

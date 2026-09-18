@@ -150,13 +150,10 @@ go install code.aw.net/claude/tangsible@latest
 ```
 
 to install it in `$GOPATH/bin` (usually `~/go/bin`). This installs only the
-binary, not the bundled callback plugin every other install method also
-places next to it (see [License](#license)) - fetch `callback/` from this
-repo and either drop it next to the installed binary, place it at
-`$XDG_DATA_HOME/tangsible/` (default `~/.local/share/tangsible/`), or point
-`$TANGSIBLE_CALLBACK_DIR` at it, or `tangsible run`/`rerun` will fail with a
-clear error naming what it tried. `tangsible version` reports whether it
-was actually found.
+binary, not the bundled callback plugin. Fetch `callback/tangsible_jsonl.py`
+from this repo and either place it at `$XDG_DATA_HOME/tangsible/` (default
+`~/.local/share/tangsible/`) or point `$TANGSIBLE_CALLBACK_DIR` at it.
+`tangsible version` reports whether it was actually found.
 
 ### From source
 
@@ -398,11 +395,9 @@ go vet ./...     # lint
 go test ./...    # unit tests
 ```
 
-`go build`/`go run .` alone won't have the bundled callback plugin sitting
-next to the binary the way a real release archive does (see
-[License](#license)), so a plain build from source needs
-`$TANGSIBLE_CALLBACK_DIR` pointed at the repo's `callback/` directory to run
-a playbook, e.g.:
+`go build`/`go run .` alone won't have the bundled callback plugin installed,
+so a plain build from source needs `$TANGSIBLE_CALLBACK_DIR` pointed at the
+repo's `callback/` directory to run a playbook, e.g.:
 
 ```
 TANGSIBLE_CALLBACK_DIR="$PWD/callback" go run . run site.yml
@@ -420,11 +415,8 @@ test run.
 
 ## License
 
-The `tangsible` binary/CLI is **Apache-2.0** - see `LICENSE`.
+The `tangsible` binary/CLI is **Apache-2.0** licensed - see `LICENSE`.
 
 The bundled `callback/tangsible_jsonl.py` Ansible callback plugin is a
 **GPL-3.0-or-later** derivative of `ansible.posix.jsonl` - see
-`callback/LICENSE` and the file's own header. The two are separate works
-communicating at arm's length (the plugin runs inside `ansible-playbook`, a
-separate process, writing to a pipe) - see `design-docs/
-OwnCallbackPlugin.md`'s Licensing section for the full reasoning.
+`callback/LICENSE`.

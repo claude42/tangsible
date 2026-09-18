@@ -898,7 +898,14 @@ func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[strin
 // BuildTaskTab renders the Task tab's own summary block
 // (Name/Action/Role/Host/Status). Role is derived from task.Path via
 // roleFromPath - a heuristic, not something any event reports directly -
-// and the line is omitted entirely when it's not role-sourced.
+// and the line is omitted entirely when it's not role-sourced. Status
+// uses hostColorTag, not ColorTag(o) directly, so a failure ignored via
+// ignore_errors: true reads the same non-alarming IgnoredColor here as it
+// already does in the tree (collapsed and expanded both - design-docs/
+// OwnCallbackPlugin.md) rather than reverting to plain Failed red the
+// moment a user drills in - and the status text itself gets an
+// "(ignored)" suffix, the one place in this tab that would otherwise
+// have shown the same fact.
 func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]interface{}, o playbook.Outcome) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Name: %s\n", tview.Escape(task.Name))
@@ -909,7 +916,11 @@ func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]inter
 		fmt.Fprintf(&b, "Role: %s\n", tview.Escape(role))
 	}
 	fmt.Fprintf(&b, "Host: %s\n", tview.Escape(host))
-	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n", ColorTag(o), tview.Escape(o.String()))
+	status := o.String()
+	if o == playbook.OutcomeFailed && task.Ignored[host] {
+		status += " (ignored)"
+	}
+	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n", HostColorTag(task, host, o, true), tview.Escape(status))
 	return b.String()
 }
 

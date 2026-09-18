@@ -118,13 +118,15 @@ DOC_DIR="$DATA_DIR/doc/tangsible"
 # <data dir>/... via $XDG_DATA_DIRS, so these follow --prefix / $XDG_DATA_HOME.
 BASH_COMP_DIR="$DATA_DIR/bash-completion/completions"
 FISH_COMP_DIR="$DATA_DIR/fish/vendor_completions.d"
-# Sibling to the binary itself, not under $DATA_DIR: ResolveCallbackPluginDir
-# (Go side, design-docs/OwnCallbackPlugin.md) looks for a "callback"
-# directory next to the running executable specifically because that's the
-# one location that stays correct under --prefix without any extra
-# resolution logic on either side - $DATA_DIR/tangsible only lines up with
-# the Go side's own $XDG_DATA_HOME fallback in the no-prefix case.
-CALLBACK_DIR="$BIN_DIR/callback"
+# Same $DATA_DIR everything else here uses - not $BIN_DIR: a plugin file
+# is data, not an executable, so it belongs under .../share like the docs/
+# man pages above, not mixed into .../bin. ResolveCallbackPluginDir (Go
+# side, design-docs/OwnCallbackPlugin.md) derives this exact same path
+# structurally from the running executable's own location (its bin/ dir's
+# own parent + /share/tangsible) rather than from $XDG_DATA_HOME directly,
+# which is what keeps the two sides agreeing under --prefix too, without
+# either needing to know what flag the other was given at install time.
+CALLBACK_DIR="$DATA_DIR/tangsible"
 
 # ----------------------------------------------------------------------
 # helpers
@@ -301,7 +303,7 @@ if [ -n "$CURRENT" ]; then
 	say "  (replacing: $CURRENT at $(command -v tangsible))"
 fi
 say "  1. binary            -> $BIN_DIR/tangsible"
-say "  2. callback plugin   -> $CALLBACK_DIR/  (GPL-3.0, see README's License section)"
+say "  2. callback plugin   -> $CALLBACK_DIR/"
 say "  3. man pages         -> $MAN_DIR/"
 say "  4. README + LICENSE  -> $DOC_DIR/"
 if [ "$WANT_COMPLETIONS" = 1 ]; then
@@ -324,12 +326,8 @@ if confirm "Install the tangsible binary to $BIN_DIR/tangsible ?"; then
 	did_bin=1
 fi
 
-# 2. callback plugin - required for "run"/"rerun" to work at all (it's how
-# tangsible actually gets its event stream from ansible-playbook); asked
-# for like everything else here rather than forced, for consistency, but
-# skipping it leaves an otherwise-working install that can't run a
-# playbook.
-if confirm "Install the bundled callback plugin (GPL-3.0) to $CALLBACK_DIR/ - required for tangsible run/rerun ?"; then
+# 2. callback plugin - required for "run"/"rerun" to work at all
+if confirm "Install the bundled callback plugin to $CALLBACK_DIR/ - required for tangsible run/rerun ?"; then
 	mkdir -p "$CALLBACK_DIR"
 	cp "$SRC/callback/tangsible_jsonl.py" "$SRC/callback/LICENSE" "$CALLBACK_DIR/"
 	say "    installed $CALLBACK_DIR/"
