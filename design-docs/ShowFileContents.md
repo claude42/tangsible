@@ -141,7 +141,7 @@ actually asked for.
 
 The mechanism above is implemented for the modules marked `*` in the tables
 below (`lineinfile`, `assemble`, `blockinfile`, `command`, `copy`, `fetch`,
-`known_hosts`, `replace`, `shell`, `template`), gated by
+`get_url`, `known_hosts`, `replace`, `shell`, `template`, `uri`), gated by
 `internal/uikit.FileTabSupportedModules` (a package-level set — extending
 support to another module, once `FilenameField` knows how to extract that
 module's own path/dest field, is meant to be a one-line addition there,
@@ -189,6 +189,20 @@ with `RemoteFilePath` simply treating it as always-local (its `dest` is
 never on the named host, in any configuration, regardless of
 `delegate_to`).
 
+`get_url`/`uri` turned out similarly simple, and — unlike `fetch` — genuinely
+do run on whichever host the task targets (remote, or the control host via
+`delegate_to: localhost`), so they need no forced-local treatment;
+`DelegatedToLocalhost` already covers them generically. Their own
+directory-dest resolution (the doc's "dest + basename if dest is a
+directory" note below) is already done for us too, confirmed empirically,
+just reported under two different fields: `get_url` echoes the resolved
+path (basename of the URL appended, when `dest` was a directory) under
+top-level `dest`, same as `copy`/`template`; `uri` echoes the equivalent
+resolved path under top-level `path` instead — it never sets `dest` at
+all, in either the exact-path or directory-`dest` case. `FilenameField`'s
+existing `dest`-then-`path` fallback chain already covers both without any
+change.
+
 ## Potential actions
 
 Once the mechanism above is extended to other actions, see below for ones
@@ -202,25 +216,34 @@ too broad, see below).
 | action | parameter | comment |
 | --- | --- | --- | 
 | ansible.builtin.apt_repository | filename | |
+| ansible.builtin.deb822_repository | dest | |
 | ansible.builtin.assemble* | dest | |
 | ansible.builtin.blockinfile* | path | | 
 | ansible.builtin.command* | creates | only if creates is specified |
 | ansible.builtin.copy* | dest | only if dest is not a directory |
+| ansible.builtin.expect | creates | only if creates is specified, same as command |
 | ansible.builtin.known_hosts* | path | |
 | ansible.builtin.lineinfile* | path | |
 | ansible.builtin.replace* | path | |
+| ansible.builtin.script | creates | only if creates is specified, same as command |
 | ansible.builtin.shell* | creates | only if creates is specified, same as command |
 | ansible.builtin.template* | dest | |
 | ansible.builtin.user | | /etc/passwd — probably too broad, see comment above |
-| ansible.posix.authorized_key | | user/.ssh/authorized_key or path/authorized_key
+| ansible.posix.authorized_key | | user/.ssh/authorized_key or path/authorized_key |
+| ansible.posix.patch | dest | only if dest is specified |
+| community.crypto.openssh_cert | path | |
+| community.crypto.openssh_keypair | path | append ".pub" to the path to only show the public key |
+| community.general.archive | dest | only if dest is specified |
+| community.general.htpasswd | path | |
+| community.general.ini_file | path | |
 
 ### Actions that modify a file on the control host
 
 | action | parameter | comment |
 | --- | --- | --- |
 | ansible.builtin.fetch* | dest | turned out not to need the "more complicated algorithm" — dest is already fully resolved, see Implementation status |
-| ansible.builtin.get_url | dest | |
-| ansible.builtin.uri | dest | dest + basename if dest is a directory |
+| ansible.builtin.get_url* | dest | dest + basename if dest is a directory — already resolved for us, see Implementation status |
+| ansible.builtin.uri* | path | not dest — uri never sets dest at all, only the already-resolved path (dest + basename if dest was a directory), see Implementation status |
 
 
 ### More commands that might be interesting but I have not made up my mind what I could do.

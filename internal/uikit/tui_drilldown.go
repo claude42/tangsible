@@ -521,6 +521,19 @@ func RoleFromPath(path string) string {
 // exact file path, flat: true against a directory, and the flat: false
 // default's dest/<hostname>/<src> layout) - confirmed empirically across
 // all three, including on an idempotent (changed: false) second run.
+// "get_url"/"uri" are unlike fetch in that they run on whatever host the
+// task actually targets (remote or, via delegate_to: localhost, the control
+// host) rather than always being local - RemoteFilePath below needs no
+// special-casing for that, since DelegatedToLocalhost already covers it
+// generically for every module. Their own directory-dest resolution is
+// likewise already done for us, just under two different fields: get_url
+// echoes the fully-resolved path (basename of the URL appended, when dest
+// was a directory) under top-level "dest" like copy/template; uri echoes
+// the equivalent resolved path under top-level "path" instead - it never
+// sets "dest" at all - both confirmed empirically, including the
+// no-trailing-slash-but-still-a-directory case for uri. FilenameField's
+// existing dest-then-path fallback chain already covers both without
+// modification.
 var FileTabSupportedModules = map[string]bool{
 	"lineinfile":  true,
 	"assemble":    true,
@@ -528,10 +541,12 @@ var FileTabSupportedModules = map[string]bool{
 	"command":     true,
 	"copy":        true,
 	"fetch":       true,
+	"get_url":     true,
 	"known_hosts": true,
 	"replace":     true,
 	"template":    true,
 	"shell":       true,
+	"uri":         true,
 }
 
 // createsField extracts ansible.builtin.command's (and, sharing the same

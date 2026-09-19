@@ -547,6 +547,8 @@ func TestRemoteFilePath(t *testing.T) {
 	delegatedElsewhereRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/tmp/other.txt"}},"_ansible_delegated_vars":{"ansible_host":"otherhost"}}`)
 	fetchFlatRaw := json.RawMessage(`{"action":"ansible.builtin.fetch","dest":"/backup/exact.txt","changed":true}`)
 	fetchNonFlatRaw := json.RawMessage(`{"action":"ansible.builtin.fetch","dest":"/backup/web1/etc/hosts","changed":false}`)
+	getURLRaw := json.RawMessage(`{"action":"ansible.builtin.get_url","dest":"/opt/downloads/artifact.tar.gz","changed":true}`)
+	uriRaw := json.RawMessage(`{"action":"ansible.builtin.uri","path":"/opt/downloads/downloadme.txt","changed":true}`)
 
 	cases := []struct {
 		name          string
@@ -657,6 +659,22 @@ func TestRemoteFilePath(t *testing.T) {
 			wantPath:      "/backup/web1/etc/hosts",
 			wantSupported: true,
 			wantLocal:     true,
+		},
+		{
+			name:          "get_url - top-level dest, not forced local (runs on whichever host, unlike fetch)",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": getURLRaw}},
+			host:          "web1",
+			wantPath:      "/opt/downloads/artifact.tar.gz",
+			wantSupported: true,
+			wantLocal:     false,
+		},
+		{
+			name:          "uri - reports its resolved path under top-level path, not dest",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": uriRaw}},
+			host:          "web1",
+			wantPath:      "/opt/downloads/downloadme.txt",
+			wantSupported: true,
+			wantLocal:     false,
 		},
 	}
 	for _, c := range cases {
