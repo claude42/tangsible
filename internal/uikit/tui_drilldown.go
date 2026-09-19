@@ -501,7 +501,7 @@ func RoleFromPath(path string) string {
 // empirically (see that doc's "Implementation status" section) that every
 // one of these but "command"/"shell" reports its own dest/path field
 // somewhere FilenameField already knows to look - either top-level
-// (assemble, copy, template always; known_hosts, in this case, also
+// (assemble, copy, template, fetch always; known_hosts, in this case, also
 // top-level) or only under invocation.module_args (blockinfile, replace,
 // and lineinfile before it) - so RemoteFilePath below needs no per-module
 // special-casing for any of them. "command"/"shell" are the exception:
@@ -515,12 +515,19 @@ func RoleFromPath(path string) string {
 // ("remote file is a directory, fetch cannot work on directories,"
 // confirmed empirically), which fetchRemoteFileContents already surfaces as
 // an ordinary error - same as any other fetch failure, hiding the tab.
+// "fetch" itself needs no flat:/directory resolution logic either, despite
+// looking like it should: its own top-level "dest" already reports the
+// fully-resolved final local path in every case (flat: true against an
+// exact file path, flat: true against a directory, and the flat: false
+// default's dest/<hostname>/<src> layout) - confirmed empirically across
+// all three, including on an idempotent (changed: false) second run.
 var FileTabSupportedModules = map[string]bool{
 	"lineinfile":  true,
 	"assemble":    true,
 	"blockinfile": true,
 	"command":     true,
 	"copy":        true,
+	"fetch":       true,
 	"known_hosts": true,
 	"replace":     true,
 	"template":    true,
@@ -574,13 +581,17 @@ func DelegatedToLocalhost(decoded map[string]interface{}) bool {
 // callers treat that the same as "not supported" (nothing to fetch, e.g. a
 // command task with no creates: at all).
 //
-// local reports whether the task actually ran with delegate_to: localhost
-// (DelegatedToLocalhost) - the path is on the control host in that case,
-// not the named host, even though every module still reports it under the
-// same dest/path/creates fields either way. Callers use this to read the
-// file directly off local disk instead of spawning a fetch against a host
-// that was never actually touched for this particular task. local is only
-// meaningful when supported is also true.
+// local reports whether path lives on the control host rather than the
+// named host - either because the task ran with delegate_to: localhost
+// (DelegatedToLocalhost) or because the module is "fetch", whose own dest
+// is *always* local to the control node regardless of delegate_to (fetch's
+// entire purpose is "pull src from the connection host to here" - "here"
+// being the controller, never the reverse). Every module still reports its
+// path under the same dest/path/creates fields either way. Callers use this
+// to read the file directly off local disk instead of spawning a pointless
+// (or outright-failing) fetch against a host that was never actually
+// touched for this particular task's own file. local is only meaningful
+// when supported is also true.
 func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported bool, local bool) {
 	raw, ok := t.Raw[host]
 	if !ok {
@@ -600,7 +611,8 @@ func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported b
 	default:
 		path = FilenameField(decoded)
 	}
-	return path, path != "", DelegatedToLocalhost(decoded)
+	local = module == "fetch" || DelegatedToLocalhost(decoded)
+	return path, path != "", local
 }
 
 // ResolvedRender is one (task, host) pair's own "Resolved" section state

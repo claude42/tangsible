@@ -545,6 +545,8 @@ func TestRemoteFilePath(t *testing.T) {
 	shellNoCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.shell","invocation":{"module_args":{"creates":null}}}`)
 	delegatedLocalhostRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/tmp/local.txt"}},"_ansible_delegated_vars":{"ansible_host":"localhost"}}`)
 	delegatedElsewhereRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/tmp/other.txt"}},"_ansible_delegated_vars":{"ansible_host":"otherhost"}}`)
+	fetchFlatRaw := json.RawMessage(`{"action":"ansible.builtin.fetch","dest":"/backup/exact.txt","changed":true}`)
+	fetchNonFlatRaw := json.RawMessage(`{"action":"ansible.builtin.fetch","dest":"/backup/web1/etc/hosts","changed":false}`)
 
 	cases := []struct {
 		name          string
@@ -639,6 +641,22 @@ func TestRemoteFilePath(t *testing.T) {
 			wantPath:      "/tmp/other.txt",
 			wantSupported: true,
 			wantLocal:     false,
+		},
+		{
+			name:          "fetch (flat) - always local, regardless of delegate_to",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": fetchFlatRaw}},
+			host:          "web1",
+			wantPath:      "/backup/exact.txt",
+			wantSupported: true,
+			wantLocal:     true,
+		},
+		{
+			name:          "fetch (non-flat, unchanged) - still reports dest, still local",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": fetchNonFlatRaw}},
+			host:          "web1",
+			wantPath:      "/backup/web1/etc/hosts",
+			wantSupported: true,
+			wantLocal:     true,
 		},
 	}
 	for _, c := range cases {

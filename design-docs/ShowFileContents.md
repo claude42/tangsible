@@ -139,8 +139,8 @@ actually asked for.
 
 ## Implementation status
 
-The mechanism above is implemented for the modules marked `*` in the table
-below (`lineinfile`, `assemble`, `blockinfile`, `command`, `copy`,
+The mechanism above is implemented for the modules marked `*` in the tables
+below (`lineinfile`, `assemble`, `blockinfile`, `command`, `copy`, `fetch`,
 `known_hosts`, `replace`, `shell`, `template`), gated by
 `internal/uikit.FileTabSupportedModules` (a package-level set — extending
 support to another module, once `FilenameField` knows how to extract that
@@ -154,9 +154,10 @@ nothing more):
   interactive-credential guard).
 - `internal/uikit/tui_drilldown.go` — `RemoteFilePath` (module/path
   detection, plus the `local` flag backing the `delegate_to: localhost`
-  case), `DelegatedToLocalhost`, `createsField` (`command`'s and `shell`'s
-  shared `creates:` extraction), `FileTabHidden`/`BuildFileTab`, and
-  `BuildOutputTabs`'s new "File" tab, positioned right after "Diff".
+  case and `fetch`'s own always-local `dest`), `DelegatedToLocalhost`,
+  `createsField` (`command`'s and `shell`'s shared `creates:` extraction),
+  `FileTabHidden`/`BuildFileTab`, and `BuildOutputTabs`'s new "File" tab,
+  positioned right after "Diff".
 - `internal/session/tui.go` — `fileCache` (keyed like the existing
   `resolveCache`, by `(task, host)`), the async fetch-kickoff inside
   `showOutputWithOrigin` mirroring the existing Resolved/Docs pattern
@@ -173,6 +174,20 @@ with no crash. `lineinfile`'s own result JSON turns out to report `path`
 only under `invocation.module_args.path`, never at the top level - exactly
 the fallback case `FilenameField`'s doc comment already called out for
 `stat`/`git`.
+
+`ansible.builtin.fetch` turned out simpler than expected despite its own
+`flat:`/directory-destination branching (see its own table row below,
+originally marked "more complicated algorithm needed"): its top-level
+`dest` field already reports the fully-resolved final local path in every
+case — `flat: true` against an exact file path, `flat: true` against a
+directory (appends the source's basename), and the `flat: false` default's
+`dest/<hostname>/<src>` layout — confirmed empirically across all three,
+including on an idempotent (`changed: false`) second run. So no
+flat-aware resolution logic was needed at all: `fetch` reuses
+`FilenameField`'s existing top-level `dest` lookup like `copy`/`template`,
+with `RemoteFilePath` simply treating it as always-local (its `dest` is
+never on the named host, in any configuration, regardless of
+`delegate_to`).
 
 ## Potential actions
 
@@ -203,7 +218,7 @@ too broad, see below).
 
 | action | parameter | comment |
 | --- | --- | --- |
-| ansible.builtin.fetch | | more complicated algorithm needed |
+| ansible.builtin.fetch* | dest | turned out not to need the "more complicated algorithm" — dest is already fully resolved, see Implementation status |
 | ansible.builtin.get_url | dest | |
 | ansible.builtin.uri | dest | dest + basename if dest is a directory |
 
