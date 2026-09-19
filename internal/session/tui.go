@@ -2740,6 +2740,22 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// valid choice, typing q here is always meaningful input, never a
 		// mistake to rescue the user from.
 		if searchDialogOpen {
+			if event.Key() == tcell.KeyEscape {
+				// Centralized, unlike every other key here (see below) -
+				// fixes a real bug: a click on searchDialogFlex's own bare
+				// margin Box (SetMouseCapture's own searchDialogOpen branch)
+				// natively steals keyboard focus onto that inert Box (Box's
+				// own MouseHandler fallback: "a mouse-down anywhere in its
+				// rect refocuses it"), which left Escape with nowhere to
+				// go - searchInput.SetDoneFunc's own Escape-closes-the-
+				// dialog handling only ever fires while searchInput itself
+				// still has focus. Handled centrally here instead, the same
+				// way rerunDialogOpen/filterDialogOpen already handle Escape
+				// (and, for rerun, Enter) regardless of focus, so it always
+				// closes this dialog no matter what currently has it.
+				closeDialogs()
+				return nil
+			}
 			return event
 		}
 
@@ -3296,12 +3312,15 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// construction), which Box.MouseHandler never consumes for a
 			// click - only for MouseLeftDown. A click landing there used to
 			// leak straight through to the tree page underneath (reproduced
-			// live) - and, as an added symptom, silently stole focus off
-			// searchInput onto the tree, which broke Escape-closes-the-
-			// dialog for the rest of that interaction, since this dialog's
-			// own Escape handling isn't centralized the way rerunDialogOpen's
-			// is (searchDialogOpen just passes every key but Ctrl-C straight
-			// through to whatever has focus).
+			// live) - and, as an added symptom, still silently steals focus
+			// off searchInput onto the margin Box itself (Box's own
+			// MouseHandler fallback consumes MouseLeftDown by refocusing
+			// itself - manually dispatching to searchDialogFlex below
+			// reaches that same fallback, since it's the exact same
+			// dispatch tview's own Pages would have done). That's harmless
+			// now: SetInputCapture's own searchDialogOpen branch handles
+			// Escape centrally, so closing no longer depends on searchInput
+			// itself still having focus.
 			x, y := event.Position()
 			if !uikit.InRect(x, y, searchDialogFlex) {
 				return nil, action
