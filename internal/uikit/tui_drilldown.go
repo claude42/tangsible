@@ -167,11 +167,24 @@ func JoinedStringList(v interface{}, sep string) string {
 // under invocation.module_args (which every module echoes back verbatim,
 // unresolved further) - so that's checked next, in the same
 // dest-then-path order, before giving up.
+//
+// Top-level "filename" is a later addition, for the File tab (design-docs/
+// ShowFileContents.md): community.crypto.openssh_cert/openssh_keypair
+// report their own resolved output file under this name instead of
+// dest/path (confirmed empirically) - checked after top-level "path" but
+// before the invocation.module_args fallback, matching the general
+// priority of "a field the module resolved for us" over "the raw input
+// echoed back unresolved." No other module this file has looked at reports
+// a top-level "filename" with a different meaning, so this is safe to check
+// unconditionally rather than gating it by module.
 func FilenameField(decoded map[string]interface{}) string {
 	if v, ok := decoded["dest"].(string); ok && v != "" {
 		return v
 	}
 	if v, ok := decoded["path"].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := decoded["filename"].(string); ok && v != "" {
 		return v
 	}
 	if inv, ok := decoded["invocation"].(map[string]interface{}); ok {
@@ -534,19 +547,80 @@ func RoleFromPath(path string) string {
 // no-trailing-slash-but-still-a-directory case for uri. FilenameField's
 // existing dest-then-path fallback chain already covers both without
 // modification.
+//
+// The later additions below (confirmed empirically unless noted):
+//   - "patch" (ansible.posix.patch): dest only under invocation.module_args
+//   - already covered by FilenameField's existing fallback, no code
+//     change needed beyond this entry.
+//   - "archive" (community.general.archive): top-level dest, fully resolved
+//     even when the task didn't specify one at all (defaults to
+//     "<path>.gz") - confirmed both ways, no special-casing needed, same
+//     "Ansible resolves it for us" pattern as fetch/get_url.
+//   - "htpasswd" (community.general.htpasswd): path only under
+//     invocation.module_args - already covered.
+//   - "ini_file" (community.general.ini_file): top-level path - already
+//     covered.
+//   - "authorized_key" (ansible.posix.authorized_key): top-level path,
+//     already the fully-resolved file (whether the task gave an explicit
+//     path: or relied on the default ~<user>/.ssh/authorized_keys) - already
+//     covered; the return value's own separate "keyfile" field is identical
+//     in every case tested, so path alone is enough.
+//   - "openssh_cert" (community.crypto.openssh_cert): top-level "filename",
+//     not dest/path (see FilenameField's own new fallback) - safe to show
+//     as-is, since an SSH certificate is meant to be public.
+//   - "openssh_keypair" (community.crypto.openssh_keypair): also top-level
+//     "filename", but that's the *private* key - RemoteFilePath below
+//     appends ".pub" to it instead, since community.crypto.openssh_keypair
+//     always writes the public half alongside it at exactly that suffixed
+//     path (confirmed empirically, standard OpenSSH keypair convention) -
+//     the private key itself is never shown.
+//   - "apt_repository" (ansible.builtin.apt_repository): reports no
+//     singular dest/path/filename at all, only a "sources_added" list (see
+//     sourcesAddedField) - per ansible-doc's own RETURN documentation, not
+//     live-verified here since the module always writes under
+//     /etc/apt/sources.list.d/, requiring root and modifying real system
+//     package-manager state.
+//   - "deb822_repository" (ansible.builtin.deb822_repository): top-level
+//     dest, per ansible-doc's own RETURN documentation - not live-verified
+//     for the same reason as apt_repository (no dest: input parameter
+//     exists at all; the module always computes its own path under
+//     /etc/apt/sources.list.d/).
+//
+// Deliberately not supported: "script" (confirmed empirically - its result
+// carries no invocation/dest/path/creates field at all, so a creates: path
+// can't be recovered after the fact, unlike command/shell); "expect"
+// (couldn't be verified live in this environment - pexpect isn't
+// installed - and script, expect's sibling in the "command family" of
+// action plugins, turned out not to share command/shell's invocation
+// echoing, so it isn't safe to assume expect does either); "user" (the only
+// file-shaped output is either the *private* SSH key file
+// (ssh_key_file) or the public key's raw text inline (ssh_public_key,
+// confirmed already used as literal text by AdditionalOutputLines' own
+// "user" case) - neither is a good fit for a tab whose whole job is
+// resolving a *path* to fetch, and showing a generated private key in a
+// debugging UI is the wrong default regardless).
 var FileTabSupportedModules = map[string]bool{
-	"lineinfile":  true,
-	"assemble":    true,
-	"blockinfile": true,
-	"command":     true,
-	"copy":        true,
-	"fetch":       true,
-	"get_url":     true,
-	"known_hosts": true,
-	"replace":     true,
-	"template":    true,
-	"shell":       true,
-	"uri":         true,
+	"lineinfile":        true,
+	"assemble":          true,
+	"blockinfile":       true,
+	"command":           true,
+	"copy":              true,
+	"fetch":             true,
+	"get_url":           true,
+	"known_hosts":       true,
+	"replace":           true,
+	"template":          true,
+	"shell":             true,
+	"uri":               true,
+	"patch":             true,
+	"archive":           true,
+	"htpasswd":          true,
+	"ini_file":          true,
+	"authorized_key":    true,
+	"openssh_cert":      true,
+	"openssh_keypair":   true,
+	"apt_repository":    true,
+	"deb822_repository": true,
 }
 
 // createsField extracts ansible.builtin.command's (and, sharing the same
@@ -565,6 +639,24 @@ func createsField(decoded map[string]interface{}) string {
 		}
 	}
 	return ""
+}
+
+// sourcesAddedField extracts ansible.builtin.apt_repository's own
+// "sources_added" result field (shared with AdditionalOutputLines' own
+// "Filename:" summary line, via JoinedStringList) - apt_repository reports
+// no singular dest/path/filename field at all, only this list of every
+// source file it added. Only a single-entry list is supported: a task that
+// genuinely added more than one source in one run has no single obvious
+// file to show, so it's treated the same as "nothing to fetch" - documented
+// heuristic, not chased further, same style as this file's other derived
+// facts.
+func sourcesAddedField(decoded map[string]interface{}) string {
+	list, ok := decoded["sources_added"].([]interface{})
+	if !ok || len(list) != 1 {
+		return ""
+	}
+	s, _ := list[0].(string)
+	return s
 }
 
 // DelegatedToLocalhost reports whether decoded's own task ran with
@@ -623,6 +715,15 @@ func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported b
 	switch module {
 	case "command", "shell":
 		path = createsField(decoded)
+	case "apt_repository":
+		path = sourcesAddedField(decoded)
+	case "openssh_keypair":
+		// Never the private key itself - only its public half, which
+		// community.crypto.openssh_keypair always writes alongside it at
+		// this exact suffixed path (confirmed empirically).
+		if p := FilenameField(decoded); p != "" {
+			path = p + ".pub"
+		}
 	default:
 		path = FilenameField(decoded)
 	}

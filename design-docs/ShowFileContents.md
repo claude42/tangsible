@@ -141,7 +141,9 @@ actually asked for.
 
 The mechanism above is implemented for the modules marked `*` in the tables
 below (`lineinfile`, `assemble`, `blockinfile`, `command`, `copy`, `fetch`,
-`get_url`, `known_hosts`, `replace`, `shell`, `template`, `uri`), gated by
+`get_url`, `known_hosts`, `replace`, `shell`, `template`, `uri`, `patch`,
+`archive`, `htpasswd`, `ini_file`, `authorized_key`, `openssh_cert`,
+`openssh_keypair`, `apt_repository`, `deb822_repository`), gated by
 `internal/uikit.FileTabSupportedModules` (a package-level set — extending
 support to another module, once `FilenameField` knows how to extract that
 module's own path/dest field, is meant to be a one-line addition there,
@@ -203,6 +205,55 @@ all, in either the exact-path or directory-`dest` case. `FilenameField`'s
 existing `dest`-then-`path` fallback chain already covers both without any
 change.
 
+Most of the rest of the remote-host table turned out to already be covered
+by `FilenameField`'s existing fallback chain with zero new code — confirmed
+empirically for `patch` (`dest` only under `invocation.module_args`),
+`archive` (top-level `dest`, fully resolved even when the task didn't
+specify one at all — same "Ansible resolves it for us" pattern as
+`fetch`/`get_url`), `htpasswd` (`path` only under `invocation.module_args`),
+`ini_file` (top-level `path`), and `authorized_key` (top-level `path`,
+already fully resolved whether the task gave an explicit `path:` or relied
+on the default `~<user>/.ssh/authorized_keys`). `apt_repository` and
+`deb822_repository` weren't live-tested — both always write under
+`/etc/apt/sources.list.d/`, requiring root and modifying real
+package-manager state, which didn't seem worth doing just to confirm a
+result shape — so they're implemented from `ansible-doc`'s own RETURN
+documentation instead: `apt_repository` reports no singular dest/path field
+at all, only a `sources_added` list (a new `sourcesAddedField` helper,
+supporting only the common single-source case — a task that added more
+than one source in one run has no single obvious file to show, so that's
+treated as unsupported); `deb822_repository` reports a top-level `dest`,
+already covered by `FilenameField`.
+
+`community.crypto.openssh_cert`/`openssh_keypair` needed one small addition:
+both report their output file under a top-level `filename` field, not
+`dest`/`path` — confirmed empirically — so `FilenameField` gained a third
+fallback for it. `openssh_cert`'s `filename` is shown as-is (an SSH
+certificate is meant to be public). `openssh_keypair`'s `filename` is the
+*private* key, though — `RemoteFilePath` appends `.pub` to it instead, since
+the module always writes the public half alongside it at exactly that
+suffixed path (standard OpenSSH keypair convention, confirmed empirically);
+the private key itself is never shown.
+
+Three modules from the table are deliberately **not** implemented:
+- `ansible.builtin.script` — confirmed empirically that its result carries
+  no `invocation`/`dest`/`path`/`creates` field at all, unlike
+  `command`/`shell`, so a `creates:` path can't be recovered after the
+  fact.
+- `ansible.builtin.expect` — couldn't be verified live in this environment
+  (`pexpect` isn't installed), and since `script` — `expect`'s sibling in
+  the "command family" of action plugins — turned out *not* to share
+  `command`/`shell`'s `invocation` echoing, it isn't safe to assume `expect`
+  does either without checking.
+- `ansible.builtin.user` — the only file-shaped output is either the
+  *private* generated SSH key file (`ssh_key_file`) or the public key's raw
+  text inline (`ssh_public_key`, already shown as literal text by
+  `AdditionalOutputLines`' own `user` case, not a path) — neither fits a tab
+  whose whole job is resolving a *path* to fetch, and showing a generated
+  private key in a debugging UI would be the wrong default regardless. This
+  is the same "probably too broad" instinct the original `/etc/passwd` idea
+  already flagged, just confirmed against the actual result shape.
+
 ## Potential actions
 
 Once the mechanism above is extended to other actions, see below for ones
@@ -215,27 +266,27 @@ too broad, see below).
 
 | action | parameter | comment |
 | --- | --- | --- | 
-| ansible.builtin.apt_repository | filename | |
-| ansible.builtin.deb822_repository | dest | |
+| ansible.builtin.apt_repository* | sources_added | only if exactly one source was added; not live-tested, see Implementation status |
+| ansible.builtin.deb822_repository* | dest | not live-tested, see Implementation status |
 | ansible.builtin.assemble* | dest | |
 | ansible.builtin.blockinfile* | path | | 
 | ansible.builtin.command* | creates | only if creates is specified |
 | ansible.builtin.copy* | dest | only if dest is not a directory |
-| ansible.builtin.expect | creates | only if creates is specified, same as command |
+| ansible.builtin.expect | creates | not implemented — couldn't confirm it echoes creates: the way command/shell do, see Implementation status |
 | ansible.builtin.known_hosts* | path | |
 | ansible.builtin.lineinfile* | path | |
 | ansible.builtin.replace* | path | |
-| ansible.builtin.script | creates | only if creates is specified, same as command |
+| ansible.builtin.script | creates | not implemented — confirmed empirically the result has no recoverable field at all, see Implementation status |
 | ansible.builtin.shell* | creates | only if creates is specified, same as command |
 | ansible.builtin.template* | dest | |
-| ansible.builtin.user | | /etc/passwd — probably too broad, see comment above |
-| ansible.posix.authorized_key | | user/.ssh/authorized_key or path/authorized_key |
-| ansible.posix.patch | dest | only if dest is specified |
-| community.crypto.openssh_cert | path | |
-| community.crypto.openssh_keypair | path | append ".pub" to the path to only show the public key |
-| community.general.archive | dest | only if dest is specified |
-| community.general.htpasswd | path | |
-| community.general.ini_file | path | |
+| ansible.builtin.user | | not implemented — only file-shaped output is a private key file or inline public-key text, see Implementation status |
+| ansible.posix.authorized_key* | path | already fully resolved whether path: was given explicitly or defaulted |
+| ansible.posix.patch* | dest | only under invocation.module_args, see Implementation status |
+| community.crypto.openssh_cert* | filename | not path — shown as-is (public data) |
+| community.crypto.openssh_keypair* | filename | not path — .pub appended to only show the public key, never the private key itself |
+| community.general.archive* | dest | fully resolved even when dest wasn't specified |
+| community.general.htpasswd* | path | only under invocation.module_args |
+| community.general.ini_file* | path | |
 
 ### Actions that modify a file on the control host
 

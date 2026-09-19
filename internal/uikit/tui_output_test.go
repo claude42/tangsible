@@ -549,6 +549,18 @@ func TestRemoteFilePath(t *testing.T) {
 	fetchNonFlatRaw := json.RawMessage(`{"action":"ansible.builtin.fetch","dest":"/backup/web1/etc/hosts","changed":false}`)
 	getURLRaw := json.RawMessage(`{"action":"ansible.builtin.get_url","dest":"/opt/downloads/artifact.tar.gz","changed":true}`)
 	uriRaw := json.RawMessage(`{"action":"ansible.builtin.uri","path":"/opt/downloads/downloadme.txt","changed":true}`)
+	patchRaw := json.RawMessage(`{"action":"ansible.posix.patch","invocation":{"module_args":{"dest":"/opt/original.txt"}}}`)
+	archiveRaw := json.RawMessage(`{"action":"community.general.archive","dest":"/opt/original.txt.gz","changed":true}`)
+	htpasswdRaw := json.RawMessage(`{"action":"community.general.htpasswd","invocation":{"module_args":{"path":"/opt/htpasswd"}}}`)
+	iniFileRaw := json.RawMessage(`{"action":"community.general.ini_file","path":"/opt/config.ini"}`)
+	authorizedKeyRaw := json.RawMessage(`{"action":"ansible.posix.authorized_key","path":"/home/someuser/.ssh/authorized_keys"}`)
+	opensshCertRaw := json.RawMessage(`{"action":"community.crypto.openssh_cert","filename":"/opt/user_key-cert.pub"}`)
+	opensshKeypairRaw := json.RawMessage(`{"action":"community.crypto.openssh_keypair","filename":"/opt/id_ed25519"}`)
+	aptRepoSingleRaw := json.RawMessage(`{"action":"ansible.builtin.apt_repository","sources_added":["/etc/apt/sources.list.d/example.list"]}`)
+	aptRepoMultiRaw := json.RawMessage(`{"action":"ansible.builtin.apt_repository","sources_added":["/etc/apt/sources.list.d/a.list","/etc/apt/sources.list.d/b.list"]}`)
+	deb822RepoRaw := json.RawMessage(`{"action":"ansible.builtin.deb822_repository","dest":"/etc/apt/sources.list.d/example.sources"}`)
+	scriptRaw := json.RawMessage(`{"action":"ansible.builtin.script","changed":true,"rc":0}`)
+	userRaw := json.RawMessage(`{"action":"ansible.builtin.user","name":"someuser","ssh_public_key":"ssh-ed25519 AAAA..."}`)
 
 	cases := []struct {
 		name          string
@@ -675,6 +687,90 @@ func TestRemoteFilePath(t *testing.T) {
 			wantPath:      "/opt/downloads/downloadme.txt",
 			wantSupported: true,
 			wantLocal:     false,
+		},
+		{
+			name:          "patch - dest only under invocation.module_args",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": patchRaw}},
+			host:          "web1",
+			wantPath:      "/opt/original.txt",
+			wantSupported: true,
+		},
+		{
+			name:          "archive - top-level dest",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": archiveRaw}},
+			host:          "web1",
+			wantPath:      "/opt/original.txt.gz",
+			wantSupported: true,
+		},
+		{
+			name:          "htpasswd - path only under invocation.module_args",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": htpasswdRaw}},
+			host:          "web1",
+			wantPath:      "/opt/htpasswd",
+			wantSupported: true,
+		},
+		{
+			name:          "ini_file - top-level path",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": iniFileRaw}},
+			host:          "web1",
+			wantPath:      "/opt/config.ini",
+			wantSupported: true,
+		},
+		{
+			name:          "authorized_key - top-level path",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": authorizedKeyRaw}},
+			host:          "web1",
+			wantPath:      "/home/someuser/.ssh/authorized_keys",
+			wantSupported: true,
+		},
+		{
+			name:          "openssh_cert - top-level filename, shown as-is (public data)",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": opensshCertRaw}},
+			host:          "web1",
+			wantPath:      "/opt/user_key-cert.pub",
+			wantSupported: true,
+		},
+		{
+			name:          "openssh_keypair - .pub appended, never the private key itself",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": opensshKeypairRaw}},
+			host:          "web1",
+			wantPath:      "/opt/id_ed25519.pub",
+			wantSupported: true,
+		},
+		{
+			name:          "apt_repository - single sources_added entry",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": aptRepoSingleRaw}},
+			host:          "web1",
+			wantPath:      "/etc/apt/sources.list.d/example.list",
+			wantSupported: true,
+		},
+		{
+			name:          "apt_repository - multiple sources_added entries, unsupported (no single file)",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": aptRepoMultiRaw}},
+			host:          "web1",
+			wantPath:      "",
+			wantSupported: false,
+		},
+		{
+			name:          "deb822_repository - top-level dest",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": deb822RepoRaw}},
+			host:          "web1",
+			wantPath:      "/etc/apt/sources.list.d/example.sources",
+			wantSupported: true,
+		},
+		{
+			name:          "script - not supported, no recoverable field at all",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": scriptRaw}},
+			host:          "web1",
+			wantPath:      "",
+			wantSupported: false,
+		},
+		{
+			name:          "user - not supported at all",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": userRaw}},
+			host:          "web1",
+			wantPath:      "",
+			wantSupported: false,
 		},
 	}
 	for _, c := range cases {
