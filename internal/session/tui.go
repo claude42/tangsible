@@ -3280,26 +3280,67 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			return nil, action
 		}
 		if rerunDialogOpen {
-			// Same reasoning as searchDialogOpen above, for rerunForm's
-			// own native per-field click-to-focus (tview.Form).
+			// Real, reported bug this whole block exists to fix: clicking
+			// one of the blank separator rows between rerunForm's fields
+			// used to toggle a tree row on the page behind the dialog.
+			// Root cause, confirmed against tview's own source (application.go/
+			// pages.go/form.go): Form.MouseHandler's own catch-all ("a
+			// mouse-down anywhere else refocuses the last element") only
+			// ever consumes the MouseLeftDown action - it has no
+			// equivalent for MouseLeftUp/MouseLeftClick, so a click
+			// landing on a blank row (nothing there to consume Up/Click)
+			// went unconsumed by the form, and Pages.MouseHandler (tries
+			// every visible page, topmost first, falling through to the
+			// next on non-consumption) let it leak straight through to the
+			// "main" page underneath.
 			x, y := event.Position()
-			if uikit.InRect(x, y, rerunForm) {
-				return event, action
-			}
 			// An open autocomplete drop-down (design-docs/Autocomplete.md)
 			// renders at an absolute screen position directly below its
 			// own field (InputField.Draw), independent of rerunForm's own
 			// fixed-height box - it can render partly or entirely below
-			// rerunForm's own rect, where the exact-rect check above would
-			// otherwise swallow a click on it as dead. InputField exposes
-			// no accessor for the drop-down's own rect, so this is a
-			// deliberately generous fixed band below rerunForm sized to
-			// the maximum drop-down height, not a precise hit-test.
-			if rx, ry, rw, rh := rerunForm.GetRect(); x >= rx && x < rx+rw &&
-				y >= ry+rh && y < ry+rh+autocompleteMaxEntries+1 {
+			// rerunForm's own rect. InputField exposes no accessor for the
+			// drop-down's own rect, so this is a deliberately generous
+			// fixed band below rerunForm sized to the maximum drop-down
+			// height, not a precise hit-test.
+			rx, ry, rw, rh := rerunForm.GetRect()
+			inBand := x >= rx && x < rx+rw && y >= ry+rh && y < ry+rh+autocompleteMaxEntries+1
+			if !uikit.InRect(x, y, rerunForm) && !inBand {
+				return nil, action // outside the dialog entirely - fully modal
+			}
+			switch action {
+			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
+				tview.MouseMiddleClick, tview.MouseMiddleDoubleClick,
+				tview.MouseRightClick, tview.MouseRightDoubleClick:
+				// The actual fix: dispatch straight to rerunForm's own
+				// MouseHandler ourselves (still reaches a real field/
+				// button/autocomplete-entry click exactly as normal Pages
+				// dispatch would - neither Box.WrapMouseHandler nor
+				// InputField.MouseHandler, tview's box.go/inputfield.go,
+				// gate on the primitive's own rect before checking its own
+				// open autocomplete list, so Form's per-item loop reaches
+				// it correctly even inside the band above), then
+				// unconditionally swallow (return nil) so a click Form
+				// itself doesn't consume - a blank row - can never fall
+				// through to Pages' own dispatch and leak to the page
+				// underneath.
+				rerunForm.MouseHandler()(action, event, func(p tview.Primitive) { app.SetFocus(p) })
+				return nil, action
+			default:
+				// MouseMove/MouseLeftDown/MouseLeftUp: let through
+				// unchanged via normal Pages dispatch. MouseLeftDown is
+				// safe to let through as-is - Form's own catch-all above
+				// already consumes it anywhere in rect, so it was never
+				// the source of the leak. MouseLeftUp must also be let
+				// through unchanged, even though nothing here needs its
+				// own effect: tview's fireMouseActions (application.go)
+				// only synthesizes the MouseLeftClick action afterward if
+				// the MouseLeftUp call's own mouseCapture result came back
+				// non-nil (it reassigns its own shared `event` variable to
+				// whatever this callback returns) - swallowing Up here,
+				// as an earlier version of this fix did, silently
+				// suppressed every Click on rerunForm, buttons included.
 				return event, action
 			}
-			return nil, action
 		}
 		if viewingOutput {
 			// While a two-pane drill-down (design-docs/TwoPanedLayout.md) is
