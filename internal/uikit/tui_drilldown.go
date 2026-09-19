@@ -499,20 +499,22 @@ func RoleFromPath(path string) string {
 // FileTabSupportedModules is the set of modules the "File" tab (design-docs/
 // ShowFileContents.md) knows how to resolve a remote path for. Confirmed
 // empirically (see that doc's "Implementation status" section) that every
-// one of these but "command" reports its own dest/path field somewhere
-// FilenameField already knows to look - either top-level (assemble, copy,
-// template always; known_hosts, in this case, also top-level) or only under
-// invocation.module_args (blockinfile, replace, and lineinfile before it) -
-// so RemoteFilePath below needs no per-module special-casing for any of
-// them. "command" is the one exception: its result carries neither dest nor
-// path anywhere, only invocation.module_args.creates (and only when the
-// task actually used creates:) - see createsField. copy's own "only if dest
-// is not a directory" caveat (design-docs/ShowFileContents.md's table)
-// needs no special-casing either: fetching a directory just makes the
-// underlying ansible.builtin.fetch task fail ("remote file is a directory,
-// fetch cannot work on directories," confirmed empirically), which
-// fetchRemoteFileContents already surfaces as an ordinary error - same as
-// any other fetch failure, hiding the tab.
+// one of these but "command"/"shell" reports its own dest/path field
+// somewhere FilenameField already knows to look - either top-level
+// (assemble, copy, template always; known_hosts, in this case, also
+// top-level) or only under invocation.module_args (blockinfile, replace,
+// and lineinfile before it) - so RemoteFilePath below needs no per-module
+// special-casing for any of them. "command"/"shell" are the exception:
+// neither's result carries dest or path anywhere, only
+// invocation.module_args.creates (and only when the task actually used
+// creates:) - see createsField, confirmed empirically for both (shell
+// shares command's own creates:/removes: argument handling). copy's own
+// "only if dest is not a directory" caveat (design-docs/
+// ShowFileContents.md's table) needs no special-casing either: fetching a
+// directory just makes the underlying ansible.builtin.fetch task fail
+// ("remote file is a directory, fetch cannot work on directories,"
+// confirmed empirically), which fetchRemoteFileContents already surfaces as
+// an ordinary error - same as any other fetch failure, hiding the tab.
 var FileTabSupportedModules = map[string]bool{
 	"lineinfile":  true,
 	"assemble":    true,
@@ -522,12 +524,14 @@ var FileTabSupportedModules = map[string]bool{
 	"known_hosts": true,
 	"replace":     true,
 	"template":    true,
+	"shell":       true,
 }
 
-// createsField extracts ansible.builtin.command's own "creates" argument
-// from invocation.module_args - the only place it appears; unlike
-// FilenameField's dest/path, there's no top-level echo of it in the result
-// at all (confirmed empirically). "" when the task didn't use creates:, or
+// createsField extracts ansible.builtin.command's (and, sharing the same
+// argument handling, ansible.builtin.shell's) own "creates" argument from
+// invocation.module_args - the only place it appears; unlike FilenameField's
+// dest/path, there's no top-level echo of it in the result at all (confirmed
+// empirically for both modules). "" when the task didn't use creates:, or
 // on a shape mismatch (not trusted blindly, same caveat as FilenameField's
 // own decode).
 func createsField(decoded map[string]interface{}) string {
@@ -590,9 +594,10 @@ func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported b
 	if !FileTabSupportedModules[module] {
 		return "", false, false
 	}
-	if module == "command" {
+	switch module {
+	case "command", "shell":
 		path = createsField(decoded)
-	} else {
+	default:
 		path = FilenameField(decoded)
 	}
 	return path, path != "", DelegatedToLocalhost(decoded)

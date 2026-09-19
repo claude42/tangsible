@@ -541,6 +541,8 @@ func TestRemoteFilePath(t *testing.T) {
 	noPathRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile"}`)
 	commandWithCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.command","invocation":{"module_args":{"creates":"/tmp/marker.txt"}}}`)
 	commandNoCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.command","invocation":{"module_args":{"creates":null}}}`)
+	shellWithCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.shell","invocation":{"module_args":{"creates":"/tmp/shell-marker.txt"}}}`)
+	shellNoCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.shell","invocation":{"module_args":{"creates":null}}}`)
 	delegatedLocalhostRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/tmp/local.txt"}},"_ansible_delegated_vars":{"ansible_host":"localhost"}}`)
 	delegatedElsewhereRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/tmp/other.txt"}},"_ansible_delegated_vars":{"ansible_host":"otherhost"}}`)
 
@@ -604,6 +606,20 @@ func TestRemoteFilePath(t *testing.T) {
 		{
 			name:          "command with no creates: - nothing to fetch",
 			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": commandNoCreatesRaw}},
+			host:          "web1",
+			wantPath:      "",
+			wantSupported: false,
+		},
+		{
+			name:          "shell with creates: - uses creates, not dest/path",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": shellWithCreatesRaw}},
+			host:          "web1",
+			wantPath:      "/tmp/shell-marker.txt",
+			wantSupported: true,
+		},
+		{
+			name:          "shell with no creates: - nothing to fetch",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": shellNoCreatesRaw}},
 			host:          "web1",
 			wantPath:      "",
 			wantSupported: false,

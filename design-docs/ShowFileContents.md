@@ -141,7 +141,7 @@ actually asked for.
 
 The mechanism above is implemented for the modules marked `*` in the table
 below (`lineinfile`, `assemble`, `blockinfile`, `command`, `copy`,
-`known_hosts`, `replace`, `template`), gated by
+`known_hosts`, `replace`, `shell`, `template`), gated by
 `internal/uikit.FileTabSupportedModules` (a package-level set — extending
 support to another module, once `FilenameField` knows how to extract that
 module's own path/dest field, is meant to be a one-line addition there,
@@ -154,9 +154,9 @@ nothing more):
   interactive-credential guard).
 - `internal/uikit/tui_drilldown.go` — `RemoteFilePath` (module/path
   detection, plus the `local` flag backing the `delegate_to: localhost`
-  case), `DelegatedToLocalhost`, `createsField` (`command`'s own
-  extraction), `FileTabHidden`/`BuildFileTab`, and `BuildOutputTabs`'s new
-  "File" tab, positioned right after "Diff".
+  case), `DelegatedToLocalhost`, `createsField` (`command`'s and `shell`'s
+  shared `creates:` extraction), `FileTabHidden`/`BuildFileTab`, and
+  `BuildOutputTabs`'s new "File" tab, positioned right after "Diff".
 - `internal/session/tui.go` — `fileCache` (keyed like the existing
   `resolveCache`, by `(task, host)`), the async fetch-kickoff inside
   `showOutputWithOrigin` mirroring the existing Resolved/Docs pattern
@@ -194,6 +194,7 @@ too broad, see below).
 | ansible.builtin.known_hosts* | path | |
 | ansible.builtin.lineinfile* | path | |
 | ansible.builtin.replace* | path | |
+| ansible.builtin.shell* | creates | only if creates is specified, same as command |
 | ansible.builtin.template* | dest | |
 | ansible.builtin.user | | /etc/passwd — probably too broad, see comment above |
 | ansible.posix.authorized_key | | user/.ssh/authorized_key or path/authorized_key
