@@ -541,6 +541,8 @@ func TestRemoteFilePath(t *testing.T) {
 	noPathRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile"}`)
 	commandWithCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.command","invocation":{"module_args":{"creates":"/tmp/marker.txt"}}}`)
 	commandNoCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.command","invocation":{"module_args":{"creates":null}}}`)
+	delegatedLocalhostRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/tmp/local.txt"}},"_ansible_delegated_vars":{"ansible_host":"localhost"}}`)
+	delegatedElsewhereRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/tmp/other.txt"}},"_ansible_delegated_vars":{"ansible_host":"otherhost"}}`)
 
 	cases := []struct {
 		name          string
@@ -548,6 +550,7 @@ func TestRemoteFilePath(t *testing.T) {
 		host          string
 		wantPath      string
 		wantSupported bool
+		wantLocal     bool
 	}{
 		{
 			name:          "lineinfile with a top-level path",
@@ -605,12 +608,54 @@ func TestRemoteFilePath(t *testing.T) {
 			wantPath:      "",
 			wantSupported: false,
 		},
+		{
+			name:          "delegate_to: localhost - local is true",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": delegatedLocalhostRaw}},
+			host:          "web1",
+			wantPath:      "/tmp/local.txt",
+			wantSupported: true,
+			wantLocal:     true,
+		},
+		{
+			name:          "delegated elsewhere (not localhost) - local is false",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": delegatedElsewhereRaw}},
+			host:          "web1",
+			wantPath:      "/tmp/other.txt",
+			wantSupported: true,
+			wantLocal:     false,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			path, supported := RemoteFilePath(c.task, c.host)
-			if path != c.wantPath || supported != c.wantSupported {
-				t.Errorf("RemoteFilePath(...) = (%q, %v), want (%q, %v)", path, supported, c.wantPath, c.wantSupported)
+			path, supported, local := RemoteFilePath(c.task, c.host)
+			if path != c.wantPath || supported != c.wantSupported || local != c.wantLocal {
+				t.Errorf("RemoteFilePath(...) = (%q, %v, %v), want (%q, %v, %v)", path, supported, local, c.wantPath, c.wantSupported, c.wantLocal)
+			}
+		})
+	}
+}
+
+func TestDelegatedToLocalhost(t *testing.T) {
+	tests := []struct {
+		name    string
+		decoded map[string]interface{}
+		want    bool
+	}{
+		{"no delegated vars at all", map[string]interface{}{}, false},
+		{"delegated to localhost", map[string]interface{}{
+			"_ansible_delegated_vars": map[string]interface{}{"ansible_host": "localhost"},
+		}, true},
+		{"delegated elsewhere", map[string]interface{}{
+			"_ansible_delegated_vars": map[string]interface{}{"ansible_host": "otherhost"},
+		}, false},
+		{"delegated to 127.0.0.1 - not recognized, exact spelling only", map[string]interface{}{
+			"_ansible_delegated_vars": map[string]interface{}{"ansible_host": "127.0.0.1"},
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DelegatedToLocalhost(tt.decoded); got != tt.want {
+				t.Errorf("DelegatedToLocalhost(%+v) = %v, want %v", tt.decoded, got, tt.want)
 			}
 		})
 	}

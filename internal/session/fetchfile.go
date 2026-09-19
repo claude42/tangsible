@@ -50,6 +50,27 @@ func isBinaryContent(data []byte) bool {
 	return bytes.IndexByte(data[:n], 0) != -1
 }
 
+// readLocalFileContents reads path directly off the control host's own
+// filesystem - used instead of fetchRemoteFileContents whenever
+// uikit.RemoteFilePath reports the task actually ran with
+// delegate_to: localhost (see uikit.DelegatedToLocalhost): the file never
+// left the control host in the first place, so spawning a throwaway
+// ansible-playbook run against the named host would be pointless (and
+// could even fail outright, e.g. an unreachable host whose only real work
+// was always delegated locally). Same binary-content handling as
+// fetchRemoteFileContents - ("", nil), not an error, so the File tab hides
+// exactly the same way.
+func readLocalFileContents(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if isBinaryContent(content) {
+		return "", nil
+	}
+	return string(content), nil
+}
+
 // fetchRemoteFileContents pulls remotePath's current content off host via a
 // throwaway one-task ansible-playbook run using ansible.builtin.fetch,
 // mirroring resolveTaskValues' own "temp file(s) + stub playbook + scan

@@ -103,6 +103,24 @@ failure should read as "nothing to show," not "something went wrong").
 No Ansible invocation needed — read the file directly from the local
 filesystem (it's already local to the machine running Tangsible).
 
+### `delegate_to: localhost`
+
+A task delegated to `localhost` also never touches the named host at all —
+its `dest`/`path`/`creates` value is a control-host path, exactly like the
+control-host actions above, even though the task is still one of the
+remote-host-modifying modules in the table below and reports its result
+under the original inventory host's name. Ansible surfaces the delegation
+on the result itself as `_ansible_delegated_vars.ansible_host ==
+"localhost"` (confirmed empirically — there's no field literally named
+`delegate_to`). When detected, the File tab reads the path directly off
+local disk instead of spawning a fetch playbook against the named host,
+which would be pointless at best (fetching a path that was never actually
+written there) and could fail outright at worst (a named host that's
+otherwise unreachable, since the real work always ran locally). Only the
+exact `"localhost"` spelling is recognized, not `127.0.0.1` or some other
+loopback address/inventory alias — narrow on purpose, matching what was
+actually asked for.
+
 ## Caching / refetch semantics
 
 - The file is fetched (or read, for control-host actions) once per (task,
@@ -121,24 +139,31 @@ filesystem (it's already local to the machine running Tangsible).
 
 ## Implementation status
 
-The mechanism above is implemented for `ansible.builtin.lineinfile` only,
-gated by `internal/uikit.FileTabSupportedModules` (a package-level set
-extending support to another module — once `FilenameField` knows how to
-extract that module's own path/dest field — is meant to be a one-line
-addition there, nothing more):
+The mechanism above is implemented for the modules marked `*` in the table
+below (`lineinfile`, `assemble`, `blockinfile`, `command`, `copy`,
+`known_hosts`, `replace`, `template`), gated by
+`internal/uikit.FileTabSupportedModules` (a package-level set — extending
+support to another module, once `FilenameField` knows how to extract that
+module's own path/dest field, is meant to be a one-line addition there,
+nothing more):
 
 - `internal/session/fetchfile.go` — `fetchRemoteFileContents` (the stub
-  playbook + fetch mechanism above) and `isBinaryContent`.
+  playbook + fetch mechanism above), `readLocalFileContents` (the
+  `delegate_to: localhost` case above), and `isBinaryContent`.
 - `internal/config/rerunargs.go` — `HasInteractiveCredentialFlag` (the
   interactive-credential guard).
 - `internal/uikit/tui_drilldown.go` — `RemoteFilePath` (module/path
-  detection), `FileTabHidden`/`BuildFileTab`, and `BuildOutputTabs`'s new
+  detection, plus the `local` flag backing the `delegate_to: localhost`
+  case), `DelegatedToLocalhost`, `createsField` (`command`'s own
+  extraction), `FileTabHidden`/`BuildFileTab`, and `BuildOutputTabs`'s new
   "File" tab, positioned right after "Diff".
 - `internal/session/tui.go` — `fileCache` (keyed like the existing
   `resolveCache`, by `(task, host)`), the async fetch-kickoff inside
-  `showOutputWithOrigin` mirroring the existing Resolved/Docs pattern, and
-  the cache-clear points in `closeOutput` (every close, per the caching
-  rule above) and `submitRerun` (a new generation).
+  `showOutputWithOrigin` mirroring the existing Resolved/Docs pattern
+  (branching on `local` to call `readLocalFileContents` instead of
+  `fetchRemoteFileContents`), and the cache-clear points in `closeOutput`
+  (every close, per the caching rule above) and `submitRerun` (a new
+  generation).
 
 Verified live against a real `ansible.builtin.lineinfile` task (over a
 `connection: local` inventory host — see the connection-settings limitation
@@ -162,14 +187,14 @@ too broad, see below).
 | action | parameter | comment |
 | --- | --- | --- | 
 | ansible.builtin.apt_repository | filename | |
-| ansible.builtin.assemble | dest | |
-| ansible.builtin.blockinfile | path | | 
-| ansible.builtin.command | creates | only if creates is specified |
-| ansible.builtin.copy | dest | only if dest is not a directory |
-| ansible.builtin.known_hosts | path | |
-| ansible.builtin.lineinfile | path | |
-| ansible.builtin.replace | path | |
-| ansible.builtin.template | dest | |
+| ansible.builtin.assemble* | dest | |
+| ansible.builtin.blockinfile* | path | | 
+| ansible.builtin.command* | creates | only if creates is specified |
+| ansible.builtin.copy* | dest | only if dest is not a directory |
+| ansible.builtin.known_hosts* | path | |
+| ansible.builtin.lineinfile* | path | |
+| ansible.builtin.replace* | path | |
+| ansible.builtin.template* | dest | |
 | ansible.builtin.user | | /etc/passwd — probably too broad, see comment above |
 | ansible.posix.authorized_key | | user/.ssh/authorized_key or path/authorized_key
 

@@ -1355,13 +1355,22 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// ShowFileContents.md, fetchfile.go's fetchRemoteFileContents) -
 		// cached by (task, host) in fileCache, only attempted at all when
 		// uikit.RemoteFilePath recognizes this task's own module and can
-		// find a path to fetch.
+		// find a path to fetch. local (delegate_to: localhost, see
+		// uikit.DelegatedToLocalhost) reads the file straight off local disk
+		// instead of spawning a fetch against host - the file never left the
+		// control host in the first place.
 		file, fileCached := fileCache[key]
-		if remotePath, supported := uikit.RemoteFilePath(task, host); supported && !fileCached {
+		if filePath, supported, local := uikit.RemoteFilePath(task, host); supported && !fileCached {
 			file = uikit.ResolvedRender{Pending: true}
 			fileCache[key] = file
 			go func() {
-				text, err := fetchRemoteFileContents(remotePath, host, passthroughArgs)
+				var text string
+				var err error
+				if local {
+					text, err = readLocalFileContents(filePath)
+				} else {
+					text, err = fetchRemoteFileContents(filePath, host, passthroughArgs)
+				}
 				result := uikit.ResolvedRender{}
 				if err != nil {
 					result.Err = err.Error()

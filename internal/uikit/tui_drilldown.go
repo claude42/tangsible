@@ -541,34 +541,61 @@ func createsField(decoded map[string]interface{}) string {
 	return ""
 }
 
-// RemoteFilePath reports the remote path a File tab should fetch for
-// (t, host), and whether one applies at all. supported is false whenever
-// the module isn't in FileTabSupportedModules, the raw result can't be
-// decoded, or there's no raw result yet for this host - the same tolerance
-// TaskAction already has for "nothing recorded yet." path may still be ""
-// even when supported is true, if the module's own field (FilenameField's
-// dest/path, or createsField for "command") can't be found on this
-// particular result - callers treat that the same as "not supported"
-// (nothing to fetch, e.g. a command task with no creates: at all).
-func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported bool) {
+// DelegatedToLocalhost reports whether decoded's own task ran with
+// delegate_to: localhost - Ansible surfaces this as
+// _ansible_delegated_vars.ansible_host == "localhost" on the result
+// (confirmed empirically against a real delegate_to: localhost task; there
+// is no field named after "delegate_to" itself anywhere in the result).
+// Only the literal "localhost" spelling is recognized - not "127.0.0.1" or
+// some other loopback address/inventory alias that happens to resolve
+// there - matching exactly what was asked for, same "documented heuristic,
+// not chased further" tolerance as this file's other derived facts (e.g.
+// RoleFromPath's path-convention matching).
+func DelegatedToLocalhost(decoded map[string]interface{}) bool {
+	dv, ok := decoded["_ansible_delegated_vars"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	delegatedHost, _ := dv["ansible_host"].(string)
+	return delegatedHost == "localhost"
+}
+
+// RemoteFilePath reports the path a File tab should read for (t, host), and
+// whether one applies at all. supported is false whenever the module isn't
+// in FileTabSupportedModules, the raw result can't be decoded, or there's
+// no raw result yet for this host - the same tolerance TaskAction already
+// has for "nothing recorded yet." path may still be "" even when supported
+// is true, if the module's own field (FilenameField's dest/path, or
+// createsField for "command") can't be found on this particular result -
+// callers treat that the same as "not supported" (nothing to fetch, e.g. a
+// command task with no creates: at all).
+//
+// local reports whether the task actually ran with delegate_to: localhost
+// (DelegatedToLocalhost) - the path is on the control host in that case,
+// not the named host, even though every module still reports it under the
+// same dest/path/creates fields either way. Callers use this to read the
+// file directly off local disk instead of spawning a fetch against a host
+// that was never actually touched for this particular task. local is only
+// meaningful when supported is also true.
+func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported bool, local bool) {
 	raw, ok := t.Raw[host]
 	if !ok {
-		return "", false
+		return "", false, false
 	}
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return "", false
+		return "", false, false
 	}
 	module := ModuleShortName(decoded)
 	if !FileTabSupportedModules[module] {
-		return "", false
+		return "", false, false
 	}
 	if module == "command" {
 		path = createsField(decoded)
 	} else {
 		path = FilenameField(decoded)
 	}
-	return path, path != ""
+	return path, path != "", DelegatedToLocalhost(decoded)
 }
 
 // ResolvedRender is one (task, host) pair's own "Resolved" section state
