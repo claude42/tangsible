@@ -496,6 +496,40 @@ func RoleFromPath(path string) string {
 	return m[1]
 }
 
+// FileTabSupportedModules is the set of modules the "File" tab (design-docs/
+// ShowFileContents.md) knows how to resolve a remote path for - starting
+// with just lineinfile to validate the mechanism end-to-end before widening
+// it. Extending support to another module in that doc's table is meant to
+// be a one-line addition here, nothing more, as long as FilenameField
+// already knows how to extract that module's own path/dest field.
+var FileTabSupportedModules = map[string]bool{
+	"lineinfile": true,
+}
+
+// RemoteFilePath reports the remote path a File tab should fetch for
+// (t, host), and whether one applies at all. supported is false whenever
+// the module isn't in FileTabSupportedModules, the raw result can't be
+// decoded, or there's no raw result yet for this host - the same tolerance
+// TaskAction already has for "nothing recorded yet." path may still be ""
+// even when supported is true, if FilenameField itself can't find a
+// dest/path field on this particular result - callers treat that the same
+// as "not supported" (nothing to fetch).
+func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported bool) {
+	raw, ok := t.Raw[host]
+	if !ok {
+		return "", false
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return "", false
+	}
+	if !FileTabSupportedModules[ModuleShortName(decoded)] {
+		return "", false
+	}
+	path = FilenameField(decoded)
+	return path, path != ""
+}
+
 // ResolvedRender is one (task, host) pair's own "Resolved" section state
 // (design-docs/Drilldown, Resolved Values.md) - Pending means the
 // background render (see NewLiveTUI's resolveCache) hasn't finished yet;
@@ -515,13 +549,14 @@ type ResolvedRender struct {
 
 // BuildOutputTabs is the output drill-down view's own tab-content builder
 // (design-docs/Tabbed UI.md), replacing what used to be one monolithic
-// formatHostOutput string with up to 7 named tabs instead - Task, Output
+// formatHostOutput string with up to 8 named tabs instead - Task, Output
 // (merging what used to be separate Output/Warnings/Items/Error sections
 // into one tab, per design-docs/Tabbed UI.md's own content-mapping
 // decision - each piece keeps its own sectionLabel header within it, so
 // several distinct pieces sharing one tab don't become an undifferentiated
-// blob), Diff, Task definition, Resolved, Docs, and Details - in that
-// order. Every tab but Task/Details is dynamic: names/contents simply
+// blob), Diff, File (design-docs/ShowFileContents.md), Task definition,
+// Resolved, Docs, and Details - in that order. Every tab but Task/Details is
+// dynamic: names/contents simply
 // omits one entirely when that particular task has nothing for it (an
 // empty "" from that tab's own builder, or - Docs/Resolved specifically -
 // docsTabHidden/resolvedTabHidden's own conditions), matching this
@@ -562,7 +597,7 @@ type ResolvedRender struct {
 // requested in that order over the module-reference-first ordering this
 // originally shipped with, once live use showed the task's own values
 // mattered more, front and center, than the module's general docs.
-func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[string]string, resolved ResolvedRender, docs ResolvedRender) (names []string, contents []string) {
+func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[string]string, resolved ResolvedRender, docs ResolvedRender, file ResolvedRender) (names []string, contents []string) {
 	raw := task.Raw[host]
 	if len(raw) == 0 {
 		// Shouldn't happen in normal operation - every host recorded via
@@ -600,6 +635,18 @@ func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[strin
 
 	add("Output", BuildOutputTab(decoded, o))
 	add("Diff", BuildDiffTab(decoded))
+
+	// File (design-docs/ShowFileContents.md): the remote file's current
+	// contents, fetched asynchronously by the caller (showOutput, see
+	// NewLiveTUI) the same way Resolved/Docs are - fileTabHidden hides it
+	// while Pending, and also (unlike Resolved/Docs) on any Err or binary
+	// content, per that doc's own "don't display it" decision for both
+	// cases - there's no error/placeholder text to show here at all.
+	if !FileTabHidden(file) {
+		names = append(names, "File")
+		contents = append(contents, BuildFileTab(file))
+	}
+
 	taskSource := sourceIndex[task.Path]
 	add("Task definition", BuildSourceTab(task.Path, sourceIndex))
 
@@ -1020,6 +1067,28 @@ func BuildDocsTab(docs ResolvedRender) string {
 		return "Could not fetch ansible-doc: " + tview.Escape(docs.Err)
 	}
 	return tview.Escape(docs.Text)
+}
+
+// FileTabHidden is buildOutputTabs' "omit the File tab" decision, factored
+// out the same way resolvedTabHidden/docsTabHidden are, so showOutput's own
+// async completion callback can't drift out of agreement with it. Hidden
+// while still Pending, same reasoning as Resolved/Docs - but, unlike either
+// of those, also hidden on a genuine Err, and on an empty Text with no Err
+// (the "content looked binary" case, see fetchRemoteFileContents): design-
+// docs/ShowFileContents.md is explicit that both a fetch error and binary
+// content mean the tab simply doesn't appear, never a placeholder/error
+// message the way Docs shows "Could not fetch ansible-doc: ..." - there's
+// nothing safe or useful to display in either case, so Err is carried on
+// ResolvedRender purely for potential future diagnostics, not for display.
+func FileTabHidden(file ResolvedRender) bool {
+	return file.Pending || file.Text == ""
+}
+
+// BuildFileTab renders the File tab's own content - never called while
+// FileTabHidden is true (this tab's only call site gates on that), so
+// file.Text is always real, non-empty content here.
+func BuildFileTab(file ResolvedRender) string {
+	return tview.Escape(file.Text)
 }
 
 // BuildDetailsTab renders the full result as pretty-printed JSON - always

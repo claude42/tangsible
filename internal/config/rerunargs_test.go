@@ -273,3 +273,27 @@ func TestHasCheckFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestHasInteractiveCredentialFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"absent", []string{"-i", "localhost,"}, false},
+		{"empty args", nil, false},
+		{"--ask-become-pass", []string{"-i", "localhost,", "--ask-become-pass"}, true},
+		{"-K short form", []string{"-i", "localhost,", "-K"}, true},
+		{"--ask-vault-pass", []string{"--ask-vault-pass"}, true},
+		{"--ask-vault-password", []string{"--ask-vault-password"}, true},
+		{"mixed with other args", []string{"-i", "inv.ini", "-K", "--tags", "foo"}, true},
+		{"attached bundled short form not recognized", []string{"-vK"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasInteractiveCredentialFlag(tt.args); got != tt.want {
+				t.Errorf("HasInteractiveCredentialFlag(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}

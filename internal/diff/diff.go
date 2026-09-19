@@ -559,7 +559,7 @@ func DiffTwoTexts(a, b string) string {
 // the task genuinely exists on both sides) skips the note entirely - it
 // would be actively wrong there.
 func SingleRunTabs(task *playbook.TaskNode, host string, sourceIndex source.TaskSourceIndex, docs uikit.ResolvedRender, side string) (names []string, contents []string) {
-	allNames, allContents := uikit.BuildOutputTabs(task, host, sourceIndex, uikit.ResolvedRender{}, docs)
+	allNames, allContents := uikit.BuildOutputTabs(task, host, sourceIndex, uikit.ResolvedRender{}, docs, uikit.ResolvedRender{})
 	for i, n := range allNames {
 		if n == "Diff" || n == "Resolved" {
 			continue

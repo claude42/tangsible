@@ -1080,6 +1080,18 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// see are the same as before it, so there's nothing stale to flush.
 	docsCache := map[string]uikit.ResolvedRender{}
 
+	// fileCache holds every (task, host) pair's own ResolvedRender for the
+	// "File" tab (design-docs/ShowFileContents.md, fetchfile.go's
+	// fetchRemoteFileContents) - keyed the same way resolveCache is, since a
+	// fetched file's content is per-host like a resolved value, not
+	// per-module like docs. Unlike resolveCache, this is also cleared by
+	// closeOutput (below) rather than only by submitRerun: a remote file can
+	// keep changing throughout a single generation (a later task modifying
+	// it again), so "the same generation's own vars/facts" isn't a strong
+	// enough staleness bound the way it is for Resolved/Docs - only "still
+	// the same open drill-down visit" is.
+	fileCache := map[resolveKey]uikit.ResolvedRender{}
+
 	// tabSearch is non-nil while an in-tab search (design-docs/Search.md)
 	// is active in whichever tab was frontmost when it started - cleared
 	// (clearTabSearch) whenever that tab's own content changes under it or
@@ -1196,9 +1208,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// active tab's content is about to change (a new host/task, a
 	// resolve/docs fetch landing, a rerun), and design-docs/Search.md is
 	// explicit that a search does not survive that.
-	renderOutputTabs := func(task *playbook.TaskNode, host string, resolved uikit.ResolvedRender, docs uikit.ResolvedRender) {
+	renderOutputTabs := func(task *playbook.TaskNode, host string, resolved uikit.ResolvedRender, docs uikit.ResolvedRender, file uikit.ResolvedRender) {
 		clearTabSearch()
-		names, contents := uikit.BuildOutputTabs(task, host, sourceIndex, resolved, docs)
+		names, contents := uikit.BuildOutputTabs(task, host, sourceIndex, resolved, docs, file)
 		prims := make([]tview.Primitive, len(names))
 		for i, content := range contents {
 			tv := tview.NewTextView().SetDynamicColors(true)
@@ -1291,7 +1303,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 						// own "kicked off the moment a drill-down opens"
 						// timing), so there's realistically nothing
 						// meaningful to lose yet.
-						renderOutputTabs(task, host, result, docsCache[uikit.TaskAction(task, host)])
+						renderOutputTabs(task, host, result, docsCache[uikit.TaskAction(task, host)], fileCache[key])
 					}
 					// Otherwise the tab stays exactly as absent as it
 					// already was - nothing on screen needs to change.
@@ -1332,13 +1344,43 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 						return
 					}
 					if !uikit.DocsTabHidden(result) {
-						renderOutputTabs(task, host, resolveCache[key], result)
+						renderOutputTabs(task, host, resolveCache[key], result, fileCache[key])
 					}
 				})
 			}()
 		}
 
-		renderOutputTabs(task, host, resolved, docs)
+		// Same "kick off immediately, stay absent until ready" treatment as
+		// Resolved/Docs above, for the File tab (design-docs/
+		// ShowFileContents.md, fetchfile.go's fetchRemoteFileContents) -
+		// cached by (task, host) in fileCache, only attempted at all when
+		// uikit.RemoteFilePath recognizes this task's own module and can
+		// find a path to fetch.
+		file, fileCached := fileCache[key]
+		if remotePath, supported := uikit.RemoteFilePath(task, host); supported && !fileCached {
+			file = uikit.ResolvedRender{Pending: true}
+			fileCache[key] = file
+			go func() {
+				text, err := fetchRemoteFileContents(remotePath, host, passthroughArgs)
+				result := uikit.ResolvedRender{}
+				if err != nil {
+					result.Err = err.Error()
+				} else {
+					result.Text = text
+				}
+				app.QueueUpdateDraw(func() {
+					fileCache[key] = result
+					if outputTask != task || outputHost != host || !viewingOutput {
+						return
+					}
+					if !uikit.FileTabHidden(result) {
+						renderOutputTabs(task, host, resolveCache[key], docsCache[uikit.TaskAction(task, host)], result)
+					}
+				})
+			}()
+		}
+
+		renderOutputTabs(task, host, resolved, docs, file)
 		// Every fresh tab's own TextView starts scrolled to the top
 		// already (a brand new widget), so there's nothing to reset here
 		// the way the old single-TextView version needed SetText not to
@@ -2612,6 +2654,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		resolveCache = map[resolveKey]uikit.ResolvedRender{} // a new generation
 		// means new vars/facts - any cached "Resolved" render is for a
 		// previous generation's own values and must not linger.
+		fileCache = map[resolveKey]uikit.ResolvedRender{} // same reasoning -
+		// a new generation's fetched file content is just as stale as its
+		// resolved values (closeOutput, below, is fileCache's *other*
+		// invalidation point, for within-generation staleness).
 		everStarted = true // only a real transition the very first time
 		// this fires for the "rerun" Verb's startup dialog (see
 		// startWithRerunDialog) - a harmless no-op reassignment every time
@@ -2692,6 +2738,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	closeOutput := func() {
 		clearTabSearch() // leaving the drill-down entirely - nothing left
 		// to search once its own tabs are gone.
+		fileCache = map[resolveKey]uikit.ResolvedRender{} // design-docs/
+		// ShowFileContents.md's own caching rule: a remote file's fetched
+		// content is only trusted for as long as this one drill-down visit
+		// stays open - closing it (even to immediately reopen the same
+		// task) means the next open fetches fresh, unlike resolveCache/
+		// docsCache, which intentionally survive a close/reopen within the
+		// same generation.
 		viewingOutput = false
 		viewingOutputFromRecap = false
 		splitMode = false

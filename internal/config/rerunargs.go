@@ -186,6 +186,30 @@ func HasCheckFlag(args []string) bool {
 	return false
 }
 
+// HasInteractiveCredentialFlag reports whether args contains a bare
+// "--ask-become-pass", "-K", "--ask-vault-pass", or "--ask-vault-password" -
+// ansible-playbook's own flags for prompting for a become/vault password at
+// bootstrap, before any callback event fires (Purpose.md/CLAUDE.md). That
+// timing is fine for the real invocation, whose prompt reaches the terminal
+// before the TUI ever takes it over - but replaying the same args to spawn a
+// second, throwaway ansible-playbook process *while the TUI already owns the
+// terminal* (see fetchRemoteFileContents) would trigger the same prompt
+// fighting the raw screen instead, since neither password is cached to disk
+// between processes. Callers use this to skip that second invocation
+// entirely rather than risk it. Same "documented heuristic, exact tokens
+// only, not chased further" gap as HasCheckFlag - no bundled short form
+// (e.g. "-vK") is recognized, and none of these four flags takes a value to
+// worry about.
+func HasInteractiveCredentialFlag(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--ask-become-pass", "-K", "--ask-vault-pass", "--ask-vault-password":
+			return true
+		}
+	}
+	return false
+}
+
 // Reassemble rebuilds a full passthrough arg list from p - the inverse of
 // parsePassthroughArgs, used once the re-run dialog's (possibly edited)
 // Tags/SkipTags/Hosts need combining back with Rest. Always emits the
