@@ -603,19 +603,36 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 			return nil, action
 		}
 		if hostDialogOpen {
-			// hostFlex holds a real tview.InputField (hostInput) with its
-			// own native click-to-position-cursor handling - a click
-			// inside the dialog's own box is let through unchanged so
-			// Pages' own dispatch (confirmed against tview's pages.go: it
-			// tries every visible page, topmost first) reaches it
-			// naturally; anything outside the box is swallowed so it
-			// can't leak through to the tab bar underneath (same
-			// reasoning as tui.go's own dialog handling in
-			// SetMouseCapture).
-			if x, y := event.Position(); uikit.InRect(x, y, hostFlex) {
+			// hostFlex has its own bare tview.NewBox() top margin (see its
+			// own construction above) - Box.MouseHandler only ever consumes
+			// the MouseLeftDown action, never MouseLeftClick, so a click
+			// landing on that margin row went unconsumed and leaked straight
+			// through to the tab bar underneath via Pages' own topmost-first,
+			// falls-through-on-non-consumption dispatch (confirmed against
+			// tview's own source, and against the identical, live-reproduced
+			// bug in session/tui.go's rerunDialogOpen/filterDialogOpen/
+			// searchDialogOpen). Fix: dispatch a click-type action directly
+			// to hostFlex's own MouseHandler (still reaches hostInput's own
+			// native click-to-position-cursor handling exactly as normal
+			// Pages dispatch would) and unconditionally swallow it, so a
+			// click hostFlex itself doesn't consume can never fall through.
+			// MouseMove/MouseLeftDown/MouseLeftUp still pass through
+			// unchanged when inside the box - MouseLeftUp in particular must
+			// stay non-nil, or tview's own fireMouseActions (application.go)
+			// never synthesizes the following MouseLeftClick at all.
+			x, y := event.Position()
+			if !uikit.InRect(x, y, hostFlex) {
+				return nil, action
+			}
+			switch action {
+			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
+				tview.MouseMiddleClick, tview.MouseMiddleDoubleClick,
+				tview.MouseRightClick, tview.MouseRightDoubleClick:
+				hostFlex.MouseHandler()(action, event, func(p tview.Primitive) { app.SetFocus(p) })
+				return nil, action
+			default:
 				return event, action
 			}
-			return nil, action
 		}
 		// header/footer are plain, non-interactive TextViews - swallow a
 		// click there before it can reach TextView's own default

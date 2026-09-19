@@ -3264,20 +3264,57 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				}
 				return nil, action
 			}
-			return event, action
-		}
-		if searchDialogOpen {
-			// searchDialogFlex holds a real tview.InputField (searchInput)
-			// with its own native click-to-position-cursor handling - a
-			// click inside the dialog's own box is let through unchanged
-			// so Pages' own dispatch (confirmed against pages.go: it tries
-			// every visible page, topmost first) reaches it naturally;
-			// anything outside the box is swallowed so it can't leak
-			// through to the main page underneath.
-			if x, y := event.Position(); uikit.InRect(x, y, searchDialogFlex) {
+			// Anything else inside filterFlex but outside filterDialog's own
+			// A/I/C/F rows - the real Cancel button, or one of filterFlex's
+			// own bare tview.NewBox() margin/padding cells (NewLiveTUI's own
+			// filterFlex construction). A click-type action is dispatched to
+			// filterFlex's own MouseHandler directly and unconditionally
+			// swallowed, rather than just letting it fall through to Pages'
+			// native dispatch as the code above used to (comment above still
+			// describes why Up must never be swallowed too) - see
+			// rerunDialogOpen's own doc comment below for the confirmed-
+			// against-tview's-source root cause: Box.MouseHandler only ever
+			// consumes MouseLeftDown, never MouseLeftClick, so a click on one
+			// of those bare margin Box cells went unconsumed and leaked
+			// straight through to the tree page underneath - reproduced live
+			// the same way rerunDialogOpen's own bug was.
+			switch action {
+			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
+				tview.MouseMiddleClick, tview.MouseMiddleDoubleClick,
+				tview.MouseRightClick, tview.MouseRightDoubleClick:
+				filterFlex.MouseHandler()(action, event, func(p tview.Primitive) { app.SetFocus(p) })
+				return nil, action
+			default:
 				return event, action
 			}
-			return nil, action
+		}
+		if searchDialogOpen {
+			// Same fix, same reasoning, as filterDialogOpen above and
+			// rerunDialogOpen below: searchDialogFlex has its own bare
+			// tview.NewBox() margin/padding cells (around its top margin and
+			// its Cancel/Search buttons - NewLiveTUI's own searchDialogFlex
+			// construction), which Box.MouseHandler never consumes for a
+			// click - only for MouseLeftDown. A click landing there used to
+			// leak straight through to the tree page underneath (reproduced
+			// live) - and, as an added symptom, silently stole focus off
+			// searchInput onto the tree, which broke Escape-closes-the-
+			// dialog for the rest of that interaction, since this dialog's
+			// own Escape handling isn't centralized the way rerunDialogOpen's
+			// is (searchDialogOpen just passes every key but Ctrl-C straight
+			// through to whatever has focus).
+			x, y := event.Position()
+			if !uikit.InRect(x, y, searchDialogFlex) {
+				return nil, action
+			}
+			switch action {
+			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
+				tview.MouseMiddleClick, tview.MouseMiddleDoubleClick,
+				tview.MouseRightClick, tview.MouseRightDoubleClick:
+				searchDialogFlex.MouseHandler()(action, event, func(p tview.Primitive) { app.SetFocus(p) })
+				return nil, action
+			default:
+				return event, action
+			}
 		}
 		if rerunDialogOpen {
 			// Real, reported bug this whole block exists to fix: clicking
