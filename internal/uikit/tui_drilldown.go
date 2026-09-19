@@ -497,13 +497,48 @@ func RoleFromPath(path string) string {
 }
 
 // FileTabSupportedModules is the set of modules the "File" tab (design-docs/
-// ShowFileContents.md) knows how to resolve a remote path for - starting
-// with just lineinfile to validate the mechanism end-to-end before widening
-// it. Extending support to another module in that doc's table is meant to
-// be a one-line addition here, nothing more, as long as FilenameField
-// already knows how to extract that module's own path/dest field.
+// ShowFileContents.md) knows how to resolve a remote path for. Confirmed
+// empirically (see that doc's "Implementation status" section) that every
+// one of these but "command" reports its own dest/path field somewhere
+// FilenameField already knows to look - either top-level (assemble, copy,
+// template always; known_hosts, in this case, also top-level) or only under
+// invocation.module_args (blockinfile, replace, and lineinfile before it) -
+// so RemoteFilePath below needs no per-module special-casing for any of
+// them. "command" is the one exception: its result carries neither dest nor
+// path anywhere, only invocation.module_args.creates (and only when the
+// task actually used creates:) - see createsField. copy's own "only if dest
+// is not a directory" caveat (design-docs/ShowFileContents.md's table)
+// needs no special-casing either: fetching a directory just makes the
+// underlying ansible.builtin.fetch task fail ("remote file is a directory,
+// fetch cannot work on directories," confirmed empirically), which
+// fetchRemoteFileContents already surfaces as an ordinary error - same as
+// any other fetch failure, hiding the tab.
 var FileTabSupportedModules = map[string]bool{
-	"lineinfile": true,
+	"lineinfile":  true,
+	"assemble":    true,
+	"blockinfile": true,
+	"command":     true,
+	"copy":        true,
+	"known_hosts": true,
+	"replace":     true,
+	"template":    true,
+}
+
+// createsField extracts ansible.builtin.command's own "creates" argument
+// from invocation.module_args - the only place it appears; unlike
+// FilenameField's dest/path, there's no top-level echo of it in the result
+// at all (confirmed empirically). "" when the task didn't use creates:, or
+// on a shape mismatch (not trusted blindly, same caveat as FilenameField's
+// own decode).
+func createsField(decoded map[string]interface{}) string {
+	if inv, ok := decoded["invocation"].(map[string]interface{}); ok {
+		if args, ok := inv["module_args"].(map[string]interface{}); ok {
+			if v, ok := args["creates"].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+	return ""
 }
 
 // RemoteFilePath reports the remote path a File tab should fetch for
@@ -511,9 +546,10 @@ var FileTabSupportedModules = map[string]bool{
 // the module isn't in FileTabSupportedModules, the raw result can't be
 // decoded, or there's no raw result yet for this host - the same tolerance
 // TaskAction already has for "nothing recorded yet." path may still be ""
-// even when supported is true, if FilenameField itself can't find a
-// dest/path field on this particular result - callers treat that the same
-// as "not supported" (nothing to fetch).
+// even when supported is true, if the module's own field (FilenameField's
+// dest/path, or createsField for "command") can't be found on this
+// particular result - callers treat that the same as "not supported"
+// (nothing to fetch, e.g. a command task with no creates: at all).
 func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported bool) {
 	raw, ok := t.Raw[host]
 	if !ok {
@@ -523,10 +559,15 @@ func RemoteFilePath(t *playbook.TaskNode, host string) (path string, supported b
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return "", false
 	}
-	if !FileTabSupportedModules[ModuleShortName(decoded)] {
+	module := ModuleShortName(decoded)
+	if !FileTabSupportedModules[module] {
 		return "", false
 	}
-	path = FilenameField(decoded)
+	if module == "command" {
+		path = createsField(decoded)
+	} else {
+		path = FilenameField(decoded)
+	}
 	return path, path != ""
 }
 

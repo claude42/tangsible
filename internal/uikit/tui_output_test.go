@@ -537,8 +537,10 @@ func TestBuildOutputTabsDocsVisibility(t *testing.T) {
 func TestRemoteFilePath(t *testing.T) {
 	lineinfileRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","path":"/etc/hosts","changed":true}`)
 	moduleArgsOnlyRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile","invocation":{"module_args":{"path":"/etc/hosts"}}}`)
-	unsupportedRaw := json.RawMessage(`{"action":"ansible.builtin.copy","dest":"/etc/motd"}`)
+	unsupportedRaw := json.RawMessage(`{"action":"ansible.builtin.file","dest":"/etc/motd"}`)
 	noPathRaw := json.RawMessage(`{"action":"ansible.builtin.lineinfile"}`)
+	commandWithCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.command","invocation":{"module_args":{"creates":"/tmp/marker.txt"}}}`)
+	commandNoCreatesRaw := json.RawMessage(`{"action":"ansible.builtin.command","invocation":{"module_args":{"creates":null}}}`)
 
 	cases := []struct {
 		name          string
@@ -585,6 +587,20 @@ func TestRemoteFilePath(t *testing.T) {
 		{
 			name:          "raw bytes that don't decode as JSON",
 			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": json.RawMessage("not json")}},
+			host:          "web1",
+			wantPath:      "",
+			wantSupported: false,
+		},
+		{
+			name:          "command with creates: - uses creates, not dest/path",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": commandWithCreatesRaw}},
+			host:          "web1",
+			wantPath:      "/tmp/marker.txt",
+			wantSupported: true,
+		},
+		{
+			name:          "command with no creates: - nothing to fetch",
+			task:          &playbook.TaskNode{Raw: map[string]json.RawMessage{"web1": commandNoCreatesRaw}},
 			host:          "web1",
 			wantPath:      "",
 			wantSupported: false,
