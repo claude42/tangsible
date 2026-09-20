@@ -444,7 +444,7 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 			Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 			Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 		}
-		names, _ := BuildOutputTabs(noSourceTask, "web1", map[string]string{}, ResolvedRender{Text: ""}, ResolvedRender{})
+		names, _ := BuildOutputTabs(noSourceTask, "web1", map[string]string{}, ResolvedRender{Text: ""}, ResolvedRender{}, ResolvedRender{})
 		if hasTab(names, "Resolved") {
 			t.Errorf("names = %v, want no Resolved tab when neither a source nor any resolved text exists", names)
 		}
