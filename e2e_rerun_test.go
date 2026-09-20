@@ -199,14 +199,21 @@ func (s *tmuxSession) waitForAbsence(needle string, timeout time.Duration) {
 }
 
 // TestE2E_RerunDialog_TabCyclingLandsInCorrectField is a direct regression
-// guard for the bug that justified this file: toggling the re-run
-// dialog's original "Start at task" checkbox silently advanced Form focus
-// by one extra step (InputField.SetDisabled's own finished(-1) call
-// replaying the last real navigation key - see CLAUDE.md's Rerun section)
-// - text reproducibly landed one field over from where it was typed. The
-// checkbox was dropped as a result, but this test pins down the thing
-// that actually matters: typed text lands in the field the user was
-// actually looking at, not a neighboring one.
+// guard for the bug that originally justified this file: toggling the
+// re-run dialog's now-removed "Start at task" checkbox used to silently
+// advance Form focus by one extra step (InputField.SetDisabled's own
+// finished(-1) call replaying the last real navigation key - see
+// CLAUDE.md's Rerun section) - text reproducibly landed one field over
+// from where it was typed. That checkbox is gone (design-docs/Rerun.md's
+// "Extend rerun dialog" item 1 dropped "Start with task" outright, and its
+// replacement, "Start with play," is a plain always-enabled field - see
+// StartWithPlay.md), so the exact SetDisabled mechanism can't recur - but
+// the dialog's field list is now built dynamically instead (rebuildRerunForm
+// conditionally AddFormItems the three checkboxes based on the run's own
+// data), which is its own, different way focus/tab-order could end up
+// wrong. This test still pins down the thing that actually matters: typed
+// text lands in the field the user was actually looking at, not a
+// neighboring one.
 func TestE2E_RerunDialog_TabCyclingLandsInCorrectField(t *testing.T) {
 	requireE2ETools(t)
 	bin := buildE2EBinary(t)
@@ -221,41 +228,69 @@ func TestE2E_RerunDialog_TabCyclingLandsInCorrectField(t *testing.T) {
 	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
 
 	// The dialog opens with focus on the Play field (design-docs/
-	// StartWithPlay.md's newest, first-in-tab-order field) - Tab once to
-	// reach Task before exercising the actual regression this test guards.
-	s.send("Tab")
+	// StartWithPlay.md's own first-in-tab-order field). outcomes.yml's
+	// play has no name: key, so - per resumablePlayName's own guard -
+	// "Resume where failed" is never offered here regardless of its
+	// ignore_errors failure; Tab from Play lands directly on Tags.
 	s.send("first")
-	s.waitForFieldValue("Start with task:", "first", 3*time.Second)
+	s.waitForFieldValue("Start with play:", "first", 3*time.Second)
 	s.send("Tab")
 	s.send("second")
 	got := s.waitForFieldValue("Limit tags to:", "second", 3*time.Second)
 
-	taskLine := lineContaining(got, "Start with task:")
+	playLine := lineContaining(got, "Start with play:")
 	tagsLine := lineContaining(got, "Limit tags to:")
-	hostsLine := lineContaining(got, "Limit hosts to:")
+	skipTagsLine := lineContaining(got, "Skip tags:")
 
-	if !strings.Contains(taskLine, "first") {
-		t.Errorf("Task field = %q, want it to contain \"first\"", taskLine)
+	if !strings.Contains(playLine, "first") {
+		t.Errorf("Play field = %q, want it to contain \"first\"", playLine)
 	}
 	if !strings.Contains(tagsLine, "second") {
-		t.Errorf("Tags field = %q, want it to contain \"second\" (one Tab from Task)", tagsLine)
+		t.Errorf("Tags field = %q, want it to contain \"second\" (one Tab from Play)", tagsLine)
 	}
-	if strings.Contains(hostsLine, "second") {
-		t.Errorf("Hosts field = %q - \"second\" leaked past Tags into Hosts, the exact regression this test guards against", hostsLine)
+	if strings.Contains(skipTagsLine, "second") {
+		t.Errorf("Skip tags field = %q - \"second\" leaked past Tags into Skip tags, the exact regression this test guards against", skipTagsLine)
 	}
 
 	s.send("Escape") // cancel - don't actually start a run, this test only cares about focus/text placement
 }
 
-// TestE2E_RerunDialog_StartAtTaskSkipsEarlierTasks confirms Phase B/C's
-// actual mechanism end to end: confirming the dialog with a task name
-// really starts a brand new generation with --start-at-task, not just
-// that the dialog accepts the text.
-func TestE2E_RerunDialog_StartAtTaskSkipsEarlierTasks(t *testing.T) {
+// TestE2E_RerunDialog_StartWithPlaySkipsEarlierPlays confirms
+// design-docs/StartWithPlay.md's mechanism end to end via the dialog's own
+// Play field specifically (TestE2E_CLIStartAtPlay below already covers the
+// --start-at-play CLI form - a distinct code path, since the dialog spawns
+// via runner.NewRequestRerun while the CLI form resolves/trims directly in
+// run's own handling): confirming the dialog with a play name really drops
+// every earlier play from the trimmed copy ansible-playbook actually runs,
+// not just that the dialog accepts the text.
+func TestE2E_RerunDialog_StartWithPlaySkipsEarlierPlays(t *testing.T) {
 	requireE2ETools(t)
 	bin := buildE2EBinary(t)
 	workDir := t.TempDir()
-	playbook := filepath.Join(repoRoot(t), "testdata", "outcomes.yml")
+	playbook := filepath.Join(workDir, "site.yml") // workDir, not testdata/ -
+	// BuildTaskSourceIndex walks a playbook's whole directory tree, so a
+	// fixture sharing testdata/ with every other e2e test's own playbook
+	// would leak its play names into their own autocomplete candidates too
+	// (same reasoning TestE2E_CLIStartAtPlay below already documents).
+	playbookYAML := `- name: first play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: first play task
+      command: echo hi
+
+- name: second play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: second play task
+      command: echo hi
+`
+	if err := os.WriteFile(playbook, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	s := startTmuxSession(t)
 	s.send(fmt.Sprintf("cd %s && %s run %s -i localhost,", shellQuote(workDir), shellQuote(bin), shellQuote(playbook)), "Enter")
@@ -263,27 +298,247 @@ func TestE2E_RerunDialog_StartAtTaskSkipsEarlierTasks(t *testing.T) {
 
 	s.send("r")
 	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
-	s.send("Tab") // dialog opens focused on Play - see StartWithPlay.md
-	s.send("changed task")
-	s.waitForFieldValue("Start with task:", "changed task", 3*time.Second)
+	s.send("second play") // dialog opens focused on Play - StartWithPlay.md
+	s.waitForFieldValue("Start with play:", "second play", 3*time.Second)
 	s.send("Enter")
 
-	// "Playbook completed successfully" is already on screen from the
-	// first run at this point (the dialog only overlays part of the
-	// page), so waiting for it directly would return instantly, before
-	// the rerun has done anything - wait for the first generation's own
-	// "ok task" row to actually clear (confirming the rerun really
-	// started, per requestRerun's state.Reset()) before waiting for the
-	// text to reappear, which then unambiguously means the *second*
-	// generation's own completion.
-	s.waitForAbsence("ok task", 5*time.Second)
+	// Both plays' tasks are already on screen from the first (untrimmed)
+	// run at this point, so waiting for "second play task" directly would
+	// return instantly - wait for the first generation's own "first play
+	// task" row to actually clear (confirming the rerun really started,
+	// per requestRerun's state.Reset()) first.
+	s.waitForAbsence("first play task", 5*time.Second)
 	got := s.waitFor("Playbook completed successfully", 15*time.Second)
-	if strings.Contains(got, "ok task") {
-		t.Errorf("expected \"ok task\" to be skipped by --start-at-task \"changed task\", but it's in the rerun's tree:\n%s", got)
+	if strings.Contains(got, "first play") {
+		t.Errorf("expected \"first play\" to be dropped entirely by Start-with-play \"second play\", but it's in the rerun's tree:\n%s", got)
 	}
-	if !strings.Contains(got, "changed task") {
-		t.Errorf("expected \"changed task\" (the --start-at-task target) to appear in the rerun's tree:\n%s", got)
+	if !strings.Contains(got, "second play task") {
+		t.Errorf("expected \"second play task\" (the Start-with-play target) to run:\n%s", got)
 	}
+}
+
+// writeFailedUnreachableFixture writes a three-host playbook+inventory
+// into workDir (not testdata/, for the same source-index-leakage reason
+// TestE2E_RerunDialog_StartWithPlaySkipsEarlierPlays above avoids it) whose
+// single named play gives PlaybookState.FailedHosts()/UnreachableHosts()
+// two distinct, single-element sets to drive the re-run dialog's
+// checkbox/field coupling: web1 succeeds, web2 genuinely fails "fail on
+// web2" (not an ignore_errors: true one - see aggregate.go's own doc
+// comment on why that distinction doesn't actually matter to this app's
+// FailedHosts, but a real failure keeps this fixture's intent obvious to a
+// reader), and ghost never connects at all (a short ConnectTimeout so this
+// fixture doesn't hang waiting on a real network timeout).
+func writeFailedUnreachableFixture(t *testing.T, workDir string) (playbookPath, inventoryPath string) {
+	t.Helper()
+	playbookPath = filepath.Join(workDir, "site.yml")
+	playbookYAML := `- name: main play
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: ok task
+      command: echo hi
+    - name: fail on web2
+      command: /bin/false
+      when: inventory_hostname == "web2"
+`
+	if err := os.WriteFile(playbookPath, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inventoryPath = filepath.Join(workDir, "inventory.ini")
+	inventoryINI := `[all]
+web1 ansible_connection=local
+web2 ansible_connection=local
+ghost ansible_host=203.0.113.1 ansible_connection=ssh ansible_ssh_common_args='-o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+`
+	if err := os.WriteFile(inventoryPath, []byte(inventoryINI), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return playbookPath, inventoryPath
+}
+
+// TestE2E_RerunDialog_ResumeWhereFailedCascadesToHostLimitedRerun is a
+// direct regression guard for a real bug found live while writing this
+// test: tview.Checkbox.SetChecked invokes its own changed-callback
+// *before* updating its internal checked field, so resumeCheckbox's
+// cascade into onlyFailedCheckbox (design-docs/Rerun.md: checking "Resume
+// where failed" auto-checks "Only failed" too) originally read
+// onlyFailedCheckbox.IsChecked() from inside that very cascade and saw the
+// state it was leaving, not the one being set - silently computing an
+// empty Hosts field. Fixed by passing each checkbox's own new value
+// explicitly rather than re-querying it (see setHostsFieldFromCheckboxes's
+// own comment in tui.go) - this test exercises that whole chain for real,
+// through the actual tview widgets, and confirms it doesn't just look
+// right in the dialog but that the resulting rerun is genuinely limited to
+// the one host that actually failed.
+//
+// A second, independent bug was found and fixed while setting this test's
+// own fixture up: EarliestFailingPlay's play name comes from the live
+// jsonl stream, which Ansible always populates (synthesizing a default for
+// an unnamed play), but "Start with play" can only ever target a play with
+// an explicit name: key (StartWithPlay.md's own v1 scope decision) -
+// confirmed live that confirming "Resume where failed" against an unnamed
+// play's failure used to fail the whole rerun outright ("Playbook failed
+// (exit code -1)"). resumablePlayName (rerundialog.go) is the fix; this
+// fixture's play is deliberately named so this test exercises the
+// happy path that fix protects, not the now-guarded-against gap itself
+// (covered instead by TestResumablePlayName's own unit test).
+func TestE2E_RerunDialog_ResumeWhereFailedCascadesToHostLimitedRerun(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	workDir := t.TempDir()
+	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
+
+	s.send("r")
+	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.send("Tab")   // Play -> Resume where failed
+	s.send("Space") // check it
+
+	got := s.waitForFieldValue("Start with play:", "main play", 3*time.Second)
+	if !strings.Contains(lineContaining(got, "Only failed"), "X") {
+		t.Errorf("expected \"Resume where failed\" to auto-check \"Only failed\" too, got:\n%s", lineContaining(got, "Only failed"))
+	}
+	got = s.waitForFieldValue("Limit hosts to:", "web2", 3*time.Second)
+	hostsLine := lineContaining(got, "Limit hosts to:")
+	if strings.Contains(hostsLine, "web1") || strings.Contains(hostsLine, "ghost") {
+		t.Errorf("Hosts field = %q, want only the genuinely failed host \"web2\" - not the unreachable or unaffected ones", hostsLine)
+	}
+
+	s.send("Enter")
+	s.waitForAbsence("ok=0  skipped=0  changed=0  unreachable=1", 5*time.Second) // the first generation's own ghost summary row clearing confirms the rerun really started
+	// web2 is the fixture's genuinely-failing host, so the rerun (still
+	// against just web2) fails again too - "Playbook failed", not
+	// "completed successfully". That's expected and fine: this test's own
+	// point is host scoping, not fixing the failure.
+	got = s.waitFor("Playbook failed", 15*time.Second)
+	if strings.Contains(got, "web1") || strings.Contains(got, "ghost") {
+		t.Errorf("expected the rerun to touch only web2 (Resume where failed's own host limit), but web1/ghost appear in its tree:\n%s", got)
+	}
+	if !strings.Contains(got, "web2") {
+		t.Errorf("expected web2 (the failed host) to appear in the rerun's tree:\n%s", got)
+	}
+}
+
+// TestE2E_RerunDialog_UncheckingResumeClearsPlayAndOnlyFailed covers the
+// reverse direction of the cascade above - design-docs/Rerun.md is
+// explicit that unchecking "Resume where failed" (by clicking the
+// checkbox itself) must clear "Start with play" and uncheck "Only failed"
+// again, symmetric with checking it.
+func TestE2E_RerunDialog_UncheckingResumeClearsPlayAndOnlyFailed(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	workDir := t.TempDir()
+	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
+
+	s.send("r")
+	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.send("Tab")   // Play -> Resume where failed
+	s.send("Space") // check it
+	s.waitForFieldValue("Start with play:", "main play", 3*time.Second)
+	s.waitForFieldValue("Limit hosts to:", "web2", 3*time.Second)
+
+	s.send("Space") // uncheck it again, same focused checkbox
+	got := s.waitFor("Start with play:", 3*time.Second)
+	playLine := lineContaining(got, "Start with play:")
+	if strings.Contains(playLine, "main play") {
+		t.Errorf("Play field = %q, want it cleared once \"Resume where failed\" is unchecked", playLine)
+	}
+	if strings.Contains(lineContaining(got, "Only failed"), "X") {
+		t.Errorf("expected unchecking \"Resume where failed\" to also uncheck \"Only failed\", got:\n%s", lineContaining(got, "Only failed"))
+	}
+	hostsLine := lineContaining(got, "Limit hosts to:")
+	if strings.Contains(hostsLine, "web2") {
+		t.Errorf("Hosts field = %q, want it cleared along with \"Only failed\" unchecking", hostsLine)
+	}
+
+	s.send("Escape")
+}
+
+// TestE2E_RerunDialog_OnlyFailedAndOnlyUnreachableUnionIntoHosts covers
+// the *other* cascade path - each of the two checkboxes' own independent
+// SetChangedFunc handler (not routed through "Resume where failed" at
+// all): checking both must union their host lists into "Limit hosts to",
+// not overwrite one with the other.
+func TestE2E_RerunDialog_OnlyFailedAndOnlyUnreachableUnionIntoHosts(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	workDir := t.TempDir()
+	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
+
+	s.send("r")
+	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	// Play -> Resume -> Tags -> Skip tags -> Hosts -> Only failed.
+	s.send("Tab", "Tab", "Tab", "Tab", "Tab")
+	s.send("Space") // check Only failed
+	s.waitForFieldValue("Limit hosts to:", "web2", 3*time.Second)
+
+	s.send("Tab")   // Only failed -> Only unreachable
+	s.send("Space") // check it too
+	got := s.waitForFieldValue("Limit hosts to:", "ghost,web2", 3*time.Second)
+
+	if !strings.Contains(lineContaining(got, "Only failed"), "X") {
+		t.Errorf("expected \"Only failed\" to stay checked once \"Only unreachable\" is also checked, got:\n%s", lineContaining(got, "Only failed"))
+	}
+
+	s.send("Escape")
+}
+
+// TestE2E_RerunDialog_EditingHostsFieldUnchecksBothOnlyCheckboxes covers
+// Rerun.md's "don't fight the user" direction, symmetric to
+// TestE2E_RerunDialog_ClearedFieldStaysCleared below but for the newer
+// checkboxes rather than the -l pre-fill: editing "Limit hosts to" by hand
+// after the checkboxes populated it must uncheck both, not silently
+// re-overwrite what was just typed on the next unrelated redraw.
+func TestE2E_RerunDialog_EditingHostsFieldUnchecksBothOnlyCheckboxes(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	workDir := t.TempDir()
+	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
+
+	s.send("r")
+	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	// Play -> Resume -> Tags -> Skip tags -> Hosts -> Only failed ->
+	// Only unreachable.
+	s.send("Tab", "Tab", "Tab", "Tab", "Tab")
+	s.send("Space") // check Only failed
+	s.waitForFieldValue("Limit hosts to:", "web2", 3*time.Second)
+	s.send("Tab")
+	s.send("Space") // check Only unreachable too
+	s.waitForFieldValue("Limit hosts to:", "ghost,web2", 3*time.Second)
+
+	s.send("BTab", "BTab") // Only unreachable -> Only failed -> Hosts
+	s.send("C-u")          // clear it, same convention as
+	// TestE2E_RerunDialog_ClearedFieldStaysCleared below
+	s.send("manualhost")
+	got := s.waitForFieldValue("Limit hosts to:", "manualhost", 3*time.Second)
+
+	hostsLine := lineContaining(got, "Limit hosts to:")
+	if strings.Contains(hostsLine, "web2") || strings.Contains(hostsLine, "ghost") {
+		t.Errorf("Hosts field = %q, want the user's hand-typed value left alone, not fought by the checkboxes", hostsLine)
+	}
+	if strings.Contains(lineContaining(got, "Only failed"), "X") {
+		t.Errorf("expected editing Hosts by hand to uncheck \"Only failed\", got:\n%s", lineContaining(got, "Only failed"))
+	}
+	if strings.Contains(lineContaining(got, "Only unreachable"), "X") {
+		t.Errorf("expected editing Hosts by hand to uncheck \"Only unreachable\", got:\n%s", lineContaining(got, "Only unreachable"))
+	}
+
+	s.send("Escape")
 }
 
 // TestE2E_RerunDialog_ClearedFieldStaysCleared is a direct regression guard
@@ -312,8 +567,12 @@ func TestE2E_RerunDialog_ClearedFieldStaysCleared(t *testing.T) {
 		t.Fatalf("Hosts field on first open = %q, want it pre-filled with \"host1\" from -l", lineContaining(got, "Limit hosts to:"))
 	}
 
-	// Tab from Play -> Task -> Tags -> Skip tags -> Hosts, then clear it.
-	s.send("Tab", "Tab", "Tab", "Tab", "C-u")
+	// Tab from Play -> Tags -> Skip tags -> Hosts, then clear it.
+	// multihost.yml's play has no name: key, so - per resumablePlayName's
+	// own guard (see CLAUDE.md's Rerun section) - "Resume where failed" is
+	// never offered here despite host1's real failure, and there's no
+	// "Only unreachable" candidate either; Play sits directly next to Tags.
+	s.send("Tab", "Tab", "Tab", "C-u")
 	s.send("Enter")
 
 	// Both hosts' own rows must appear - confirms the clear actually took
@@ -432,9 +691,9 @@ func TestE2E_CLIStartAtPlay(t *testing.T) {
 	// pointing into the trimmed temp copy, not the original file the
 	// session's own TaskSourceIndex was built from.
 	s.send("Home")
-	s.send("Down") // onto the (only) task row
+	s.send("Down")  // onto the (only) task row
 	s.send("Right") // expand it
-	s.send("Down") // onto the host row
+	s.send("Down")  // onto the host row
 	s.send("Enter") // open the drill-down
 	got = s.waitFor("Task definition", 5*time.Second)
 	if !strings.Contains(got, "Task definition") {

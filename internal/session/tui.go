@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -790,27 +789,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// below - it already holds the text the user just typed, and
 			// recomputing here would fight that edit.
 		}
-		// A host can genuinely be both failed (on one task) and unreachable
-		// (on another) within the same run, so this dedupes rather than
-		// just concatenating - a plain append could otherwise list such a
-		// host twice when both checkboxes are checked.
-		seen := map[string]bool{}
-		var hosts []string
-		addHosts := func(hs []string) {
-			for _, h := range hs {
-				if !seen[h] {
-					seen[h] = true
-					hosts = append(hosts, h)
-				}
-			}
-		}
-		if onlyFailed {
-			addHosts(currentFailedHosts)
-		}
-		if onlyUnreachable {
-			addHosts(currentUnreachableHosts)
-		}
-		sort.Strings(hosts)
+		hosts := resolvedRerunHosts(onlyFailed, onlyUnreachable, currentFailedHosts, currentUnreachableHosts)
 		syncingHostsField = true
 		hostsField.SetText(strings.Join(hosts, ","))
 		syncingHostsField = false
@@ -1002,11 +981,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if len(state.Plays) == 0 {
 			currentFailedHosts = initialRerunDefaults.FailedHosts
 			currentUnreachableHosts = initialRerunDefaults.UnreachableHosts
-			currentResumePlay = initialRerunDefaults.ResumePlay
+			currentResumePlay = resumablePlayName(initialRerunDefaults.ResumePlay, knownPlayNames)
 		} else {
 			currentFailedHosts = state.FailedHosts()
 			currentUnreachableHosts = state.UnreachableHosts()
-			currentResumePlay = state.EarliestFailingPlay()
+			currentResumePlay = resumablePlayName(state.EarliestFailingPlay(), knownPlayNames)
 		}
 
 		rerunForm.Clear(false)
