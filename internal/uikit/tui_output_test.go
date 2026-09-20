@@ -354,9 +354,14 @@ func TestResolvedMatchesSource(t *testing.T) {
 }
 
 func TestResolvedTabHidden(t *testing.T) {
-	t.Run("no source to compare against - never hidden, even if Text happens to be empty too", func(t *testing.T) {
-		if ResolvedTabHidden(ResolvedRender{Text: ""}, "") {
-			t.Error("resolvedTabHidden() = true, want false when there's no Task definition tab to compare against")
+	t.Run("no source and no resolved text - hidden, nothing to show", func(t *testing.T) {
+		if !ResolvedTabHidden(ResolvedRender{Text: ""}, "") {
+			t.Error("resolvedTabHidden() = false, want true when there's neither a source nor any resolved text - e.g. the implicit Gathering Facts task")
+		}
+	})
+	t.Run("no source to compare against but real resolved text - not hidden", func(t *testing.T) {
+		if ResolvedTabHidden(ResolvedRender{Text: "some: resolved\nvalue: here\n"}, "") {
+			t.Error("resolvedTabHidden() = true, want false when there's no Task definition tab to compare against but the resolve produced real content")
 		}
 	})
 	t.Run("source present and identical - hidden", func(t *testing.T) {
@@ -428,16 +433,36 @@ func TestBuildOutputTabsResolvedVisibility(t *testing.T) {
 		}
 	})
 
-	t.Run("no source found at all - Resolved tab still shown, nothing to call it identical to", func(t *testing.T) {
+	t.Run("no source found and nothing resolved - Resolved tab omitted too", func(t *testing.T) {
+		// The implicit "Gathering Facts" task's own shape: task.Path points
+		// at the play's own "hosts:" line, which source.go never indexes as
+		// a task, so both the source lookup and the resolve (fed that same
+		// empty source) come back with nothing.
+		noSourceTask := &playbook.TaskNode{
+			Name:  "Gathering Facts",
+			Path:  "/project/unknown.yml:1",
+			Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+			Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
+		}
+		names, _ := BuildOutputTabs(noSourceTask, "web1", map[string]string{}, ResolvedRender{Text: ""}, ResolvedRender{})
+		if hasTab(names, "Resolved") {
+			t.Errorf("names = %v, want no Resolved tab when neither a source nor any resolved text exists", names)
+		}
+		if hasTab(names, "Task definition") {
+			t.Errorf("names = %v, want no Task definition tab on a sourceIndex miss", names)
+		}
+	})
+
+	t.Run("no source found but real resolved content - Resolved tab shown", func(t *testing.T) {
 		noSourceTask := &playbook.TaskNode{
 			Name:  "hi",
 			Path:  "/project/unknown.yml:1",
 			Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
 			Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)},
 		}
-		names, _ := BuildOutputTabs(noSourceTask, "web1", map[string]string{}, ResolvedRender{Text: ""}, ResolvedRender{})
+		names, _ := BuildOutputTabs(noSourceTask, "web1", map[string]string{}, ResolvedRender{Text: "- name: hi\n  debug:\n    msg: hello\n"}, ResolvedRender{})
 		if !hasTab(names, "Resolved") {
-			t.Errorf("names = %v, want a Resolved tab when there's no Task definition tab to compare against", names)
+			t.Errorf("names = %v, want a Resolved tab when there's no Task definition tab to compare against but the resolve produced real content", names)
 		}
 		if hasTab(names, "Task definition") {
 			t.Errorf("names = %v, want no Task definition tab on a sourceIndex miss", names)

@@ -951,15 +951,31 @@ func ResolvedMatchesSource(resolved ResolvedRender, source string) bool {
 // that shows up immediately only to sometimes vanish once resolving
 // finishes identical to source read as broken, not as a feature). Never
 // hidden on a genuine Err - that's real information "Task definition"
-// doesn't carry. Otherwise hidden exactly when resolvedMatchesSource says
-// so, except source == "" (no "Task definition" tab to compare against in
-// the first place - see buildOutputTabs) always means "don't hide."
+// doesn't carry. Also hidden whenever resolved.Text comes back empty (or
+// all whitespace) with no error - most commonly a task.Path Ansible itself
+// reports but that source.go never indexes because it isn't a literal task
+// list entry at all, e.g. the implicit "Gathering Facts" task, whose
+// task.Path points at the play's own "hosts:" line rather than any real
+// task. sourceIndex[task.Path] and so taskSource both come back "" for
+// that, resolveTaskValues renders an empty template against an empty
+// source, and the old rule below ("source == "" always means don't hide")
+// then showed a Resolved tab with nothing whatsoever in it - a real
+// reported bug once seen live, not a hypothetical. Same "nothing was ever
+// found to show" reasoning DocsTabHidden already applies to its own zero
+// value. Otherwise hidden exactly when resolvedMatchesSource says so,
+// except source == "" (no "Task definition" tab to compare against in the
+// first place - see buildOutputTabs) always means "don't hide" - covers a
+// genuinely runtime-generated task whose resolved value is real content
+// with nothing to be identical to.
 func ResolvedTabHidden(resolved ResolvedRender, source string) bool {
 	if resolved.Pending {
 		return true
 	}
 	if resolved.Err != "" {
 		return false
+	}
+	if strings.TrimSpace(resolved.Text) == "" {
+		return true
 	}
 	return source != "" && ResolvedMatchesSource(resolved, source)
 }
