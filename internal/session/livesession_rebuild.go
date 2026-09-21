@@ -22,6 +22,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
+	"github.com/gdamore/tcell/v2"
 )
 
 // progressPosition reads whatever runner.ProgressTracker the current
@@ -144,6 +145,22 @@ func (s *liveSession) chromeColorName() string {
 // actually is. Read fresh on every call, same reasoning as
 // chromeColorName/currentMainBottomBarText just above.
 func (s *liveSession) showElapsed() bool { return !s.revisitActive }
+
+// outputBottomBarNormalStyle resolves s.outputBottomBar's own non-search
+// style fresh on every call, the same "s.revisitActive decides, s.chromeStyle
+// alone goes stale after a real rerun" pattern submitRerun's own bar reset
+// already established - needed because clearing a tab search
+// (tabSearchPanel.clear, livesession_tabsearch.go) has to restore
+// s.outputBottomBar to whatever its normal style currently is, not whatever
+// s.chromeStyle happened to be when NewLiveTUI first ran. Also used
+// directly by the 'y' clipboard-copy key handler (SetInputCapture), which
+// needs the identical restore before showing its own transient status text.
+func (s *liveSession) outputBottomBarNormalStyle() tcell.Style {
+	if s.revisitActive {
+		return s.chromeStyle
+	}
+	return s.liveChromeStyle
+}
 
 // switchPage, alongside s.currentPageName (set to "main" at construction
 // - see NewLiveTUI), tracks which of "main"/"output"/"split" is

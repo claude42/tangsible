@@ -370,58 +370,20 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.outputTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.outputTopBar.SetTextStyle(s.chromeStyle)
 
-	const outputHintBarText = " tab/shift-tab: switch tab  n/N: next/prev task  ←/→: prev/next host  /: search tab  y: copy tab  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 	s.outputBottomBar = tview.NewTextView().SetText(outputHintBarText)
 	s.outputBottomBar.SetTextStyle(s.chromeStyle)
 
-	// outputBottomBarNormalStyle resolves s.outputBottomBar's own non-search
-	// style fresh on every call, the same "s.revisitActive decides,
-	// s.chromeStyle alone goes stale after a real rerun" pattern
-	// submitRerun's own bar reset (below) already established - needed
-	// here because clearing a search has to restore s.outputBottomBar to
-	// whatever its normal style currently is, not whatever s.chromeStyle
-	// happened to be when NewLiveTUI first ran.
-	outputBottomBarNormalStyle := func() tcell.Style {
-		if s.revisitActive {
-			return s.chromeStyle
-		}
-		return s.liveChromeStyle
-	}
-
-	// s.tabSearchInput is the InputField swapped into s.outputFooterPages' own
-	// "search" page while composing an in-tab search query
-	// (design-docs/Search.md) - built once and reused, same as
-	// s.searchInput above. Its colors are fixed black-on-yellow regardless
-	// of s.chromeStyle/s.revisitActive, matching uikit.SearchBarStyle, so
-	// composing a search always reads as "you're in search mode" the same
-	// way no matter the session's own chrome.
-	s.tabSearchInput = tview.NewInputField().SetLabel(" Search: ")
-	// SetLabelColor alone only sets the label's own foreground - confirmed
-	// directly against inputfield.go: unlike SetFieldBackgroundColor/
-	// SetFieldTextColor (which both compose into the same underlying
-	// style), there's no SetLabelBackgroundColor to pair with it, so the
-	// label's own background silently stayed at tview's default (reading
-	// as black-on-black against a terminal's typical dark theme - live
-	// feedback). SetLabelStyle sets both channels directly.
-	s.tabSearchInput.SetLabelStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorYellow))
-	s.tabSearchInput.SetFieldBackgroundColor(tcell.ColorYellow)
-	s.tabSearchInput.SetFieldTextColor(tcell.ColorBlack)
-	s.tabSearchInput.SetBackgroundColor(tcell.ColorYellow)
-
-	// s.outputFooterPages lets s.outputBottomBar's own Flex slot hold either
-	// the normal hint TextView or s.tabSearchInput's real text-entry field,
-	// without ever restructuring outputFlex itself - the same "Pages
-	// inside one slot" idiom this app already uses one level up (s.pages
-	// itself, switching between "main"/"output"/"split").
-	s.outputFooterPages = tview.NewPages().
-		AddPage("hint", s.outputBottomBar, true, true).
-		AddPage("search", s.tabSearchInput, true, false)
+	// s.search (design-docs/Search.md, livesession_tabsearch.go) owns the
+	// in-tab search prompt swapped into s.outputBottomBar's own Flex slot
+	// while composing a query - built once here and reused for the whole
+	// session, same as s.searchInput above.
+	s.search = newTabSearchPanel(s.app, s.outputTabs, s.outputBottomBar, s.list, s.outputBottomBarNormalStyle)
 
 	outputFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(s.outputTopBar, 1, 0, false).
 		AddItem(s.outputTabs.Primitive(), 0, 1, true).
-		AddItem(s.outputFooterPages, 1, 0, false)
+		AddItem(s.search.footer, 1, 0, false)
 
 	// s.splitHeader replaces s.topBar/s.outputTopBar entirely for the duration
 	// of a split session (s.splitFlex's own construction, further down): a
@@ -858,122 +820,17 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// the same open drill-down visit" is.
 	s.fileCache = map[resolveKey]uikit.ResolvedRender{}
 
-	// s.tabSearch is non-nil while an in-tab search (design-docs/Search.md)
-	// is active in whichever tab was frontmost when it started - cleared
-	// (clearTabSearch) whenever that tab's own content changes under it or
-	// the session moves on, per the design doc's own "a search does not
-	// survive content changing under it" rule.
-	// s.tabSearchComposing is true while s.tabSearchInput has focus and is
-	// being typed into - checked early in SetInputCapture (mirroring
-	// s.searchDialogOpen's own "let everything through" pass-through, below)
-	// so a query containing e.g. 'j'/'q'/any other shortcut letter reaches
-	// the field untouched instead of being reinterpreted as a keybinding.
-
-	outputSearchStatusText := func(ts *uikit.TextSearch) string {
-		status := "no matches"
-		if ts.HasMatches() {
-			status = fmt.Sprintf("match %d of %d", ts.CurrentMatch(), ts.MatchCount())
-		}
-		return fmt.Sprintf(" Search: %s - %s   n/N: next/prev match  Esc: clear  tab/shift-tab: switch tab ", ts.Query(), status)
-	}
-
-	// clearTabSearch drops whichever search is currently active (a no-op
-	// if none is), restoring s.outputBottomBar to its own normal hint
-	// text/style and the searched tab itself back to its own original
-	// content via TextSearch.Stop() - without that, the tab kept showing
-	// every match still highlighted after the search closed (live
-	// feedback). Harmless when the tab's content is about to be rebuilt
-	// fresh anyway by whatever triggered this call (renderOutputTabs,
-	// below, calls this before s.rebuilding for exactly that reason) - the
-	// restore is simply superseded a moment later. Always resets
-	// s.outputBottomBar, even with no search active - this is also what
-	// clears a transient 'y' clipboard-copy status message (below), which
-	// has no separate lifecycle of its own and relies on every one of
-	// this function's own call sites (a tab switch, host/task navigation,
-	// closing the view) to supersede it the same way they already
-	// supersede a real search.
-	clearTabSearch := func() {
-		s.outputBottomBar.SetTextStyle(outputBottomBarNormalStyle())
-		s.outputBottomBar.SetText(outputHintBarText)
-		s.outputFooterPages.SwitchToPage("hint")
-		if s.tabSearch == nil {
-			return
-		}
-		s.tabSearch.Stop()
-		s.tabSearch = nil
-	}
-	// s.outputTabs.SetChangedFunc: switching tabs makes an active search
-	// irrelevant (it only ever describes the tab that was active when it
-	// started) - this fires for every way the active tab can change
-	// (Tab/Backtab below, and a mouse click on the tab bar, which had no
-	// clearing at all before this existed - a real gap live use caught),
-	// so the Tab/Backtab cases below don't need their own explicit call.
-	s.outputTabs.SetChangedFunc(clearTabSearch)
-
-	// closeTabSearchComposing backs out of the search prompt with no
-	// change - shared by Ctrl-C (below, so it can never leave the prompt
-	// focused after an abort) and s.tabSearchInput's own SetDoneFunc's
-	// non-Enter cases.
-	closeTabSearchComposing := func() {
-		if !s.tabSearchComposing {
-			return
-		}
-		s.tabSearchComposing = false
-		s.outputFooterPages.SwitchToPage("hint")
-		s.app.SetFocus(s.list)
-	}
-
-	// openTabSearch shows s.tabSearchInput in place of the normal hint bar
-	// and moves focus into it - pre-filled with the currently active
-	// search's own query, if there is one, matching the tree's own search
-	// filter dialog's "reopening shows the previous term" convention
-	// (openSearchDialog, above).
-	openTabSearch := func() {
-		s.tabSearchComposing = true
-		query := ""
-		if s.tabSearch != nil {
-			query = s.tabSearch.Query()
-		}
-		s.tabSearchInput.SetText(query)
-		s.outputFooterPages.SwitchToPage("search")
-		s.app.SetFocus(s.tabSearchInput)
-	}
-
-	// s.tabSearchInput.SetDoneFunc fires on Enter/Esc/Tab/Backtab -
-	// InputField's own fixed "done" key set. Enter starts (or replaces) a
-	// search against whichever tab is currently active; anything else
-	// (Esc/Tab/Backtab) cancels with no change - there's nothing else in
-	// this one-field prompt to Tab to, matching the tree's own search
-	// dialog's identical reasoning for the same key set.
-	s.tabSearchInput.SetDoneFunc(func(key tcell.Key) {
-		if key != tcell.KeyEnter {
-			closeTabSearchComposing()
-			return
-		}
-		s.tabSearchComposing = false
-		query := s.tabSearchInput.GetText()
-		if query == "" {
-			clearTabSearch()
-		} else if tv, ok := s.outputTabs.ActiveTextView(); ok {
-			s.tabSearch = uikit.StartTextSearch(tv, query)
-			s.outputBottomBar.SetTextStyle(uikit.SearchBarStyle)
-			s.outputBottomBar.SetText(outputSearchStatusText(s.tabSearch))
-		}
-		s.outputFooterPages.SwitchToPage("hint")
-		s.app.SetFocus(s.list)
-	})
-
 	// renderOutputTabs rebuilds every tab from BuildOutputTabs' own
 	// output and hands the result to s.outputTabs.SetTabs - which itself
 	// preserves whichever tab is currently active, by name, so repeatedly
 	// calling this while browsing (Left/Right/n/N) doesn't keep resetting
-	// the user back to the Task tab. clearTabSearch runs first - every one
-	// of this function's own call sites (below) is itself a moment the
-	// active tab's content is about to change (a new host/task, a
+	// the user back to the Task tab. s.search.clear() runs first - every
+	// one of this function's own call sites (below) is itself a moment
+	// the active tab's content is about to change (a new host/task, a
 	// resolve/docs fetch landing, a rerun), and design-docs/Search.md is
 	// explicit that a search does not survive that.
 	renderOutputTabs := func(task *playbook.TaskNode, host string, resolved uikit.ResolvedRender, docs uikit.ResolvedRender, file uikit.ResolvedRender) {
-		clearTabSearch()
+		s.search.clear()
 		names, contents := uikit.BuildOutputTabs(task, host, sourceIndex, resolved, docs, file)
 		prims := make([]tview.Primitive, len(names))
 		for i, content := range contents {
@@ -982,25 +839,26 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			prims[i] = tv
 		}
 		s.outputTabs.SetTabs(names, prims)
-		if s.tabSearchComposing {
+		if s.search.composing {
 			// s.outputTabs.SetTabs rebuilds every tab's TextView from
 			// scratch (RemovePage/AddPage on its own internal
 			// tview.Pages) - confirmed live that this can silently steal
 			// application-level focus back onto whichever tab ends up
-			// active, even though s.tabSearchInput lives in a completely
+			// active, even though s.search.input lives in a completely
 			// separate sibling subtree of outputFlex, not inside
-			// s.outputTabs at all. SetInputCapture's own s.tabSearchComposing
+			// s.outputTabs at all. SetInputCapture's own s.search.composing
 			// branch no longer depends on app-level focus to reach
-			// s.tabSearchInput (it invokes its InputHandler directly - see
-			// that branch's own doc comment for why), so this can't break
-			// typing anymore either way; re-asserting focus here is still
-			// worth doing so the field's own cursor rendering doesn't
-			// visibly jump elsewhere if an async Resolved/Docs fetch
-			// happens to land mid-keystroke. renderOutputTabs's other two
-			// call sites (host/task navigation) can't be composing at the
-			// same time, since navigateOutputHost/Task aren't reachable
-			// while s.tabSearchComposing gates SetInputCapture earlier.
-			s.app.SetFocus(s.tabSearchInput)
+			// s.search.input (it invokes its InputHandler directly via
+			// tabSearchPanel.handleComposingKey - see that method's own
+			// doc comment for why), so this can't break typing anymore
+			// either way; re-asserting focus here is still worth doing so
+			// the field's own cursor rendering doesn't visibly jump
+			// elsewhere if an async Resolved/Docs fetch happens to land
+			// mid-keystroke. renderOutputTabs's other two call sites
+			// (host/task navigation) can't be composing at the same time,
+			// since navigateOutputHost/Task aren't reachable while
+			// s.search.composing gates SetInputCapture earlier.
+			s.app.SetFocus(s.search.input)
 		}
 	}
 
@@ -1804,7 +1662,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		AddItem(s.bottomBar, 1, 0, false)
 	outputBody := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(s.outputTabs.Primitive(), 0, 1, true).
-		AddItem(s.outputFooterPages, 1, 0, false)
+		AddItem(s.search.footer, 1, 0, false)
 
 	// s.splitBody is the two-pane row itself - s.treeBody alongside
 	// outputBody, with s.splitDivider between them - everything s.splitFlex
@@ -1838,6 +1696,15 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.pages.AddPage("rerun", uikit.CenteredModal(s.rerunForm, 56, 19), true, false)
 
 	s.app = tview.NewApplication().SetRoot(s.pages, true)
+	// s.search was built earlier (its footer/input widgets are needed for
+	// outputFlex's own layout, constructed well before s.app exists), with
+	// a nil app - real bug, caught live: tabSearchPanel.open() calling
+	// SetFocus on that nil app crashed the instant '/' was pressed. Struct
+	// fields copy a pointer's value at the moment they're set, unlike a
+	// closure capturing s.app by reference and reading it fresh at call
+	// time (what the pre-refactor code did here, safely, by accident) -
+	// this fixes it up now that a real one exists.
+	s.search.app = s.app
 
 	// Terminal color-capability probe, design-docs/Morehosts.md:
 	// Application.Screen() isn't available until after Run() starts, but
@@ -2128,7 +1995,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// recent one before this fires - there's nothing left to reconcile on
 	// the way out.
 	closeOutput := func() {
-		clearTabSearch() // leaving the drill-down entirely - nothing left
+		s.search.clear() // leaving the drill-down entirely - nothing left
 		// to search once its own tabs are gone.
 		s.fileCache = map[resolveKey]uikit.ResolvedRender{} // design-docs/
 		// ShowFileContents.md's own caching rule: a remote file's fetched
@@ -2165,7 +2032,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// everything through" pass-through just below this).
 		if event.Key() == tcell.KeyCtrlC {
 			closeDialogs()            // harmless no-op if neither dialog is open
-			closeTabSearchComposing() // ditto if the tab-search prompt isn't open
+			s.search.closeComposing() // ditto if the tab-search prompt isn't open
 			if processDone.Load() {
 				quitting.Store(true) // before Stop() - see main.go's race note
 				s.app.Stop()
@@ -2208,33 +2075,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// search prompt (design-docs/Search.md) instead of the tree's own
 		// row-filter search - a query might legitimately contain any
 		// letter, shortcut or not, so every key but Ctrl-C (handled above)
-		// must reach s.tabSearchInput's own native editing untouched.
-		//
-		// Unlike s.searchDialogOpen's own plain "return event" pass-through,
-		// this calls s.tabSearchInput.InputHandler() directly rather than
-		// relying on tview's normal root.HasFocus()-driven dispatch
-		// (application.go: "pass other key events to the root primitive if
-		// root.HasFocus()"). Confirmed live that the normal path silently
-		// fails here even though s.app.SetFocus(s.tabSearchInput) and every
-		// level's own HasFocus() check (s.tabSearchInput's, its ancestors',
-		// s.pages' own root) all correctly report true - s.tabSearchInput sits
-		// three tview.Pages/Flex layers deep (s.pages -> "output"/outputFlex
-		// -> s.outputFooterPages -> "search" -> s.tabSearchInput), and
-		// something in that specific dispatch chain (not fully isolated -
-		// tried and ruled out: TreeList's own s.list never retaining stale
-		// focus, Flex/Pages.Draw() never touching focus, s.outputTabs'
-		// SetTabs-triggered RemovePage/AddPage focus churn once that's
-		// separately guarded against below) still doesn't route the event
-		// through, despite focus being correct at every layer checked.
-		// Invoking the field's own InputHandler directly sidesteps
-		// whichever part of that chain is at fault, the same "route
-		// around tview instead of fighting it" call this codebase already
-		// made once for treeList (treelist.go) when tview.List's own
-		// behavior fell short - see that file's own doc comment.
-		if s.tabSearchComposing {
-			if handler := s.tabSearchInput.InputHandler(); handler != nil {
-				handler(event, func(p tview.Primitive) { s.app.SetFocus(p) })
-			}
+		// must reach s.search.input's own native editing untouched. Unlike
+		// s.searchDialogOpen's own plain "return event" pass-through, this
+		// routes through tabSearchPanel.handleComposingKey - see its own
+		// doc comment (livesession_tabsearch.go) for why a plain
+		// pass-through doesn't reliably reach s.search.input here.
+		if s.search.composing {
+			s.search.handleComposingKey(event)
 			return nil
 		}
 
@@ -2434,13 +2281,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 		if s.viewingOutput {
 			switch {
-			case event.Key() == tcell.KeyEscape && s.tabSearch != nil:
+			case event.Key() == tcell.KeyEscape && s.search.active != nil:
 				// Layered per design-docs/Search.md: Esc clears an active
 				// search first, rather than immediately closing the whole
-				// drill-down out from under it - a second Esc (s.tabSearch is
-				// nil by then) falls through to the case below and closes
+				// drill-down out from under it - a second Esc (s.search.active
+				// is nil by then) falls through to the case below and closes
 				// normally.
-				clearTabSearch()
+				s.search.clear()
 				return nil
 			case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyEnter:
 				// Used to be tview.TextView's own native "done key"
@@ -2478,26 +2325,24 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// of doing nothing, so a stale "no matches" search can't
 			// silently strand these keys.
 			case event.Key() == tcell.KeyRune && event.Rune() == 'N':
-				if s.tabSearch != nil && s.tabSearch.HasMatches() {
-					s.tabSearch.Prev()
-					s.outputBottomBar.SetText(outputSearchStatusText(s.tabSearch))
+				if s.search.hasMatches() {
+					s.search.prev()
 					return nil
 				}
 				navigateOutputTask(-1)
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == 'n':
-				if s.tabSearch != nil && s.tabSearch.HasMatches() {
-					s.tabSearch.Next()
-					s.outputBottomBar.SetText(outputSearchStatusText(s.tabSearch))
+				if s.search.hasMatches() {
+					s.search.next()
 					return nil
 				}
 				navigateOutputTask(1)
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == '/':
-				openTabSearch()
+				s.search.open()
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == 'y':
-				s.outputBottomBar.SetTextStyle(outputBottomBarNormalStyle())
+				s.outputBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
 				s.outputBottomBar.SetText(uikit.CopyActiveTabStatus(s.outputTabs))
 				return nil
 			case event.Key() == tcell.KeyRune && event.Rune() == 'e':
@@ -2646,7 +2491,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// so bail out immediately rather than touch it.
 			return nil, action
 		}
-		if s.tabSearchComposing {
+		if s.search.composing {
 			// Same reasoning as s.searchDialogOpen/s.rerunDialogOpen below,
 			// and for the same underlying bug those two already guard
 			// against: fireMouseActions forwards every mouse event -
@@ -2657,14 +2502,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// on nothing more than a hover. Left unguarded, a stray
 			// MouseMove landing on s.outputTabs' own content (the tab body,
 			// not the footer) silently steals focus back from
-			// s.tabSearchInput moments after openTabSearch sets it - caught
+			// s.search.input moments after s.search.open() sets it - caught
 			// live: typed characters and Enter/Esc stopped reaching the
 			// field at all, with no visible error, because keyboard input
 			// was still correctly being forwarded, just to the wrong
-			// primitive. A click inside s.tabSearchInput's own rect is let
+			// primitive. A click inside s.search.input's own rect is let
 			// through (native click-to-position-cursor); everything else
 			// swallowed.
-			if x, y := event.Position(); uikit.InRect(x, y, s.tabSearchInput) {
+			if x, y := event.Position(); uikit.InRect(x, y, s.search.input) {
 				return event, action
 			}
 			return nil, action

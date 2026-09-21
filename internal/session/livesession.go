@@ -184,25 +184,23 @@ type liveSession struct {
 	// widgets either side of splitDivider never quite agreed on the
 	// fill boundary; one widget's own width trivially agrees with
 	// itself).
-	bottomBar         *tview.TextView
-	flex              *tview.Flex
-	splitFlex         *tview.Flex
-	splitBody         *tview.Flex
-	treeBody          *tview.Flex
-	splitDivider      *tview.Box
-	splitHeader       *tview.TextView
-	topBar            *tview.TextView
-	outputTabs        *uikit.TabbedPane
-	outputTopBar      *tview.TextView
-	outputBottomBar   *tview.TextView
-	tabSearchInput    *tview.InputField
-	outputFooterPages *tview.Pages
-	pages             *tview.Pages
-	filterDialog      *tview.TextView
-	searchInput       *tview.InputField
-	searchDialogFlex  *tview.Flex
-	filterFlex        *tview.Flex
-	rerunForm         *tview.Form
+	bottomBar        *tview.TextView
+	flex             *tview.Flex
+	splitFlex        *tview.Flex
+	splitBody        *tview.Flex
+	treeBody         *tview.Flex
+	splitDivider     *tview.Box
+	splitHeader      *tview.TextView
+	topBar           *tview.TextView
+	outputTabs       *uikit.TabbedPane
+	outputTopBar     *tview.TextView
+	outputBottomBar  *tview.TextView
+	pages            *tview.Pages
+	filterDialog     *tview.TextView
+	searchInput      *tview.InputField
+	searchDialogFlex *tview.Flex
+	filterFlex       *tview.Flex
+	rerunForm        *tview.Form
 
 	// --- tree-level filter/search dialogs ---
 	// The filter (a/c/f) and search (/) dialogs are two separate modals,
@@ -260,6 +258,10 @@ type liveSession struct {
 	resolveCache          map[resolveKey]uikit.ResolvedRender
 	docsCache             map[string]uikit.ResolvedRender
 	fileCache             map[resolveKey]uikit.ResolvedRender
-	tabSearch             *uikit.TextSearch
-	tabSearchComposing    bool
+
+	// search is design-docs/Search.md's "find text in the active tab"
+	// apparatus, increment 3 of this refactor - genuinely separable from
+	// the rest of this struct (livesession_tabsearch.go), unlike
+	// everything else still listed above.
+	search *tabSearchPanel
 }
