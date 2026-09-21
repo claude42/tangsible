@@ -72,6 +72,11 @@ type liveSession struct {
 	twoPaneLayout bool
 	requestRerun  func(startAtPlay, tags, skipTags, hosts string)
 	progH         *atomic.Pointer[runner.ProgressTracker]
+	// passthroughArgs is this session's own current-generation passthrough
+	// args - needed by showOutputWithOrigin's Resolved/File async fetches
+	// (resolveTaskValues/fetchRemoteFileContents), which have to see the
+	// same inventory/connection/vault context the live run itself used.
+	passthroughArgs []string
 
 	// --- tree/render state ---
 	list                     *uikit.TreeList
