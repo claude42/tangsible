@@ -15,10 +15,13 @@
 package session
 
 import (
+	"sync/atomic"
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -53,6 +56,23 @@ type liveSession struct {
 	app       *tview.Application
 	applyLive func(playbook.RawEvent)
 
+	// --- NewLiveTUI's own parameters, copied here read-only (never
+	// reassigned after construction) so rebuild() and the small chrome/
+	// style helpers it calls (livesession_rebuild.go) can reach them once
+	// they're no longer lexically nested inside NewLiveTUI itself. Every
+	// other closure still nested there keeps reading the bare parameter
+	// directly - these fields exist only for the methods that had to
+	// leave that scope, not as a wholesale parameter-to-field rename. ---
+	state         *playbook.PlaybookState
+	playbookName  string
+	isRole        bool
+	processDone   *atomic.Bool
+	exitCode      *atomic.Int32
+	sourceIndex   source.TaskSourceIndex
+	twoPaneLayout bool
+	requestRerun  func(startAtPlay, tags, skipTags, hosts string)
+	progH         *atomic.Pointer[runner.ProgressTracker]
+
 	// --- tree/render state ---
 	list                     *uikit.TreeList
 	expanded                 map[*playbook.TaskNode]bool
@@ -66,12 +86,53 @@ type liveSession struct {
 	jumpingToEnd             bool
 	everStarted              bool
 	revisitActive            bool
-	lastTotalWidth           int
-	viewingOutput            bool
-	viewingOutputFromRecap   bool
-	useColor                 bool
-	splitMode                bool
-	currentPageName          string
+	// lastTotalWidth is pages' own width (the terminal's, regardless of
+	// which of "main"/"output"/"split" is frontmost - see rebuild()'s own
+	// totalWidth local) last time rebuild() ran. Compared against pages'
+	// *current* width by the resize-watcher goroutine (startHeartbeat) to
+	// notice a terminal resize with no other event to piggyback a rebuild
+	// on - pages itself, being the app's root primitive, always reports
+	// the true current terminal size no matter which page is showing,
+	// unlike list's own width (the tree's own column layout, which stops
+	// tracking the terminal 1:1 once a two-pane drill-down is open,
+	// design-docs/TwoPanedLayout.md).
+	lastTotalWidth int
+	// viewingOutput is true while the host-output page is frontmost - see
+	// SetInputCapture: selects between the main tree's and the output
+	// view's own page-specific key bindings (Left/Right and n/N mean
+	// different things on each page). Not a pages.GetFrontPage() query,
+	// since this function owns both places that ever switch pages.
+	viewingOutput bool
+	// viewingOutputFromRecap is true for the duration of a drill-down
+	// session opened from a recap task row (design-docs/Recap.md) rather
+	// than the main tree - see showOutputWithOrigin's own doc comment for
+	// what this changes. Persists across navigateOutputTask/
+	// navigateOutputHost calls within the same session (both pass the
+	// current value straight through, not a hardcoded false), so hopping
+	// between tasks/hosts via n/N or Left/Right while viewing doesn't
+	// silently switch the session back to tree-origin behavior partway
+	// through.
+	viewingOutputFromRecap bool
+	// useColor (design-docs/Morehosts.md): whether the collapsed task
+	// row's per-host summary may render in color at all - computed once
+	// (terminal capability, NO_COLOR, general.color must all permit it)
+	// and read by rebuild() on every call thereafter.
+	useColor bool
+	// splitMode is true while the currently-open drill-down is rendered
+	// as the two-pane "split" page (design-docs/TwoPanedLayout.md) rather
+	// than full-screen "output" - decided once, in showOutput, the moment
+	// a drill-down freshly opens (viewingOutput was false), and left
+	// alone for the rest of that session even if the terminal is resized
+	// while it stays open (per the design doc's own explicit call: only
+	// the panes' own internal layout reflows mid-session, the split-vs-
+	// full-screen choice itself doesn't re-decide until the next open).
+	splitMode bool
+	// currentPageName tracks which of "main"/"output"/"split" is
+	// currently frontmost, so switchPage can tell whether a page switch
+	// is actually needed before calling pages.SwitchToPage - which, per
+	// tview's own source, re-focuses the new front page every time it's
+	// called, even redundantly.
+	currentPageName string
 
 	// --- chrome/notification bookkeeping ---
 	startedAt                  time.Time
@@ -82,17 +143,47 @@ type liveSession struct {
 	notifyTaskFailedMax        int
 	taskFailedNotifyCount      int
 	suppressedTaskFailures     int
-	finishedNotifySent         bool
-	failureCursorPlaced        bool
-	frozenElapsed              time.Duration
-	haveFrozenElapsed          bool
-	liveChromeStyle            tcell.Style
-	liveChromeBg               tcell.Color
-	liveChromeColorName        string
-	chromeStyle                tcell.Style
-	chromeBg                   tcell.Color
+	// finishedNotifySent latches true the first time rebuild() observes
+	// the run frozen - same one-shot-per-generation shape as
+	// failureCursorPlaced below, guarding notify_playbook_finished so it
+	// fires exactly once per generation.
+	finishedNotifySent bool
+	// failureCursorPlaced latches true the first time rebuild() observes
+	// the run frozen - guards the one-time "jump to the failed host"
+	// placement so it fires exactly once on the running-to-frozen
+	// transition, never re-forcing the cursor back there if the user has
+	// since navigated elsewhere.
+	failureCursorPlaced bool
+	// frozenElapsed/haveFrozenElapsed latch the first time rebuild()
+	// observes the run frozen, capturing that instant's elapsed time for
+	// every later rebuild to reuse. Without this, a rebuild triggered
+	// long after the run finished - by cursor navigation or anything
+	// else that isn't the heartbeat ticker, which stops once frozen -
+	// would recompute now.Sub(startedAt) fresh and make the top bar's
+	// elapsed time keep climbing after the run is actually done.
+	frozenElapsed       time.Duration
+	haveFrozenElapsed   bool
+	liveChromeStyle     tcell.Style
+	liveChromeBg        tcell.Color
+	liveChromeColorName string
+	chromeStyle         tcell.Style
+	chromeBg            tcell.Color
 
 	// --- widgets touched by more than one closure ---
+	// bottomBar/flex/splitFlex/splitBody/treeBody/splitDivider/splitHeader
+	// used to need forward-declaring in NewLiveTUI (var bottomBar
+	// *tview.TextView, etc., assigned only later once really
+	// constructed) purely so earlier closures like showOutput could
+	// reference the identifier before its real construction ran - struct
+	// fields need no such ceremony (a nil *tview.TextView field is a
+	// perfectly valid zero value to read before assignment), a genuine
+	// simplification this refactor buys for free. splitHeader (a single
+	// bar spanning the terminal's true full width) replaces
+	// topBar/outputTopBar entirely for the duration of a split session -
+	// see its own construction site for why (two independently-widthed
+	// widgets either side of splitDivider never quite agreed on the
+	// fill boundary; one widget's own width trivially agrees with
+	// itself).
 	bottomBar         *tview.TextView
 	flex              *tview.Flex
 	splitFlex         *tview.Flex
@@ -114,7 +205,20 @@ type liveSession struct {
 	rerunForm         *tview.Form
 
 	// --- tree-level filter/search dialogs ---
-	currentFilter    uikit.FilterQuery
+	// The filter (a/c/f) and search (/) dialogs are two separate modals,
+	// not one combined one (reworked from an earlier single-dialog design
+	// after live use showed the combined version made it too easy to hit
+	// the wrong key). Each gets its own "is this one open" bool rather
+	// than a single shared enum, since the two are modal in genuinely
+	// different ways: filterDialogOpen (menu mode - a/i/c/f/Esc/q are the
+	// only keys that do anything, everything else is swallowed) vs
+	// searchDialogOpen (text-entry mode - every key except Ctrl-C passes
+	// straight through to the search box's own editing, including 'q'
+	// and 'a'/'i'/'c'/'f', since a real search term might contain any of
+	// those letters). rerunDialogOpen is modal the same way
+	// searchDialogOpen is, not the filter dialog's swallow-everything
+	// menu style - see SetInputCapture for exactly how each is modal.
+	currentFilter    uikit.FilterQuery // see Filters.md; the two dialogs below are the only writers.
 	filterDialogOpen bool
 	searchDialogOpen bool
 	rerunDialogOpen  bool
@@ -142,6 +246,14 @@ type liveSession struct {
 	hostsPreFilled           bool
 
 	// --- output drill-down ---
+	// showOutput/showOutputFromRecap are struct fields (not local
+	// closures) purely so rebuild() can still pass them as FlattenRows'/
+	// flattenRecapRows' own row-selected callback now that rebuild is a
+	// real method, no longer nested inside NewLiveTUI - both remain
+	// ordinary closures, assigned once at construction, still capturing
+	// NewLiveTUI's whole scope normally otherwise.
+	showOutput            func(*playbook.TaskNode, string)
+	showOutputFromRecap   func(*playbook.TaskNode, string)
 	outputTask            *playbook.TaskNode
 	outputHost            string
 	outputTopBarPlainText string
