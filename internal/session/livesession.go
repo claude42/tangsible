@@ -222,26 +222,20 @@ type liveSession struct {
 	rerunDialogOpen  bool
 
 	// --- rerun dialog field-sync (design-docs/Rerun.md) ---
-	playField                *tview.InputField
-	tagsField                *tview.InputField
-	skipTagsField            *tview.InputField
-	hostsField               *tview.InputField
-	currentFailedHosts       []string
-	currentUnreachableHosts  []string
-	currentResumePlay        string
-	syncingPlayField         bool
-	syncingHostsField        bool
-	suppressPlayClear        bool
-	suppressHostsClear       bool
-	resumeCheckbox           *tview.Checkbox
-	onlyFailedCheckbox       *tview.Checkbox
-	onlyUnreachableCheckbox  *tview.Checkbox
-	acDismissed              bool
-	appliedInitialRerunFlags bool
-	playPreFilled            bool
-	tagsPreFilled            bool
-	skipTagsPreFilled        bool
-	hostsPreFilled           bool
+	// rerunFields (livesession_rerundialog.go), increment 4 of this
+	// refactor - genuinely separable from the rest of this struct, same
+	// shape as search below. openRerunDialog/submitRerun (tui.go) stay
+	// liveSession-level "bridge" closures reaching into it, since they
+	// also touch the rest of the shared state pool (s.expanded/s.currentID/
+	// s.resolveCache etc on a rerun) that this subsystem doesn't need to
+	// know about. playPreFilled/tagsPreFilled/skipTagsPreFilled/
+	// hostsPreFilled stay here too, not in rerunFields - they're
+	// openRerunDialog's own one-shot latches, touched by no other closure.
+	rerunFields       *rerunFieldSync
+	playPreFilled     bool
+	tagsPreFilled     bool
+	skipTagsPreFilled bool
+	hostsPreFilled    bool
 
 	// --- output drill-down ---
 	// showOutput/showOutputFromRecap are struct fields (not local
