@@ -66,6 +66,7 @@ type liveSession struct {
 	playbookName  string
 	isRole        bool
 	processDone   *atomic.Bool
+	quitting      *atomic.Bool
 	exitCode      *atomic.Int32
 	sourceIndex   source.TaskSourceIndex
 	twoPaneLayout bool

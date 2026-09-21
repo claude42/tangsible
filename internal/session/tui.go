@@ -184,6 +184,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.playbookName = playbookName
 	s.isRole = isRole
 	s.processDone = processDone
+	s.quitting = quitting
 	s.exitCode = exitCode
 	s.sourceIndex = sourceIndex
 	s.twoPaneLayout = twoPaneLayout
@@ -850,124 +851,32 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	_, noColorSet := os.LookupEnv("NO_COLOR")
 	s.useColor = terminalSupportsColor && !noColorSet && colorEnabled
 
-	// Top-bar heartbeat ticker - the first self-driven (not event- or
-	// input-triggered) source of QueueUpdateDraw calls in this codebase.
-	// Pulled out into a named closure, rather than a bare inline goroutine,
-	// specifically so the 'r' key handler below can call it again to
-	// resume ticking for a rerun (Rerun.md) - the ticker that started
-	// alongside the first invocation permanently returns once it observes
-	// processDone true (see its own comment below), so a later generation
-	// needs a fresh one.
-	startHeartbeat := func() {
-		go func() {
-			ticker := time.NewTicker(uikit.SpinnerInterval)
-			defer ticker.Stop()
-			for range ticker.C {
-				if quitting.Load() {
-					return // mirrors main.go's streamEvents guard: tview's
-					// update queue is a fixed 100-slot buffer nothing drains
-					// once the app has stopped, so a goroutine blocked inside
-					// QueueUpdateDraw past that point hangs forever. Unlike
-					// streamEvents, nothing in main.go waits on this
-					// goroutine, so such a hang wouldn't itself block process
-					// exit - but there's no reason to rely on that.
-				}
-				done := processDone.Load()
-				s.app.QueueUpdateDraw(s.rebuild)
-				if done {
-					return // one frozen frame pushed above; stop ticking
-					// rather than redrawing a static screen forever - until
-					// startHeartbeat is called again for a later rerun.
-				}
-			}
-		}()
-	}
-	// Deliberately no early, pre-Run() s.rebuild() call for a revisit session,
-	// even though its state/processDone/exitCode are already fully
-	// populated by this point (see revisit.go) and there'd be real content
-	// to show immediately, sparing the ~200ms blank flash before the
-	// heartbeat ticker's own first tick below. Tried exactly that and
-	// reverted it - a real, reported bug: s.list has no genuine rect yet at
-	// this point (s.app.Run() hasn't started laying anything out), so
+	// Placed after `s.app` is assigned above: startHeartbeat's own goroutine
+	// has a happens-before edge (Go memory model) with this call, which
+	// itself runs after `s.app` was assigned - reading `s.app` from the
+	// ticker goroutine would otherwise be a genuine data race, not just a
+	// latency curiosity, even though the first tick is SpinnerInterval away.
+	// Deliberately no early, pre-Run() s.rebuild() call for a revisit
+	// session, even though its state/processDone/exitCode are already
+	// fully populated by this point (see revisit.go) and there'd be real
+	// content to show immediately, sparing the ~200ms blank flash before
+	// the heartbeat ticker's own first tick. Tried exactly that and
+	// reverted it - a real, reported bug: s.list has no genuine rect yet
+	// at this point (s.app.Run() hasn't started laying anything out), so
 	// ensureVisible/the "reveal trailing status rows" scroll-to-bottom
-	// logic inside s.rebuild() (both below) compute against a bogus size,
-	// landing itemOffset somewhere wrong - and since the very next
-	// s.rebuild() (the heartbeat's one tick, once Run() has given s.list a
-	// real rect) sees an unchanged selectedIndex, it takes the
-	// RestoreCurrentItem path, which deliberately never touches itemOffset
-	// - so nothing ever corrects the bogus position on its own, unlike a
-	// live run/rerun/role session (which only ever calls s.rebuild() after
-	// Run() has already given every widget a real size). A brief blank
-	// flash before the heartbeat's first tick - the same startup
-	// experience every other Verb already has - is the trade worth making
-	// here, not a real regression.
-	// Placed after `s.app` is assigned: the go statement inside
-	// startHeartbeat's closure body has a happens-before edge (Go memory
-	// model) with this very call, which itself runs after `s.app` was
-	// assigned - if startHeartbeat were defined or first called any
-	// earlier, reading `s.app` from the ticker goroutine would be a genuine
-	// data race, not just a latency curiosity, even though the first tick
-	// is SpinnerInterval away.
-	startHeartbeat()
-
-	// resizeWatcher: a second, permanent ticker, deliberately independent of
-	// startHeartbeat's own per-generation running/frozen lifecycle (unlike
-	// startHeartbeat, this is started exactly once and never restarted by
-	// submitRerun). Its only job is noticing a bare terminal resize once the
-	// run is frozen - startHeartbeat's own ticker already permanently stops
-	// once processDone is observed true, so nothing else is left driving a
-	// s.rebuild() on a terminal resize with no other incoming event. While a
-	// run is still live, startHeartbeat's own ticker already re-syncs
-	// everything within SpinnerInterval regardless of resize - so this
-	// goroutine skips its own work entirely until processDone. "Everything"
-	// now includes the two-pane drill-down's own split-vs-full-screen mode
-	// and tree-pane width, not just the tree's row text/column layout - see
-	// s.rebuild()'s own resync block (design-docs/TwoPanedLayout.md) - so a
-	// frozen run's drill-down reacts to a resize exactly as live one does,
-	// via the same s.rebuild() call, just noticed by this ticker instead of
-	// startHeartbeat's.
-	go func() {
-		ticker := time.NewTicker(uikit.SpinnerInterval) // reused only as a
-		// convenient existing interval - not tied to spinner-animation cadence.
-		defer ticker.Stop()
-		for range ticker.C {
-			if quitting.Load() {
-				return // same accepted best-effort guard startHeartbeat's own
-				// ticker already uses - nothing waits on this goroutine, so a
-				// hang here wouldn't itself block process exit.
-			}
-			if !processDone.Load() {
-				continue // startHeartbeat's own ticker already handles this
-				// case every SpinnerInterval regardless of resize.
-			}
-			s.app.QueueUpdate(func() { // NOT QueueUpdateDraw - avoid forcing a
-				// real screen redraw on every tick when nothing changed.
-				_, _, totalWidth, _ := s.pages.GetInnerRect() // s.pages, not
-				// s.list - the terminal's true current width regardless of
-				// which page is frontmost (see s.rebuild()'s own
-				// s.lastTotalWidth comment); using s.list here would miss a
-				// resize entirely while a two-pane session has fixed s.list's
-				// own width to the tree pane's share, or while viewing a
-				// full-screen drill-down at all (s.list isn't part of that
-				// page's own draw tree, so its rect goes stale).
-				if totalWidth != s.lastTotalWidth {
-					s.rebuild()
-					// s.app.Draw() would deadlock here: it's QueueUpdate under
-					// another name, and this closure is already running via
-					// QueueUpdate - i.e. already on the event-loop goroutine -
-					// so a nested QueueUpdate call would enqueue itself and
-					// then block forever waiting for the event loop to loop
-					// back and process it, which it structurally cannot do
-					// while stuck inside this very call. ForceDraw() calls
-					// a.draw() directly, no channel round-trip - and its own
-					// doc comment says exactly this is safe: "safe to call
-					// this function during queued updates and direct event
-					// handling."
-					s.app.ForceDraw()
-				}
-			})
-		}
-	}()
+	// logic inside s.rebuild() computes against a bogus size, landing
+	// itemOffset somewhere wrong - and since the very next s.rebuild()
+	// (the heartbeat's one tick, once Run() has given s.list a real rect)
+	// sees an unchanged selectedIndex, it takes the RestoreCurrentItem
+	// path, which deliberately never touches itemOffset - so nothing ever
+	// corrects the bogus position on its own, unlike a live run/rerun/role
+	// session (which only ever calls s.rebuild() after Run() has already
+	// given every widget a real size). A brief blank flash before the
+	// heartbeat's first tick - the same startup experience every other
+	// Verb already has - is the trade worth making here, not a real
+	// regression.
+	s.startHeartbeat()
+	s.startResizeWatcher()
 
 	// submitRerun (Enter while s.rerunDialogOpen - see SetInputCapture below)
 	// reads the form's own current values, closes the dialog, and starts a
@@ -1047,7 +956,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		s.rebuild() // clear the previous run's rows immediately, rather than
 		// leaving them on screen until the new generation's first event
 		// arrives.
-		startHeartbeat()
+		s.startHeartbeat()
 	}
 
 	// Re-run/Cancel buttons - unlike s.searchDialogFlex's own buttons above,
