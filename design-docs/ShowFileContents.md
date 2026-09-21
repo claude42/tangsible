@@ -312,3 +312,7 @@ ansible.posix.patch:
 
 systemd
 service
+
+## Resume
+
+claude --resume 090d9a7d-fe0e-44fb-a411-06c2c78d387d
