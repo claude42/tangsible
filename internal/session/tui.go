@@ -17,7 +17,6 @@ package session
 import (
 	"os"
 	"os/exec"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -192,6 +191,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.progH = progH
 	s.passthroughArgs = passthroughArgs
 	s.startExpanded = startExpanded
+	s.initialPlay = initialPlay
+	s.initialTags = initialTags
+	s.initialSkipTags = initialSkipTags
+	s.initialHosts = initialHosts
 
 	s.startedAt = time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced
@@ -524,73 +527,6 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		s.showOutputWithOrigin(task, host, true)
 	}
 
-	// s.tagsPreFilled/s.skipTagsPreFilled/s.hostsPreFilled latch true the first
-	// time openRerunDialog ever pre-fills each field, independent of what
-	// the field then contains - deliberately not re-derived from
-	// GetText() == "" on every open (that was the original design, and a
-	// real bug caught live: clearing a field to "" is itself a
-	// meaningful, intentional edit - Reassemble treats an empty Hosts as
-	// "no --limit, all hosts" - but GetText() == "" can't tell that apart
-	// from "never touched," so the *next* open silently re-pre-filled
-	// over the user's own deliberate choice to clear it). A one-time
-	// latch has no such ambiguity: once a field has been pre-filled once,
-	// it is never touched by this function again, regardless of what the
-	// user does with it afterward, empty included.
-
-	// openRerunDialog (Rerun.md's 'r' key - see SetInputCapture below,
-	// gated there on processDone since re-running only makes sense once a
-	// run has finished). Play is never pre-filled from the tree cursor -
-	// there's no single "current play" to derive one from reliably - but it
-	// IS pre-filled from initialPlay (this process's own invocation's own
-	// --start-at-play, if any - design-docs/StartWithPlay.md), the same way
-	// Tags/Hosts pre-fill from initialTags/initialHosts: only the very
-	// first time the dialog is opened at all - see s.playPreFilled/
-	// s.tagsPreFilled/s.skipTagsPreFilled/s.hostsPreFilled above - every open
-	// after that leaves the field alone, whatever it now contains.
-	openRerunDialog := func() {
-		s.rerunDialogOpen = true
-
-		if !s.playPreFilled {
-			s.rerunFields.playField.SetText(initialPlay)
-			s.playPreFilled = true
-		}
-		if !s.tagsPreFilled {
-			s.rerunFields.tagsField.SetText(initialTags)
-			s.tagsPreFilled = true
-		}
-		if !s.skipTagsPreFilled {
-			s.rerunFields.skipTagsField.SetText(initialSkipTags)
-			s.skipTagsPreFilled = true
-		}
-		if !s.hostsPreFilled {
-			s.rerunFields.hostsField.SetText(initialHosts)
-			s.hostsPreFilled = true
-		}
-
-		// s.rerunFields.rebuild runs after the one-shot text pre-fills
-		// above, deliberately - on the "rerun" verb's very first open, its
-		// own CLI-flag-driven checkbox pre-check (initialRerunDefaults)
-		// writes into s.rerunFields.playField/hostsField too (via the
-		// checkboxes' own SetChangedFunc cascade), and that write needs to
-		// be the one that wins. Running this first (tried live, reverted)
-		// let the plain initialPlay/initialHosts pre-fill above - "" for
-		// both, since a --resume-where-failed/--only-failed invocation has
-		// no --start-at-play/-l of its own - clobber right back over what
-		// the checkbox cascade had just filled in. Every open after the
-		// first re-derives the three checkboxes' own availability/defaults
-		// fresh regardless (see its own doc comment for why this, unlike
-		// the text fields' one-shot latches above, is never itself
-		// one-time-only) - reordering relative to those latches only
-		// matters for the one open where both fire.
-		s.rerunFields.rebuild()
-
-		s.rerunForm.SetFocus(0) // always start on the Play field (the first,
-		// broadest-scope option - design-docs/StartWithPlay.md), not
-		// wherever focus happened to be left inside the form the last time
-		// it closed.
-		s.pages.ShowPage("rerun")
-		s.app.SetFocus(s.rerunForm)
-	}
 	// s.searchInput.SetDoneFunc fires on Enter/Esc/Tab/Backtab - InputField's
 	// own fixed set of "done" keys (confirmed against inputfield.go),
 	// reached because s.searchDialogOpen tells SetInputCapture below to let
@@ -878,87 +814,6 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.startHeartbeat()
 	s.startResizeWatcher()
 
-	// submitRerun (Enter while s.rerunDialogOpen - see SetInputCapture below)
-	// reads the form's own current values, closes the dialog, and starts a
-	// new generation the same way Phase B's direct requestRerun() call
-	// used to - resetting this function's own view state and restarting
-	// the heartbeat ticker - except now driven by the dialog's fields
-	// instead of always repeating the original invocation verbatim.
-	// Defined here rather than up with openRerunDialog/s.closeDialogs: it
-	// closes over startHeartbeat, which - like this closure itself -
-	// can't exist before `s.app` is assigned above.
-	submitRerun := func() {
-		startAtPlay := strings.TrimSpace(s.rerunFields.playField.GetText()) // empty
-		// means "whole playbook" - see s.playField's own doc comment.
-		tags := strings.TrimSpace(s.rerunFields.tagsField.GetText())
-		skipTags := strings.TrimSpace(s.rerunFields.skipTagsField.GetText())
-		hosts := strings.TrimSpace(s.rerunFields.hostsField.GetText())
-		s.closeDialogs()
-
-		requestRerun(startAtPlay, tags, skipTags, hosts) // resets
-		// processDone/exitCode/state synchronously (see main.go) - by the
-		// time this returns, s.rebuild() below already sees a running, empty
-		// generation.
-		s.expanded = map[*playbook.TaskNode]bool{}
-		s.recapHostExpanded = map[string]bool{}
-		s.recapCategoryExpanded = map[recapCategoryRowID]bool{}
-		s.currentID = nil
-		s.following = true
-		s.failureCursorPlaced = false
-		s.haveFrozenElapsed = false
-		s.frozenElapsed = 0
-		s.finishedNotifySent = false
-		s.taskFailedNotifyCount = 0
-		s.suppressedTaskFailures = 0
-		s.lastAppliedSelectedIndex = -1 // a fresh generation's row 0 must not
-		// be mistaken for "no change" just because it happens to match
-		// whatever index the previous generation last applied.
-		s.resolveCache = map[resolveKey]uikit.ResolvedRender{} // a new generation
-		// means new vars/facts - any cached "Resolved" render is for a
-		// previous generation's own values and must not linger.
-		s.fileCache = map[resolveKey]uikit.ResolvedRender{} // same reasoning -
-		// a new generation's fetched file content is just as stale as its
-		// resolved values (closeOutput, below, is s.fileCache's *other*
-		// invalidation point, for within-generation staleness).
-		s.everStarted = true // only a real transition the very first time
-		// this fires for the "rerun" Verb's startup dialog (see
-		// startWithRerunDialog) - a harmless no-op reassignment every time
-		// after that, since it's already true for every other case.
-		if s.revisitActive {
-			// A real generation is starting - this session is no longer
-			// showing "old data," so the revisit chrome and the Esc-back-
-			// to-the-list binding both go away, for good, for the rest of
-			// this session (design-docs/Revisit.md). Reset directly on the
-			// already-constructed widgets rather than via s.chromeStyle/
-			// s.chromeBg (those only ever governed how things started out).
-			s.revisitActive = false
-			s.topBar.SetTextStyle(s.liveChromeStyle)
-			s.outputTopBar.SetTextStyle(s.liveChromeStyle)
-			s.outputBottomBar.SetTextStyle(s.liveChromeStyle)
-			s.splitHeader.SetTextStyle(s.liveChromeStyle)
-			s.bottomBar.SetTextStyle(s.liveChromeStyle)
-			s.splitDivider.SetBackgroundColor(s.liveChromeBg)
-			s.outputTabs.SetHeaderStyle(s.liveChromeStyle, s.liveChromeColorName)
-			// Style alone isn't enough for s.bottomBar: unlike s.topBar/
-			// s.splitHeader (whose visible text is rebuilt from scratch
-			// on every s.rebuild() call, always reading chromeColorName/
-			// showElapsed/s.revisitActive fresh), s.bottomBar's own text is
-			// a plain string baked in once at whichever point last set
-			// it (construction, closeOutput, or rebuild's own split-
-			// mode toggle) and never otherwise refreshed - a real bug
-			// caught live: without this, "Esc: back to the list" kept
-			// showing (with the right style/color!) even after a
-			// revisit session was promoted to a real rerun and Esc
-			// had already stopped doing that.
-			s.bottomBar.SetText(s.currentMainBottomBarText())
-		}
-		s.startedAt = time.Now()
-		s.rebuild() // clear the previous run's rows immediately, rather than
-		// leaving them on screen until the new generation's first event
-		// arrives.
-		s.startHeartbeat()
-	}
-
 	// Re-run/Cancel buttons - unlike s.searchDialogFlex's own buttons above,
 	// s.rerunForm is already a real tview.Form (see its own doc comment), so
 	// AddButton gets native keyboard Tab-reachability and mouse click
@@ -979,7 +834,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// and Tab-cycling order (Form.Focus() walks f.buttons in the order
 	// they were added), so this one call controls both at once.
 	s.rerunForm.SetButtonsAlign(tview.AlignRight)
-	s.rerunForm.AddButton("Cancel", s.closeDialogs).AddButton("Re-run", submitRerun)
+	s.rerunForm.AddButton("Cancel", s.closeDialogs).AddButton("Re-run", s.submitRerun)
 
 	s.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		// Ctrl-C's meaning never changes based on what's open - per
@@ -1089,7 +944,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				if s.rerunFields.autocompleteOpenNow() {
 					return event
 				}
-				submitRerun()
+				s.submitRerun()
 			case tcell.KeyEscape:
 				if s.rerunFields.autocompleteOpenNow() {
 					s.rerunFields.acDismissed = true
@@ -1366,7 +1221,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			if !processDone.Load() || requestRerun == nil {
 				return nil
 			}
-			openRerunDialog()
+			s.openRerunDialog()
 			return nil
 		case event.Key() == tcell.KeyRune && event.Rune() == 'd':
 			// design-docs/Diff.md: only once a run has actually finished,
@@ -1741,7 +1596,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	})
 
 	if startWithRerunDialog {
-		openRerunDialog() // no 'r' keypress to wait for - this is the
+		s.openRerunDialog() // no 'r' keypress to wait for - this is the
 		// "rerun" Verb's own startup (Rerun.md), or a "run"/"role" session
 		// whose dialog was forced on (design-docs/RerunDialog.md): nothing
 		// has run yet, so the dialog IS the first thing the user sees -
@@ -1753,7 +1608,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// submitRerun reads exactly that state and spawns immediately.
 			// Both calls happen before s.app.Run() is ever invoked by the
 			// caller, so the dialog never actually renders a frame.
-			submitRerun()
+			s.submitRerun()
 		}
 	}
 

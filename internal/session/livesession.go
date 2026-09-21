@@ -83,6 +83,12 @@ type liveSession struct {
 	// inherits whichever task was added most recently - see
 	// InheritedExpandState's own doc comment).
 	startExpanded bool
+	// initialPlay/initialTags/initialSkipTags/initialHosts are this
+	// process's own invocation's own --start-at-play/--tags/--skip-tags/-l,
+	// if any - openRerunDialog's one-time pre-fill source for the rerun
+	// dialog's fields (see s.playPreFilled/s.tagsPreFilled/
+	// s.skipTagsPreFilled/s.hostsPreFilled below for why "one-time").
+	initialPlay, initialTags, initialSkipTags, initialHosts string
 
 	// --- tree/render state ---
 	list                     *uikit.TreeList
