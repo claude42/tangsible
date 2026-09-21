@@ -65,6 +65,7 @@ type liveSession struct {
 	state         *playbook.PlaybookState
 	playbookName  string
 	isRole        bool
+	procH         *runner.ProcHandle
 	processDone   *atomic.Bool
 	quitting      *atomic.Bool
 	exitCode      *atomic.Int32
@@ -72,6 +73,12 @@ type liveSession struct {
 	twoPaneLayout bool
 	requestRerun  func(startAtPlay, tags, skipTags, hosts string)
 	progH         *atomic.Pointer[runner.ProgressTracker]
+	// revisitReturn/targetPlaybook/targetRole - only needed by the input
+	// dispatcher (livesession_input.go): revisitReturn backs Esc-at-the-
+	// bare-tree's "back to the revisit list" case, targetPlaybook/
+	// targetRole feed diff.RunDiffFlow's own 'd' key handling.
+	revisitReturn              func()
+	targetPlaybook, targetRole string
 	// passthroughArgs is this session's own current-generation passthrough
 	// args - needed by showOutputWithOrigin's Resolved/File async fetches
 	// (resolveTaskValues/fetchRemoteFileContents), which have to see the
