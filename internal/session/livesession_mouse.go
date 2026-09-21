@@ -263,33 +263,79 @@ func (s *liveSession) handleRerunDialogMouse(event *tcell.EventMouse, action tvi
 // event - the drill-down's own full mouse handling. Always returns.
 func (s *liveSession) handleOutputViewMouse(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 	// While a two-pane drill-down (design-docs/TwoPanedLayout.md) is open,
-	// the tree pane stays visible but must stay fully inert - a click
-	// landing on it would otherwise reach s.list's own MouseHandler
-	// (toggling expand/collapse, opening a different host's output) with
-	// no keyboard-side equivalent guarding it, unlike the full-screen case
-	// where the tree isn't drawn at all so no click can ever land there.
-	// Checked first, before any of the output-specific hit-tests below.
+	// the tree pane stays visible and mouse-interactive (wheel-scroll,
+	// and - see the MouseLeftClick case below - clicking a row to expand/
+	// collapse a task or switch which host's output is shown), but must
+	// stay keyboard-inert: it never takes real tview focus, so the
+	// drill-down's own keyboard shortcuts (handleKey's dispatch, gated on
+	// s.viewingOutput, not on tview's own focus) keep working exactly as
+	// before regardless of what was last clicked. Checked first, before
+	// any of the output-specific hit-tests below.
 	if s.splitMode {
 		if x, y := event.Position(); uikit.InRect(x, y, s.treeBody) {
 			// A wheel scroll over the tree pane itself (not its
 			// s.bottomBar row - matching the full-screen case below,
 			// which swallows a scroll over s.bottomBar the same way) is
-			// the one deliberate exception to "fully inert while split"
-			// (design-docs/TwoPanedLayout.md's own "no focus-switching,
-			// Esc to close" call): unlike a click, it doesn't select or
-			// change anything, only pans the view, so it's let through to
-			// reach s.list's own MouseHandler via tview's normal
-			// position-based dispatch - already correctly unbounded
-			// (TreeList's own wheel handling), no new panning logic
-			// needed here. s.following=false has to be set explicitly on
-			// this path, same reasoning as handleTreeMouse's own shared
-			// fallthrough below: TreeList's wheel handling never fires
-			// SetChangedFunc (it never touches currentItem), so nothing
-			// else disengages autoscroll here.
+			// let through to reach s.list's own MouseHandler via tview's
+			// normal position-based dispatch - already correctly
+			// unbounded (TreeList's own wheel handling), no new panning
+			// logic needed here. s.following=false has to be set
+			// explicitly on this path, same reasoning as handleTreeMouse's
+			// own shared fallthrough below: TreeList's wheel handling
+			// never fires SetChangedFunc (it never touches currentItem),
+			// so nothing else disengages autoscroll here.
 			if (action == tview.MouseScrollUp || action == tview.MouseScrollDown) && uikit.InRect(x, y, s.list) {
 				s.following = false
 				return event, action
 			}
+			// A left click on a row (not s.bottomBar) - reported live as
+			// a real, if minor, usability gap: without this, the only way
+			// to expand a different task or open a different host while
+			// split was to close the drill-down first, even though the
+			// tree pane is right there, fully visible, and already
+			// mouse-scrollable. Calling s.list's own MouseHandler directly
+			// reuses everything that already makes a click work correctly
+			// in full-tree mode for free: a task row's Selected callback
+			// toggles s.expanded[t] (uikit.FlattenRows), a host row's
+			// calls s.showOutput(t, h) - the exact same call Left/Right/
+			// n/N already make from inside the drill-down for live-sync -
+			// and TreeList's own SetCurrentItem (which the wrapped handler
+			// calls after activating the row) fires s.list's
+			// SetChangedFunc, which sets s.currentID/s.following and calls
+			// s.rebuild(), same as any other tree click. The one thing
+			// deliberately NOT reused: TreeList.MouseHandler unconditionally
+			// calls setFocus(t) before any of that, to give the tree real
+			// tview keyboard focus on a normal click - here that callback
+			// is a no-op instead, specifically so the click can't silently
+			// steal keyboard focus away from the output pane (with no
+			// equivalent way to notice or undo it short of Escape, unlike
+			// the output pane's own click-to-focus, which is exactly what
+			// a click there is *for*).
+			if uikit.InRect(x, y, s.list) {
+				if action == tview.MouseLeftClick {
+					s.list.MouseHandler()(action, event, func(tview.Primitive) {})
+					return nil, action
+				}
+				// MouseMove/MouseLeftDown/MouseLeftUp - the other pieces
+				// of the same physical click fireMouseActions synthesizes
+				// MouseLeftClick from (application.go): it threads each
+				// call's own returned event into the *next* call in that
+				// batch, so unconditionally swallowing these with a nil
+				// event (as this used to) poisons the rest of the batch
+				// and MouseLeftClick never gets synthesized at all - the
+				// exact same class of bug handleFilterDialogMouse's own
+				// doc comment above already describes for its own dialog,
+				// confirmed live here too: clicking a row did nothing
+				// whatsoever until this was let through unchanged instead.
+				// None of TreeList's own MouseHandler cases act on these
+				// three action types, so letting them reach it via tview's
+				// normal dispatch is a no-op either way.
+				return event, action
+			}
+			// Anything else in the tree pane - s.bottomBar - stays fully
+			// swallowed, same "avoid TextView's own default handling
+			// silently stealing focus onto a one-line status bar"
+			// reasoning as s.outputTopBar/s.outputBottomBar below.
 			return nil, action
 		}
 		// s.splitHeader is a plain, non-interactive TextView, same focus-

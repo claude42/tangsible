@@ -71,7 +71,24 @@ drill-down already produces today (`expanded[outputTask] = true`,
 than once on close. If that puts the cursor outside the currently-visible
 portion of the tree, the tree scrolls just enough to bring it back into view.
 
-The tree pane itself is inert while the drill-down is open: it never takes
-keyboard focus and none of the tree's own navigation keys act on it directly.
-Escape closes the drill-down and returns keyboard control to the tree,
-exactly as it does today.
+The tree pane itself is keyboard-inert while the drill-down is open: it
+never takes real tview focus, and none of the tree's own navigation keys act
+on it directly - `handleKey`'s dispatch is gated on whether the drill-down
+is open at all, not on which pane last had a mouse click, so `Left`/`Right`/
+`n`/`N`/etc. always mean "navigate the drill-down," never "navigate the
+tree," regardless of what was last clicked. Escape closes the drill-down and
+returns keyboard control to the tree, exactly as it does today.
+
+The tree pane is mouse-interactive, though - wheel-scroll to pan it, and a
+left click on a row to expand/collapse a task or switch which host's output
+is shown, exactly as either would in full-tree mode (a host row's click
+calls the same live-sync entry point `Left`/`Right`/`n`/`N` already use
+above). Reported live as a real, if minor, usability gap otherwise: without
+it, the only way to open a different host's output or expand a different
+task while split was to close the drill-down first, even though the tree
+pane is right there, fully visible, and already mouse-scrollable. The click
+handler deliberately never calls the real `setFocus` a normal tree click
+would (`TreeList.MouseHandler`'s own default) - only the mouse gained a new
+capability here, not the keyboard, so a click into the tree pane can't
+silently steal keyboard control away from the drill-down the way it
+otherwise would with no obvious way back short of Escape.
