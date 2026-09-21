@@ -419,7 +419,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	//
 	// s.filterDialog is a plain TextView - a static a/c/f menu, no text
 	// entry at all. No border/title of its own - those live on s.filterFlex
-	// instead (constructed further down, once closeDialogs exists for its
+	// instead (constructed further down, once s.closeDialogs exists for its
 	// own Cancel button to call), which wraps this TextView together with
 	// a real Cancel button below it.
 	s.filterDialog = tview.NewTextView().SetDynamicColors(true)
@@ -428,7 +428,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// the search box - a TextView can display text but can't accept
 	// edits, and the search filter needs genuine text entry. Unlike the
 	// old combined dialog's search box, this one gets focus the moment the
-	// dialog opens (openSearchDialog below) rather than needing a separate
+	// dialog opens (s.openSearchDialog below) rather than needing a separate
 	// activation keypress first - there's nothing else in this dialog to
 	// browse first, so there's no "menu mode" to be in before typing.
 	searchHeadline := tview.NewTextView().SetDynamicColors(true).
@@ -709,48 +709,6 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		s.rebuild()
 	}
 
-	// openFilterDialog/openSearchDialog/closeDialogs/applyFilter back the
-	// 'f'/'/' shortcuts and the two dialogs themselves (Filters.md). Both
-	// dialogs are fully modal (see SetInputCapture/SetMouseCapture below)
-	// so these are the only places s.filterDialogOpen/s.searchDialogOpen/
-	// s.currentFilter ever change.
-	openFilterDialog := func() {
-		s.filterDialogOpen = true
-		s.filterDialog.SetText(uikit.FilterDialogText(s.currentFilter))
-		s.pages.ShowPage("filter")
-	}
-	// openSearchDialog pre-fills the box with the previous term whenever
-	// one is already active (Filters.md's explicit "reopening the dialog
-	// while the search filter is already active should show it right
-	// away") and, unlike the old combined dialog, moves keyboard focus
-	// into it immediately - there's no menu to browse first in a
-	// search-only dialog, so there's nothing to wait for before typing.
-	openSearchDialog := func() {
-		s.searchDialogOpen = true
-		if s.currentFilter.Mode == uikit.FilterSearch {
-			s.searchInput.SetText(s.currentFilter.Search)
-		} else {
-			s.searchInput.SetText("")
-		}
-		s.pages.ShowPage("search")
-		s.app.SetFocus(s.searchInput)
-	}
-	// closeDialogs closes whichever of the three dialogs is currently open
-	// (harmless no-op on the other two) with no filter/search/rerun change
-	// - shared by all three dialogs' own Esc/q/Ctrl-C handling below, by
-	// applyFilter, and by submitRerun, so there's exactly one place that
-	// resets this state and refocuses the main tree.
-	closeDialogs := func() {
-		s.filterDialogOpen = false
-		s.searchDialogOpen = false
-		s.rerunDialogOpen = false
-		s.pages.HidePage("filter")
-		s.pages.HidePage("search")
-		s.pages.HidePage("rerun")
-		s.app.SetFocus(s.list) // undo openSearchDialog's/openRerunDialog's
-		// SetFocus above, if either ran - harmless no-op if neither did
-		// (s.list already has focus in that case).
-	}
 	// s.tagsPreFilled/s.skipTagsPreFilled/s.hostsPreFilled latch true the first
 	// time openRerunDialog ever pre-fills each field, independent of what
 	// the field then contains - deliberately not re-derived from
@@ -818,57 +776,6 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		s.pages.ShowPage("rerun")
 		s.app.SetFocus(s.rerunForm)
 	}
-	// applyFilter switches to newFilter (a no-op switch still closes
-	// whichever dialog is open, matching "when the user presses a/c/f the
-	// respective filter shall be activated and the window shall be closed
-	// again" - the search dialog's own Enter-to-apply, wired up on
-	// s.searchInput's SetDoneFunc below, funnels through here too).
-	//
-	// If the cursor is currently pinned to a specific row (s.following ==
-	// false - if it's true, s.rebuild() already re-resolves the selection to
-	// the newest *visible* row every time, so there's nothing to fix up),
-	// and that row's task won't survive the new filter, this moves
-	// s.currentID to the nearest still-visible task first (see
-	// NearestVisibleTask) - Filters.md's "cursor moves to the nearest
-	// still-visible ancestor" requirement. A task is always the right
-	// granularity to land on here: per Filters.md, a filter can only ever
-	// hide a whole task (and, transitively, a whole play with none left) at
-	// once, never an individual host row on its own - unlike collapsing a
-	// task, which removes host rows one task at a time while the task's own
-	// row stays put, a filter switch never leaves a "row still there, just
-	// fall back to it" case to fall back to.
-	applyFilter := func(newFilter uikit.FilterQuery) {
-		if newFilter != s.currentFilter && !s.following {
-			activeTask := s.activeTaskNow()
-			var anchor *playbook.TaskNode
-			switch id := s.currentID.(type) {
-			case *playbook.TaskNode:
-				anchor = id
-			case uikit.HostRowID:
-				anchor = id.Task
-			case *playbook.PlayNode:
-				stillVisible := false
-				for _, t := range id.Tasks {
-					if uikit.TaskVisible(t, newFilter, sourceIndex, t == activeTask) {
-						stillVisible = true
-						break
-					}
-				}
-				if !stillVisible && len(id.Tasks) > 0 {
-					anchor = id.Tasks[0]
-				}
-			}
-			if anchor != nil && !uikit.TaskVisible(anchor, newFilter, sourceIndex, anchor == activeTask) {
-				if nt := uikit.NearestVisibleTask(uikit.AllTasks(state), anchor, uikit.VisibleTasks(state, newFilter, sourceIndex, activeTask)); nt != nil {
-					s.currentID = nt
-				}
-			}
-		}
-		s.currentFilter = newFilter
-		closeDialogs()
-		s.rebuild()
-	}
-
 	// s.searchInput.SetDoneFunc fires on Enter/Esc/Tab/Backtab - InputField's
 	// own fixed set of "done" keys (confirmed against inputfield.go),
 	// reached because s.searchDialogOpen tells SetInputCapture below to let
@@ -882,9 +789,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// letter q), so it's never treated as a shortcut while typing.
 	s.searchInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
-			applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: s.searchInput.GetText()})
+			s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: s.searchInput.GetText()})
 		} else {
-			closeDialogs()
+			s.closeDialogs()
 		}
 	})
 
@@ -901,13 +808,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// callbacks firing off the same keypress (confirmed against
 	// inputfield.go's own "finish" closure, which calls done then finished
 	// unconditionally), risking Form's own internal re-focus undoing
-	// closeDialogs' s.app.SetFocus(s.list) right after it runs. Not worth the
+	// s.closeDialogs' s.app.SetFocus(s.list) right after it runs. Not worth the
 	// risk for two small buttons whose keyboard path already works fully -
 	// these are click-only, not Tab-reachable.
 	searchApplyButton := tview.NewButton("Search").SetSelectedFunc(func() {
-		applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: s.searchInput.GetText()})
+		s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: s.searchInput.GetText()})
 	})
-	searchCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeDialogs)
+	searchCancelButton := tview.NewButton("Cancel").SetSelectedFunc(s.closeDialogs)
 	// A real tview.NewBox(), not a bare nil, for every spacer item below -
 	// discovered live (reported as content from behind the dialog "showing
 	// through" wherever a blank line/gap sits): a nil Flex item reserves
@@ -999,11 +906,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// s.filterFlex wraps s.filterDialog's own A/C/F menu together with a real,
 	// right-aligned Cancel button below it - built here rather than back
 	// where s.filterDialog itself was constructed, since it needs
-	// closeDialogs (defined above) for the button's own click handler.
+	// s.closeDialogs (defined above) for the button's own click handler.
 	// Esc/q still close the dialog too (SetInputCapture's own
 	// s.filterDialogOpen branch, unchanged) - the button is an added mouse
 	// affordance, not a replacement for those.
-	filterCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeDialogs)
+	filterCancelButton := tview.NewButton("Cancel").SetSelectedFunc(s.closeDialogs)
 	// A real tview.NewBox() for every spacer item, not a bare nil - see
 	// s.searchDialogFlex's own button row above for why (a nil Flex item
 	// draws nothing, so nothing ever repaints its cells over whatever the
@@ -1272,7 +1179,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// used to - resetting this function's own view state and restarting
 	// the heartbeat ticker - except now driven by the dialog's fields
 	// instead of always repeating the original invocation verbatim.
-	// Defined here rather than up with openRerunDialog/closeDialogs: it
+	// Defined here rather than up with openRerunDialog/s.closeDialogs: it
 	// closes over startHeartbeat, which - like this closure itself -
 	// can't exist before `s.app` is assigned above.
 	submitRerun := func() {
@@ -1281,7 +1188,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		tags := strings.TrimSpace(s.rerunFields.tagsField.GetText())
 		skipTags := strings.TrimSpace(s.rerunFields.skipTagsField.GetText())
 		hosts := strings.TrimSpace(s.rerunFields.hostsField.GetText())
-		closeDialogs()
+		s.closeDialogs()
 
 		requestRerun(startAtPlay, tags, skipTags, hosts) // resets
 		// processDone/exitCode/state synchronously (see main.go) - by the
@@ -1367,7 +1274,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// and Tab-cycling order (Form.Focus() walks f.buttons in the order
 	// they were added), so this one call controls both at once.
 	s.rerunForm.SetButtonsAlign(tview.AlignRight)
-	s.rerunForm.AddButton("Cancel", closeDialogs).AddButton("Re-run", submitRerun)
+	s.rerunForm.AddButton("Cancel", s.closeDialogs).AddButton("Re-run", submitRerun)
 
 	s.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		// Ctrl-C's meaning never changes based on what's open - per
@@ -1382,7 +1289,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		// below (most importantly, by s.searchDialogOpen's own "let
 		// everything through" pass-through just below this).
 		if event.Key() == tcell.KeyCtrlC {
-			closeDialogs()            // harmless no-op if neither dialog is open
+			s.closeDialogs()          // harmless no-op if neither dialog is open
 			s.search.closeComposing() // ditto if the tab-search prompt isn't open
 			if processDone.Load() {
 				quitting.Store(true) // before Stop() - see main.go's race note
@@ -1416,7 +1323,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				// way s.rerunDialogOpen/s.filterDialogOpen already handle Escape
 				// (and, for rerun, Enter) regardless of focus, so it always
 				// closes this dialog no matter what currently has it.
-				closeDialogs()
+				s.closeDialogs()
 				return nil
 			}
 			return event
@@ -1483,7 +1390,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 					s.rerunFields.acDismissed = true
 					return event
 				}
-				closeDialogs()
+				s.closeDialogs()
 			default:
 				return event
 			}
@@ -1502,15 +1409,15 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		if s.filterDialogOpen {
 			switch {
 			case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyRune && event.Rune() == 'q':
-				closeDialogs()
+				s.closeDialogs()
 			case event.Key() == tcell.KeyRune && event.Rune() == 'a':
-				applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
+				s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'i':
-				applyFilter(uikit.FilterQuery{Mode: uikit.FilterInteresting})
+				s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterInteresting})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'c':
-				applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
+				s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
 			case event.Key() == tcell.KeyRune && event.Rune() == 'f':
-				applyFilter(uikit.FilterQuery{Mode: uikit.FilterFailed})
+				s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterFailed})
 			}
 			return nil
 		}
@@ -1800,10 +1707,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// either dialog while the output drill-down view is frontmost
 			// isn't supported (the s.viewingOutput branch above already
 			// returned by this point).
-			openFilterDialog()
+			s.openFilterDialog()
 			return nil
 		case event.Key() == tcell.KeyRune && event.Rune() == '/':
-			openSearchDialog()
+			s.openSearchDialog()
 			return nil
 		}
 
@@ -1911,13 +1818,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 				_, ry, _, _ := s.filterDialog.GetRect()
 				switch y - ry {
 				case 2:
-					applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
+					s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterAll})
 				case 3:
-					applyFilter(uikit.FilterQuery{Mode: uikit.FilterInteresting})
+					s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterInteresting})
 				case 4:
-					applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
+					s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterChanged})
 				case 5:
-					applyFilter(uikit.FilterQuery{Mode: uikit.FilterFailed})
+					s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterFailed})
 				}
 				return nil, action
 			}
