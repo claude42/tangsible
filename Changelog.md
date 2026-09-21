@@ -11,6 +11,26 @@
   `--resume-where-failed` flags to pre-fill/pre-check those checkboxes.
 - `y` copies the currently active tab's content to the clipboard (via OSC 52)
 - Terminal notifications on playbook finish / task failure
+- New drill-down tab: File displays the contents of the file associated to
+  the task
+
+### Changed
+
+- Drill-down: the Resolved tab is now hidden entirely when there's genuinely
+  nothing to show, instead of an empty tab.
+
+### Fixed
+
+- `rerun`: "Resume where failed" failed the whole rerun outright when the
+  target play had no explicit `name:` in the playbook.
+- Two-paned drill-down: keyboard scrolling (arrows, Ctrl-F/Ctrl-B, Home/End)
+  silently did nothing until the output pane was clicked first.
+- Diff mode: clicking a tab label in the drill-down did nothing (Tab/
+  Shift-Tab always worked).
+- Clicking on a blank row in some dialogs leaked the click through to the
+  element below it.
+- Search dialog: Escape didn't close it after a focus-stealing click had
+  occurred first.
 
 ### Removed
 
