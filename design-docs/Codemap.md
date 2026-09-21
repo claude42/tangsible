@@ -134,22 +134,78 @@ run/rerun/role session and by revisit's own rerun.
 ## internal/session
 
 "The live tangsible session": verb orchestration for run/rerun/role,
-plus the live TUI itself and its recap/resolved-values views. The one
-package Phase 4 deliberately left un-split further - see
-Restructuring.md's own Phase 3 note.
+plus the live TUI itself and its recap/resolved-values views.
+Restructuring.md's own Phase 3 (now done) split `NewLiveTUI` itself
+across the `livesession*.go` files below - `tui.go` is now just its
+thin constructor/wiring shell.
 
 - **main.go** - `Main()`: verb dispatch, generation lifecycle for
   run/rerun/role. Called by root `main.go`.
-- **tui.go** - `NewLiveTUI`: the live/replayed tree view itself. By far
-  the largest file (~2500 lines, one function built from ~35 closures
-  over shared state) - the candidate for Phase 3, whenever that
-  happens.
+- **tui.go** - `NewLiveTUI`: builds every widget, populates a
+  `liveSession`, wires up callbacks, returns `(*tview.Application,
+  func(playbook.RawEvent))`. 879 lines (was ~3400 before Phase 3) -
+  everything it used to contain directly now lives in one of:
+  - **livesession.go** - the `liveSession` struct itself (every piece
+    of state/widget more than one method touches) and `resolveKey`
+    (the Resolved/Docs/File tab cache key type).
+  - **livesession_rebuild.go** - `rebuild()`, the ~380-line method
+    nearly everything else calls to trigger a redraw, plus the small
+    chrome/style helpers that exist only to serve it
+    (`progressPosition`/`activeTaskNow`/`currentMainBottomBarText`/
+    `chromeColorName`/`showElapsed`/`outputBottomBarNormalStyle`/
+    `revealExpandedTask`/`switchPage`).
+  - **livesession_tabsearch.go** (+ `_test.go`) - `tabSearchPanel`, a
+    dedicated type owning the in-tab search subsystem (design-docs/
+    Search.md) - genuinely self-contained, so it's a real type with
+    its own unit tests rather than `liveSession` methods.
+  - **livesession_rerundialog.go** (+ `_test.go`) - `rerunFieldSync`,
+    a dedicated type owning the re-run dialog's four input fields,
+    three checkboxes, and the sync/autocomplete logic between them
+    (design-docs/Rerun.md's "Extend rerun dialog") - the other
+    genuinely self-contained group. `openRerunDialog`/`submitRerun`
+    stay as `liveSession` methods in this same file (not part of the
+    dedicated type) since they reach into the rest of the shared state
+    pool on a rerun.
+  - **livesession_output.go** - the output drill-down: `renderOutputTabs`,
+    `showOutputWithOrigin` (+ its three async resolve/docs/file fetch
+    goroutines), `navigateOutputTask`/`navigateOutputHost`, `closeOutput`.
+  - **livesession_filter.go** - the tree-level filter (`f`) and search
+    (`/`) dialogs: `openFilterDialog`/`openSearchDialog`/`closeDialogs`/
+    `applyFilter`.
+  - **livesession_nav.go** - tree expand/collapse/navigation:
+    `expandAll`/`collapseAll`/`handleRight`/`handleLeft`/
+    `navigateMainTask`.
+  - **livesession_events.go** - `PlaybookState`'s own event hooks
+    (`onPlayAdded`/`onPlayStarted`/`onTaskAdded`/`onHostRecorded`) and
+    `applyLive`, the function `NewLiveTUI` returns to feed live
+    `RawEvent`s in.
+  - **livesession_heartbeat.go** - `startHeartbeat`/`startResizeWatcher`,
+    the two permanent background tickers.
+  - **livesession_input.go** - `handleKey`, the keyboard dispatcher, and
+    its 12 named sub-methods (dialog guards, universal key aliases,
+    output-view keys, main-tree keys - see CLAUDE.md's "Keyboard
+    shortcuts" section for the tier breakdown).
+  - **livesession_mouse.go** - `handleMouse`, the mouse dispatcher, and
+    its 7 named sub-methods (same per-mode split as the keyboard side).
 - **recap.go** - the post-run recap summary section.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`
   task).
 - **render.go** - plain-text tree dump; unused by the live flow, kept
   as a dependency-free debug aid.
+- **autocomplete.go** - re-run dialog field autocomplete matching
+  (`matchToken`/`matchTaskName`/`replaceLastToken`), used by
+  `rerunFieldSync` above.
+- **rerundialog.go** - pure re-run dialog logic with no `tview`
+  dependency: `resolvedRerunHosts` (checkbox-to-host-list union/dedupe)
+  and `resumablePlayName` (guards "Resume where failed" against
+  offering a play name `TrimPlaybookToPlay` could never match). Not to
+  be confused with `livesession_rerundialog.go` above, which holds the
+  *stateful* widget-wiring type that calls into these.
+- **fetchfile.go** - the drill-down's "File" tab: local/remote file
+  content fetching, binary detection.
+- **version.go** - the `version` verb: build stamps plus a best-effort
+  Ansible/`ansible.posix` environment report.
 
 ## package main (repo root)
 

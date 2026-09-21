@@ -565,7 +565,135 @@ change at all - it only ever drives the compiled binary externally via
 `go build -o bin .` + tmux, with no direct dependency on any package's
 internals.
 
-The plan is now complete except Phase 3, which stays postponed per its
-own long-standing "optional, do later" framing -
-`internal/session/tui.go` is where that work would happen, whenever it
-does.
+The plan was complete except Phase 3 for some time, which stayed
+postponed per its own long-standing "optional, do later" framing -
+until two real, silent bugs were found and fixed inside `NewLiveTUI`
+itself in the same week (a `tview.Checkbox.SetChecked` callback-ordering
+bug; a "Resume where failed" pre-fill bug from a value sourced from live
+jsonl data not matching what a different code path could actually use),
+which made the postponement no longer worth keeping - 0% test coverage
+on a ~3400-line function is exactly where this class of bug hides.
+
+**Phase 3 is now done too**, in seven increments rather than the single
+big rewrite this phase's own opening section warned it would have to be
+- each increment its own commit, independently verified
+(`go build`/`go vet`/`gofmt -l`/`go test ./...`/`go test -tags e2e ./...`
+plus a manual tmux smoke run every time), exactly the "lean heavily on
+the existing test suite and go incrementally" approach this phase called
+for up front:
+
+- **Increment 1** - every shared local `NewLiveTUI` captured (~35
+  variables: tree/render state, chrome/notification bookkeeping,
+  widgets mutated by multiple closures, dialog state, drill-down state)
+  became a field on a new `liveSession` struct (`livesession.go`).
+  Every closure kept being a closure for now, just addressing `s.field`
+  instead of a bare name - behavior-preserving by construction, no
+  statement reordered. Confirmed via `go build` being fully
+  self-checking here: a missed rename is `undefined: X`, not a silent
+  leftover.
+- **Increment 2** - `rebuild` (the ~380-line closure nearly everything
+  else calls to trigger a redraw) became `func (s *liveSession)
+  rebuild()` (`livesession_rebuild.go`), along with the small chrome/
+  style helpers that exist only to serve it. Turned out to need more
+  than "just rebuild": since Go methods can't be nested, extracting it
+  required first hoisting the several `NewLiveTUI` *parameters* its body
+  referenced (`state`, `sourceIndex`, `twoPaneLayout`, `exitCode`,
+  `processDone`, `isRole`, `playbookName`, `progH`, `requestRerun`) onto
+  `liveSession` too, read-only, set once at construction - a real, if
+  small, deviation from this phase's own up-front plan, found only once
+  the actual extraction was attempted (the same "checked directly, not
+  assumed" pattern this whole document's earlier phases already
+  established). `s.showOutput`/`s.showOutputFromRecap` similarly became
+  struct-field closures (not methods yet) purely so `rebuild` could keep
+  passing them as `FlattenRows`'/`flattenRecapRows`' own row-selected
+  callback values.
+
+  Increment 1's own bulk rename also produced a real, user-visible bug,
+  not just a mechanical risk: `"Esc: back to the list"` briefly became
+  `"Esc: back to s.list"` inside an actual UI string literal (`list` is
+  both a variable name and an ordinary English word) - caught and fixed
+  before increment 2's commit, alongside several comment-only false
+  positives and some comment paragraphs orphaned by the same increment's
+  `var`-line deletions.
+- **Increment 3** - the in-tab search subsystem (`outputSearchStatusText`/
+  `clearTabSearch`/`closeTabSearchComposing`/`openTabSearch`/the
+  `InputField`'s own `SetDoneFunc`) was one of two groups confirmed to
+  touch almost nothing outside its own widgets - it became a real
+  dedicated type, `tabSearchPanel` (`livesession_tabsearch.go`), mirroring
+  `internal/uikit.TabSearchBar`'s own existing shape rather than
+  inventing something new, with 10 new unit tests constructing real
+  `tview` widgets directly (no live `*tview.Application` needed).
+
+  Found and fixed a real crash here, not just a refactor: `tabSearchPanel`
+  was constructed with `s.app` before `s.app` actually existed yet (built
+  ~1300 lines later in `NewLiveTUI`, itself needing this panel's own
+  footer widget first) - a struct field copies a pointer's value at
+  assignment time, unlike the closure it replaced, which read `s.app`
+  fresh at call time by accident of how closures work. Pressing `/` in
+  the live TUI crashed outright before the fix (one line, reassigning
+  `s.search.app` once the real `*tview.Application` exists) - `go test`
+  alone could never have caught this, only the manual tmux smoke run did.
+- **Increment 4** - the re-run dialog's four input fields, three
+  checkboxes, and the sync logic between them (the *other* confirmed-
+  self-contained group, and the exact subsystem behind both bugs that
+  motivated reopening this phase at all) became `rerunFieldSync`
+  (`livesession_rerundialog.go`), with `openRerunDialog`/`submitRerun`
+  deliberately left as `liveSession`-level "bridge" methods since they
+  reach into the rest of the shared state pool on a rerun. 11 new unit
+  tests drive the actual `tview.Checkbox.SetChecked`/`InputField.SetText`
+  calls directly - including a reproduction of the historical
+  checkbox-ordering bug's own cascade - closing the exact testability gap
+  that made this bug invisible to anything but manual testing the first
+  time around.
+- **Increment 5** - the remaining closure groups (rerun-dialog bridge
+  functions, output drill-down, filter/search dialogs, expand/collapse/
+  navigation, state-event hooks, heartbeat/resize) became plain
+  `liveSession` methods, six independently-committed groups
+  (`livesession_output.go`, `livesession_filter.go`, `livesession_nav.go`,
+  `livesession_events.go`, `livesession_heartbeat.go`, plus the bridge
+  methods folded into `livesession_rerundialog.go`) - no new types here,
+  since these all reach too far into the shared pool to isolate the way
+  increments 3-4's two groups could. This increment's own execution was
+  interrupted once by a session rate limit partway through (after two of
+  six groups); resumed cleanly from the last fully-committed, fully-green
+  group boundary, no rework needed - exactly the value of small,
+  independently-verified commits this whole document has argued for
+  throughout. One real slip caught immediately by the compiler: a bulk
+  deletion briefly ate the `s.useColor` assignment line along with an
+  adjacent block meant for removal - `go build`'s own unused-variable
+  error caught it before it reached a commit.
+- **Increment 6** - the last two "God closures," `SetInputCapture`
+  (~440 lines) and `SetMouseCapture` (~300 lines), became `s.handleKey`/
+  `s.handleMouse` dispatchers plus 12 and 7 named sub-methods
+  (`livesession_input.go`, `livesession_mouse.go`) - every guard's exact
+  ordering/precedence and every comment's rationale preserved, zero
+  behavior change by construction, same as every increment before it.
+  This doesn't reduce the shared-state surface (there was no new type to
+  extract) - its whole value is readability/localization, the original
+  motivation for reopening this phase, applied to the two pieces of the
+  function that hadn't been through any real extraction pass yet.
+
+**Final shape**: `tui.go` (`NewLiveTUI` itself) went from 3406 lines to
+879 - now just widget construction and wiring, nothing else. Everything
+it used to contain lives across `internal/session/livesession*.go` (11
+source files, 2 test files, ~3900 lines total), including two genuinely
+new, independently unit-tested types (`tabSearchPanel`, `rerunFieldSync`,
+21 tests between them) that didn't exist as testable surface before this
+phase. `go doc`/jump-to-definition now work on every piece of what used
+to be one unnamed closure soup.
+
+**What this phase deliberately did NOT buy, stated plainly rather than
+oversold**: `SetInputCapture`/`SetMouseCapture` becoming named methods
+does not make real key/mouse-driven *behavior* unit-testable - that
+still needs a live `*tview.Application` or tmux, exactly what
+`TESTING.md`'s own long-standing "stretch goal, own learning curve"
+framing already said, and this phase never tried to reverse that call.
+Most of what this phase converted to methods (groups B-bridge/C/E/F/H/I
+in increment 5's own accounting, plus `rebuild`/`SetInputCapture`/
+`SetMouseCapture` themselves) reach too far into the shared `liveSession`
+state to be meaningfully unit-tested in isolation regardless of whether
+they're a closure or a method - their value is readability and
+bug-localization for whoever touches this code next, not a coverage
+number. The two real, new coverage wins (increments 3 and 4's dedicated
+types) are the exception, not the rule, and were called out as such the
+whole way through.
