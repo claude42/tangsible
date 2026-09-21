@@ -7,8 +7,13 @@
 # system-wide install) - picked up automatically, no sourcing needed.
 #
 # Covers tangsible's own verbs and positionals (resolve.go/role.go/
-# template.go/host.go/revisit.go) plus every flag `ansible-playbook
-# --help` lists, since tangsible passes those straight through unchanged.
+# template.go/host.go/revisit.go/vault.go) plus every flag
+# `ansible-playbook --help` lists, since every verb but vault/version
+# passes those straight through unchanged - and tangsible's own synthetic
+# flags (--start-at-play/--dialog/--no-dialog/--only-failed/
+# --only-unreachable/--resume-where-failed, rerunargs.go/dialogflag.go),
+# each offered only for the verbs whose own arg parser actually recognizes
+# it (internal/session/main.go).
 
 # Disable fish's default path completion so every completion offered here
 # is a deliberate choice below, not an accidental fallback.
@@ -70,6 +75,10 @@ complete -c tangsible -n '__fish_seen_subcommand_from template; and __fish_is_nt
 complete -c tangsible -n '__fish_seen_subcommand_from host; and __fish_is_nth_token 3' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 
+# vault: tangsible vault <filename> [--vault-password-file <path> | --ask-vault-pass]
+complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_token 2' \
+	-a '(__fish_complete_suffix .yml .yaml)' -d 'Vars file'
+
 # --- ansible-playbook's own flags, forwarded verbatim by every verb ---
 # Shown once a verb is already chosen (any verb: tangsible passes these
 # straight through regardless of which one), from ansible-playbook's own
@@ -127,3 +136,26 @@ complete -c tangsible -n $__tangsible_has_verb -l list-tasks -d 'List tasks that
 complete -c tangsible -n $__tangsible_has_verb -l list-tags -d 'List all available tags'
 complete -c tangsible -n $__tangsible_has_verb -l step -d 'Confirm each task before running it'
 complete -c tangsible -n $__tangsible_has_verb -l start-at-task -x -d 'Start the playbook at this task name'
+
+# --- vault's own two flags (design-docs/Vault.md) ---
+# Spelled the same as two ansible-playbook flags above, but resolved
+# entirely by tangsible's own password lookup - vault never spawns
+# ansible-playbook at all, so it's excluded from $__tangsible_has_verb
+# and gets its own, narrower guard instead.
+complete -k -c tangsible -n '__fish_seen_subcommand_from vault' -l vault-password-file -r -a '(__fish_complete_suffix "")' -d 'Vault password file'
+complete -c tangsible -n '__fish_seen_subcommand_from vault' -l ask-vault-pass -d 'Ask for the vault password'
+
+# --- Tangsible's own synthetic flags ---
+# Never forwarded to ansible-playbook - understood (and stripped) by
+# tangsible itself before spawning, so they don't appear in
+# `ansible-playbook --help` at all. Each scoped to exactly the verbs
+# whose own arg parser recognizes it (ExtractStartAtPlay/
+# ExtractDialogFlag/ExtractRerunFlags, internal/session/main.go) -
+# offering a flag a verb would reject as a usage error isn't "good
+# enough," it's actively wrong.
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun' -l start-at-play -x -d 'Start at this play (by name), dropping every earlier one'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l dialog -d 'Always show the re-run dialog at startup'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l no-dialog -d 'Never show the re-run dialog at startup'
+complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-failed -d 'Limit to hosts that failed last run'
+complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-unreachable -d 'Limit to hosts that were unreachable last run'
+complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l resume-where-failed -d 'Start at the first play with a failure, limited to failed hosts'
