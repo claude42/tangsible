@@ -53,8 +53,7 @@ type resolveKey struct {
 // just enough to know what the field is at a glance.
 type liveSession struct {
 	// --- app-level ---
-	app       *tview.Application
-	applyLive func(playbook.RawEvent)
+	app *tview.Application
 
 	// --- NewLiveTUI's own parameters, copied here read-only (never
 	// reassigned after construction) so rebuild() and the small chrome/
@@ -77,6 +76,12 @@ type liveSession struct {
 	// (resolveTaskValues/fetchRemoteFileContents), which have to see the
 	// same inventory/connection/vault context the live run itself used.
 	passthroughArgs []string
+	// startExpanded (.tangsible/config.toml's general.default_tree_state) -
+	// needed by state.OnTaskAdded's own InheritedExpandState call, the
+	// fallback for a generation's very first task (every later one instead
+	// inherits whichever task was added most recently - see
+	// InheritedExpandState's own doc comment).
+	startExpanded bool
 
 	// --- tree/render state ---
 	list                     *uikit.TreeList
