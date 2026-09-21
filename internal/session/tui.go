@@ -712,9 +712,27 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// see its own doc comment for why it replaces s.topBar/s.outputTopBar
 	// entirely here, rather than each pane keeping its own) above
 	// s.splitBody's own two-column row.
+	//
+	// s.splitBody's own focus arg here must be true, not false - a real
+	// bug, reported live (keyboard scrolling silently did nothing in split
+	// mode, though the mouse wheel worked and clicking into the output
+	// pane "fixed" keyboard scrolling from then on - present since this
+	// layout was first written, well before this file's own liveSession
+	// refactor, confirmed by checking out the pre-refactor commit).
+	// tview.Flex.Focus() only ever delegates to the one child item marked
+	// focus:true at AddItem time - with false here, s.splitFlex.Focus()
+	// found nothing to delegate to and fell back to Box.Focus(), which
+	// just marks s.splitFlex itself focused and stops, never reaching
+	// s.splitBody -> outputBody -> s.outputTabs.Primitive() below despite
+	// each of those already being wired correctly among themselves. Mouse
+	// scrolling kept working throughout because handleOutputViewMouse
+	// dispatches by screen-rect hit-testing, not by which primitive
+	// Application.GetFocus() currently reports - and clicking into the
+	// output pane explicitly calls app.SetFocus on whatever was clicked,
+	// which is what "fixed" keyboard input from that point on.
 	s.splitFlex = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(s.splitHeader, 1, 0, false).
-		AddItem(s.splitBody, 0, 1, false)
+		AddItem(s.splitBody, 0, 1, true)
 
 	s.pages.AddPage("main", s.flex, true, true)
 	s.pages.AddPage("output", outputFlex, true, false)
