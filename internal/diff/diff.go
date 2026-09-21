@@ -1003,6 +1003,53 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		return event
 	})
 
+	// A real, longstanding gap, not a regression: unlike tui.go/host.go/
+	// template.go, this function never registered a SetMouseCapture at
+	// all, so outputTabs' own uikit.TabbedPane.HandleClick - the shared
+	// component every one of those three other views already calls to
+	// let a mouse click switch tabs, since TabbedPane deliberately has no
+	// MouseHandler() of its own (this app's own established convention:
+	// mouse/key overrides live at the Application level, not inside a
+	// custom widget - see tabs.go's own doc comment) - was simply never
+	// invoked here. Tab/Shift-Tab always worked; clicking a tab label
+	// never did. Structured the same safe way host.go's own equivalent
+	// already is: only MouseLeftClick landing on outputTabs' header (or,
+	// outside it, on one of the plain chrome TextViews) is ever swallowed
+	// - Move/Down/Up passing through unchanged is what lets
+	// Application.fireMouseActions actually synthesize MouseLeftClick at
+	// all for a click landing on outputTabs'/list's own content
+	// (confirmed live, elsewhere in this app: unconditionally swallowing
+	// those instead poisons the rest of that same click's own batch and
+	// no click ever gets synthesized - tui.go's own handleOutputViewMouse
+	// hit exactly this building the mouse-pane feature its own doc
+	// comment describes).
+	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if event == nil {
+			return nil, action
+		}
+		if tabSearchComposing {
+			if x, y := event.Position(); uikit.InRect(x, y, tabSearchInput) {
+				return event, action
+			}
+			return nil, action
+		}
+		if viewingOutput {
+			if x, y := event.Position(); uikit.InRect(x, y, outputHeader) || uikit.InRect(x, y, outputFooterPages) {
+				return nil, action
+			}
+			if action == tview.MouseLeftClick {
+				if x, y := event.Position(); outputTabs.HandleClick(x, y) {
+					return nil, action
+				}
+			}
+			return event, action
+		}
+		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, footer) {
+			return nil, action
+		}
+		return event, action
+	})
+
 	app.SetRoot(pages, true).SetFocus(list)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
