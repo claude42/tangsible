@@ -573,3 +573,9 @@ improvement even if (2)-(4) slip to a later session.
 - `internal/runner/progress.go`, `internal/source/source.go` -
   progress-skip detection (step 3)
 - `CLAUDE.md`, `README.md`, `Changelog.md` - docs (step 4)
+
+## Resume
+
+claude --resume 5c51749b-21d3-470d-bf24-5a1fd9dd2864
+
+Note to self: make sure to switch to the correct branch
