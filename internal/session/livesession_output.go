@@ -341,8 +341,18 @@ func (s *liveSession) closeOutput() {
 	s.viewingOutput = false
 	s.viewingOutputFromRecap = false
 	s.splitMode = false
+	// A real, reported bug (design-docs/ErrorOutput.md): without this,
+	// s.outputTabs' own internal focus state can get stuck, silently
+	// hijacking keyboard input meant for whatever opens next (the re-run
+	// dialog's own text fields, reported live - mouse still worked fine,
+	// an entirely different, unaffected dispatch path) - see
+	// TabbedPane.Clear's own doc comment for the full mechanism.
+	s.outputTabs.Clear()
 	s.bottomBar.SetText(s.currentMainBottomBarText())
 	s.switchPage("main")
+	s.app.SetFocus(s.list) // same reasoning closeDialogs already has for
+	// this exact call (tui.go) - this was the one "leave a drill-down/
+	// dialog" exit path that didn't have it.
 	s.rebuild() // s.list's own row text was last baked while s.viewingOutput
 	// was still true - possibly at the tree pane's own (narrower,
 	// hosts-omitted) width rather than the full terminal's, especially

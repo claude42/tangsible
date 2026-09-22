@@ -42,6 +42,10 @@
 
 ### Fixed
 
+- Re-run dialog: opening the output drill-down for a failed host and then
+  closing it before pressing `r` could leave the dialog's own text fields
+  silently unable to accept keyboard input (typing, Tab) - mouse
+  interaction and Escape still worked.
 - `rerun`: "Resume where failed" failed the whole rerun outright when the
   target play had no explicit `name:` in the playbook.
 - Two-paned drill-down: keyboard scrolling (arrows, Ctrl-F/Ctrl-B, Home/End)
