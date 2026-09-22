@@ -138,6 +138,17 @@ type TaskNode struct {
 	// pre-fork run log) it's not meaningful on its own, same caveat
 	// PerHostTaskTiming.md raised for the finish-only approach.
 	Finished map[string]time.Time
+	// inFlight is the set of hosts currently dispatched on this task but
+	// not yet reported a terminal outcome - added by a v2_runner_on_start
+	// event (Apply's own case), removed by recordHost the moment that
+	// host's own outcome arrives. Backs PlaybookState.IncompleteTasks -
+	// design-docs/StrategyFree.md's exact (not approximated) replacement
+	// for the old single currentTask pointer, which broke down the moment
+	// more than one task could be in flight at once (strategy: free).
+	// Unexported: nothing outside this package needs per-host in-flight
+	// detail, only the task-level "is anything still in flight"
+	// aggregate IncompleteTasks provides.
+	inFlight map[string]bool
 }
 
 func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedAt time.Time) {
@@ -150,6 +161,7 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedA
 	t.HasStderr[host] = hasNonEmptyStderr(raw)
 	t.Ignored[host] = hasIgnoreErrors(raw)
 	t.Finished[host] = finishedAt
+	delete(t.inFlight, host)
 }
 
 func (t *TaskNode) Counts() (ok, changed, skipped, failed, unreachable int) {
@@ -211,7 +223,14 @@ type PlaybookState struct {
 
 	pendingPlayName string
 	currentPlay     *PlayNode
-	currentTask     *TaskNode
+	// tasksByID resolves a task's own identity (RawEvent.Task.ID) to its
+	// TaskNode, regardless of which event first revealed it - replaces the
+	// old single currentTask pointer (design-docs/StrategyFree.md), which
+	// assumed Ansible's linear strategy (one task in flight at a time) and
+	// silently misattributed results under strategy: free, where several
+	// tasks can be genuinely simultaneous. findOrCreateTask is the only
+	// reader/writer.
+	tasksByID map[string]*TaskNode
 
 	// Optional hooks a UI layer wires up before streaming begins, so a
 	// tree can grow incrementally instead of being rebuilt from scratch on
@@ -249,7 +268,68 @@ func (s *PlaybookState) Reset() {
 	s.HadUnreachable = false
 	s.pendingPlayName = ""
 	s.currentPlay = nil
-	s.currentTask = nil
+	s.tasksByID = nil
+}
+
+// findOrCreateTask resolves ev's own task to its TaskNode, creating both
+// the task and (lazily, same as before) its enclosing play if this is the
+// first event to reveal either - design-docs/StrategyFree.md's core fix.
+// Keyed by ev.Task.ID (stable across every event referencing the same
+// task - task-start, terminal, v2_runner_on_start alike, confirmed present
+// on all of them even under stock ansible.posix.jsonl, not just this app's
+// own fork) rather than by "whichever task happened to start most
+// recently" - the old currentTask assumption, which silently
+// misattributed results the moment more than one task could be in flight
+// at once (strategy: free structurally guarantees that; a duplicate task
+// name under strategy: linear already made a plain name-based lookup
+// wrong too). Returns nil, doing nothing, if ev carries no Task at all -
+// callers must treat that the same as "no task to record against",
+// exactly as recordHost's own old currentTask-nil check did.
+func (s *PlaybookState) findOrCreateTask(ev RawEvent) *TaskNode {
+	if ev.Task == nil {
+		return nil
+	}
+	if s.currentPlay == nil {
+		s.currentPlay = &PlayNode{Name: s.pendingPlayName}
+		s.Plays = append(s.Plays, s.currentPlay)
+		if s.OnPlayAdded != nil {
+			s.OnPlayAdded(s.currentPlay)
+		}
+	}
+	if t, ok := s.tasksByID[ev.Task.ID]; ok {
+		// Found by ID alone - deliberately doesn't touch Name/Path/
+		// IsHandler even if this particular event's own Task carries
+		// them (or doesn't): under lockstep, a v2_runner_on_start event's
+		// own Task is minimal ({"id": ...} only, tangsible_jsonl.py's own
+		// lockstep branch - design-docs/StrategyFree.md), and blindly
+		// overwriting an already-populated Name/Path with empty strings
+		// from that shape would erase what the real task-start event
+		// already correctly set.
+		return t
+	}
+	t := &TaskNode{
+		Name:      ev.Task.Name,
+		Path:      ev.Task.Path,
+		IsHandler: ev.Task.IsHandler,
+		StartedAt: ev.Timestamp(),
+		Hosts:     map[string]Outcome{},
+		Raw:       map[string]json.RawMessage{},
+		Warnings:  map[string]bool{},
+		HasStderr: map[string]bool{},
+		Ignored:   map[string]bool{},
+		Started:   map[string]time.Time{},
+		Finished:  map[string]time.Time{},
+		inFlight:  map[string]bool{},
+	}
+	s.currentPlay.Tasks = append(s.currentPlay.Tasks, t)
+	if s.tasksByID == nil {
+		s.tasksByID = map[string]*TaskNode{}
+	}
+	s.tasksByID[ev.Task.ID] = t
+	if s.OnTaskAdded != nil {
+		s.OnTaskAdded(s.currentPlay, t)
+	}
+	return t
 }
 
 func (s *PlaybookState) Apply(ev RawEvent) {
@@ -268,109 +348,112 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 	// documented upstream) - fired for a regular task and a
 	// notify:-triggered handler respectively, but otherwise carrying the
 	// identical task{name,path,...} shape. Handling only the former (as
-	// this used to) meant a handler never got its own TaskNode or
-	// advanced currentTask at all: its later v2_runner_on_* events still
-	// fired and still went through recordHost below, silently
-	// attributing the handler's own result onto whatever task genuinely
-	// started last - a real bug report, not a hypothetical, that could
-	// corrupt an already-completed (and already-displayed) task's own
-	// Raw/Hosts entries with a same-named host's handler result recorded
-	// afterward. Treating both events identically - own TaskNode, own
-	// row, own currentTask - is what makes a handler run visible in the
-	// tree at all instead of silently overwriting something else's data.
+	// this used to) meant a handler never got its own TaskNode at all:
+	// its later v2_runner_on_* events still fired and still went through
+	// recordHost below, silently attributing the handler's own result
+	// onto whatever task genuinely started last - a real bug report, not
+	// a hypothetical, that could corrupt an already-completed (and
+	// already-displayed) task's own Raw/Hosts entries with a same-named
+	// host's handler result recorded afterward. Treating both events
+	// identically - own TaskNode, own row - is what makes a handler run
+	// visible in the tree at all instead of silently overwriting
+	// something else's data.
 	case "v2_playbook_on_task_start", "v2_playbook_on_handler_task_start":
-		if s.currentPlay == nil {
-			s.currentPlay = &PlayNode{Name: s.pendingPlayName}
-			s.Plays = append(s.Plays, s.currentPlay)
-			if s.OnPlayAdded != nil {
-				s.OnPlayAdded(s.currentPlay)
-			}
-		}
-		if ev.Task != nil {
-			s.currentTask = &TaskNode{
-				Name:      ev.Task.Name,
-				Path:      ev.Task.Path,
-				IsHandler: ev.Task.IsHandler,
-				StartedAt: ev.Timestamp(),
-				Hosts:     map[string]Outcome{},
-				Raw:       map[string]json.RawMessage{},
-				Warnings:  map[string]bool{},
-				HasStderr: map[string]bool{},
-				Ignored:   map[string]bool{},
-				Started:   map[string]time.Time{},
-				Finished:  map[string]time.Time{},
-			}
-			s.currentPlay.Tasks = append(s.currentPlay.Tasks, s.currentTask)
-			if s.OnTaskAdded != nil {
-				s.OnTaskAdded(s.currentPlay, s.currentTask)
-			}
-		}
+		s.findOrCreateTask(ev)
 
 	case "v2_runner_on_ok":
+		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
 			r := DecodeHostResult(raw)
 			o := OutcomeOK
 			if r.Changed {
 				o = OutcomeChanged
 			}
-			s.recordHost(host, o, raw, ev.Timestamp())
+			s.recordHost(task, host, o, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_skipped":
+		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, OutcomeSkipped, raw, ev.Timestamp())
+			s.recordHost(task, host, OutcomeSkipped, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_failed":
+		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, OutcomeFailed, raw, ev.Timestamp())
+			s.recordHost(task, host, OutcomeFailed, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_unreachable":
+		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
-			s.recordHost(host, OutcomeUnreachable, raw, ev.Timestamp())
+			s.recordHost(task, host, OutcomeUnreachable, raw, ev.Timestamp())
 		}
 
 	// Only ever arrives from this app's own bundled callback plugin fork
-	// (RawEvent.Host's own doc comment) - a pre-fork run log, or a
-	// strategy other than linear/debug that our fork doesn't cover either,
-	// simply never produces this case, leaving Started empty exactly like
-	// every other "unknown" event-derived field in this package. No
-	// task-ID correlation needed: currentTask is already the right task,
-	// same assumption every other case here already relies on.
+	// (RawEvent.Host's own doc comment) - a pre-fork run log simply never
+	// produces this case, leaving Started/inFlight empty exactly like
+	// every other "unknown" event-derived field in this package. Resolves
+	// its own task by ID (findOrCreateTask) rather than trusting
+	// currentTask, the same as every other case above now - under
+	// strategy: free the task this event refers to may not have been
+	// created by anything else yet (no task-start event ever fires there
+	// at all), so this is the one case that can legitimately be the very
+	// first event to reveal a given task.
 	case "v2_runner_on_start":
-		if s.currentTask != nil && ev.Host != "" {
-			s.currentTask.Started[ev.Host] = ev.Timestamp()
+		task := s.findOrCreateTask(ev)
+		if task != nil && ev.Host != "" {
+			task.Started[ev.Host] = ev.Timestamp()
+			task.inFlight[ev.Host] = true
 		}
 	}
 }
 
-func (s *PlaybookState) recordHost(host string, o Outcome, raw json.RawMessage, finishedAt time.Time) {
-	if s.currentTask == nil {
+func (s *PlaybookState) recordHost(task *TaskNode, host string, o Outcome, raw json.RawMessage, finishedAt time.Time) {
+	if task == nil {
 		return
 	}
-	s.currentTask.record(host, o, raw, finishedAt)
+	task.record(host, o, raw, finishedAt)
 	s.noteHost(host)
 	if o == OutcomeUnreachable {
 		s.HadUnreachable = true
 	}
 	if s.OnHostRecorded != nil {
-		s.OnHostRecorded(s.currentTask, host)
+		s.OnHostRecorded(task, host)
 	}
 }
 
-// CurrentTask returns the task currently receiving events, or nil before
-// the first task of the run has started. Exposed read-only for tui.go,
-// which uses it to mark the active task's row with a spinner; Apply/
-// recordHost remain the only code that ever assigns currentTask. Per the
-// linear-strategy assumption already documented above, this stays pointing
-// at the most recently started task even after all its hosts have
-// reported - there's no separate "this task is now done" signal - so a
-// caller-side "active" indicator keeps showing on that task until either
-// the next task starts or the run finishes. Pre-existing approximation,
-// not something this accessor introduces.
-func (s *PlaybookState) CurrentTask() *TaskNode {
-	return s.currentTask
+// IncompleteTasks returns every task, across all plays, in first-seen
+// (run) order, that currently has at least one host dispatched but not yet
+// reporting a terminal outcome (TaskNode.inFlight, set by a
+// v2_runner_on_start event, cleared the moment that host's own result
+// arrives - see Apply/TaskNode.record). Exposed read-only for tui.go, which
+// uses it to mark every currently-active task's row with a spinner and to
+// keep an in-progress task visible regardless of the active filter -
+// design-docs/StrategyFree.md's exact replacement for the old single
+// CurrentTask()/currentTask pointer, which assumed Ansible's linear
+// strategy (never more than one task genuinely in flight) and simply broke
+// under strategy: free, where several tasks can be simultaneously
+// incomplete. Under linear this returns exactly the same single task
+// CurrentTask() used to (Started is populated per host by this app's own
+// bundled callback plugin fork - RawEvent.Host's own doc comment - for
+// both lockstep and free strategies alike); a pre-fork run log (no
+// v2_runner_on_start events at all, e.g. a saved run replayed via revisit/
+// diff) simply never populates inFlight for anything, so this always
+// returns empty for one - harmless, since a replayed log is already frozen
+// (processDone pre-true) by the time anything asks. A plain scan over
+// Plays/Tasks, not a maintained index - same "simple beats clever at
+// ~10-host scale" reasoning hostsWithOutcome below already follows.
+func (s *PlaybookState) IncompleteTasks() []*TaskNode {
+	var tasks []*TaskNode
+	for _, play := range s.Plays {
+		for _, t := range play.Tasks {
+			if len(t.inFlight) > 0 {
+				tasks = append(tasks, t)
+			}
+		}
+	}
+	return tasks
 }
 
 // FailedHosts returns the sorted, deduplicated set of hosts that recorded

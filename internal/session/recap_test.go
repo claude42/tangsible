@@ -26,50 +26,54 @@ import (
 // A couple of tiny constructors, just to avoid repeating the same struct
 // literal shape in every test below - not a framework, just less noise.
 // Duplicated from internal/playbook's own test helpers of the same name
-// (unexported test helpers aren't visible across a package boundary).
+// (unexported test helpers aren't visible across a package boundary). Each
+// names an explicit task id, same reasoning as the internal/playbook
+// copy's own doc comment: a real event always carries one
+// (RawEvent.Task.ID), and design-docs/StrategyFree.md's findOrCreateTask
+// resolves task identity by id alone.
 
 func playStartEvent(name string) playbook.RawEvent {
 	return playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: name}}
 }
 
-func taskStartEvent(name, path string) playbook.RawEvent {
-	return playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: name, Path: path}}
+func taskStartEvent(id, name, path string) playbook.RawEvent {
+	return playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{ID: id, Name: name, Path: path}}
 }
 
-func hostResultEvent(event, host string, raw json.RawMessage) playbook.RawEvent {
-	return playbook.RawEvent{Event: event, Hosts: map[string]json.RawMessage{host: raw}}
+func hostResultEvent(event, taskID, host string, raw json.RawMessage) playbook.RawEvent {
+	return playbook.RawEvent{Event: event, Task: &playbook.TaskRef{ID: taskID}, Hosts: map[string]json.RawMessage{host: raw}}
 }
 
-func hostResultEventAt(event, host string, raw json.RawMessage, ts string) playbook.RawEvent {
-	return playbook.RawEvent{Event: event, Hosts: map[string]json.RawMessage{host: raw}, TimestampText: ts}
+func hostResultEventAt(event, taskID, host string, raw json.RawMessage, ts string) playbook.RawEvent {
+	return playbook.RawEvent{Event: event, Task: &playbook.TaskRef{ID: taskID}, Hosts: map[string]json.RawMessage{host: raw}, TimestampText: ts}
 }
 
-func runnerOnStartEvent(host, ts string) playbook.RawEvent {
-	return playbook.RawEvent{Event: "v2_runner_on_start", Host: host, TimestampText: ts}
+func runnerOnStartEvent(taskID, host, ts string) playbook.RawEvent {
+	return playbook.RawEvent{Event: "v2_runner_on_start", Task: &playbook.TaskRef{ID: taskID}, Host: host, TimestampText: ts}
 }
 
 func TestRecapForHost(t *testing.T) {
 	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
 
-	s.Apply(taskStartEvent("task one", "/pb.yml:3"))
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+	s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false}`)))
 
-	s.Apply(taskStartEvent("task two", "/pb.yml:6"))
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":true}`)))
+	s.Apply(taskStartEvent("t2", "task two", "/pb.yml:6"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t2", "web1", json.RawMessage(`{"changed":true}`)))
 
-	s.Apply(taskStartEvent("task three", "/pb.yml:9"))
-	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom"}`)))
+	s.Apply(taskStartEvent("t3", "task three", "/pb.yml:9"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "t3", "web1", json.RawMessage(`{"msg":"boom"}`)))
 
-	s.Apply(taskStartEvent("task four", "/pb.yml:12"))
-	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom again"}`)))
+	s.Apply(taskStartEvent("t4", "task four", "/pb.yml:12"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "t4", "web1", json.RawMessage(`{"msg":"boom again"}`)))
 
-	s.Apply(taskStartEvent("task five", "/pb.yml:15"))
-	s.Apply(hostResultEvent("v2_runner_on_skipped", "web1", json.RawMessage(`{"skip_reason":"Conditional result was False"}`)))
+	s.Apply(taskStartEvent("t5", "task five", "/pb.yml:15"))
+	s.Apply(hostResultEvent("v2_runner_on_skipped", "t5", "web1", json.RawMessage(`{"skip_reason":"Conditional result was False"}`)))
 
 	// A second host, never mentioned for "web1"'s own tasks above - must
 	// not pollute web1's own tally.
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web2", json.RawMessage(`{"changed":false}`)))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t5", "web2", json.RawMessage(`{"changed":false}`)))
 
 	got := recapForHost(s, "web1")
 
@@ -105,8 +109,8 @@ func TestRecapForHost(t *testing.T) {
 func TestRecapForHost_HostNeverReported(t *testing.T) {
 	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
-	s.Apply(taskStartEvent("task one", "/pb.yml:3"))
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+	s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false}`)))
 
 	got := recapForHost(s, "never-seen")
 	if got.OK != 0 || got.Changed != 0 || got.Unreachable != 0 || got.Failed != 0 || got.Skipped != 0 {
@@ -126,11 +130,11 @@ func TestRecapForHost_WarningsAreCrossCutting(t *testing.T) {
 	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
 
-	s.Apply(taskStartEvent("task with a warning", "/pb.yml:3"))
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false,"warnings":["deprecated syntax"]}`)))
+	s.Apply(taskStartEvent("t1", "task with a warning", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false,"warnings":["deprecated syntax"]}`)))
 
-	s.Apply(taskStartEvent("task without a warning", "/pb.yml:6"))
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+	s.Apply(taskStartEvent("t2", "task without a warning", "/pb.yml:6"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t2", "web1", json.RawMessage(`{"changed":false}`)))
 
 	got := recapForHost(s, "web1")
 	if got.OK != 2 || got.Warnings != 1 {
@@ -167,11 +171,11 @@ func TestRecapForHost_IgnoredIsCrossCutting(t *testing.T) {
 	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
 
-	s.Apply(taskStartEvent("ignored failure", "/pb.yml:3"))
-	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom","ignore_errors":true}`)))
+	s.Apply(taskStartEvent("t1", "ignored failure", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "t1", "web1", json.RawMessage(`{"msg":"boom","ignore_errors":true}`)))
 
-	s.Apply(taskStartEvent("ordinary failure", "/pb.yml:6"))
-	s.Apply(hostResultEvent("v2_runner_on_failed", "web1", json.RawMessage(`{"msg":"boom"}`)))
+	s.Apply(taskStartEvent("t2", "ordinary failure", "/pb.yml:6"))
+	s.Apply(hostResultEvent("v2_runner_on_failed", "t2", "web1", json.RawMessage(`{"msg":"boom"}`)))
 
 	got := recapForHost(s, "web1")
 	if got.Failed != 2 || got.Ignored != 1 {
@@ -205,8 +209,8 @@ func TestRecapForHost_IgnoredIsCrossCutting(t *testing.T) {
 func TestRecapForHost_NoTimestampsLeavesDurationUnknown(t *testing.T) {
 	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
-	s.Apply(taskStartEvent("task one", "/pb.yml:3"))
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+	s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false}`)))
 
 	got := recapForHost(s, "web1")
 	if got.HasDuration {
@@ -223,13 +227,13 @@ func TestRecapForHost_TotalDurationSumsAcrossTasks(t *testing.T) {
 	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
 
-	s.Apply(taskStartEvent("task one", "/pb.yml:3"))
-	s.Apply(runnerOnStartEvent("web1", "2026-09-18T08:00:00.000000Z"))
-	s.Apply(hostResultEventAt("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`), "2026-09-18T08:00:01.000000Z"))
+	s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
+	s.Apply(runnerOnStartEvent("t1", "web1", "2026-09-18T08:00:00.000000Z"))
+	s.Apply(hostResultEventAt("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false}`), "2026-09-18T08:00:01.000000Z"))
 
-	s.Apply(taskStartEvent("task two", "/pb.yml:6"))
-	s.Apply(runnerOnStartEvent("web1", "2026-09-18T08:00:01.100000Z"))
-	s.Apply(hostResultEventAt("v2_runner_on_skipped", "web1", json.RawMessage(`{"skip_reason":"x"}`), "2026-09-18T08:00:01.200000Z"))
+	s.Apply(taskStartEvent("t2", "task two", "/pb.yml:6"))
+	s.Apply(runnerOnStartEvent("t2", "web1", "2026-09-18T08:00:01.100000Z"))
+	s.Apply(hostResultEventAt("v2_runner_on_skipped", "t2", "web1", json.RawMessage(`{"skip_reason":"x"}`), "2026-09-18T08:00:01.200000Z"))
 
 	got := recapForHost(s, "web1")
 	if !got.HasDuration {
@@ -247,8 +251,8 @@ func TestRecapComputeColumnWidths_Duration(t *testing.T) {
 	t.Run("no duration anywhere", func(t *testing.T) {
 		s := &playbook.PlaybookState{}
 		s.Apply(playStartEvent("my play"))
-		s.Apply(taskStartEvent("task one", "/pb.yml:3"))
-		s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+		s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
+		s.Apply(hostResultEvent("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false}`)))
 
 		got := recapComputeColumnWidths(s)
 		if got.ShowDuration {
@@ -259,11 +263,11 @@ func TestRecapComputeColumnWidths_Duration(t *testing.T) {
 	t.Run("widest total sets TotalSeconds", func(t *testing.T) {
 		s := &playbook.PlaybookState{}
 		s.Apply(playStartEvent("my play"))
-		s.Apply(taskStartEvent("task one", "/pb.yml:3"))
-		s.Apply(runnerOnStartEvent("web1", "2026-09-18T08:00:00.000000Z"))
-		s.Apply(hostResultEventAt("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`), "2026-09-18T08:00:10.200000Z"))
-		s.Apply(runnerOnStartEvent("web2", "2026-09-18T08:00:00.000000Z"))
-		s.Apply(hostResultEventAt("v2_runner_on_ok", "web2", json.RawMessage(`{"changed":false}`), "2026-09-18T08:00:00.900000Z"))
+		s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
+		s.Apply(runnerOnStartEvent("t1", "web1", "2026-09-18T08:00:00.000000Z"))
+		s.Apply(hostResultEventAt("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false}`), "2026-09-18T08:00:10.200000Z"))
+		s.Apply(runnerOnStartEvent("t1", "web2", "2026-09-18T08:00:00.000000Z"))
+		s.Apply(hostResultEventAt("v2_runner_on_ok", "t1", "web2", json.RawMessage(`{"changed":false}`), "2026-09-18T08:00:00.900000Z"))
 
 		got := recapComputeColumnWidths(s)
 		if !got.ShowDuration {
@@ -365,15 +369,15 @@ func TestRecapNarrativeSummary(t *testing.T) {
 		// logic without needing a realistic multi-task run.
 		s := &playbook.PlaybookState{}
 		s.Apply(playStartEvent("my play"))
-		s.Apply(taskStartEvent("task one", "/pb.yml:3"))
+		s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
 		for host, outcome := range hosts {
 			switch outcome {
 			case "ok":
-				s.Apply(hostResultEvent("v2_runner_on_ok", host, json.RawMessage(`{"changed":false}`)))
+				s.Apply(hostResultEvent("v2_runner_on_ok", "t1", host, json.RawMessage(`{"changed":false}`)))
 			case "failed":
-				s.Apply(hostResultEvent("v2_runner_on_failed", host, json.RawMessage(`{"msg":"boom"}`)))
+				s.Apply(hostResultEvent("v2_runner_on_failed", "t1", host, json.RawMessage(`{"msg":"boom"}`)))
 			case "unreachable":
-				s.Apply(hostResultEvent("v2_runner_on_unreachable", host, json.RawMessage(`{"msg":"no route"}`)))
+				s.Apply(hostResultEvent("v2_runner_on_unreachable", "t1", host, json.RawMessage(`{"msg":"no route"}`)))
 			}
 		}
 		return s

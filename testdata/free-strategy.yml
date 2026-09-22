@@ -1,0 +1,16 @@
+# strategy: free - each host progresses through the task list independently
+# instead of lockstep with every other host, the case design-docs/
+# StrategyFree.md exists to fix. host1 is deliberately slower on the first
+# task so host2 visibly races ahead onto later tasks while host1 is still on
+# the first - genuine interleaving, not a corner case, is the normal shape
+# of a free-strategy run. Run with -i multihost-inventory.ini.
+- hosts: all
+  strategy: free
+  gather_facts: false
+  tasks:
+    - name: slow on host1 only
+      command: "sleep {{ 1.5 if inventory_hostname == 'host1' else 0 }}"
+    - name: quick step two
+      command: sleep 0.2
+    - name: quick step three
+      command: sleep 0.2

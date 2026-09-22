@@ -268,7 +268,7 @@ func (s *liveSession) navigateOutputTask(delta int) {
 	if s.outputTask == nil {
 		return
 	}
-	tasks := uikit.VisibleTasksForHost(s.state, s.outputHost, s.currentFilter, s.sourceIndex, s.activeTaskNow())
+	tasks := uikit.VisibleTasksForHost(s.state, s.outputHost, s.currentFilter, s.sourceIndex, s.activeTasks())
 	idx := -1
 	for i, t := range tasks {
 		if t == s.outputTask {

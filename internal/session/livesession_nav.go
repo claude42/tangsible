@@ -150,7 +150,7 @@ func (s *liveSession) navigateMainTask(delta int) {
 		return
 	}
 
-	vis := uikit.VisibleTasks(s.state, s.currentFilter, s.sourceIndex, s.activeTaskNow())
+	vis := uikit.VisibleTasks(s.state, s.currentFilter, s.sourceIndex, s.activeTasks())
 
 	var target *playbook.TaskNode
 	var host string

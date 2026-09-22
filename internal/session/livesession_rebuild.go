@@ -34,17 +34,22 @@ func (s *liveSession) progressPosition() (position, total int) {
 	return s.progH.Load().Position()
 }
 
-// activeTaskNow returns the run's current in-progress task, or nil once
-// the run has finished - the same "frozen means no active task" rule
-// s.rebuild() applies to its own activeTask local, pulled out so
+// activeTasks returns the set of tasks currently in flight (playbook.
+// PlaybookState.IncompleteTasks, as a membership set), or nil once the run
+// has finished - the same "frozen means nothing is active" rule
+// s.rebuild() applies to its own activeTasks local, pulled out so
 // navigateMainTask/navigateOutputTask/applyFilter (all outside rebuild)
 // can compute the identical thing when deciding what a filter should keep
-// visible (see TaskVisible's isActive parameter).
-func (s *liveSession) activeTaskNow() *playbook.TaskNode {
+// visible (see TaskVisible's isActive parameter). A set, not a single
+// task, since design-docs/StrategyFree.md's whole point is that more than
+// one task can be genuinely in flight at once (strategy: free) - under
+// strategy: linear this is never more than one task, the exact same single
+// task the old CurrentTask()-based version tracked.
+func (s *liveSession) activeTasks() map[*playbook.TaskNode]bool {
 	if s.processDone.Load() {
 		return nil
 	}
-	return s.state.CurrentTask()
+	return uikit.TaskSet(s.state.IncompleteTasks())
 }
 
 // revealExpandedTask, called right after a task row's Enter/Space/click
@@ -390,7 +395,7 @@ func (s *liveSession) rebuild() {
 		}
 	}
 
-	activeTask := s.activeTaskNow()
+	activeTasks := s.activeTasks()
 
 	// treeAllHosts is s.state.AllHosts normally, or nil while a two-pane
 	// drill-down session is open (design-docs/TwoPanedLayout.md): hosts
@@ -419,7 +424,7 @@ func (s *liveSession) rebuild() {
 	// "computed once per rebuild" reasoning (ComputeDurationLayout).
 	durationLayout := uikit.ComputeDurationLayout(s.state, treeAllHosts)
 
-	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, durationLayout, treeAllHosts, activeTask, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor)
+	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, durationLayout, treeAllHosts, activeTasks, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor)
 	hasStatusRow := false
 	if frozen && s.everStarted {
 		if text := uikit.StatusRowText(int(s.exitCode.Load()), s.state.HadUnreachable, runner.AnsibleUserInterruptedExitCode); text != "" {
@@ -507,7 +512,7 @@ func (s *liveSession) rebuild() {
 	case *playbook.PlayNode:
 		s.currentRows[selectedIndex].Text = uikit.PlayRowText(id, true)
 	case *playbook.TaskNode:
-		s.currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, id == activeTask, uikit.SpinnerAt(elapsed), true, s.useColor)
+		s.currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, activeTasks[id], uikit.SpinnerAt(elapsed), true, s.useColor)
 	case uikit.HostRowID:
 		s.currentRows[selectedIndex].Text = uikit.HostLabel(id.Task, id.Host, durationLayout, true)
 	case recapHostRowID:

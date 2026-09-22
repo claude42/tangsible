@@ -75,6 +75,17 @@ type TaskRef struct {
 	// output drill-down view to look up the task's raw source text via
 	// source.go's taskSourceIndex.
 	Path string `json:"path"`
+	// ID is the task's own stable UUID (task._uuid, stringified) - present
+	// on every task-start and terminal event alike, under stock
+	// ansible.posix.jsonl as much as this app's own bundled fork
+	// (design-docs/OwnCallbackPlugin.md's own "_new_task shapes ...
+	// exactly as jsonl has it" - confirmed directly against jsonl.py's own
+	// source, not assumed). Unlike Name/Path, it's stable and unique
+	// across every event referencing the same task, which is what lets
+	// aggregate.go's findOrCreateTask resolve a task's own identity from
+	// any event that reports it - not just the one that happened to start
+	// it - see design-docs/StrategyFree.md.
+	ID string `json:"id"`
 	// IsHandler is only ever true on a "v2_playbook_on_handler_task_start"
 	// event - stamped by this app's own bundled callback plugin fork
 	// (design-docs/OwnCallbackPlugin.md), absent (so false) on every other
