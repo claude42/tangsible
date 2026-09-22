@@ -369,9 +369,6 @@ and should best be gitignored.
 Tangsible is currently aimed at the common interactive use case rather than
 complete `ansible-playbook` feature parity.
 
-- **`strategy: free`** is not supported. Tangsible's current data model
-  assumes a shared task progression across hosts, whereas `free` allows each
-  host to progress independently.
 - **Execution environments** are so far not (yet) supported; neither is **ansible-runner**.
 - **Interactive input after the TUI starts is not supported**. For example, a bare pause: task does not wait for input. `--step` will not work, neither will the ansible debugger.
   

@@ -610,7 +610,7 @@ users, which the `version` / startup check should detect and explain.
 | 7 | semi-private imports (`AnsibleJSONEncoder`, `CallbackBase`) | kept as jsonl has them - we're a GPL fork mimicking jsonl, so no reason to avoid them; same version-fragility jsonl itself carries |
 | 8 | `ANSIBLE_CALLBACK_PLUGINS` / `_ENABLED` already set by user | prepend / union, never clobber |
 | 9 | plugin without `DOCUMENTATION` | jsonl already has one; keep it |
-| 10 | `strategy: free` still unsupported by the aggregate model | unchanged (`CLAUDE.md`); *but* our plugin means a future `free` effort is no longer also a dependency change |
+| 10 | `strategy: free` still unsupported by the aggregate model | ✅ resolved on the `strategy-free` branch (`design-docs/StrategyFree.md`) - built directly on this plugin's `v2_runner_on_start.host` field, exactly the dependency-change-avoided outcome this row anticipated |
 | 11 | run-log replay compat (revisit / diff) | schema is mimicked → old `.jsonl` logs replay unchanged; new `v2_runner_on_start` lines are simply absent in old logs and handled as "unknown" |
 | 12 | Windows | `cmd.ExtraFiles` is POSIX; Tangsible needs a real TTY anyway - document POSIX-only, no regression |
 | 13 | become / vault prompts | unaffected - they hit the tty before the TUI, no callback involved |

@@ -21,6 +21,11 @@
   from regular tasks.
 - A task that failed with `ignore_errors: true` is now tagged `ignored` in
   the tree, and the end-of-run summary gains a matching "ignored" category.
+- `strategy: free` is now supported - the tree used to stay completely
+  empty for the whole run under `free` (the previous data model assumed
+  Ansible's `linear` strategy); it now populates correctly, including
+  showing more than one task's spinner at once when hosts have genuinely
+  diverged.
 
 ### Changed
 
