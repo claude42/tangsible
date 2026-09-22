@@ -294,6 +294,46 @@ trusting a single shared pointer, for both `linear` and `free`, since it
 now sources task identity from the event that's actually reporting the
 result rather than from whatever happened to be "current" when it arrives.
 
+**A real bug found after shipping the above, via a live user report:
+`task.id` alone isn't actually stable across hosts for a *dynamically
+included* task (`include_tasks`/`include_role`) under `strategy: free`.**
+Confirmed live by capturing the raw plugin output directly: two hosts
+hitting the exact same `included.yml:1` task ended up with two different
+`task.id` values - Ansible only merges hosts into one shared Task object
+for an identical include under `linear`'s own lockstep batching; `free`'s
+per-host independence means that merging never happens, so each host gets
+its own freshly-parsed Task object (and so its own UUID) for anything
+reached via a dynamic include. `findOrCreateTask`'s pure id-based lookup
+showed this as one row per host instead of one shared row - exactly the
+kind of misattribution step 1 was supposed to eliminate, just from a
+different cause than the one originally identified.
+
+The task's own source `path` (`<file>:<line>`) *is* still identical across
+hosts in this case - two distinct tasks in a real playbook never share a
+path - so path is what still identifies "the same task" once `id` can't
+be trusted alone. Path-only matching isn't safe by itself, though (also
+confirmed live): a `loop:` around an `include_tasks` produces one real
+task-start-shaped event *per iteration*, every one sharing the exact same
+included file's path - those genuinely are separate tasks and must stay
+separate rows, not collapse into one. What actually distinguishes "the
+same dispatch, split across hosts" from "a later, distinct loop iteration
+at the same path" is host membership: a given host can only ever belong
+to *one* occurrence of a path at a time. `PlayNode.tasksByPath` (new,
+unexported, scoped per play - not run-wide, since two unrelated plays
+including the same file would otherwise collide on one shared path key)
+keeps every `TaskNode` ever created for a given path, in creation order;
+`findOrCreateTask`'s fallback (tried only when the id-only lookup misses)
+walks them and claims the first one this host hasn't already touched
+(`TaskNode.hasHost`, checking both `Hosts` and `Started`) - if every
+existing occurrence already has this host, it's a new iteration, so a
+fresh node is created instead. Verified live for both: a plain
+per-host-diverging include now correctly merges into one row; a `loop:`
+around one still correctly produces one row per iteration, each merged
+correctly across hosts. The fallback never engages when `path` is empty
+(a synthetic/internal task with no real source location) - there's no
+safe signal to match on then, so each diverging id simply stays its own
+node, same "don't guess" posture as everywhere else in this file.
+
 **New tests** (`internal/playbook/aggregate_test.go`, matching the file's
 existing per-scenario `Apply`-sequence style, not table-driven): a
 regression test that never sends a task-start event and instead sends
@@ -304,6 +344,16 @@ idempotency: the same `task.id` arriving via task-start *and* later via a
 terminal event (linear case) must not create two nodes; the same `task.id`
 arriving via two different hosts' terminal events with no task-start at all
 (pure free case) must also not create two nodes.
+
+Plus, for the path-based fallback specifically:
+`TestApply_FreeStrategy_IncludedTaskMergesAcrossHostsDespiteDifferentIDs`
+(the actual reported bug, reproduced directly), `TestApply_FreeStrategy_
+LoopedIncludeKeepsIterationsSeparate` (the companion "must not
+over-merge" case - two hosts progressing through two loop iterations at
+different paces, confirming ordering alone can't confuse the matching),
+`TestApply_PathBasedFallbackNeverAppliesWithNoPath` (the empty-path
+guard), and `TestApply_PathFallbackScopedPerPlay` (two different plays
+including the same file must not merge across the play boundary).
 
 ### 2. "Active task(s)" - replaces `currentTask`/`CurrentTask()`
 

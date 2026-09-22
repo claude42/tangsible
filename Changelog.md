@@ -25,7 +25,9 @@
   empty for the whole run under `free` (the previous data model assumed
   Ansible's `linear` strategy); it now populates correctly, including
   showing more than one task's spinner at once when hosts have genuinely
-  diverged.
+  diverged, and correctly merges a dynamically included task
+  (`include_tasks`/`include_role`) into one row across hosts instead of
+  one row per host.
 
 ### Changed
 

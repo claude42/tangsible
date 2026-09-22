@@ -785,3 +785,127 @@ func TestIncompleteTasks_TaskWithMultipleHostsStaysIncompleteUntilAllReport(t *t
 		t.Errorf("IncompleteTasks() = %v once both hosts reported, want empty", got)
 	}
 }
+
+// TestApply_FreeStrategy_IncludedTaskMergesAcrossHostsDespiteDifferentIDs
+// is a real bug report, not a hypothetical: under strategy: free, a
+// dynamically-included task (include_tasks/include_role) gets its own
+// freshly-constructed Ansible Task object - and its own distinct task.id
+// - independently per host, confirmed live (design-docs/StrategyFree.md),
+// since free's per-host independence means Ansible never merges hosts
+// into one shared batch the way linear does for an identical include.
+// findOrCreateTask's own path-based fallback must still merge these into
+// one TaskNode, keyed by the shared source path, not split into one row
+// per host the way a naive id-only lookup would.
+func TestApply_FreeStrategy_IncludedTaskMergesAcrossHostsDespiteDifferentIDs(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("free play"))
+
+	includedForHost1 := &TaskRef{ID: "a", Name: "included task", Path: "/pb/included.yml:1"}
+	includedForHost2 := &TaskRef{ID: "b", Name: "included task", Path: "/pb/included.yml:1"} // different id, same path - the actual shape confirmed live
+
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: includedForHost1, Host: "web1", TimestampText: "2026-09-22T08:00:00.000000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: includedForHost2, Host: "web2", TimestampText: "2026-09-22T08:00:00.100000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: includedForHost1, Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: includedForHost2, Hosts: map[string]json.RawMessage{"web2": json.RawMessage(`{"changed":false}`)}})
+
+	if len(s.Plays[0].Tasks) != 1 {
+		t.Fatalf("got %d tasks, want 1 (same source path, must merge despite different task.id per host)", len(s.Plays[0].Tasks))
+	}
+	task := s.Plays[0].Tasks[0]
+	if want := []string{"web1", "web2"}; !slices.Equal(task.HostOrder, want) {
+		t.Errorf("HostOrder = %v, want %v (both hosts on the one merged task)", task.HostOrder, want)
+	}
+}
+
+// TestApply_FreeStrategy_LoopedIncludeKeepsIterationsSeparate is the
+// companion regression test: a loop: around an include_tasks produces a
+// real task-start-shaped event *per iteration*, all sharing the exact
+// same included file's path (confirmed live) - path-based merging must
+// not collapse genuinely separate iterations into one row just because
+// they share a path. What distinguishes them: a host can only ever
+// belong to one occurrence of a given path at a time (TaskNode.hasHost) -
+// this interleaves the two hosts at different paces (host1 finishes both
+// iterations before host2 starts either, the same "hosts progress
+// independently" shape strategy: free actually has) to confirm ordering
+// alone doesn't confuse the matching.
+func TestApply_FreeStrategy_LoopedIncludeKeepsIterationsSeparate(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("free play"))
+
+	const path = "/pb/included.yml:1"
+	iter1Host1 := &TaskRef{ID: "a1", Name: "included task", Path: path}
+	iter2Host1 := &TaskRef{ID: "a2", Name: "included task", Path: path}
+	iter1Host2 := &TaskRef{ID: "b1", Name: "included task", Path: path}
+	iter2Host2 := &TaskRef{ID: "b2", Name: "included task", Path: path}
+
+	// host1 races through both iterations before host2 even starts -
+	// strategy: free's normal shape, not a corner case.
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: iter1Host1, Host: "web1", TimestampText: "2026-09-22T08:00:00.000000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: iter1Host1, Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: iter2Host1, Host: "web1", TimestampText: "2026-09-22T08:00:00.100000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: iter2Host1, Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: iter1Host2, Host: "web2", TimestampText: "2026-09-22T08:00:00.200000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: iter1Host2, Hosts: map[string]json.RawMessage{"web2": json.RawMessage(`{"changed":false}`)}})
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: iter2Host2, Host: "web2", TimestampText: "2026-09-22T08:00:00.300000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: iter2Host2, Hosts: map[string]json.RawMessage{"web2": json.RawMessage(`{"changed":false}`)}})
+
+	if len(s.Plays[0].Tasks) != 2 {
+		t.Fatalf("got %d tasks, want 2 (two real loop iterations, must stay separate rows)", len(s.Plays[0].Tasks))
+	}
+	first, second := s.Plays[0].Tasks[0], s.Plays[0].Tasks[1]
+	if want := []string{"web1", "web2"}; !slices.Equal(first.HostOrder, want) {
+		t.Errorf("first iteration's HostOrder = %v, want %v", first.HostOrder, want)
+	}
+	if want := []string{"web1", "web2"}; !slices.Equal(second.HostOrder, want) {
+		t.Errorf("second iteration's HostOrder = %v, want %v (host2's own second iteration must land on the second node, not double up on the first)", second.HostOrder, want)
+	}
+}
+
+// TestApply_PathBasedFallbackNeverAppliesWithNoPath covers the guard: a
+// task with no source path at all (a synthetic/internal task, or simply
+// an event whose Task carries no path) never merges across a diverging
+// id, even for the same host twice - there's no reliable signal to match
+// on, so each diverging id must stay its own node rather than risk
+// silently merging two genuinely unrelated tasks.
+func TestApply_PathBasedFallbackNeverAppliesWithNoPath(t *testing.T) {
+	s := &PlaybookState{}
+	s.Apply(playStartEvent("my play"))
+	first := &TaskRef{ID: "a", Name: "synthetic"}
+	second := &TaskRef{ID: "b", Name: "synthetic"}
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: first, Host: "web1", TimestampText: "2026-09-22T08:00:00.000000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: first, Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: second, Host: "web1", TimestampText: "2026-09-22T08:00:00.100000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: second, Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+
+	if len(s.Plays[0].Tasks) != 2 {
+		t.Fatalf("got %d tasks, want 2 (no path to safely match on, so no merging)", len(s.Plays[0].Tasks))
+	}
+}
+
+// TestApply_PathFallbackScopedPerPlay covers the other real risk with a
+// path-keyed fallback: two different plays each including the exact same
+// file would share the same path text - the fallback must not merge a
+// task from play A with an unrelated one in play B just because they
+// happen to sit at the same included file's line.
+func TestApply_PathFallbackScopedPerPlay(t *testing.T) {
+	s := &PlaybookState{}
+	const path = "/pb/shared.yml:1"
+
+	s.Apply(playStartEvent("play A"))
+	inA := &TaskRef{ID: "a", Name: "shared task", Path: path}
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: inA, Host: "web1", TimestampText: "2026-09-22T08:00:00.000000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: inA, Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+
+	s.Apply(playStartEvent("play B"))
+	inB := &TaskRef{ID: "b", Name: "shared task", Path: path}
+	s.Apply(RawEvent{Event: "v2_runner_on_start", Task: inB, Host: "web1", TimestampText: "2026-09-22T08:00:01.000000Z"})
+	s.Apply(RawEvent{Event: "v2_runner_on_ok", Task: inB, Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+
+	if len(s.Plays) != 2 {
+		t.Fatalf("got %d plays, want 2", len(s.Plays))
+	}
+	if len(s.Plays[0].Tasks) != 1 || len(s.Plays[1].Tasks) != 1 {
+		t.Fatalf("play A has %d tasks, play B has %d, want 1 each (same path, different plays, must not merge across them)", len(s.Plays[0].Tasks), len(s.Plays[1].Tasks))
+	}
+}

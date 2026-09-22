@@ -164,6 +164,21 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedA
 	delete(t.inFlight, host)
 }
 
+// hasHost reports whether host has already touched this task node, in
+// flight or completed - findOrCreateTask's own per-play path-based
+// fallback matching (see its own doc comment) uses this to decide whether
+// a given host can newly join an existing node for the same source path,
+// or needs a fresh one instead (a later loop iteration over the same
+// include, revisiting the same path for a host that already has a result
+// on the earlier iteration's own node).
+func (t *TaskNode) hasHost(host string) bool {
+	if _, ok := t.Hosts[host]; ok {
+		return true
+	}
+	_, ok := t.Started[host]
+	return ok
+}
+
 func (t *TaskNode) Counts() (ok, changed, skipped, failed, unreachable int) {
 	for _, o := range t.Hosts {
 		switch o {
@@ -185,6 +200,13 @@ func (t *TaskNode) Counts() (ok, changed, skipped, failed, unreachable int) {
 type PlayNode struct {
 	Name  string
 	Tasks []*TaskNode
+
+	// tasksByPath indexes this play's own Tasks by source path (file:line),
+	// in creation order - findOrCreateTask's own fallback index, scoped per
+	// play (not run-wide) since two different plays including the exact
+	// same file would otherwise collide on one shared path key. Unexported;
+	// findOrCreateTask is the only reader/writer.
+	tasksByPath map[string][]*TaskNode
 }
 
 // PlaybookState is the play -> task -> host tree built up from the live
@@ -274,18 +296,55 @@ func (s *PlaybookState) Reset() {
 // findOrCreateTask resolves ev's own task to its TaskNode, creating both
 // the task and (lazily, same as before) its enclosing play if this is the
 // first event to reveal either - design-docs/StrategyFree.md's core fix.
-// Keyed by ev.Task.ID (stable across every event referencing the same
-// task - task-start, terminal, v2_runner_on_start alike, confirmed present
-// on all of them even under stock ansible.posix.jsonl, not just this app's
-// own fork) rather than by "whichever task happened to start most
-// recently" - the old currentTask assumption, which silently
+// Keyed primarily by ev.Task.ID (stable across every event referencing the
+// same task - task-start, terminal, v2_runner_on_start alike, confirmed
+// present on all of them even under stock ansible.posix.jsonl, not just
+// this app's own fork) rather than by "whichever task happened to start
+// most recently" - the old currentTask assumption, which silently
 // misattributed results the moment more than one task could be in flight
 // at once (strategy: free structurally guarantees that; a duplicate task
 // name under strategy: linear already made a plain name-based lookup
 // wrong too). Returns nil, doing nothing, if ev carries no Task at all -
 // callers must treat that the same as "no task to record against",
 // exactly as recordHost's own old currentTask-nil check did.
-func (s *PlaybookState) findOrCreateTask(ev RawEvent) *TaskNode {
+//
+// host is the specific host this resolution is for - "" when none applies
+// (the task-start cases below, which are never per-host to begin with).
+// Needed for the fallback matching just below, not just bookkeeping: a
+// terminal event only ever carries one host in ev.Hosts in practice (see
+// its own callers), but the *resolution* still has to be host-aware, not
+// just event-aware.
+//
+// A real gap confirmed live, not assumed: under strategy: free, a
+// dynamically-included task (include_tasks/include_role) gets its own
+// freshly-constructed Ansible Task object - and so its own distinct
+// task.id - independently per host, since free's own per-host
+// independence means Ansible never merges hosts into one shared batch the
+// way linear does for an identical include. Two hosts hitting the very
+// same "included.yml:3" task ended up with two different task.id values,
+// which id-only lookup would show as two separate rows instead of one
+// shared row with two host badges - a real user report. task.path
+// ("<file>:<line>") is still identical across hosts in that case - it
+// names a source location, and no two distinct tasks in a real playbook
+// share one - so once id itself can't be trusted to mean "the same task,"
+// path is what still does.
+//
+// Path alone isn't safe to match on unconditionally, though - also
+// confirmed live: a loop: around an include_tasks produces one real
+// task-start-shaped event *per iteration*, all sharing the exact same
+// included file's path, and those genuinely are separate tasks that must
+// stay separate rows. What actually distinguishes "the same dispatch,
+// split across hosts" from "a later, distinct iteration at the same path"
+// is host membership: a host can only ever belong to one "occurrence" of
+// a given path at a time. PlayNode.tasksByPath keeps every TaskNode ever
+// created for a given path, in creation order; the fallback below walks
+// them and claims the first one host hasn't already touched (TaskNode.
+// hasHost) - if every existing occurrence already has this host, this
+// must be a new iteration, so a fresh node is created instead. Scoped per
+// play (tasksByPath lives on PlayNode, not PlaybookState), not run-wide -
+// two different plays including the exact same file would otherwise
+// collide on one shared path key despite being unrelated.
+func (s *PlaybookState) findOrCreateTask(ev RawEvent, host string) *TaskNode {
 	if ev.Task == nil {
 		return nil
 	}
@@ -307,6 +366,17 @@ func (s *PlaybookState) findOrCreateTask(ev RawEvent) *TaskNode {
 		// already correctly set.
 		return t
 	}
+	if host != "" && ev.Task.Path != "" {
+		for _, t := range s.currentPlay.tasksByPath[ev.Task.Path] {
+			if !t.hasHost(host) {
+				if s.tasksByID == nil {
+					s.tasksByID = map[string]*TaskNode{}
+				}
+				s.tasksByID[ev.Task.ID] = t // alias this host's own id too, so its later events for this task hit the id-only fast path above directly
+				return t
+			}
+		}
+	}
 	t := &TaskNode{
 		Name:      ev.Task.Name,
 		Path:      ev.Task.Path,
@@ -326,6 +396,12 @@ func (s *PlaybookState) findOrCreateTask(ev RawEvent) *TaskNode {
 		s.tasksByID = map[string]*TaskNode{}
 	}
 	s.tasksByID[ev.Task.ID] = t
+	if ev.Task.Path != "" {
+		if s.currentPlay.tasksByPath == nil {
+			s.currentPlay.tasksByPath = map[string][]*TaskNode{}
+		}
+		s.currentPlay.tasksByPath[ev.Task.Path] = append(s.currentPlay.tasksByPath[ev.Task.Path], t)
+	}
 	if s.OnTaskAdded != nil {
 		s.OnTaskAdded(s.currentPlay, t)
 	}
@@ -359,11 +435,17 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 	// visible in the tree at all instead of silently overwriting
 	// something else's data.
 	case "v2_playbook_on_task_start", "v2_playbook_on_handler_task_start":
-		s.findOrCreateTask(ev)
+		s.findOrCreateTask(ev, "")
 
+	// Resolved once *per host*, not once per event, even though a
+	// terminal event only ever carries one host in ev.Hosts in practice
+	// (jsonl.py's own _record_task_result writes one result per callback
+	// invocation) - findOrCreateTask's own path-based fallback (see its
+	// doc comment) needs to know which host it's resolving for, so
+	// resolution has to happen inside this loop, not once above it.
 	case "v2_runner_on_ok":
-		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
+			task := s.findOrCreateTask(ev, host)
 			r := DecodeHostResult(raw)
 			o := OutcomeOK
 			if r.Changed {
@@ -373,20 +455,20 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 		}
 
 	case "v2_runner_on_skipped":
-		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
+			task := s.findOrCreateTask(ev, host)
 			s.recordHost(task, host, OutcomeSkipped, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_failed":
-		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
+			task := s.findOrCreateTask(ev, host)
 			s.recordHost(task, host, OutcomeFailed, raw, ev.Timestamp())
 		}
 
 	case "v2_runner_on_unreachable":
-		task := s.findOrCreateTask(ev)
 		for host, raw := range ev.Hosts {
+			task := s.findOrCreateTask(ev, host)
 			s.recordHost(task, host, OutcomeUnreachable, raw, ev.Timestamp())
 		}
 
@@ -399,9 +481,14 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 	// strategy: free the task this event refers to may not have been
 	// created by anything else yet (no task-start event ever fires there
 	// at all), so this is the one case that can legitimately be the very
-	// first event to reveal a given task.
+	// first event to reveal a given task - and, for a dynamically
+	// included task specifically, the one case that actually needs
+	// findOrCreateTask's own path-based fallback (its own doc comment):
+	// this is where a per-host-diverging id first gets resolved: later
+	// terminal events for the very same id already hit the id-only fast
+	// path directly, since this case's own call below is what aliases it.
 	case "v2_runner_on_start":
-		task := s.findOrCreateTask(ev)
+		task := s.findOrCreateTask(ev, ev.Host)
 		if task != nil && ev.Host != "" {
 			task.Started[ev.Host] = ev.Timestamp()
 			task.inFlight[ev.Host] = true
