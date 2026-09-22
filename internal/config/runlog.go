@@ -92,6 +92,31 @@ func WriteRunStderr(statePath, runID string, lines []string) {
 	_ = os.WriteFile(stderrPath, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
+// ReadRunStderr reads back a generation's saved stderr (WriteRunStderr's
+// own file) - "revisit" uses this to seed design-docs/ErrorOutput.md's
+// inline error-output block for a replayed failed run, the same way a
+// live one already gets it. Returns nil - not an error - for every case
+// that means "nothing to show": runID empty (this generation's own
+// CreateRunLog never succeeded, so WriteRunStderr never had anywhere to
+// save to either), the file missing (an entry saved before this reader
+// existed, or any other reason to just degrade quietly - same tolerance
+// every other read/write in this file already has), or the file existing
+// but genuinely empty (a generation that reported zero stderr lines -
+// WriteRunStderr's own strings.Join(nil, "\n") writes zero bytes for
+// that case, which strings.Split would otherwise turn back into a
+// single-element []string{""} rather than staying "nothing").
+func ReadRunStderr(statePath, runID string) []string {
+	if runID == "" {
+		return nil
+	}
+	_, stderrPath := RunLogPaths(statePath, runID)
+	data, err := os.ReadFile(stderrPath)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	return strings.Split(string(data), "\n")
+}
+
 // DeleteRunLog removes a generation's saved .jsonl/.stderr files, if any -
 // called by appendInvocation when the invocationRecord referencing them is
 // evicted from history (the maxHistoryPerPlaybook cap). A no-op if runID is

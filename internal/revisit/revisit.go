@@ -499,12 +499,19 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	var procH runner.ProcHandle
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
-	// lastStderr (design-docs/ErrorOutput.md) stays unseeded here - a
-	// replayed run's own stderr was never loaded into this process (only
-	// its saved .jsonl was, via ReplayRunLog above), so there's nothing
-	// to show until/unless a real rerun happens from within this session,
-	// same as exitCode/progH below get genuinely rebuilt once one does.
+	// lastStderr (design-docs/ErrorOutput.md) is seeded from this entry's
+	// own saved <RunID>.stderr (config.ReadRunStderr) - WriteRunStderr
+	// already saved it alongside the .jsonl ReplayRunLog just read above,
+	// so a replayed failed run gets the exact same inline error-output
+	// block a live one does, not just its tree. nil (config.ReadRunStderr's
+	// own "nothing to show" case - no file, or an entry saved before this
+	// reader existed) degrades to rebuild()'s existing "nothing wired"
+	// behavior for it. Overwritten for real the moment a rerun happens
+	// from within this session, same as exitCode/progH below.
 	var lastStderr atomic.Pointer[[]string]
+	if saved := config.ReadRunStderr(config.TangsibleStatePath, e.RunID); saved != nil {
+		lastStderr.Store(&saved)
+	}
 	processDone.Store(true)
 	exitCode.Store(int32(e.ExitCode))
 

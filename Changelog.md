@@ -31,7 +31,9 @@
 - A genuine failure now shows the collected `ansible-playbook` stderr
   inline, right below the "Playbook failed" line, instead of only after
   quitting - useful for e.g. `strategy: free`'s own hard refusal of
-  modules like `pause` that bypass the host loop.
+  modules like `pause` that bypass the host loop. `tangsible revisit`
+  shows the identical block for a past failed run too, from its own saved
+  stderr.
 
 ### Changed
 

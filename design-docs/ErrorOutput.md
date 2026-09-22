@@ -99,6 +99,30 @@ rule already makes Up/Down/j/k jump over the whole block for free -
 exactly the same behavior the status/recap-heading rows already have, no
 new code needed for it.
 
+## Revisit
+
+A revisited failed run (`tangsible revisit`, `internal/revisit/
+revisit.go`'s `OpenRevisitEntry`) shows the identical block, sourced from
+that entry's own saved `<RunID>.stderr` file rather than a live
+generation - `WriteRunStderr` (`runlog.go`) already saved it alongside
+the `.jsonl` `ReplayRunLog` reads to rebuild the tree in the first place;
+`config.ReadRunStderr` (new) is the missing read side, and
+`OpenRevisitEntry` seeds `lastStderr` from it before `NewLiveTUI` (its
+own `newLiveTUI` call) ever runs. `rebuild()` needs no changes at all for
+this - it was already reading `lastStderr` generically, with no
+assumption baked in about whether the data behind it came from a live
+process or a saved file.
+
+`ReadRunStderr` returns `nil` - "nothing to show," the same as a live
+generation that reported no stderr - for every case that isn't a genuine
+saved failure: `runID` empty, the file missing (an entry saved before
+this reader existed), or the file present but zero bytes (`WriteRunStderr
+(nil)`'s own output) - the last one specifically guards against
+`strings.Split("", "\n")` turning "nothing" into a single spurious blank
+line instead of staying `nil`. A rerun triggered *from within* a revisit
+session overwrites `lastStderr` for real the moment it completes, exactly
+the same live path a fresh `run` invocation already uses.
+
 ## Verification
 
 Live, via tmux: the motivating `strategy: free` + `pause`-in-a-handler
@@ -107,13 +131,17 @@ source-snippet alignment, correct heading/body styling (bold white
 heading, plain body - not red), that it's absent for a clean run, that it
 correctly disappears the instant an in-session rerun (`r`) starts and
 reappears with fresh (not duplicated/stale) content once that rerun
-finishes, and that quitting still prints the identical post-quit stderr
-dump unaffected. `go test ./...` and `go test -tags e2e ./...` both pass.
-Unit tests: `internal/uikit/wraptext_test.go` (the wrap/no-wrap
-asymmetry, word-boundary wrapping, an unbroken overlong single word) and
+finishes, that quitting still prints the identical post-quit stderr dump
+unaffected, and that reopening that same failed run via `tangsible
+revisit` shows the identical block, reconstructed from the saved
+`.stderr` file. `go test ./...` and `go test -tags e2e ./...` both pass.
+Unit tests: `internal/uikit/wraptext_test.go` (the wrap/no-wrap asymmetry,
+word-boundary wrapping, an unbroken overlong single word),
 `internal/session/errorrows_test.go` (nil/empty/filtered-to-nothing
-cases, heading/body row shape, literal-bracket escaping) - both testable
-in complete isolation, no live `*tview.Application` needed.
+cases, heading/body row shape, literal-bracket escaping), and
+`internal/config/runlog_test.go`'s `TestReadRunStderr_*` cases (empty
+runID, missing file, genuinely-empty-file, single-line round trip) - all
+testable in complete isolation, no live `*tview.Application` needed.
 
 ## Considered, not built
 
@@ -126,8 +154,3 @@ in complete isolation, no live `*tview.Application` needed.
   the actual problem ("I can't see why it failed without quitting")
   needed; revisit only if the plain-rows version turns out to feel
   insufficient in practice.
-- Seeding `lastStderr` for a *revisited* failed run from its own saved
-  `<RunID>.stderr` file (`config.WriteRunStderr` already writes it, no
-  reader exists yet) - the same display would work unchanged, but this
-  session's report was about the live case specifically; a natural,
-  low-risk follow-on if wanted later.
