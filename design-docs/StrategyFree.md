@@ -136,6 +136,24 @@ our own bundled plugin changes on top of this.
   strategy."
 - `v2_playbook_on_play_start` is unaffected by strategy and fires normally
   either way.
+- **Ansible itself, not tangsible, refuses to run some modules at all
+  under `free`** - a real user report, confirmed independent of tangsible
+  entirely by reading `ansible/plugins/strategy/free.py` directly and
+  reproducing with a plain `ansible-playbook` invocation, no tangsible
+  involved: any module whose action plugin sets `BYPASS_HOST_LOOP = True`
+  (on a stock install, just `ansible.builtin.pause` and
+  `ansible.builtin.add_host` - checked directly, not assumed) raises a
+  hard `AnsibleError` and aborts the whole run the moment `free`'s own
+  strategy plugin reaches it, for any host, anywhere in the playbook -
+  handlers included. These modules don't run per-host at all (that's the
+  whole point of `pause`'s single blocking prompt/timer); `free`'s
+  execution model has no way to run them safely, so it refuses outright
+  rather than doing something surprising. **Nothing tangsible can or
+  should work around** - this is ansible-core's own safety check, not a
+  data/rendering gap. The fix is playbook-side: swap `pause: seconds: N`
+  for `wait_for: timeout: N` (a plain per-host delay, `free`-safe), or
+  keep that specific play/handler on `strategy: linear` (`strategy:` is a
+  per-play key, so mixing is fine).
 
 ## Decisions already made
 
