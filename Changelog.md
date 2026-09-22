@@ -9,7 +9,8 @@
   or were unreachable in the previous run.
 - `rerun` verb: matching `--only-failed`, `--only-unreachable`,
   `--resume-where-failed` flags to pre-fill/pre-check those checkboxes.
-- `y` copies the currently active tab's content to the clipboard (via OSC 52)
+- Drill down view: `y` copies the currently active tab's content to the
+  clipboard (via OSC 52)
 - Terminal notifications on playbook finish / task failure
 - New drill-down tab: File displays the contents of the file associated to
   the task
