@@ -72,6 +72,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"code.aw.net/claude/tangsible/internal/source"
 )
 
 // ProgressEntry is one predicted task, keyed the same way a real
@@ -130,14 +132,28 @@ var (
 // empirically: the play itself still gets a v2_playbook_on_play_start,
 // but none of its tasks ever start), so counting them would only ever
 // inflate the total, never be matched.
-func ParseListTasksOutput(output string) []ProgressEntry {
+//
+// freeStrategyPlays (source.FreeStrategyPlayNames) drops a second kind of
+// play for a different reason - design-docs/StrategyFree.md: its tasks
+// definitely will fire real events, but the windowed, name-based matching
+// ProgressTracker.Advance does for every other play structurally can't be
+// fed strategy: free's own per-host events without risking overcounting
+// (more than one host can be on a different task at once, and task names
+// already repeat under linear too) - so such a play's tasks are excluded
+// from the prediction entirely, same mechanism, different reason, as the
+// zero-host case just above.
+func ParseListTasksOutput(output string, freeStrategyPlays map[string]bool) []ProgressEntry {
 	var entries []ProgressEntry
 	var currentPlay string
 	var skipCurrentPlay bool
 	for _, line := range strings.Split(output, "\n") {
 		if m := ProgressPlayLine.FindStringSubmatch(line); m != nil {
 			currentPlay = m[1]
-			skipCurrentPlay = false // corrected by this play's own "hosts (N):" line, below, before any "tasks:" line can follow it
+			skipCurrentPlay = freeStrategyPlays[currentPlay] // corrected by
+			// this play's own "hosts (N):" line, below, if it also
+			// reports zero hosts - either reason alone is enough to skip,
+			// so skipCurrentPlay only ever starts true here, never reset
+			// back to false by that line.
 			continue
 		}
 		if m := ProgressHostsCountLine.FindStringSubmatch(line); m != nil {
@@ -188,7 +204,7 @@ func BuildProgressSkeleton(playbook string, passthroughArgs []string) []Progress
 	if err := cmd.Run(); err != nil {
 		return nil
 	}
-	return ParseListTasksOutput(stdout.String())
+	return ParseListTasksOutput(stdout.String(), source.FreeStrategyPlayNames(playbook))
 }
 
 // ProgressBaseLookahead bounds how far ahead of the tracker's own cursor

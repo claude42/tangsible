@@ -48,6 +48,35 @@ playbook: /tmp/named_probe.yml
       only task	TAGS: []
 `
 
+// realListTasksOutputWithFreeStrategyPlay is a real
+// `ansible-playbook ... --list-tasks --list-hosts` transcript (captured
+// live against testdata/free-strategy.yml) - --list-tasks/--list-hosts
+// carry no indication a play used strategy: free at all (confirmed
+// directly: the output is byte-identical in shape to a linear play with
+// the same tasks/hosts), which is exactly why FreeStrategyPlayNames has
+// to come from a separate static YAML scan rather than being detected
+// from this output alone.
+const realListTasksOutputWithFreeStrategyPlay = `
+playbook: /tmp/free_probe.yml
+
+  play #1 (all): Free play	TAGS: []
+    pattern: ['all']
+    hosts (2):
+      host1
+      host2
+    tasks:
+      slow on host1 only	TAGS: []
+      quick step two	TAGS: []
+
+  play #2 (all): Linear play	TAGS: []
+    pattern: ['all']
+    hosts (2):
+      host1
+      host2
+    tasks:
+      only task	TAGS: []
+`
+
 // realListTasksOutputWithZeroHostPlay is a real
 // `ansible-playbook ... --list-tasks --list-hosts` transcript (captured
 // live against a throwaway fixture with a play targeting a group absent
@@ -74,7 +103,7 @@ playbook: /tmp/unreachable_gap.yml
 
 func TestParseListTasksOutput(t *testing.T) {
 	t.Run("real ansible-core transcript, two plays, a role, tags", func(t *testing.T) {
-		got := ParseListTasksOutput(realListTasksOutput)
+		got := ParseListTasksOutput(realListTasksOutput, nil)
 		want := []ProgressEntry{
 			{Play: "First play does setup", Task: "a pre task"},
 			{Play: "First play does setup", Task: "myrole : role task one"},
@@ -89,23 +118,54 @@ func TestParseListTasksOutput(t *testing.T) {
 	})
 
 	t.Run("unrecognized output yields an empty, non-fatal skeleton", func(t *testing.T) {
-		got := ParseListTasksOutput("not --list-tasks output at all\njust some noise\n")
+		got := ParseListTasksOutput("not --list-tasks output at all\njust some noise\n", nil)
 		if len(got) != 0 {
 			t.Errorf("ParseListTasksOutput() = %v, want empty", got)
 		}
 	})
 
 	t.Run("empty output", func(t *testing.T) {
-		got := ParseListTasksOutput("")
+		got := ParseListTasksOutput("", nil)
 		if len(got) != 0 {
 			t.Errorf("ParseListTasksOutput() = %v, want empty", got)
 		}
 	})
 
 	t.Run("a zero-host play's tasks are excluded from the skeleton entirely", func(t *testing.T) {
-		got := ParseListTasksOutput(realListTasksOutputWithZeroHostPlay)
+		got := ParseListTasksOutput(realListTasksOutputWithZeroHostPlay, nil)
 		want := []ProgressEntry{
 			{Play: "Real play", Task: "unique finisher after unreachable play"},
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("ParseListTasksOutput() = %+v, want %+v", got, want)
+		}
+	})
+
+	// design-docs/StrategyFree.md's step 3: a play named in
+	// freeStrategyPlays has its tasks excluded from the skeleton
+	// entirely, the same mechanism as a zero-host play above but keyed by
+	// name (source.FreeStrategyPlayNames) instead of the "hosts (N):"
+	// line, since --list-tasks/--list-hosts' own output gives no signal
+	// that a play used strategy: free at all.
+	t.Run("a free-strategy play's tasks are excluded from the skeleton entirely", func(t *testing.T) {
+		got := ParseListTasksOutput(realListTasksOutputWithFreeStrategyPlay, map[string]bool{"Free play": true})
+		want := []ProgressEntry{
+			{Play: "Linear play", Task: "only task"},
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("ParseListTasksOutput() = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("freeStrategyPlays naming no play in this output changes nothing", func(t *testing.T) {
+		got := ParseListTasksOutput(realListTasksOutput, map[string]bool{"Some other playbook's play": true})
+		want := []ProgressEntry{
+			{Play: "First play does setup", Task: "a pre task"},
+			{Play: "First play does setup", Task: "myrole : role task one"},
+			{Play: "First play does setup", Task: "myrole : role task two"},
+			{Play: "First play does setup", Task: "plain task"},
+			{Play: "First play does setup", Task: "a post task"},
+			{Play: "Second play", Task: "only task"},
 		}
 		if !slices.Equal(got, want) {
 			t.Errorf("ParseListTasksOutput() = %+v, want %+v", got, want)

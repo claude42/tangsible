@@ -269,6 +269,54 @@ func TestListTopLevelPlayNames_NotPlaybookShaped(t *testing.T) {
 	}
 }
 
+// TestFreeStrategyPlayNames covers design-docs/StrategyFree.md's step 3:
+// only a play whose own literal "strategy:" key is exactly "free" is
+// named in the result - not one with no strategy: key at all (implicitly
+// linear), not one naming some other strategy, and (v1's same scope as
+// ListTopLevelPlayNames) not an unnamed one even if it does say
+// strategy: free.
+func TestFreeStrategyPlayNames(t *testing.T) {
+	playbookYAML := `
+- name: linear by default
+  hosts: web
+
+- name: explicitly free
+  hosts: db
+  strategy: free
+
+- name: explicitly linear
+  hosts: all
+  strategy: linear
+
+- name: some other strategy
+  hosts: all
+  strategy: host_pinned
+
+- hosts: all
+  strategy: free
+`
+	path := filepath.Join(t.TempDir(), "site.yml")
+	if err := os.WriteFile(path, []byte(playbookYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FreeStrategyPlayNames(path)
+	want := map[string]bool{"explicitly free": true}
+	if len(got) != len(want) || !got["explicitly free"] {
+		t.Errorf("FreeStrategyPlayNames() = %v, want %v", got, want)
+	}
+}
+
+func TestFreeStrategyPlayNames_NoStrategyKeysAtAll(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "site.yml")
+	if err := os.WriteFile(path, []byte("- name: only play\n  hosts: all\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := FreeStrategyPlayNames(path); len(got) != 0 {
+		t.Errorf("FreeStrategyPlayNames() = %v, want empty", got)
+	}
+}
+
 func TestTrimPlaybookToPlay(t *testing.T) {
 	playbookYAML := `- name: first play
   hosts: web

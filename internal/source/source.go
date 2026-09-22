@@ -130,6 +130,11 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 type topLevelPlay struct {
 	name      string
 	startLine int // 1-indexed - the line the play's own mapping starts at.
+	// strategy is the play's own literal "strategy:" scalar value, "" if
+	// absent - only ever read by FreeStrategyPlayNames below; every other
+	// consumer of topLevelPlay (ListTopLevelPlayNames, TrimPlaybookToPlay)
+	// ignores it.
+	strategy string
 }
 
 // parseTopLevelPlays reads playbookPath and returns every *named* entry in
@@ -175,9 +180,44 @@ func parseTopLevelPlays(playbookPath string) []topLevelPlay {
 		if name == "" || strings.Contains(name, "{{") {
 			continue
 		}
-		plays = append(plays, topLevelPlay{name: name, startLine: item.Line})
+		var strategy string
+		if sv := mappingValue(item, "strategy"); sv != nil && sv.Kind == yaml.ScalarNode {
+			strategy = strings.TrimSpace(sv.Value)
+		}
+		plays = append(plays, topLevelPlay{name: name, startLine: item.Line, strategy: strategy})
 	}
 	return plays
+}
+
+// FreeStrategyPlayNames returns the set of playbookPath's own named
+// top-level plays whose literal "strategy:" key is exactly "free" -
+// internal/runner/progress.go's own skeleton-exclusion source
+// (design-docs/StrategyFree.md): a free-strategy play's tasks can't
+// usefully be predicted by the windowed task-name matching
+// ProgressTracker.Advance does for every other play (task names repeat,
+// and under free more than one host can be on a different task
+// simultaneously - feeding that matching per-host events 1:1 would
+// violate its own "never overcount" contract), so such a play's tasks are
+// excluded from the skeleton entirely instead, the same way a play
+// reporting zero hosts already is (ParseListTasksOutput's own
+// skipCurrentPlay).
+//
+// Same v1 scope as ListTopLevelPlayNames: an unnamed play is silently
+// skipped (nothing here to key an exclusion by), and this is a static
+// per-play scan - a *globally* configured strategy = free
+// (ansible.cfg's [defaults], or ANSIBLE_STRATEGY, with no per-play
+// "strategy:" key in the YAML at all) isn't caught, an accepted,
+// documented gap (design-docs/StrategyFree.md), not a regression: such a
+// play's progress fill just keeps today's existing unfixed behavior
+// (freeze, imprecise), never a wrong/overcounted one.
+func FreeStrategyPlayNames(playbookPath string) map[string]bool {
+	names := map[string]bool{}
+	for _, p := range parseTopLevelPlays(playbookPath) {
+		if p.strategy == "free" {
+			names[p.name] = true
+		}
+	}
+	return names
 }
 
 // ListTopLevelPlayNames returns the name of every named top-level play in
