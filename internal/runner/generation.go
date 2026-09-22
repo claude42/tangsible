@@ -53,7 +53,7 @@ import (
 // see StartRoleSession), so whichever was true for this generation's own
 // AppendInvocation call (in NewRequestRerun, or the caller's own first-
 // generation recording) is still true now.
-func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-chan []string, runID string, playbook, roleDisplayName string, apply func(StreamItem), exitCode *atomic.Int32, processDone *atomic.Bool, recordOutcome func(GenerationOutcome), peeked ...StreamItem) {
+func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-chan []string, runID string, playbook, roleDisplayName string, apply func(StreamItem), exitCode *atomic.Int32, processDone *atomic.Bool, lastStderr *atomic.Pointer[[]string], recordOutcome func(GenerationOutcome), peeked ...StreamItem) {
 	for _, item := range peeked {
 		apply(item)
 	}
@@ -68,6 +68,17 @@ func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-c
 	// true, and Go's atomics are sequentially consistent as a whole
 	// program (not just per-variable), so this ordering is what makes
 	// that store visible there.
+	//
+	// lastStderr (design-docs/ErrorOutput.md) is stored the same way,
+	// same reasoning, right alongside exitCode - tui.go's rebuild() reads
+	// both together once processDone is observed, to show *why* a
+	// genuine failure happened, not just that one happened. Stored
+	// unconditionally, even when childStderr is empty/nil - overwriting
+	// whatever a previous generation's own failure left there is exactly
+	// the point, not an edge case to special-case around.
+	if lastStderr != nil {
+		lastStderr.Store(&childStderr)
+	}
 	recordOutcome(GenerationOutcome{ExitCode: code, WaitErr: waitErr, ChildStderr: childStderr})
 	config.WriteRunStderr(config.TangsibleStatePath, runID, childStderr)
 	if roleDisplayName != "" {
@@ -133,13 +144,19 @@ type InitialRerunDefaults struct {
 // goroutine calls the returned func (tview's event-loop goroutine, same
 // invariant state.Reset() above already relies on), never concurrently
 // with formatHostOutput's own reads of the same map.
-func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, tags, skipTags, hosts string) {
+func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, tags, skipTags, hosts string) {
 	return func(startAtPlay, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
 		// event-loop goroutine, from the re-run dialog's Enter handler) -
 		// by the time this returns, a QueueUpdateDraw-driven rebuild()
 		// already sees a running, empty generation, matching the
 		// view-state reset tui.go does right alongside calling this.
+		// lastStderr isn't reset here alongside them - processDone false
+		// already hides rebuild()'s own error-output block regardless of
+		// whatever lastStderr still holds (design-docs/ErrorOutput.md),
+		// and RunOneGeneration/fail below always overwrite it with this
+		// generation's own result before processDone goes true again, so
+		// there's no window where a stale value could actually render.
 		state.Reset()
 		exitCode.Store(0)
 		processDone.Store(false)
@@ -159,6 +176,15 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		// any other failed run.
 		fail := func(err error) {
 			exitCode.Store(-1)
+			// A spawn failure never reaches RunOneGeneration at all, so
+			// nothing else would ever populate lastStderr for it - stashed
+			// here instead (this func's own error, as its one-line text)
+			// so rebuild()'s error-output block (design-docs/
+			// ErrorOutput.md) still shows *something* useful for this
+			// failure mode too, not just an ansible-side one.
+			if lastStderr != nil {
+				lastStderr.Store(&[]string{err.Error()})
+			}
 			recordOutcome(GenerationOutcome{ExitCode: -1, WaitErr: err})
 			if roleDisplayName != "" {
 				_ = config.FinalizeInvocation(config.TangsibleStatePath, "", roleDisplayName, -1, "")
@@ -240,7 +266,7 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 				fail(err)
 				return
 			}
-			RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, exitCode, processDone, recordOutcome)
+			RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, exitCode, processDone, lastStderr, recordOutcome)
 			if cleanupTemp != nil {
 				cleanupTemp()
 			}

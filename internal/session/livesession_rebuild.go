@@ -434,6 +434,16 @@ func (s *liveSession) rebuild() {
 			)
 			hasStatusRow = true
 		}
+		// Error output (design-docs/ErrorOutput.md) - only for a genuine
+		// failure (GenuineFailure, same predicate the auto-jump-to-
+		// failed-host feature above already uses), not for every frozen
+		// state StatusRowText itself covers - a benign-unreachable or
+		// user-interrupted run has nothing useful to add here. Appended
+		// right after the status row, before the recap section below, so
+		// "why did it fail" reads before "what happened, numerically."
+		if uikit.GenuineFailure(int(s.exitCode.Load()), s.state.HadUnreachable, runner.AnsibleUserInterruptedExitCode) {
+			s.currentRows = append(s.currentRows, s.errorOutputRows(width)...)
+		}
 		// Recap (design-docs/Recap.md) - appended below the status rows
 		// regardless of whether one was actually shown, so this doesn't
 		// silently disappear if StatusRowText's own "always non-empty"

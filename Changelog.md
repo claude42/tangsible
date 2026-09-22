@@ -28,6 +28,10 @@
   diverged, and correctly merges a dynamically included task
   (`include_tasks`/`include_role`) into one row across hosts instead of
   one row per host.
+- A genuine failure now shows the collected `ansible-playbook` stderr
+  inline, right below the "Playbook failed" line, instead of only after
+  quitting - useful for e.g. `strategy: free`'s own hard refusal of
+  modules like `pause` that bypass the host loop.
 
 ### Changed
 

@@ -1014,3 +1014,61 @@ func HostLabel(task *playbook.TaskNode, host string, layout DurationLayout, sele
 	}
 	return prefix + fmt.Sprintf("[%s]%s[-]", tag, line)
 }
+
+// WrapText splits text into display lines no wider than width runes, at
+// word boundaries where possible - a source of overlong single lines this
+// package needs to render as plain rows (design-docs/ErrorOutput.md's
+// stderr display: a real ansible [ERROR]: message is one long paragraph),
+// unlike TextView-backed views elsewhere in this app, which get word-wrap
+// for free from tview itself.
+//
+// A line that already fits within width is returned completely
+// unchanged, whitespace included - only a line that's actually too long
+// gets re-wrapped (via strings.Fields, so its own internal whitespace
+// isn't preserved). This asymmetry is deliberate, not an oversight: the
+// same stderr blob commonly also contains short, already-narrow lines
+// whose exact whitespace is load-bearing - a source snippet's own
+// indentation, or a caret ("^") pointing at one specific column - and
+// collapsing those the same way a long sentence gets reflowed would
+// silently destroy the alignment they exist to show. Leaving every
+// already-short line untouched is what protects that case for free,
+// without needing to specially detect it.
+func WrapText(text string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if len([]rune(line)) <= width {
+			out = append(out, line)
+			continue
+		}
+		out = append(out, wrapLongLine(line, width)...)
+	}
+	return out
+}
+
+// wrapLongLine word-wraps one already-confirmed-overlong line. A single
+// word longer than width on its own (rare - a long URL/path with no
+// spaces) is left as its own overlong line rather than hard-broken
+// mid-word - it's still one word, and breaking it apart would make it
+// unreadable/unsearchable for no real benefit at this app's own ~10-host,
+// interactive-dev-tool scale (Purpose.md).
+func wrapLongLine(line string, width int) []string {
+	words := strings.Fields(line)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	cur := words[0]
+	for _, w := range words[1:] {
+		if len([]rune(cur))+1+len([]rune(w)) <= width {
+			cur += " " + w
+			continue
+		}
+		lines = append(lines, cur)
+		cur = w
+	}
+	lines = append(lines, cur)
+	return lines
+}
