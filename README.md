@@ -166,6 +166,13 @@ go build ./...
 This produces a `tangsible` binary in the current directory. You can use the
 provided `install.sh` to install it.
 
+### System-wide, or as a distro package
+
+`install.sh --prefix /usr/local` (run as root) installs tangsible for every
+user on a machine without building a package. If you're packaging tangsible
+for a distro instead (`.deb`/`.rpm`/AUR/nix/...), see `PACKAGING.md` for the
+file layout and why `install.sh` isn't the right tool for that job.
+
 ## Quick start
 
 Run a playbook:
