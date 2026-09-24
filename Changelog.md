@@ -21,11 +21,16 @@
   from regular tasks.
 - A task that failed with `ignore_errors: true` is now tagged `ignored` in
   the tree, and the end-of-run summary gains a matching "ignored" category.
+- System-wide installs via install.sh --prefix &lt;dir&gt;
+- Support system-wide config file /etc/tangsible/config.toml
 
 ### Changed
 
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely
   nothing to show, instead of an empty tab.
+- Ignored failures (`ignore_errors: true`) now render in the same orange
+  used for their `ignored` tag everywhere a host's outcome is shown (tree
+  rows, drill-down status line, diff view), instead of alarming red.
 
 ### Fixed
 
