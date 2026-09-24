@@ -71,6 +71,11 @@ immediately implemented.
 
 * add ignored to the OK:x/Chgd:x/Skip:x/Fail:x/Unrch:x fallback
 
+* system wide install + /etc/tangsible/config.toml
+
+* allow tangsible run -l host playbook.yml (in addition to tangsible run
+  playbook.yml -l host)
+
 ------
 
 * Knoten im Tree öffnen, der auf letzter Zeile ist --> sollte runter
