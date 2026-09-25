@@ -54,6 +54,10 @@ type TabbedPane struct {
 	// (see NewTabbedPane) - see SetHeaderStyle's own doc comment for why
 	// this needs to be kept alongside a real tcell.Style rather than
 	// derived from one.
+	tabColors map[string]string // renderHeader's own per-tab label-text
+	// color override, keyed by tab name - nil (the default) leaves every
+	// tab's label white, as before this field existed. See
+	// SetTabColorOverrides.
 }
 
 // SetChangedFunc registers f to be called whenever the active tab changes,
@@ -225,6 +229,20 @@ func (p *TabbedPane) SetActiveByName(name string) bool {
 	return false
 }
 
+// SetTabColorOverrides replaces the pane's own per-tab label-text color
+// overrides wholesale, keyed by tab name (renderHeader's own tag-name
+// convention, e.g. "red" - not a hex value), and redraws immediately. nil
+// or an empty map means "no overrides" - every tab's label goes back to
+// plain white. A name with no matching current tab is harmless (e.g. the
+// template Verb's own host-swap dialog renaming a tab out from under a
+// stale key - see its own doc comment on why it recomputes this map
+// wholesale on every render outcome rather than mutating it incrementally
+// by index).
+func (p *TabbedPane) SetTabColorOverrides(colors map[string]string) {
+	p.tabColors = colors
+	p.renderHeader()
+}
+
 // ActiveTextView returns the currently active tab's own content as a
 // *tview.TextView, and whether that succeeded - false if there are no
 // tabs, or the active one isn't a *tview.TextView. Every tab at every
@@ -286,18 +304,32 @@ func (p *TabbedPane) renderHeader() {
 		if i > 0 {
 			b.WriteString("  ")
 		}
+		// labelFg is the label's own text color - headerColorName (active,
+		// inverted onto a white background) or white (inactive) by
+		// default, overridden per-tab by SetTabColorOverrides (e.g. "red"
+		// for the template Verb's own errored-host tabs). Only the
+		// label's own foreground is overridden - the trailing reset tag
+		// after it (back to plain chrome) is untouched, since the gap
+		// before the next tab is blank space either way.
+		labelFg := p.headerColorName
+		if i != p.active {
+			labelFg = "white"
+		}
+		if c, ok := p.tabColors[name]; ok {
+			labelFg = c
+		}
 		if i == p.active {
-			// Explicit <headerColorName>-on-white (the session's own
-			// current chrome color, white-on-<name> swapped - see
-			// SetHeaderStyle) rather than relying on [::R]'s empty color
-			// fields to inherit the header's base TextStyle - confirmed
-			// live that inheritance doesn't reliably happen the way a
-			// bare attribute-only tag might suggest, so every segment
-			// here fully specifies its own colors instead, active and
-			// inactive alike, leaving nothing to inherit at all.
-			fmt.Fprintf(&b, "[%s:white:B] %s [white:%s:-]", p.headerColorName, tview.Escape(name), p.headerColorName)
+			// Explicit <labelFg>-on-white (the session's own current
+			// chrome color, white-on-<name> swapped - see SetHeaderStyle)
+			// rather than relying on [::R]'s empty color fields to inherit
+			// the header's base TextStyle - confirmed live that
+			// inheritance doesn't reliably happen the way a bare
+			// attribute-only tag might suggest, so every segment here
+			// fully specifies its own colors instead, active and inactive
+			// alike, leaving nothing to inherit at all.
+			fmt.Fprintf(&b, "[%s:white:B] %s [white:%s:-]", labelFg, tview.Escape(name), p.headerColorName)
 		} else {
-			fmt.Fprintf(&b, "[white:%s:-] %s [white:%s:-]", p.headerColorName, tview.Escape(name), p.headerColorName)
+			fmt.Fprintf(&b, "[%s:%s:-] %s [white:%s:-]", labelFg, p.headerColorName, tview.Escape(name), p.headerColorName)
 		}
 	}
 	p.header.SetText(b.String())

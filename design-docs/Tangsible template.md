@@ -116,7 +116,11 @@ Task/Output/Warnings/Error section layout:
       file's own content, verbatim.
     * It didn't: the task's own error message (`msg` - for a template
       failure this is the Jinja traceback; `stderr` too if that's ever
-      non-empty) in its place.
+      non-empty) in its place - and that host's own tab label renders in
+      the same red used for a genuinely failed task everywhere else in the
+      app, active or inactive, clearing back to normal the moment that
+      host reprocesses successfully (an `e`/`h` reprocess, or a rename via
+      `h` landing on a previously-fine host).
   * One further, shared "Source" tab (the template file's own raw
     content) - host-independent, so it's never duplicated per host.
   * A bottom keybinding-hint bar, matching every other view in the app

@@ -9,6 +9,8 @@
   or were unreachable in the previous run.
 - `rerun` verb: matching `--only-failed`, `--only-unreachable`,
   `--resume-where-failed` flags to pre-fill/pre-check those checkboxes.
+- Re-run dialog: "Limit hosts to:" now also autocompletes inventory group
+  names, not just hosts seen so far this run.
 - Drill down view: `y` copies the currently active tab's content to the
   clipboard (via OSC 52)
 - Terminal notifications on playbook finish / task failure
@@ -28,7 +30,7 @@
 - System-wide installs via install.sh --prefix &lt;dir&gt;
 - Support system-wide config file /etc/tangsible/config.toml
 - `template` now accepts more than one hostname, group names or "all". Each
-  host gets its own tab.
+  host gets its own tab, colored red if its own last render errored.
 - New `template_hosts_max` config key (default 10) - `template` now asks for
   confirmation before rendering against more hosts than this.
 

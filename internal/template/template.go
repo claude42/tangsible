@@ -468,6 +468,13 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		renderedViews[i] = tview.NewTextView().SetDynamicColors(true)
 		renderedViews[i].SetText("Rendering...")
 	}
+	// renderFailed mirrors hosts by index (true once that host's own last
+	// render errored - a task failure or a render-level error alike) -
+	// backs updateTabColors below, which is what actually colors an
+	// errored host's own tab label the same red
+	// uikit.ColorTag(playbook.OutcomeFailed) uses for a genuinely failed
+	// task everywhere else in the app.
+	renderFailed := make([]bool, len(hosts))
 	sourceView := tview.NewTextView().SetDynamicColors(true)
 
 	tabs := uikit.NewTabbedPane()
@@ -546,6 +553,22 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	}
 	refreshSource()
 
+	// updateTabColors recomputes the whole tab-color-override map from
+	// hosts/renderFailed and pushes it to tabs - recomputed wholesale
+	// rather than mutated incrementally by name, so a stale key from a
+	// since-renamed host (applyHostChange) never lingers: the map is
+	// always exactly "every currently-open host whose own renderFailed
+	// entry is true," nothing more.
+	updateTabColors := func() {
+		colors := make(map[string]string, len(hosts))
+		for i, h := range hosts {
+			if i < len(renderFailed) && renderFailed[i] {
+				colors[h] = uikit.ColorTag(playbook.OutcomeFailed)
+			}
+		}
+		tabs.SetTabColorOverrides(colors)
+	}
+
 	// applyRenderResult writes one host's own finished render (or error)
 	// into its tab - shared by renderAll/renderHost below. Guards against
 	// a stale result: if hosts[i] no longer equals host (a rename via 'h'
@@ -559,6 +582,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		}
 		view := renderedViews[i]
 		searchBar.ClearForView(view)
+		failed := err != nil || result.Failed
 		switch {
 		case err != nil:
 			view.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
@@ -568,6 +592,10 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			view.SetText(tview.Escape(result.Content))
 		}
 		view.ScrollToBeginning()
+		if i < len(renderFailed) {
+			renderFailed[i] = failed
+			updateTabColors()
+		}
 	}
 
 	// rendering/pendingRerenderAll serialize every render this view ever
@@ -599,9 +627,11 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			return
 		}
 		rendering = true
-		for _, v := range renderedViews {
+		for i, v := range renderedViews {
 			v.SetText("Rendering...")
+			renderFailed[i] = false
 		}
+		updateTabColors()
 		go func() {
 			snapshot := append([]string(nil), hosts...)
 			for i, h := range snapshot {
@@ -622,6 +652,8 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		rendering = true
 		host := hosts[i]
 		renderedViews[i].SetText("Rendering...")
+		renderFailed[i] = false
+		updateTabColors()
 		go func() {
 			result, err := RenderTemplate(stubPath, outputPath, host, rest)
 			app.QueueUpdateDraw(func() {

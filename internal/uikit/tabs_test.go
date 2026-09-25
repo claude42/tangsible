@@ -254,6 +254,41 @@ func TestTabbedPaneSetHeaderStyleChangesTagColor(t *testing.T) {
 	}
 }
 
+func TestTabbedPaneSetTabColorOverrides(t *testing.T) {
+	p := NewTabbedPane()
+	p.SetTabs([]string{"host1", "host2", "Source"}, primitives(3))
+	p.SetTabColorOverrides(map[string]string{"host2": "red"})
+
+	got := p.header.GetText(false)
+	if !strings.Contains(got, "[red:navy:-] host2 [white:navy:-]") {
+		t.Errorf("header text = %q, want host2's label colored red", got)
+	}
+	if !strings.Contains(got, "[navy:white:B] host1 [white:navy:-]") {
+		t.Errorf("header text = %q, want host1 (active, no override) unaffected", got)
+	}
+	if strings.Contains(got, "[red:navy:-] Source") {
+		t.Errorf("header text = %q, want Source (no override) not colored red", got)
+	}
+
+	// An override for the currently active tab colors its own inverted
+	// (foreground-on-white) segment instead of the plain chrome-background
+	// one - a different code path in renderHeader (the i == p.active
+	// branch) than the inactive case just checked above.
+	p.Next()
+	p.SetTabColorOverrides(map[string]string{"host2": "red"})
+	got = p.header.GetText(false)
+	if !strings.Contains(got, "[red:white:B] host2 [white:navy:-]") {
+		t.Errorf("header text = %q, want the now-active host2 wrapped in [red:white:B]...", got)
+	}
+
+	// Clearing overrides (nil) restores plain white/chrome coloring.
+	p.SetTabColorOverrides(nil)
+	got = p.header.GetText(false)
+	if strings.Contains(got, "red") {
+		t.Errorf("header text = %q, want no red left after clearing overrides", got)
+	}
+}
+
 // TestTabbedPaneClearResetsStateAndBlursStuckFocus is a real, reported bug
 // (design-docs/ErrorOutput.md): once this pane's own internal p.pages has
 // ever been focused, plain tab removal (what SetTabs itself already does
