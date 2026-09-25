@@ -42,8 +42,16 @@ import (
 // still correct.
 var ansiCSI = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 
+// stripANSI removes every ANSI CSI escape sequence from s (see ansiCSI) -
+// pulled out of FetchAnsibleDoc as its own function so this pure text
+// transform can be unit tested against fixture text directly, without
+// needing the real ansible-doc binary on PATH just to exercise it.
+func stripANSI(s string) string {
+	return ansiCSI.ReplaceAllString(s, "")
+}
+
 // FetchAnsibleDoc runs `ansible-doc <action>` and returns its stdout, ANSI
-// codes stripped (see ansiCSI). The plain long-form output is used
+// codes stripped (see stripANSI). The plain long-form output is used
 // deliberately, not -s's compact playbook-syntax form - live use showed
 // it read better for this tab (design-docs/Ideas.md). action is exactly
 // whatever the task's own "action" result field reported (see tui.go's
@@ -65,5 +73,5 @@ func FetchAnsibleDoc(action string) (string, error) {
 		}
 		return "", errors.New(msg)
 	}
-	return ansiCSI.ReplaceAllString(string(out), ""), nil
+	return stripANSI(string(out)), nil
 }
