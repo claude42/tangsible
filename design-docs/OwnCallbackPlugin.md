@@ -700,3 +700,5 @@ Not now - only as part of the Phase 1 change, post-launch:
   step; add the Apache-2.0-binary / GPL-3.0-plugin split.
 - `.gitignore` / release tooling: the forked `.py` is a tracked source
   file with its own GPL `LICENSE`.
+
+claude --resume acaac6e8-fb59-4827-ab31-f4c9ec791863

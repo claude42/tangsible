@@ -3,14 +3,11 @@
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
 
-* use
-  ansible.builtin.debug:
-    var: hostvars[inventory_hostname]
-
-  to print out all variables
-
-* Use virtual terminal to run ansible-playbook - to support things like
-  --step, the debuger or ansible.builtin.pause
+* Debug mode (to improve Resolved variables and od our own debugger)
+  * strategy plugin is deprecated
+  * use hostvars[inventory_hostname] gives us at least something
+  * Use virtual terminal to run ansible-playbook - to support things like
+    --step, the debuger or ansible.builtin.pause
 
 
 
