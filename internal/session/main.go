@@ -28,6 +28,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/host"
+	"code.aw.net/claude/tangsible/internal/inventory"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/revisit"
 	"code.aw.net/claude/tangsible/internal/role"
@@ -487,6 +488,19 @@ func Main(build BuildInfo) {
 	// else instead.
 	sourceIndex, knownTags, _ := source.BuildTaskSourceIndex(playbook)
 	knownPlayNames := source.ListTopLevelPlayNames(playbook)
+	// knownGroups backs the re-run dialog's own "Limit hosts to:" field
+	// autocomplete alongside its live state.AllHosts (rerunFieldSync.
+	// matchHosts) - unlike AllHosts, group names are never reported by any
+	// jsonl event, so this is a static ansible-inventory --list scan, the
+	// same "has to work even in the very first dialog, before any
+	// generation has run" reasoning knownTags/knownPlayNames already have.
+	// Best-effort: a failed inventory fetch here just means no group
+	// suggestions, not a fatal error - --limit itself already accepts a
+	// group name typed by hand regardless of what autocomplete offers.
+	var knownGroups []string
+	if raw, err := inventory.ListInventoryRaw(originalArgs.Rest); err == nil {
+		knownGroups = inventory.GroupNames(raw)
+	}
 	if spawnPlaybook != playbook {
 		// "--start-at-play" spawns this first generation against a trimmed
 		// copy, not playbook itself - every RawEvent.Task.Path for a task
@@ -596,7 +610,7 @@ func Main(build BuildInfo) {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, sourceIndex, knownTags, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)

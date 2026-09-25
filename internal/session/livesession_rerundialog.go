@@ -44,6 +44,7 @@ type rerunFieldSync struct {
 	state                *playbook.PlaybookState
 	knownTags            []string
 	knownPlayNames       []string
+	knownGroups          []string
 	initialRerunDefaults runner.InitialRerunDefaults
 
 	playField               *tview.InputField
@@ -113,16 +114,17 @@ type rerunFieldSync struct {
 // newRerunFieldSync builds the four fields and three checkboxes, wires
 // every sync/autocomplete handler between them, and registers form as the
 // *tview.Form they'll be added to by rebuild(). form/state are shared
-// references this type doesn't own; knownTags/knownPlayNames/
+// references this type doesn't own; knownTags/knownPlayNames/knownGroups/
 // initialRerunDefaults are copied in since NewLiveTUI's own parameters
 // aren't needed anywhere outside this subsystem (confirmed by grep before
 // this extraction) and so were never hoisted onto liveSession itself.
-func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames []string, initialRerunDefaults runner.InitialRerunDefaults) *rerunFieldSync {
+func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames, knownGroups []string, initialRerunDefaults runner.InitialRerunDefaults) *rerunFieldSync {
 	r := &rerunFieldSync{
 		form:                 form,
 		state:                state,
 		knownTags:            knownTags,
 		knownPlayNames:       knownPlayNames,
+		knownGroups:          knownGroups,
 		initialRerunDefaults: initialRerunDefaults,
 	}
 
@@ -282,8 +284,18 @@ func (r *rerunFieldSync) hostsFieldChanged(text string) {
 	}
 }
 
-func (r *rerunFieldSync) matchTags(text string) []string  { return matchToken(r.knownTags, text) }
-func (r *rerunFieldSync) matchHosts(text string) []string { return matchToken(r.state.AllHosts, text) }
+func (r *rerunFieldSync) matchTags(text string) []string { return matchToken(r.knownTags, text) }
+
+// matchHosts' candidates are state.AllHosts (live, grows as the run
+// discovers hosts - read fresh on every call, not captured once) plus
+// knownGroups (static, fetched once at session startup) - two disjoint
+// namespaces in practice, so no dedup between them is attempted; a literal
+// host and a group happening to share a name is an edge case that would at
+// worst just show one redundant suggestion, never a wrong one.
+func (r *rerunFieldSync) matchHosts(text string) []string {
+	candidates := append(append([]string{}, r.state.AllHosts...), r.knownGroups...)
+	return matchToken(candidates, text)
+}
 func (r *rerunFieldSync) matchPlay(text string) []string {
 	return matchTaskName(r.knownPlayNames, text)
 }

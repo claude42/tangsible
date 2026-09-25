@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/inventory"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/role"
 	"code.aw.net/claude/tangsible/internal/runner"
@@ -55,7 +56,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -495,6 +496,13 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 
 	settings := config.ReadSettingsConfig(config.TangsibleConfigPath)
 	invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(e.Args))
+	// knownGroups mirrors main.go's own best-effort inventory scan for the
+	// re-run dialog's "Limit hosts to:" autocomplete - see NewLiveTUIFunc's
+	// own doc comment.
+	var knownGroups []string
+	if raw, err := inventory.ListInventoryRaw(invArgs.Rest); err == nil {
+		knownGroups = inventory.GroupNames(raw)
+	}
 
 	var procH runner.ProcHandle
 	var processDone, quitting atomic.Bool
@@ -556,7 +564,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	}
 
 	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode, &lastStderr,
-		sourceIndex, knownTags, knownPlayNames, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
+		sourceIndex, knownTags, knownPlayNames, knownGroups, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
 		// initialPlay is always "" here, unlike Tags/SkipTags/Hosts just
 		// after it - --start-at-play is never recorded into invArgs (see
 		// ExtractStartAtPlay's own doc comment), so there is nothing for a

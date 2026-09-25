@@ -50,7 +50,7 @@ func newTestRerunFieldSync(t *testing.T) *rerunFieldSync {
 		}},
 	}
 	form := tview.NewForm()
-	return newRerunFieldSync(form, state, []string{"deploy"}, []string{"main play"}, runner.InitialRerunDefaults{})
+	return newRerunFieldSync(form, state, []string{"deploy"}, []string{"main play"}, nil, runner.InitialRerunDefaults{})
 }
 
 // checked reports whether label's checkbox line would render checked -
@@ -98,7 +98,7 @@ func TestRerunFieldSyncRebuildOmitsResumeCheckboxForUnnamedFailingPlay(t *testin
 	form := tview.NewForm()
 	// knownPlayNames deliberately does NOT contain "localhost" - it was
 	// never a named play in the source YAML.
-	r := newRerunFieldSync(form, state, nil, nil, runner.InitialRerunDefaults{})
+	r := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{})
 	r.rebuild()
 
 	if r.currentResumePlay != "" {
@@ -229,6 +229,48 @@ func TestRerunFieldSyncEditingPlayFieldByHandUnchecksResume(t *testing.T) {
 	}
 }
 
+func TestRerunFieldSyncMatchHostsIncludesGroups(t *testing.T) {
+	state := &playbook.PlaybookState{AllHosts: []string{"web1", "web2"}}
+	form := tview.NewForm()
+	r := newRerunFieldSync(form, state, nil, nil, []string{"webservers", "dbservers"}, runner.InitialRerunDefaults{})
+
+	if got := r.matchHosts("web"); !slicesEqualUnordered(got, []string{"web1", "web2", "webservers"}) {
+		t.Errorf(`matchHosts("web") = %v, want [web1 web2 webservers] in some order`, got)
+	}
+	if got := r.matchHosts("db"); !slicesEqualUnordered(got, []string{"dbservers"}) {
+		t.Errorf(`matchHosts("db") = %v, want [dbservers]`, got)
+	}
+	// A literal host from live state.AllHosts is still found even with no
+	// group data at all (nil knownGroups) - group support is additive, not
+	// a replacement for the existing host-only behavior.
+	r2 := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{})
+	if got := r2.matchHosts("web1"); !slicesEqualUnordered(got, []string{"web1"}) {
+		t.Errorf(`matchHosts("web1") with no groups = %v, want [web1]`, got)
+	}
+}
+
+// slicesEqualUnordered compares two string slices ignoring order - matchHosts'
+// own candidate order (live hosts before groups) isn't a documented
+// guarantee worth pinning a test to.
+func slicesEqualUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, s := range a {
+		seen[s]++
+	}
+	for _, s := range b {
+		seen[s]--
+	}
+	for _, n := range seen {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func TestRerunFieldSyncAutocompleteOpenNow(t *testing.T) {
 	r := newTestRerunFieldSync(t)
 	r.rebuild()
@@ -265,7 +307,7 @@ func TestRerunFieldSyncResetDismissedOnTextChange(t *testing.T) {
 func TestRerunFieldSyncInitialRerunDefaultsAppliedOnce(t *testing.T) {
 	state := &playbook.PlaybookState{} // len(Plays) == 0: the "rerun" verb's very first dialog open
 	form := tview.NewForm()
-	r := newRerunFieldSync(form, state, nil, []string{"main play"}, runner.InitialRerunDefaults{
+	r := newRerunFieldSync(form, state, nil, []string{"main play"}, nil, runner.InitialRerunDefaults{
 		FailedHosts:            []string{"web2"},
 		UnreachableHosts:       []string{"ghost"},
 		ResumePlay:             "main play",

@@ -52,11 +52,17 @@ both worth recording since they shape the design:
   match instead. Candidates already present earlier in the same field are
   excluded (no suggesting - or re-picking - a duplicate). Capped at 8
   entries.
-* Hosts: `PlaybookState.AllHosts` - already sorted, deduplicated, and
-  growing live; no new plumbing needed; not scanning the inventory
-  (`internal/inventory`'s `ListInventoryHosts` exists and would be the easy
-  upgrade path later, but was deliberately deferred - see "Not in this
-  pass" below).
+* Hosts: `PlaybookState.AllHosts` (already sorted, deduplicated, and
+  growing live) plus every inventory group name - the latter added in a
+  later pass once this doc's own deferred "Sourcing hosts from the actual
+  inventory" idea (below) was picked back up, prompted by `template`'s own
+  new comma-separated hostname/group/`all` support raising the same
+  question for the re-run dialog's `hostsField`. Fetched once at session
+  startup (`inventory.ListInventoryRaw`/`GroupNames`, best-effort - a
+  failed fetch just means no group suggestions, since `--limit` itself
+  already accepts a hand-typed group name regardless), the same "has to
+  work before any generation has run" reasoning `knownTags`/
+  `knownPlayNames` already have.
 * Tags: every literal `tags:` value found while walking the playbook/role
   YAML tree (see below), unioned with Ansible's five reserved tag names
   (`always`, `never`, `tagged`, `untagged`, `all`) so those are always
@@ -246,10 +252,12 @@ wrong once it's on screen.
 * Ranking suggestions by recency (`.tangsible/state.toml`'s own invocation
   history would be the natural source) over the current plain alphabetical
   order.
-* Sourcing hosts from the actual inventory (`internal/inventory`'s
-  `ListInventoryHosts`, already built for `tangsible hosts`) instead of
-  only what's been observed so far this session - the easy upgrade path
-  later, deliberately deferred for this first pass (session-observed only).
+* ~~Sourcing hosts from the actual inventory instead of only what's been
+  observed so far this session~~ - done in a later pass, see "Behavior
+  (decided)" above (group names only, not individual inventory hosts -
+  every actual host is still reachable live via `AllHosts` well before the
+  static inventory scan would even matter, since it only ever grows to
+  match the same set).
 * Inline highlighting of the matched substring within each suggestion
   entry.
 
