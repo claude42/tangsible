@@ -12,6 +12,16 @@ per-host variable state) is sound, but the exact hook point
 risk" below. Depends on `design-docs/OwnCallbackPlugin.md`'s fd-transport
 plugin, which is merged and live (`callback/tangsible_jsonl.py`).
 
+**2026-09-25 spike addendum: hook point confirmed, but a new foundation-
+level risk surfaced. Paused here, not proceeding for now** - see "Live
+spike findings (2026-09-25)" below, right after "Proposed design." The
+short version: the `_process_pending_results` hook works exactly as
+hypothesized, but this ansible-core version (2.19.11) actively deprecates
+third-party strategy plugins entirely, with no replacement mechanism
+announced. That's a bigger deal than any of the implementation details
+below and is why work stopped here rather than continuing into the actual
+plugin build.
+
 **2026-09-25 addendum:** "Phase 2" below sketches an interactive
 breakpoint/single-step debugger on the same strategy-plugin foundation -
 conceptual only, confirmed feasible against ansible-core's own source, not
@@ -55,14 +65,16 @@ informative for implementation.
    shadowing `linear`/`free`'s own names.** Unlike aggregate callbacks
    (which stack), only one strategy plugin is active per play, and
    `strategy:` is a per-play YAML key that can hardcode a value overriding
-   whatever default Tangsible sets. Rather than gambling on whether a
-   same-named plugin in a configured search path can shadow an ansible-core
-   built-in (unverified), activate ours via an ordinary `--strategy
-   tangsible_debug` passthrough argument, the same unconditional-append
-   shape `--diff` already gets. **Accepted gap:** a play with its own
-   explicit `strategy: linear` or `strategy: free` won't get debug data,
-   same shape as the existing `strategy: free` gap
-   (`design-docs/StrategyFree.md`) - not chased further for v1.
+   whatever default Tangsible sets. Activate ours via `ANSIBLE_STRATEGY=
+   tangsible_debug` (**correction, 2026-09-25 live spike:** there is no
+   `--strategy` CLI flag in this ansible-core version to append the way
+   `--diff` gets appended - see "Live spike findings" below; env var only,
+   which sidesteps the "gambling on shadowing a built-in name" concern this
+   bullet originally raised, since there's no CLI argument to collide with
+   in the first place). **Accepted gap:** a play with its own explicit
+   `strategy: linear` or `strategy: free` won't get debug data, same shape
+   as the existing `strategy: free` gap (`design-docs/StrategyFree.md`) -
+   not chased further for v1.
 3. **Opt-in only**, gated behind a flag - not because the variable capture
    itself is expensive (Ansible already computes `task_vars` for every task
    regardless), but because serializing and shipping a potentially large
@@ -146,30 +158,121 @@ a second file under the same reasoning), installed to the same
 `ANSIBLE_CALLBACKS_ENABLED`) and appends `--strategy tangsible_debug` to
 the invocation.
 
-**Activation mechanics (sketch, not finalized).** A CLI flag (name TBD -
-`--debug` collides in spirit with `-vvv`-style debug output, so probably
-something more specific) stripped from the passthrough list before
-`ansible-playbook` ever sees it, the same synthetic-flag treatment
-`--start-at-play` already gets - it drives Tangsible's own env/strategy
-setup, not a real `ansible-playbook` argument, so (like `--start-at-play`)
-it shouldn't be recorded into `.tangsible/state.toml` history verbatim.
-Because debug mode needs to stay active across every rerun in a session
-(decision 5), it's tracked as session-level Go state (detected once,
-alongside `HasCheckFlag`'s equivalent) and reapplied on every generation's
-spawn, rather than living in the passthrough `Rest` a rerun replays. A
-`general.debug_mode` config default, mirroring `run_dialog`'s
-flag-beats-config-beats-verb-default precedence, is a reasonable follow-on
-but wasn't part of this discussion - not decided here.
+**Activation mechanics (sketch, not finalized; updated 2026-09-25 per the
+live spike above).** CLI flag name settled as `--tangsible-debug` -
+stripped from the passthrough list before `ansible-playbook` ever sees
+it, the same synthetic-flag treatment `--start-at-play` already gets - it
+drives Tangsible's own env setup, not a real `ansible-playbook` argument,
+so (like `--start-at-play`) it shouldn't be recorded into
+`.tangsible/state.toml` history verbatim. Because debug mode needs to stay
+active across every rerun in a session (decision 5), it's tracked as
+session-level Go state (detected once, alongside `HasCheckFlag`'s
+equivalent) and reapplied on every generation's spawn, rather than living
+in the passthrough `Rest` a rerun replays.
 
-**Biggest open risk, stated plainly.** `OwnCallbackPlugin.md`'s roadblock
-#7 already flags semi-private-import fragility for a callback fork; a
-strategy subclass leans on this considerably harder -
-`_process_pending_results`'s exact signature/timing and whether calling
-`get_vars()` immediately after `super()`'s call actually observes
-just-merged facts are assumptions, not confirmed facts. This needs the
-same live-spike treatment `OwnCallbackPlugin.md` gave
-`v2_runner_on_start`-under-`linear` before any of the above should be
-treated as settled instead of proposed.
+Per the spike: there is no `--strategy`/`--strategy-plugins` CLI argument
+to append in this ansible-core version at all (see "Live spike findings"
+above) - activation is purely `ANSIBLE_STRATEGY=tangsible_debug` +
+`ANSIBLE_STRATEGY_PLUGINS=<dir>` (union with any existing value, same
+discipline `ANSIBLE_CALLBACK_PLUGINS` already gets), set the same way
+`CallbackPluginEnv()` already builds its own env slice. No passthrough-arg
+plumbing needed for this piece at all.
+
+A `general.debug_mode` config default, mirroring `run_dialog`'s
+flag-beats-config-beats-verb-default precedence, is a reasonable follow-on
+but wasn't part of this discussion - not decided here. (Deliberately left
+out of the first implementation pass for the same reason - not decided
+yet, not because it's hard.)
+
+**Biggest open risk, stated plainly - RESOLVED 2026-09-25, confirmed live.**
+`OwnCallbackPlugin.md`'s roadblock #7 already flags semi-private-import
+fragility for a callback fork; a strategy subclass leans on this
+considerably harder - `_process_pending_results`'s exact signature/timing
+and whether calling `get_vars()` immediately after `super()`'s call
+actually observes just-merged facts were assumptions, not confirmed facts.
+Spiked live the same way `OwnCallbackPlugin.md` spiked
+`v2_runner_on_start`-under-`linear` before treating it as settled - see
+"Live spike findings" immediately below. The hook point itself works
+exactly as hypothesized; a different, more serious risk turned up instead.
+
+## Live spike findings (2026-09-25)
+
+**Status: paused here.** The spike confirmed the plugin's core mechanism
+works, but surfaced a foundation-level risk serious enough that work
+stopped before starting the real plugin build. Not a "some details need
+adjusting" outcome - a "worth deciding whether to proceed at all" one.
+
+**What was spiked.** A throwaway strategy plugin (not committed -
+scratchpad-only), forked from the *installed* `ansible.plugins.strategy.
+linear.StrategyModule` (ansible-core 2.19.11), overriding only
+`_process_pending_results`: call `super()._process_pending_results(...)`
+first, then for each `_RawTaskResult` in its return value, call
+`self._variable_manager.get_vars(play=iterator._play, host=result.host,
+task=result.task)`. Run against a throwaway two-host fixture
+(`testdata/multihost-inventory.ini`) with a `set_fact` → `register` →
+a task reading both → a second overwriting `set_fact` → a final task
+reading the update, five tasks per host.
+
+**Confirmed: the hook point works exactly as designed.**
+- `set_fact` and `register` values both show up in `get_vars()`'s result
+  for the very same task that produced them, correctly scoped per host (no
+  cross-host bleed between `host1`/`host2` running concurrently).
+- A later `set_fact` overwriting an earlier one is reflected correctly on
+  the next task's snapshot.
+- All 10 host×task combinations (2 hosts × 5 tasks) produced exactly one
+  snapshot each - reading results off `super()`'s own return value (rather
+  than, say, assuming exactly one result per call) means concurrent
+  multi-host completions are not a dropped-result risk, which was itself
+  an open question worth confirming, not just assumed.
+
+**New finding #1: `--strategy`/`--strategy-plugins` don't exist as CLI
+flags in this ansible-core version at all.** Grepping the actual CLI
+arg parser (`ansible/cli/*.py`) turns up no trace of either. Strategy
+selection is env-var/config only: `ANSIBLE_STRATEGY=<name>` (config key
+`DEFAULT_STRATEGY`, `[defaults] strategy`) and `ANSIBLE_STRATEGY_PLUGINS`
+for the search path (config key `DEFAULT_STRATEGY_PLUGIN_PATH`,
+`[defaults] strategy_plugins`, colon-separated `pathspec` - unions the
+same way `ANSIBLE_CALLBACK_PLUGINS` already does). Confirmed working via
+the spike run. This actually **simplifies** decision 2/"Activation
+mechanics" below - activation never touches the passthrough arg list at
+all, so the "gambling on shadowing a same-named built-in" concern that
+motivated the distinct `tangsible_debug` name doesn't even arise the way
+originally framed (there's no `--strategy <name>` argument to collide
+with); the distinct name is still right, just for the simpler reason that
+`ANSIBLE_STRATEGY` only ever holds one value at a time regardless.
+
+**New finding #2 - the real bummer: third-party strategy plugins are
+being deprecated by ansible-core itself, with no stated replacement.**
+The spike run emitted this unprompted:
+```
+[DEPRECATION WARNING]: Use of strategy plugins not included in
+ansible.builtin are deprecated and do not carry any backwards
+compatibility guarantees. No alternative for third party strategy
+plugins is currently planned. This feature will be removed from
+ansible-core in a future release.
+```
+This is a foundation-level risk for the whole Phase 1 design (and more so
+for Phase 2, which leans on the same extension point harder still) - not
+an implementation detail to patch around. No removal timeline is stated,
+and the feature works today, but "we're deprecating this, no replacement
+planned" from the upstream project this whole app is built on top of is
+a different category of risk than anything else discussed in this doc so
+far. This is why work paused here rather than continuing into the actual
+`tangsible_debug.py` plugin build - worth a deliberate decision on whether
+to accept that risk (this is opt-in debug tooling, not something a user's
+production run depends on, and "future release" could be a long way off)
+before sinking more implementation time in, rather than discovering it
+after the fact.
+
+**New finding #3 (minor, fixable, not a blocker).** Captured `task_vars`
+can contain non-JSON-serializable Python objects nested inside ordinary-
+looking data - confirmed live: a `register`'d command result's own
+`warnings` list contained real `WarningSummary`/`Event` objects, not
+plain strings. A naive per-key `json.dumps` on the snapshot breaks on
+this. The real plugin needs `json.dumps(vars, default=str)` (or an
+equivalent recursive sanitizer) at the whole-snapshot level rather than
+try/excepting key by key - noted for whenever the actual build resumes,
+not itself a reason to pause.
 
 ## Consuming the data
 
@@ -239,13 +342,18 @@ since that would meaningfully change the calculus.
 
 ## Open questions
 
-- Exact CLI flag name and whether a `general.` config default is wanted
-  (sketch only above, not decided).
+- **New, top of the list as of 2026-09-25: whether to accept the
+  third-party-strategy-plugin deprecation risk at all** (see "Live spike
+  findings" above) before resuming implementation. This is what the whole
+  effort is paused on right now - everything else below is secondary until
+  this is decided.
+- Whether a `general.debug_mode` config default is wanted alongside the
+  now-settled `--tangsible-debug` CLI flag (sketch only, not decided).
 - Whether the all-variables tab (deliverable 2) reuses the Resolved tab's
   UI shape or needs its own - not designed yet.
-- Whether the `_process_pending_results` hook point survives a live spike
-  unchanged, or needs a different override point - the design above is the
-  starting hypothesis, not a confirmed fact.
+- ~~Whether the `_process_pending_results` hook point survives a live
+  spike unchanged~~ - resolved 2026-09-25: yes, unchanged, confirmed live
+  (see "Live spike findings").
 
 ## Phase 2: interactive debugger (breakpoints / single-step)
 
