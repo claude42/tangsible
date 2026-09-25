@@ -21,24 +21,20 @@
   from regular tasks.
 - A task that failed with `ignore_errors: true` is now tagged `ignored` in
   the tree, and the end-of-run summary gains a matching "ignored" category.
-- `strategy: free` is now supported - the tree used to stay completely
-  empty for the whole run under `free` (the previous data model assumed
-  Ansible's `linear` strategy); it now populates correctly, including
-  showing more than one task's spinner at once when hosts have genuinely
-  diverged, and correctly merges a dynamically included task
-  (`include_tasks`/`include_role`) into one row across hosts instead of
-  one row per host.
-- A genuine failure now shows the collected `ansible-playbook` stderr
-  inline, right below the "Playbook failed" line, instead of only after
-  quitting - useful for e.g. `strategy: free`'s own hard refusal of
-  modules like `pause` that bypass the host loop. `tangsible revisit`
-  shows the identical block for a past failed run too, from its own saved
-  stderr.
+- `strategy: free` is now supported - including showing more than one task's
+  spinner at once
+- ansible-playbook stderr output is now shown inline, right below the
+  "Playbook failed" line
+- System-wide installs via install.sh --prefix &lt;dir&gt;
+- Support system-wide config file /etc/tangsible/config.toml
 
 ### Changed
 
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely
   nothing to show, instead of an empty tab.
+- Ignored failures (`ignore_errors: true`) now render in the same orange
+  used for their `ignored` tag everywhere a host's outcome is shown (tree
+  rows, drill-down status line, diff view), instead of alarming red.
 
 ### Fixed
 
