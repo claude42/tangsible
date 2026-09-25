@@ -39,6 +39,18 @@ import (
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
+// resolvedTabEnabled temporarily disables the Resolved tab, and the
+// ansible-playbook invocation that backs it (showOutputWithOrigin, in
+// livesession_output.go), pending a better implementation: live use
+// showed Jinja's inability to recursively resolve (this file's own doc
+// comment on that gap, further down) means the tab most often renders
+// back out unhelpfully close to - or identical to - Task definition
+// rather than showing the filled-in value a user actually wants. Flip
+// back to true once that's addressed; BuildOutputTabs'/ResolvedTabHidden's
+// own show/hide logic (internal/uikit/tui_drilldown.go) is left
+// untouched, so re-enabling is just this one flag.
+const resolvedTabEnabled = false
+
 // jinjaExpressionPattern matches one {{ ... }} expression block in raw
 // ansible source text - a regex-based heuristic, not a real Jinja lexer,
 // same "documented, not chased to 100%" tolerance this project already

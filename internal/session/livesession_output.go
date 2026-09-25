@@ -97,7 +97,7 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 	// itself is still updated regardless, so a later revisit is free.
 	key := resolveKey{task, host}
 	resolved, cached := s.resolveCache[key]
-	if !cached {
+	if !cached && resolvedTabEnabled {
 		resolved = uikit.ResolvedRender{Pending: true}
 		s.resolveCache[key] = resolved
 		go func() {
