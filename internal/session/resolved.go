@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
@@ -186,11 +187,12 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	}
 	stubFile.Close()
 
+	pluginEnv, err := runner.CallbackPluginEnv()
+	if err != nil {
+		return "", err
+	}
 	cmd := exec.Command("ansible-playbook", append([]string{stubPath}, rest...)...)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
-		"ANSIBLE_JSON_INDENT=0",
-	)
+	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()

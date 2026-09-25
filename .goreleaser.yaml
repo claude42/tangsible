@@ -62,6 +62,14 @@ archives:
         dst: man
       - src: completions/*
         dst: completions
+      # The bundled ansible callback plugin (design-docs/
+      # OwnCallbackPlugin.md) - a GPL-3.0 derivative of ansible.posix.jsonl,
+      # deliberately shipped as a sibling file rather than //go:embed-ed
+      # into the (Apache-2.0) binary, per that doc's decision 6. Its own
+      # callback/LICENSE (GPL-3.0 text) travels with it, not the top-level
+      # Apache LICENSE above.
+      - src: callback/*
+        dst: callback
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"

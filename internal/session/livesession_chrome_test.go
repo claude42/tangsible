@@ -15,7 +15,7 @@
 // Tests for the handful of *liveSession methods in livesession_rebuild.go
 // that only ever read plain fields (bool/string/tcell.Style/atomic
 // pointers) - chromeColorName, showElapsed, outputBottomBarNormalStyle,
-// currentMainBottomBarText, activeTaskNow, progressPosition. None of
+// currentMainBottomBarText, activeTasks, progressPosition. None of
 // these need NewLiveTUI's real widget construction: a bare &liveSession{}
 // literal with just the fields each one reads is enough, the same
 // "just call it and compare" testability Phase 1's &playbook.PlaybookState{}
@@ -129,40 +129,47 @@ func TestCurrentMainBottomBarText(t *testing.T) {
 	})
 }
 
-func TestActiveTaskNow(t *testing.T) {
+func TestActiveTasks(t *testing.T) {
 	t.Run("nil before any task has started", func(t *testing.T) {
 		state := &playbook.PlaybookState{}
 		var processDone atomic.Bool
 		s := &liveSession{state: state, processDone: &processDone}
-		if got := s.activeTaskNow(); got != nil {
-			t.Errorf("activeTaskNow() = %v, want nil", got)
+		if got := s.activeTasks(); len(got) != 0 {
+			t.Errorf("activeTasks() = %v, want empty", got)
 		}
 	})
 
-	t.Run("points at the most recently started task while still running", func(t *testing.T) {
+	t.Run("contains a task with a host dispatched but not yet reported, while still running", func(t *testing.T) {
 		state := &playbook.PlaybookState{}
 		state.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
-		state.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "task one"}})
+		state.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{ID: "t1", Name: "task one"}})
+		state.Apply(playbook.RawEvent{Event: "v2_runner_on_start", Task: &playbook.TaskRef{ID: "t1"}, Host: "web1", TimestampText: "2026-09-18T08:00:00.000000Z"})
 		var processDone atomic.Bool
 		s := &liveSession{state: state, processDone: &processDone}
-		got := s.activeTaskNow()
-		if got == nil || got.Name != "task one" {
-			t.Errorf("activeTaskNow() = %v, want the just-started task", got)
+		got := s.activeTasks()
+		if len(got) != 1 {
+			t.Fatalf("activeTasks() = %v, want exactly the one in-flight task", got)
+		}
+		for task := range got {
+			if task.Name != "task one" {
+				t.Errorf("activeTasks() task = %q, want %q", task.Name, "task one")
+			}
 		}
 	})
 
-	t.Run("nil once the run is frozen, even though state.CurrentTask() still points at the last task", func(t *testing.T) {
+	t.Run("empty once the run is frozen, even though the last-started task is still incomplete", func(t *testing.T) {
 		state := &playbook.PlaybookState{}
 		state.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
-		state.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "task one"}})
+		state.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{ID: "t1", Name: "task one"}})
+		state.Apply(playbook.RawEvent{Event: "v2_runner_on_start", Task: &playbook.TaskRef{ID: "t1"}, Host: "web1", TimestampText: "2026-09-18T08:00:00.000000Z"})
 		var processDone atomic.Bool
 		processDone.Store(true)
 		s := &liveSession{state: state, processDone: &processDone}
-		if got := s.activeTaskNow(); got != nil {
-			t.Errorf("activeTaskNow() = %v, want nil once processDone", got)
+		if got := s.activeTasks(); len(got) != 0 {
+			t.Errorf("activeTasks() = %v, want empty once processDone", got)
 		}
-		if state.CurrentTask() == nil {
-			t.Fatal("test setup: state.CurrentTask() unexpectedly nil - activeTaskNow's own frozen check wouldn't be exercised")
+		if len(state.IncompleteTasks()) == 0 {
+			t.Fatal("test setup: state.IncompleteTasks() unexpectedly empty - activeTasks' own frozen check wouldn't be exercised")
 		}
 	})
 }
@@ -183,8 +190,8 @@ func TestProgressPosition(t *testing.T) {
 			{Play: "p", Task: "task two"},
 			{Play: "p", Task: "task three"},
 		})
-		tracker.Advance("p", "task one")
-		tracker.Advance("p", "task two")
+		tracker.Advance("p", "task one", false)
+		tracker.Advance("p", "task two", false)
 
 		var progH atomic.Pointer[runner.ProgressTracker]
 		progH.Store(tracker)

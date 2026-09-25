@@ -62,13 +62,22 @@ type liveSession struct {
 	// other closure still nested there keeps reading the bare parameter
 	// directly - these fields exist only for the methods that had to
 	// leave that scope, not as a wholesale parameter-to-field rename. ---
-	state         *playbook.PlaybookState
-	playbookName  string
-	isRole        bool
-	procH         *runner.ProcHandle
-	processDone   *atomic.Bool
-	quitting      *atomic.Bool
-	exitCode      *atomic.Int32
+	state        *playbook.PlaybookState
+	playbookName string
+	isRole       bool
+	procH        *runner.ProcHandle
+	processDone  *atomic.Bool
+	quitting     *atomic.Bool
+	exitCode     *atomic.Int32
+	// lastStderr is the current/most recent generation's own collected
+	// stderr lines, written by runner.RunOneGeneration right alongside
+	// exitCode (see its own doc comment for the ordering that makes this
+	// safe to read here with no separate lock) - design-docs/
+	// ErrorOutput.md's own data source. nil-checked before every read,
+	// the same "not every caller wires every optional thing" convention
+	// revisitReturn below already follows - a revisit session has no live
+	// generation to report on.
+	lastStderr    *atomic.Pointer[[]string]
 	sourceIndex   source.TaskSourceIndex
 	twoPaneLayout bool
 	requestRerun  func(startAtPlay, tags, skipTags, hosts string)

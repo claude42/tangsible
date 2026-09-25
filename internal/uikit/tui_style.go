@@ -165,6 +165,16 @@ const (
 	// any base-16 ANSI slot's own nominal RGB, so it's not subject to the
 	// same terminal-theme remapping risk those two had to work around.
 	WarningColor = "hotpink"
+
+	// IgnoredColor marks recap.go's own "ignored" category (design-docs/
+	// OwnCallbackPlugin.md) - deliberately distinct from both WarningColor
+	// (an unrelated cross-cutting concept, a task's own "warnings" field)
+	// and every outcome color in ColorTag (an ignored failure still
+	// records as OutcomeFailed - see TaskNode.Ignored's own doc comment -
+	// so reusing red there would blur the very distinction this color
+	// exists to draw). Same "plain named tcell color is fine" reasoning
+	// as WarningColor above.
+	IgnoredColor = "orange"
 )
 
 // HostIndent is a host row's own fixed leading indent width - wider than

@@ -17,6 +17,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -83,6 +84,9 @@ func TestCreateRunLogWriteReadDelete(t *testing.T) {
 	if string(gotStderr) != "line one\nline two" {
 		t.Errorf("stderr content = %q, want %q", gotStderr, "line one\nline two")
 	}
+	if got, want := ReadRunStderr(statePath, runID), []string{"line one", "line two"}; !slices.Equal(got, want) {
+		t.Errorf("ReadRunStderr() = %v, want %v", got, want)
+	}
 
 	DeleteRunLog(statePath, runID)
 	if _, err := os.Stat(jsonlPath); !os.IsNotExist(err) {
@@ -115,4 +119,52 @@ func TestDeleteRunLogMissingFilesIsHarmless(t *testing.T) {
 	// Nothing was ever created for this runID - deleteRunLog must not
 	// error out or panic on a plain "file doesn't exist."
 	DeleteRunLog(statePath, "20260823T150000.000000000Z")
+}
+
+// TestReadRunStderr_EmptyRunIDReturnsNil mirrors
+// TestRunLogEmptyRunIDIsANoOp - the same "nowhere for this generation's
+// own stderr to have ever been saved" convention, on the read side.
+func TestReadRunStderr_EmptyRunIDReturnsNil(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	if got := ReadRunStderr(statePath, ""); got != nil {
+		t.Errorf("ReadRunStderr(_, \"\") = %v, want nil", got)
+	}
+}
+
+// TestReadRunStderr_MissingFileReturnsNil covers an entry whose own
+// .stderr was never written at all (predates this feature, or its own
+// WriteRunStderr failed) - design-docs/ErrorOutput.md's own "revisit"
+// seeding must degrade quietly, not error.
+func TestReadRunStderr_MissingFileReturnsNil(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	if got := ReadRunStderr(statePath, "20260823T150000.000000000Z"); got != nil {
+		t.Errorf("ReadRunStderr() = %v, want nil for a never-written file", got)
+	}
+}
+
+// TestReadRunStderr_GenuinelyEmptySavedStderrReturnsNil covers a
+// generation that reported zero stderr lines: WriteRunStderr(nil) writes
+// a zero-byte file, and strings.Split("", "\n") would otherwise turn
+// that back into []string{""} - one element, not the "nothing to show"
+// nil design-docs/ErrorOutput.md's display needs.
+func TestReadRunStderr_GenuinelyEmptySavedStderrReturnsNil(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	runID := "20260823T150000.000000000Z"
+	WriteRunStderr(statePath, runID, nil)
+	if got := ReadRunStderr(statePath, runID); got != nil {
+		t.Errorf("ReadRunStderr() = %v, want nil for a genuinely empty saved file", got)
+	}
+}
+
+// TestReadRunStderr_SingleLine covers the boundary the split-on-"\n"
+// implementation has to get right: one line, no trailing newline in the
+// saved file (WriteRunStderr never appends one), must read back as
+// exactly that one line, not an extra blank one.
+func TestReadRunStderr_SingleLine(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	runID := "20260823T150000.000000000Z"
+	WriteRunStderr(statePath, runID, []string{"[ERROR]: something went wrong"})
+	if got, want := ReadRunStderr(statePath, runID), []string{"[ERROR]: something went wrong"}; !slices.Equal(got, want) {
+		t.Errorf("ReadRunStderr() = %v, want %v", got, want)
+	}
 }

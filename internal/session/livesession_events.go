@@ -41,9 +41,12 @@ func (s *liveSession) onTaskAdded(play *playbook.PlayNode, task *playbook.TaskNo
 	s.expanded[task] = uikit.InheritedExpandState(uikit.AllTasks(s.state), s.expanded, s.startExpanded)
 	// A miss here (a handler - see progress.go's own doc comment - or any
 	// task the skeleton couldn't predict) is a silent no-op by design:
-	// runner.ProgressTracker.Advance leaves its own state untouched
-	// rather than treating "not found" as a regression.
-	s.progH.Load().Advance(play.Name, task.Name)
+	// runner.ProgressTracker.Advance leaves its own state untouched rather
+	// than treating "not found" as a regression. task.IsHandler
+	// additionally keeps a handler's own miss from inflating missStreak at
+	// all (Advance's own doc comment) - it's an expected miss, not
+	// evidence of skeleton drift.
+	s.progH.Load().Advance(play.Name, task.Name, task.IsHandler)
 	s.rebuild()
 }
 

@@ -149,27 +149,34 @@ func LastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, s
 //
 // width is the list's current available width (see rebuild), passed
 // through to taskLabel for its own no-hosts-yet fallback (see
-// computeHostColumnLayout/taskLabel). activeTask (nil once the run has
-// finished) gets a spinner prefix on its row instead of an elapsed-time
-// readout - frame is the shared spinner frame for this rebuild pass (see
-// spinnerAt), computed once and passed in rather than each row picking
-// its own, so every active indicator in the UI ticks in lockstep.
-// showOutput is called when a host row is selected (Enter), to display
-// that host's full result for that task. sourceIndex is only read by
-// taskVisible's filterSearch case, to search a task's own source text.
-// useColor is threaded straight through to each row's own taskLabel call
-// - see its doc comment (design-docs/Morehosts.md).
-func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout HostColumnLayout, allHosts []string, activeTask *playbook.TaskNode, frame rune, filter FilterQuery, sourceIndex map[string]string, showOutput func(task *playbook.TaskNode, host string), useColor bool) []Row {
+// computeHostColumnLayout/taskLabel). activeTasks (nil/empty once the run
+// has finished) is the set of tasks currently in flight (playbook.
+// PlaybookState.IncompleteTasks) - each gets a spinner prefix on its row
+// instead of an elapsed-time readout. Under strategy: linear this set
+// never has more than one member (the same single task an earlier,
+// single-*TaskNode-typed version of this parameter tracked); strategy:
+// free is exactly why this is a set now, not a single task - design-docs/
+// StrategyFree.md. frame is the shared spinner frame for this rebuild pass
+// (see spinnerAt), computed once and passed in rather than each row
+// picking its own, so every active indicator in the UI ticks in lockstep.
+// durationLayout (see DurationLayout/HostAndDurationPrefix) is HostLabel's
+// own per-rebuild column-alignment counterpart to layout above - computed
+// once for the same reason. showOutput is called when a host row is
+// selected (Enter), to display that host's full result for that task.
+// sourceIndex is only read by taskVisible's filterSearch case, to search a
+// task's own source text. useColor is threaded straight through to each
+// row's own taskLabel call - see its doc comment (design-docs/Morehosts.md).
+func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout HostColumnLayout, durationLayout DurationLayout, allHosts []string, activeTasks map[*playbook.TaskNode]bool, frame rune, filter FilterQuery, sourceIndex map[string]string, showOutput func(task *playbook.TaskNode, host string), useColor bool) []Row {
 	var rows []Row
 	for _, play := range state.Plays {
 		var playRows []Row
 		for _, task := range play.Tasks {
 			t := task
-			if !TaskVisible(t, filter, sourceIndex, t == activeTask) {
+			if !TaskVisible(t, filter, sourceIndex, activeTasks[t]) {
 				continue
 			}
 			playRows = append(playRows, Row{
-				Text:     TaskLabel(t, allHosts, layout, width, t == activeTask, frame, false, useColor),
+				Text:     TaskLabel(t, allHosts, layout, width, activeTasks[t], frame, false, useColor),
 				ID:       t,
 				Selected: func() { expanded[t] = !expanded[t] },
 			})
@@ -177,7 +184,7 @@ func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]
 				for _, host := range t.HostOrder {
 					h := host
 					playRows = append(playRows, Row{
-						Text:     HostLabel(t, h, false),
+						Text:     HostLabel(t, h, durationLayout, false),
 						ID:       HostRowID{t, h},
 						Selected: func() { showOutput(t, h) },
 					})

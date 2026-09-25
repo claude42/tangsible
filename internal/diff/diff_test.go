@@ -233,11 +233,41 @@ func TestBuildDiffOutputTabsMatchedDiffsEachTab(t *testing.T) {
 }
 
 func TestDiffColorTag(t *testing.T) {
-	if got := DiffColorTag(playbook.OutcomeOK, ""); got != "green" {
+	ok := namedTask("ok task")
+	ok.Hosts["web1"] = playbook.OutcomeOK
+	if got := DiffColorTag(ok, "web1", ""); got != "green" {
 		t.Errorf("DiffColorTag(OK, \"\") = %q, want %q", got, "green")
 	}
-	if got := DiffColorTag(playbook.OutcomeFailed, "u"); got != "red::u" {
+
+	failed := namedTask("failed task")
+	failed.Hosts["web1"] = playbook.OutcomeFailed
+	if got := DiffColorTag(failed, "web1", "u"); got != "red::u" {
 		t.Errorf("DiffColorTag(Failed, u) = %q, want %q", got, "red::u")
+	}
+}
+
+// TestDiffColorTag_RecolorsIgnoredFailure is the diff view's own
+// counterpart to uikit's TestHostColorTag/TestTaskLabel_RecolorsIgnoredFailure/
+// TestHostLabel_RecolorsIgnoredFailure - an ignore_errors: true failure
+// must get uikit.IgnoredColor (not the plain alarming Failed red) here
+// too, flag suffix and all, since DiffColorTag now delegates straight to
+// uikit.HostColorTag (design-docs/OwnCallbackPlugin.md).
+func TestDiffColorTag_RecolorsIgnoredFailure(t *testing.T) {
+	ignored := namedTask("ignored failure")
+	ignored.Hosts["web1"] = playbook.OutcomeFailed
+	ignored.Ignored = map[string]bool{"web1": true}
+
+	if got, want := DiffColorTag(ignored, "web1", ""), uikit.IgnoredColor; got != want {
+		t.Errorf("DiffColorTag(ignored, \"\") = %q, want %q", got, want)
+	}
+	if got, want := DiffColorTag(ignored, "web1", "u"), uikit.IgnoredColor+"::u"; got != want {
+		t.Errorf("DiffColorTag(ignored, u) = %q, want %q", got, want)
+	}
+
+	genuine := namedTask("genuine failure")
+	genuine.Hosts["web2"] = playbook.OutcomeFailed
+	if got, want := DiffColorTag(genuine, "web2", ""), "red"; got != want {
+		t.Errorf("DiffColorTag(genuine, \"\") = %q, want %q", got, want)
 	}
 }
 

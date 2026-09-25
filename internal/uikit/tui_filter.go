@@ -182,10 +182,10 @@ func TaskMatchesSearch(t *playbook.TaskNode, term string, sourceIndex map[string
 // its hosts - not just the matching ones. Unreachable hosts count as a
 // failure for this purpose too - same bucket lastFailedTaskAndHost already
 // treats it as for the auto-jump-on-failure feature. isActive means t is
-// the run's current in-progress task (see PlaybookState.CurrentTask) -
-// always shown regardless of filter, since it may simply not have
-// recorded any host outcome yet (and, for filterSearch specifically,
-// wouldn't have any output to search yet either).
+// currently in flight (see PlaybookState.IncompleteTasks) - always shown
+// regardless of filter, since it may simply not have recorded any host
+// outcome yet (and, for filterSearch specifically, wouldn't have any
+// output to search yet either).
 //
 // FilterChanged is Changed-only now, not "Changed or Failed" - narrowed
 // per Filters.md's own revision; FilterInteresting is what covers the
@@ -263,11 +263,13 @@ func TasksForHost(state *playbook.PlaybookState, host string) []*playbook.TaskNo
 // under filter (see taskVisible), in the same run order. Used by
 // navigateMainTask (n/N) and the filter-switch cursor fallback so neither
 // ever targets a task flattenRows wouldn't actually have rendered a row
-// for.
-func VisibleTasks(state *playbook.PlaybookState, filter FilterQuery, sourceIndex map[string]string, activeTask *playbook.TaskNode) []*playbook.TaskNode {
+// for. activeTasks is the set of currently in-flight tasks (design-docs/
+// StrategyFree.md) - membership, not equality with a single task, since
+// more than one can be simultaneously active under strategy: free.
+func VisibleTasks(state *playbook.PlaybookState, filter FilterQuery, sourceIndex map[string]string, activeTasks map[*playbook.TaskNode]bool) []*playbook.TaskNode {
 	var tasks []*playbook.TaskNode
 	for _, t := range AllTasks(state) {
-		if TaskVisible(t, filter, sourceIndex, t == activeTask) {
+		if TaskVisible(t, filter, sourceIndex, activeTasks[t]) {
 			tasks = append(tasks, t)
 		}
 	}
@@ -276,10 +278,10 @@ func VisibleTasks(state *playbook.PlaybookState, filter FilterQuery, sourceIndex
 
 // VisibleTasksForHost is tasksForHost's filtered sibling, for the output
 // drill-down view's prev/next-task navigation (see navigateOutputTask).
-func VisibleTasksForHost(state *playbook.PlaybookState, host string, filter FilterQuery, sourceIndex map[string]string, activeTask *playbook.TaskNode) []*playbook.TaskNode {
+func VisibleTasksForHost(state *playbook.PlaybookState, host string, filter FilterQuery, sourceIndex map[string]string, activeTasks map[*playbook.TaskNode]bool) []*playbook.TaskNode {
 	var tasks []*playbook.TaskNode
 	for _, t := range TasksForHost(state, host) {
-		if TaskVisible(t, filter, sourceIndex, t == activeTask) {
+		if TaskVisible(t, filter, sourceIndex, activeTasks[t]) {
 			tasks = append(tasks, t)
 		}
 	}

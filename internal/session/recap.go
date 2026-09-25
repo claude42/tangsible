@@ -18,13 +18,14 @@
 // non-empty outcome categories, each expandable into the individual
 // tasks that landed in it. Deliberately built entirely on data
 // PlaybookState already tracks (a scan over Plays/Tasks/Hosts) - no
-// aggregate.go changes needed, and no rescued/ignored categories: those
-// aren't derivable per-task from this app's own event consumption (a
-// rescued task reports as an entirely ordinary v2_runner_on_ok, and
-// ignore_errors is never included in the jsonl callback's own emitted
-// per-task JSON - confirmed by reading ansible.posix.jsonl's own source
-// directly), and were explicitly descoped rather than shown as
-// count-only fields with no drill-down to back them up.
+// aggregate.go changes needed for most of it. Still no "rescued" category:
+// a rescued task reports as an entirely ordinary v2_runner_on_ok, with
+// nothing in the event stream distinguishing it from one that just never
+// failed, so there's no data to build one from. "ignored" (TaskNode.
+// Ignored) is no longer in that boat - design-docs/OwnCallbackPlugin.md's
+// bundled callback plugin fork does emit ignore_errors (jsonl.py itself
+// never did) - so unlike rescued, this one has real per-task data behind
+// it now.
 package session
 
 import (
@@ -75,23 +76,41 @@ func recapCategoryColor(label string) string {
 		return uikit.ColorTag(playbook.OutcomeFailed)
 	case "warnings":
 		return uikit.WarningColor
+	case "ignored":
+		return uikit.IgnoredColor
 	default:
 		return "white"
 	}
 }
 
 // recapHostSummary is one host's own recap: every count (including zero
-// ones - the summary line itself always shows all six, matching
-// ansible's own recap line for the first five, plus warnings as a
-// tangsible-specific addition) plus the non-empty categories available
-// to expand into. Warnings is deliberately not mutually exclusive with
-// the other five - a task keeps its own outcome bucket (ok/changed/...)
-// and can *also* show up under "warnings", since a warning is orthogonal
-// to outcome (confirmed empirically: BuildOutputTab already shows a
-// task's own "warnings" field regardless of outcome or module).
+// ones - the summary line itself always shows all seven, matching
+// ansible's own recap line for the first five, plus warnings and ignored
+// as tangsible-specific additions) plus the non-empty categories available
+// to expand into. Warnings/Ignored are deliberately not mutually exclusive
+// with the other five (or each other) - a task keeps its own outcome
+// bucket (ok/changed/...) and can *also* show up under "warnings"
+// (orthogonal to outcome - confirmed empirically: BuildOutputTab already
+// shows a task's own "warnings" field regardless of outcome or module) or
+// "ignored" (only ever true alongside OutcomeFailed - TaskNode.Ignored's
+// own doc comment - but still additive to, not a replacement for, that
+// Failed bucket).
 type recapHostSummary struct {
-	OK, Changed, Unreachable, Failed, Skipped, Warnings int
-	Categories                                          []recapCategory
+	OK, Changed, Unreachable, Failed, Skipped, Warnings, Ignored int
+	Categories                                                   []recapCategory
+	// TotalDuration sums uikit.HostDuration across every task this host
+	// reported *any* outcome for (design-docs/OwnCallbackPlugin.md) -
+	// "how much of this run's total time did ansible actually spend
+	// dispatched to this host," across every outcome kind, not just
+	// successful ones (a slow/failing connection eating up wall-clock time
+	// on Unreachable is exactly the kind of thing worth surfacing here).
+	// HasDuration is false - and TotalDuration meaningless - when this
+	// host never had a single task with a known per-task duration, same
+	// "unknown, not zero" convention HostDuration itself uses (a pre-fork
+	// run log replay, or a host that only ever reported before this
+	// existed).
+	TotalDuration time.Duration
+	HasDuration   bool
 }
 
 // recapForHost scans every task across every play for this one host's
@@ -101,7 +120,9 @@ type recapHostSummary struct {
 // fresh on every rebuild rather than tracked incrementally, matching
 // aggregate.go's own "no second source of truth" convention for counts.
 func recapForHost(state *playbook.PlaybookState, host string) recapHostSummary {
-	var ok, changed, unreachable, failed, skipped, warned []*playbook.TaskNode
+	var ok, changed, unreachable, failed, skipped, warned, ignored []*playbook.TaskNode
+	var totalDuration time.Duration
+	hasDuration := false
 	for _, play := range state.Plays {
 		for _, task := range play.Tasks {
 			o, present := task.Hosts[host]
@@ -123,16 +144,26 @@ func recapForHost(state *playbook.PlaybookState, host string) recapHostSummary {
 			if task.Warnings[host] {
 				warned = append(warned, task)
 			}
+			if task.Ignored[host] {
+				ignored = append(ignored, task)
+			}
+			if d, known := uikit.HostDuration(task, host); known {
+				totalDuration += d
+				hasDuration = true
+			}
 		}
 	}
 
 	s := recapHostSummary{
-		OK:          len(ok),
-		Changed:     len(changed),
-		Unreachable: len(unreachable),
-		Failed:      len(failed),
-		Skipped:     len(skipped),
-		Warnings:    len(warned),
+		OK:            len(ok),
+		Changed:       len(changed),
+		Unreachable:   len(unreachable),
+		TotalDuration: totalDuration,
+		HasDuration:   hasDuration,
+		Failed:        len(failed),
+		Skipped:       len(skipped),
+		Warnings:      len(warned),
+		Ignored:       len(ignored),
 	}
 	for _, c := range []recapCategory{
 		{"ok", recapCategoryColor("ok"), ok},
@@ -141,6 +172,7 @@ func recapForHost(state *playbook.PlaybookState, host string) recapHostSummary {
 		{"unreachable", recapCategoryColor("unreachable"), unreachable},
 		{"failed", recapCategoryColor("failed"), failed},
 		{"warnings", recapCategoryColor("warnings"), warned},
+		{"ignored", recapCategoryColor("ignored"), ignored},
 	} {
 		if len(c.Tasks) > 0 {
 			s.Categories = append(s.Categories, c)
@@ -312,8 +344,18 @@ func recapNarrativeRowText(state *playbook.PlaybookState, elapsed time.Duration)
 // its neighbors' hostnames or counts are, but the whole point of
 // column alignment is that every row agrees on the same widths.
 type recapColumnWidths struct {
-	Host                                                int
-	OK, Changed, Unreachable, Failed, Skipped, Warnings int
+	Host                                                         int
+	OK, Changed, Unreachable, Failed, Skipped, Warnings, Ignored int
+	// ShowDuration/TotalSeconds mirror uikit.DurationLayout's own two
+	// fields for the exact same reason (design-docs/OwnCallbackPlugin.md):
+	// ShowDuration is false when no host anywhere in this run has a known
+	// TotalDuration at all, so a run/replay that will never have a number
+	// reserves no dead column space for one; TotalSeconds is the fixed
+	// field width (integer part + '.' + one decimal digit) the widest
+	// total seen so far needs, so a later-discovered longer total widens
+	// the column for every row rather than breaking alignment.
+	ShowDuration bool
+	TotalSeconds int
 }
 
 // recapComputeColumnWidths scans every host's own recap once (reusing
@@ -327,6 +369,7 @@ type recapColumnWidths struct {
 func recapComputeColumnWidths(state *playbook.PlaybookState) recapColumnWidths {
 	var w recapColumnWidths
 	digits := func(n int) int { return len(fmt.Sprintf("%d", n)) }
+	var maxSeconds float64
 	for _, host := range state.AllHosts {
 		if l := len([]rune(host)); l > w.Host {
 			w.Host = l
@@ -350,6 +393,19 @@ func recapComputeColumnWidths(state *playbook.PlaybookState) recapColumnWidths {
 		if l := digits(s.Warnings); l > w.Warnings {
 			w.Warnings = l
 		}
+		if l := digits(s.Ignored); l > w.Ignored {
+			w.Ignored = l
+		}
+		if s.HasDuration {
+			w.ShowDuration = true
+			if sec := s.TotalDuration.Seconds(); sec > maxSeconds {
+				maxSeconds = sec
+			}
+		}
+	}
+	if w.ShowDuration {
+		intPart, _, _ := strings.Cut(fmt.Sprintf("%.1f", maxSeconds), ".")
+		w.TotalSeconds = len(intPart) + 2 // "." + one decimal digit
 	}
 	return w
 }
@@ -375,11 +431,14 @@ func recapSummaryFieldColor(label string, n int) string {
 // host's line lines up - and each "label=N" segment colored via
 // recapSummaryFieldColor, rather than picking one dominant color for the
 // whole line, so the same "color signals meaning" convention this app
-// uses everywhere else applies per field here too. warnings=N is a
-// tangsible-specific addition, not something real ansible-playbook's own
-// recap line includes - placed last, after the five fields that do
-// mirror it, since it's a different, cross-cutting kind of count rather
-// than one more slice of the same partition. selected inverts each
+// uses everywhere else applies per field here too. warnings=N/ignored=N
+// are tangsible-specific additions, not something real ansible-playbook's
+// own recap line includes - placed last, after the five fields that do
+// mirror it, since both are a different, cross-cutting kind of count
+// rather than one more slice of the same partition (ignored is a subset
+// of failed specifically, not orthogonal to every outcome the way
+// warnings is - see TaskNode.Ignored's own doc comment - but still not
+// itself one of the five exclusive buckets). selected inverts each
 // segment's own color to a background (black bold text on it) instead of
 // a foreground - the same "outcome color becomes a background under the
 // cursor" convention TaskLabel/HostLabel already use, just applied per
@@ -392,13 +451,49 @@ func recapSummaryFieldColor(label string, n int) string {
 // own color block rather than left plain between tags, so the row reads
 // as one continuous highlight instead of colored blocks with visible
 // holes between them.
+// recapDurationText builds the "(X.Ys)" chunk recapHostRowText prefixes
+// each host's summary line with - mirrors uikit.HostAndDurationPrefix's
+// own shape and reasoning (design-docs/OwnCallbackPlugin.md): "" when
+// w.ShowDuration is false (no host in this run has a known total at all,
+// so no dead column space is reserved for a number that will never
+// appear), a same-width blank placeholder - not "" - for the rare
+// individual host that itself lacks one while others in the same run do,
+// so the fields that follow still line up.
+func recapDurationText(s recapHostSummary, w recapColumnWidths) string {
+	if !w.ShowDuration {
+		return ""
+	}
+	if s.HasDuration {
+		return fmt.Sprintf("(%*.1fs)", w.TotalSeconds, s.TotalDuration.Seconds())
+	}
+	return strings.Repeat(" ", w.TotalSeconds+3) // "(" + width + "s)"
+}
+
 func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, selected bool) string {
-	hostPadded := host + strings.Repeat(" ", w.Host-len([]rune(host)))
+	// +1 (only once a duration column actually exists) is the same single
+	// space of breathing room before "(" that uikit.DurationLayout's own
+	// HostWidth bakes in for the live tree - w.Host alone still governs
+	// the no-duration fallback below, unchanged from before this existed.
+	hostWidth := w.Host
+	if w.ShowDuration {
+		hostWidth++
+	}
+	hostPadded := host + strings.Repeat(" ", hostWidth-len([]rune(host)))
+	durText := recapDurationText(s, w)
+	// The separator's own leading space folds into durText's trailing ")"
+	// once a duration column exists (matching the live tree's "): "
+	// shape) - kept as the original " : " when it doesn't, so a run/replay
+	// with no duration data anywhere renders byte-identical to before this
+	// feature existed.
+	sep := " : "
+	if w.ShowDuration {
+		sep = ": "
+	}
 	if selected {
 		// firstSeg has no leading gap of its own - the title already ends
-		// in " : ", so folding a gap onto ok too (like every later
-		// segment) would double it up against that trailing space,
-		// visibly shifting the "ok=" column by one space compared to the
+		// in sep, so folding a gap onto ok too (like every later segment)
+		// would double it up against that trailing space, visibly
+		// shifting the "ok=" column by one space compared to the
 		// unselected rendering right above/below it.
 		firstSeg := func(label string, width, n int) string {
 			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", uikit.PureBlack, recapSummaryFieldColor(label, n), label, width, n)
@@ -406,27 +501,29 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 		seg := func(label string, width, n int) string {
 			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", uikit.PureBlack, recapSummaryFieldColor(label, n), label, width, n)
 		}
-		return fmt.Sprintf("[%s:lightgray:b]%s : [-:-:-]%s%s%s%s%s%s",
-			uikit.PureBlack, tview.Escape(hostPadded),
+		return fmt.Sprintf("[%s:lightgray:b]%s%s%s[-:-:-]%s%s%s%s%s%s%s",
+			uikit.PureBlack, tview.Escape(hostPadded), durText, sep,
 			firstSeg("ok", w.OK, s.OK),
 			seg("skipped", w.Skipped, s.Skipped),
 			seg("changed", w.Changed, s.Changed),
 			seg("unreachable", w.Unreachable, s.Unreachable),
 			seg("failed", w.Failed, s.Failed),
 			seg("warnings", w.Warnings, s.Warnings),
+			seg("ignored", w.Ignored, s.Ignored),
 		)
 	}
 	seg := func(label string, width, n int) string {
 		return fmt.Sprintf("[%s]%s=%*d[-]", recapSummaryFieldColor(label, n), label, width, n)
 	}
-	return fmt.Sprintf("[white::b]%s[-::-] : %s  %s  %s  %s  %s  %s",
-		tview.Escape(hostPadded),
+	return fmt.Sprintf("[white::b]%s%s[-::-]%s%s  %s  %s  %s  %s  %s  %s",
+		tview.Escape(hostPadded), durText, sep,
 		seg("ok", w.OK, s.OK),
 		seg("skipped", w.Skipped, s.Skipped),
 		seg("changed", w.Changed, s.Changed),
 		seg("unreachable", w.Unreachable, s.Unreachable),
 		seg("failed", w.Failed, s.Failed),
 		seg("warnings", w.Warnings, s.Warnings),
+		seg("ignored", w.Ignored, s.Ignored),
 	)
 }
 

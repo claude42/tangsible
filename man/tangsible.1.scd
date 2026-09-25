@@ -49,11 +49,8 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 
 # REQUIREMENTS
 
-*tangsible* requires *ansible-playbook* and the jsonl plugin from the *ansible.posix* collection to be installed and on *PATH*:
-
-```
-ansible-galaxy collection install ansible.posix
-```
+*tangsible* requires *ansible-playbook*, *ansible-inventory*, *ansible-doc*,
+*ansible-config*, and *ansible-vault* to be installed and on *PATH*.
 
 # CONFIGURATION
 

@@ -181,8 +181,16 @@ func TestReadDefaultPlaybook(t *testing.T) {
 
 // resolvePlaybook reads .tangsible/config.toml/site.yml relative to the
 // process's own cwd, so each case below runs in its own isolated temp
-// directory via t.Chdir rather than sharing one.
+// directory via t.Chdir rather than sharing one. SystemConfigPath is
+// pointed at a nonexistent path by default so these cases don't
+// accidentally depend on (or get broken by) a real /etc/tangsible/
+// config.toml on whatever machine the tests run on; the subtests that
+// actually exercise the system tier point it at a real file themselves.
 func TestResolvePlaybook(t *testing.T) {
+	origSystemConfigPath := SystemConfigPath
+	SystemConfigPath = filepath.Join(t.TempDir(), "unused-etc-tangsible", "config.toml")
+	t.Cleanup(func() { SystemConfigPath = origSystemConfigPath })
+
 	t.Run("TANGSIBLE_PLAYBOOK wins even when .tangsible/config.toml also exists", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		writeDefaultPlaybookConfig(t, ".tangsible/config.toml", "from-dot-tangsible.yml")
@@ -216,6 +224,44 @@ func TestResolvePlaybook(t *testing.T) {
 		path, source := ResolvePlaybook()
 		if path != "site.yml" || source != "./site.yml" {
 			t.Errorf("resolvePlaybook() = (%q, %q), want (\"site.yml\", \"./site.yml\")", path, source)
+		}
+	})
+
+	t.Run("system config wins over site.yml", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		t.Setenv("TANGSIBLE_PLAYBOOK", "")
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty-xdg-config"))
+		systemConfig := filepath.Join(dir, "etc-tangsible", "config.toml")
+		writeDefaultPlaybookConfig(t, systemConfig, "from-system.yml")
+		origSystemConfigPath := SystemConfigPath
+		SystemConfigPath = systemConfig
+		t.Cleanup(func() { SystemConfigPath = origSystemConfigPath })
+		mustWriteFile(t, "site.yml", "")
+
+		path, source := ResolvePlaybook()
+		if path != "from-system.yml" || source != systemConfig {
+			t.Errorf("resolvePlaybook() = (%q, %q), want (\"from-system.yml\", %q)", path, source, systemConfig)
+		}
+	})
+
+	t.Run("global XDG config wins over system config", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		t.Setenv("TANGSIBLE_PLAYBOOK", "")
+		xdgHome := filepath.Join(dir, "xdg-config")
+		t.Setenv("XDG_CONFIG_HOME", xdgHome)
+		writeDefaultPlaybookConfig(t, filepath.Join(xdgHome, "tangsible", "config.toml"), "from-xdg.yml")
+		systemConfig := filepath.Join(dir, "etc-tangsible", "config.toml")
+		writeDefaultPlaybookConfig(t, systemConfig, "from-system.yml")
+		origSystemConfigPath := SystemConfigPath
+		SystemConfigPath = systemConfig
+		t.Cleanup(func() { SystemConfigPath = origSystemConfigPath })
+
+		path, source := ResolvePlaybook()
+		wantSource := filepath.Join(xdgHome, "tangsible", "config.toml")
+		if path != "from-xdg.yml" || source != wantSource {
+			t.Errorf("resolvePlaybook() = (%q, %q), want (\"from-xdg.yml\", %q)", path, source, wantSource)
 		}
 	})
 

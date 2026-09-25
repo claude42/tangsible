@@ -50,8 +50,8 @@ func TestRecapHeadingUnderlineRowText(t *testing.T) {
 func TestRecapNarrativeRowText(t *testing.T) {
 	s := &playbook.PlaybookState{}
 	s.Apply(playStartEvent("my play"))
-	s.Apply(taskStartEvent("task one", "/pb.yml:3"))
-	s.Apply(hostResultEvent("v2_runner_on_ok", "web1", json.RawMessage(`{"changed":false}`)))
+	s.Apply(taskStartEvent("t1", "task one", "/pb.yml:3"))
+	s.Apply(hostResultEvent("v2_runner_on_ok", "t1", "web1", json.RawMessage(`{"changed":false}`)))
 
 	elapsed := 5 * time.Second
 	got := recapNarrativeRowText(s, elapsed)
@@ -96,6 +96,9 @@ func TestRecapComputeColumnWidths(t *testing.T) {
 		Failed:      1,                   // max(digits(0), digits(3))
 		Skipped:     1,                   // both hosts have 0
 		Warnings:    1,                   // both hosts have 0
+		Ignored:     1,                   // both hosts have 0
+		// ShowDuration/TotalSeconds stay zero - neither task carries any
+		// per-host duration data.
 	}
 	if got != want {
 		t.Errorf("recapComputeColumnWidths() = %+v, want %+v", got, want)
@@ -125,8 +128,8 @@ func TestRecapSummaryFieldColor(t *testing.T) {
 }
 
 func TestRecapHostRowTextUnselected(t *testing.T) {
-	w := recapColumnWidths{Host: 5, OK: 2, Changed: 1, Unreachable: 1, Failed: 1, Skipped: 1, Warnings: 1}
-	s := recapHostSummary{OK: 12, Changed: 0, Unreachable: 0, Failed: 1, Skipped: 0, Warnings: 0}
+	w := recapColumnWidths{Host: 5, OK: 2, Changed: 1, Unreachable: 1, Failed: 1, Skipped: 1, Warnings: 1, Ignored: 1}
+	s := recapHostSummary{OK: 12, Changed: 0, Unreachable: 0, Failed: 1, Skipped: 0, Warnings: 0, Ignored: 0}
 
 	got := recapHostRowText("web1", s, w, false)
 
@@ -140,15 +143,17 @@ func TestRecapHostRowTextUnselected(t *testing.T) {
 		"[gray]unreachable=0[-]",
 		"[red]failed=1[-]", // non-zero -> outcome color
 		"[gray]warnings=0[-]",
+		"[gray]ignored=0[-]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("recapHostRowText() = %q, want it to contain %q", got, want)
 		}
 	}
 
-	// Fields must appear in ansible's own recap order: ok, skipped,
-	// changed, unreachable, failed, warnings.
-	order := []string{"ok=", "skipped=", "changed=", "unreachable=", "failed=", "warnings="}
+	// Fields must appear in ansible's own recap order (plus this app's
+	// own warnings/ignored additions, tacked on last): ok, skipped,
+	// changed, unreachable, failed, warnings, ignored.
+	order := []string{"ok=", "skipped=", "changed=", "unreachable=", "failed=", "warnings=", "ignored="}
 	last := -1
 	for _, field := range order {
 		idx := strings.Index(got, field)
@@ -188,6 +193,9 @@ func TestRecapHostRowTextSelected(t *testing.T) {
 	}
 	if !strings.Contains(got, "["+uikit.PureBlack+":red:b]  failed=1") {
 		t.Errorf("recapHostRowText(selected=true) = %q, want the failed segment as PureBlack-on-red with its own leading gap", got)
+	}
+	if !strings.Contains(got, "["+uikit.PureBlack+":gray:b]  ignored=0") {
+		t.Errorf("recapHostRowText(selected=true) = %q, want the trailing ignored segment in the selected style too", got)
 	}
 	if strings.Contains(got, "[green]ok=12[-]") {
 		t.Errorf("recapHostRowText(selected=true) = %q, must not fall back to the unselected tag shape", got)

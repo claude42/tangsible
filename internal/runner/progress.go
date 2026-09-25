@@ -72,6 +72,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"code.aw.net/claude/tangsible/internal/source"
 )
 
 // ProgressEntry is one predicted task, keyed the same way a real
@@ -130,14 +132,28 @@ var (
 // empirically: the play itself still gets a v2_playbook_on_play_start,
 // but none of its tasks ever start), so counting them would only ever
 // inflate the total, never be matched.
-func ParseListTasksOutput(output string) []ProgressEntry {
+//
+// freeStrategyPlays (source.FreeStrategyPlayNames) drops a second kind of
+// play for a different reason - design-docs/StrategyFree.md: its tasks
+// definitely will fire real events, but the windowed, name-based matching
+// ProgressTracker.Advance does for every other play structurally can't be
+// fed strategy: free's own per-host events without risking overcounting
+// (more than one host can be on a different task at once, and task names
+// already repeat under linear too) - so such a play's tasks are excluded
+// from the prediction entirely, same mechanism, different reason, as the
+// zero-host case just above.
+func ParseListTasksOutput(output string, freeStrategyPlays map[string]bool) []ProgressEntry {
 	var entries []ProgressEntry
 	var currentPlay string
 	var skipCurrentPlay bool
 	for _, line := range strings.Split(output, "\n") {
 		if m := ProgressPlayLine.FindStringSubmatch(line); m != nil {
 			currentPlay = m[1]
-			skipCurrentPlay = false // corrected by this play's own "hosts (N):" line, below, before any "tasks:" line can follow it
+			skipCurrentPlay = freeStrategyPlays[currentPlay] // corrected by
+			// this play's own "hosts (N):" line, below, if it also
+			// reports zero hosts - either reason alone is enough to skip,
+			// so skipCurrentPlay only ever starts true here, never reset
+			// back to false by that line.
 			continue
 		}
 		if m := ProgressHostsCountLine.FindStringSubmatch(line); m != nil {
@@ -188,7 +204,7 @@ func BuildProgressSkeleton(playbook string, passthroughArgs []string) []Progress
 	if err := cmd.Run(); err != nil {
 		return nil
 	}
-	return ParseListTasksOutput(stdout.String())
+	return ParseListTasksOutput(stdout.String(), source.FreeStrategyPlayNames(playbook))
 }
 
 // ProgressBaseLookahead bounds how far ahead of the tracker's own cursor
@@ -239,6 +255,15 @@ const ProgressMaxMissShift = 12
 // Undercounting during that widening (the bar stalls while catching up)
 // is still the deliberately preferred failure mode over ever jumping
 // backward or overcounting.
+//
+// A handler's own miss (Advance's own isHandler parameter, design-docs/
+// OwnCallbackPlugin.md) never counts toward missStreak - it's a fully
+// explained, expected miss (handlers structurally can never be in the
+// skeleton at all, see above), not evidence the skeleton has drifted
+// from reality the way an unpredicted regular task's miss is. Excluding
+// it keeps the window tight around genuine drift instead of needlessly
+// widening - and so more resistant to a coincidental wrong-occurrence
+// match - every time a playbook happens to fire a notified handler.
 type ProgressTracker struct {
 	skeleton   []ProgressEntry
 	cursor     int // index of the first not-yet-matched skeleton entry
@@ -259,12 +284,15 @@ func NewProgressTracker(skeleton []ProgressEntry) *ProgressTracker {
 // comment for how that window grows on repeated misses). On a match, the
 // cursor moves just past it, that match's own 1-based position becomes
 // the tracker's new Position(), and missStreak resets to zero; on a
-// miss, the tracker's cursor/matched are left completely untouched and
-// missStreak grows by one, widening the next call's own window. Safe to
-// call on a nil *ProgressTracker (a no-op) - the state before this
-// session's very first skeleton has ever been built, or hasn't been
-// built for this particular generation yet.
-func (t *ProgressTracker) Advance(play, task string) {
+// miss, the tracker's cursor/matched are left completely untouched, and
+// missStreak grows by one - widening the next call's own window - unless
+// isHandler is true, in which case missStreak is left untouched too (see
+// ProgressTracker's own doc comment for why a handler's miss is fully
+// expected, not evidence of drift). Safe to call on a nil *ProgressTracker
+// (a no-op) - the state before this session's very first skeleton has
+// ever been built, or hasn't been built for this particular generation
+// yet.
+func (t *ProgressTracker) Advance(play, task string, isHandler bool) {
 	if t == nil || len(t.skeleton) == 0 {
 		return
 	}
@@ -282,7 +310,9 @@ func (t *ProgressTracker) Advance(play, task string) {
 			return
 		}
 	}
-	t.missStreak++
+	if !isHandler {
+		t.missStreak++
+	}
 }
 
 // AdvanceToPlay resyncs the tracker directly to the start of playName's

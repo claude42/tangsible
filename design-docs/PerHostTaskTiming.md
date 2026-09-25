@@ -116,32 +116,40 @@ Ansible's Python API or ships its own callback plugin).
 
 ## Status
 
-Discussed, verified, not implemented. Leaning toward dropping the idea
-entirely (option 1) given how much the queueing ambiguity undercuts the
-motivating use case, but this wasn't a final decision - if per-host timing
-comes up again, start from "is the gated version (option 2) worth building
-despite its narrow window?" rather than re-deriving the `v2_runner_on_start`
-investigation above.
+**Implemented (2026-09-18)**, via `design-docs/OwnCallbackPlugin.md`'s
+bundled callback plugin fork rather than the gated-display option (2)
+below. The fork makes `v2_runner_on_start` obtainable under `linear` too
+(see that doc's "What was verified" section) - the queueing ambiguity this
+whole doc is about no longer applies, since a host's *own* dispatch
+timestamp is now available directly, instead of only the shared task-start
+timestamp every host would otherwise have to share. Verified live against
+the exact scenario "Verified this live" above (4 hosts, `--forks 1`
+equivalent): all hosts now correctly show their own real execution time
+regardless of which wave they landed in.
 
-If ever picked back up, the concrete implementation sketch (from the
-options-2-or-broader discussion, before the ambiguity problem was raised)
-was:
+The shipped shape differs from the sketch originally below in a few ways,
+worth knowing if this doc is consulted again:
 
-- `aggregate.go`: `Finished map[string]time.Time` on `taskNode`, parallel
-  to `Hosts`/`Raw`, populated in `record` from a timestamp threaded through
-  `recordHost` (`ev.Timestamp()` at each of the four `v2_runner_on_*` cases
-  in `Apply`).
-- `tui.go`: a `hostDuration(task, host) (time.Duration, bool)` helper
-  (`false` if either timestamp is the zero value, per this codebase's
-  existing "zero means unknown" convention for event-derived timestamps).
-- A `formatDuration` helper: sub-second as `"340ms"`, sub-minute as
-  `"1.3s"`, beyond that as `"1m05s"` - simple thresholded formatting, not
-  chased further.
-- Wired into `hostLabel`'s existing parenthetical detail (merged with the
-  output summary or skip reason, e.g. `web1: OK (echo hi, 1.2s)`) - a
-  contained refactor since `outputSummary`/`skipDetail` each have exactly
-  one call site (`hostLabel` itself).
-- Would also give Unreachable a detail for the first time (currently
-  renders with none at all) - just the duration, since "how long before it
-  gave up" is useful there regardless of the queueing caveat (an
-  unreachable host was never mid-execution to begin with).
+- Duration is computed from `Started`/`Finished` (both populated from real
+  events), not `Finished` alone measured against the task's shared
+  `StartedAt` - see `aggregate.go`'s `TaskNode.Started`/`.Finished` and
+  `uikit.HostDuration`.
+- `FormatDuration` always renders seconds with one decimal place (e.g.
+  `"5.3s"`), not the three-tier ms/seconds/minutes+seconds format
+  originally sketched - live use found that switching units made
+  different hosts' durations land in different unit systems depending on
+  which side of a threshold they fell on, defeating the actual point of
+  showing this at all (comparing hosts at a glance).
+- Duration renders as a column-aligned prefix (`uikit.DurationLayout`/
+  `HostAndDurationPrefix`, e.g. `"somehost  ( 5.3s): OK ..."`), not merged
+  into the trailing parenthetical - a later request specifically to make
+  per-host durations easy to compare at a glance, which a trailing
+  variable-length position couldn't give. Unreachable does get a detail
+  from this now, as sketched.
+- The recap section (`recap.go`) also gained a per-host *total* duration
+  (summed across every task), same aligned-prefix shape - not part of the
+  original sketch below, added afterward on request.
+
+Original discussion and implementation sketch, kept for the reasoning
+trail (the queueing-ambiguity investigation above is still accurate
+background on *why* `v2_runner_on_start` mattered):
