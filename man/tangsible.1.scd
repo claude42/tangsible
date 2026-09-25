@@ -49,8 +49,8 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 
 # REQUIREMENTS
 
-*tangsible* requires *ansible-playbook*, *ansible-inventory*, *ansible-doc*,
-*ansible-config*, and *ansible-vault* to be installed and on *PATH*.
+*tangsible* requires *ansible-playbook*, *ansible-inventory*, *ansible-doc*, and
+*ansible-config* to be installed and on *PATH*.
 
 # CONFIGURATION
 
@@ -59,9 +59,10 @@ When a _verb_ that needs a playbook is not given one explicitly, Tangsible resol
 . *$TANGSIBLE_PLAYBOOK*
 . *.tangsible/config.toml* in the current directory
 . *$XDG_CONFIG_HOME/tangsible/config.toml* (default *~/.config/tangsible/config.toml*)
+. */etc/tangsible/config.toml*
 . *./site.yml*, if present
 
-Both config files share the same TOML shape:
+The config files share the same TOML shape:
 
 ```
 [general]

@@ -74,8 +74,8 @@ Print version information about tangsible and all components it'\&s using.\&
 .RE
 .SH REQUIREMENTS
 .PP
-\fBtangsible\fR requires \fBansible-playbook\fR, \fBansible-inventory\fR, \fBansible-doc\fR,
-\fBansible-config\fR, and \fBansible-vault\fR to be installed and on \fBPATH\fR.\&
+\fBtangsible\fR requires \fBansible-playbook\fR, \fBansible-inventory\fR, \fBansible-doc\fR, and
+\fBansible-config\fR to be installed and on \fBPATH\fR.\&
 .PP
 .SH CONFIGURATION
 .PP
@@ -89,10 +89,12 @@ When a \fIverb\fR that needs a playbook is not given one explicitly, Tangsible r
 .IP 3. 4
 \fB$XDG_CONFIG_HOME/tangsible/config.\&toml\fR (default \fB~/.\&config/tangsible/config.\&toml\fR)
 .IP 4. 4
+\fB/etc/tangsible/config.\&toml\fR
+.IP 5. 4
 \fB.\&/site.\&yml\fR, if present
 .PD
 .PP
-Both config files share the same TOML shape:
+The config files share the same TOML shape:
 .PP
 .nf
 .RS 4
