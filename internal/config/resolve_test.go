@@ -149,6 +149,25 @@ func TestConfigHome(t *testing.T) {
 	})
 }
 
+// TestDataHome mirrors TestConfigHome above - DataHome is ConfigHome's own
+// XDG_DATA_HOME/.local/share sibling, same precedence shape.
+func TestDataHome(t *testing.T) {
+	t.Run("XDG_DATA_HOME set wins", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", "/custom/xdg/data")
+		if got := DataHome(); got != "/custom/xdg/data" {
+			t.Errorf("DataHome() = %q, want /custom/xdg/data", got)
+		}
+	})
+
+	t.Run("falls back to $HOME/.local/share when unset", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", "")
+		t.Setenv("HOME", "/home/someone")
+		if got := DataHome(); got != filepath.Join("/home/someone", ".local", "share") {
+			t.Errorf("DataHome() = %q, want $HOME/.local/share", got)
+		}
+	})
+}
+
 func TestReadDefaultPlaybook(t *testing.T) {
 	t.Run("nonexistent file returns empty string silently", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "nope.toml")
