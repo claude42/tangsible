@@ -16,6 +16,8 @@ package session
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -57,4 +59,45 @@ func TestQuoteYAMLString(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReadLocalFileContents covers the delegate_to: localhost/control-host
+// path (readLocalFileContents' own doc comment) - a plain os.ReadFile plus
+// the same binary check fetchRemoteFileContents shares, so unlike that
+// function it needs no ansible-playbook invocation at all to test.
+func TestReadLocalFileContents(t *testing.T) {
+	t.Run("plain text file returns its content", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "hosts")
+		if err := os.WriteFile(path, []byte("127.0.0.1 localhost\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := readLocalFileContents(path)
+		if err != nil {
+			t.Fatalf("readLocalFileContents() error = %v", err)
+		}
+		if got != "127.0.0.1 localhost\n" {
+			t.Errorf("readLocalFileContents() = %q, want the file's own content", got)
+		}
+	})
+
+	t.Run("binary content returns empty string, not an error", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "binary.dat")
+		if err := os.WriteFile(path, []byte("hello\x00world"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := readLocalFileContents(path)
+		if err != nil {
+			t.Fatalf("readLocalFileContents() error = %v, want nil (binary content is a silent \"nothing to show\", not an error)", err)
+		}
+		if got != "" {
+			t.Errorf("readLocalFileContents() = %q, want empty for binary content", got)
+		}
+	})
+
+	t.Run("a nonexistent file reports a real error", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "does-not-exist")
+		if _, err := readLocalFileContents(path); err == nil {
+			t.Error("readLocalFileContents() on a missing file returned nil error, want a real one")
+		}
+	})
 }

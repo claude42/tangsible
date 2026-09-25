@@ -453,3 +453,35 @@ func TestRecapTaskDetail_WarningsJoinsWithSemicolons(t *testing.T) {
 		t.Errorf("recapTaskDetail() = %q, want %q", got, want)
 	}
 }
+
+// TestRecapTaskDetail_WarningsLabelWithNoWarningsIsEmpty covers the
+// "warnings" branch's own other half: a task landing under the (cross-
+// cutting) "warnings" category always has at least one, in practice, but
+// the function itself must still degrade to "" rather than a bare " ()"
+// if it somehow doesn't.
+func TestRecapTaskDetail_WarningsLabelWithNoWarningsIsEmpty(t *testing.T) {
+	task := &playbook.TaskNode{
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{}`)},
+	}
+	if got := recapTaskDetail(task, "web1", "warnings"); got != "" {
+		t.Errorf("recapTaskDetail() = %q, want \"\" when the host has no warnings at all", got)
+	}
+}
+
+// TestRecapTaskDetail_NonWarningsLabelDelegatesToOutcomeDetail covers
+// every other category label (ok/skipped/changed/unreachable/failed/
+// ignored), which all share the identical "just show OutcomeDetail"
+// behavior - the same detail HostLabel already shows for the same (task,
+// host) pair in the live tree.
+func TestRecapTaskDetail_NonWarningsLabelDelegatesToOutcomeDetail(t *testing.T) {
+	task := &playbook.TaskNode{
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+		Raw:   map[string]json.RawMessage{"web1": json.RawMessage(`{"stdout":"single output line"}`)},
+	}
+	got := recapTaskDetail(task, "web1", "ok")
+	want := uikit.OutcomeDetail(task, "web1")
+	if got != want || got == "" {
+		t.Errorf("recapTaskDetail(task, \"web1\", \"ok\") = %q, want it to match OutcomeDetail() = %q (and be non-empty)", got, want)
+	}
+}

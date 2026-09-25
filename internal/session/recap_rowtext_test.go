@@ -127,6 +127,61 @@ func TestRecapSummaryFieldColor(t *testing.T) {
 	}
 }
 
+// TestRecapCategoryColor exercises every one of recapCategoryColor's own
+// labels directly, including its "unrecognized label" default - the one
+// branch nothing exercises indirectly through recapForHost, which only
+// ever calls it with its own seven fixed labels.
+func TestRecapCategoryColor(t *testing.T) {
+	cases := []struct {
+		label string
+		want  string
+	}{
+		{"ok", "green"},
+		{"skipped", "teal"},
+		{"changed", "yellow"},
+		{"unreachable", "maroon"},
+		{"failed", "red"},
+		{"warnings", uikit.WarningColor},
+		{"ignored", uikit.IgnoredColor},
+		{"some-unrecognized-label", "white"},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			if got := recapCategoryColor(c.label); got != c.want {
+				t.Errorf("recapCategoryColor(%q) = %q, want %q", c.label, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRecapDurationText(t *testing.T) {
+	t.Run("no column reserved at all when nothing in the run has a known duration", func(t *testing.T) {
+		w := recapColumnWidths{ShowDuration: false, TotalSeconds: 4}
+		s := recapHostSummary{HasDuration: true, TotalDuration: 3*time.Second + 400*time.Millisecond}
+		if got := recapDurationText(s, w); got != "" {
+			t.Errorf("recapDurationText() = %q, want \"\" when w.ShowDuration is false", got)
+		}
+	})
+
+	t.Run("a known duration renders right-aligned to the column width", func(t *testing.T) {
+		w := recapColumnWidths{ShowDuration: true, TotalSeconds: 5} // "12.3" is 4 chars, want 1 leading space
+		s := recapHostSummary{HasDuration: true, TotalDuration: 12*time.Second + 300*time.Millisecond}
+		if got, want := recapDurationText(s, w), "( 12.3s)"; got != want {
+			t.Errorf("recapDurationText() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a host with no known duration gets a same-width blank placeholder, not an empty string", func(t *testing.T) {
+		w := recapColumnWidths{ShowDuration: true, TotalSeconds: 4}
+		s := recapHostSummary{HasDuration: false}
+		got := recapDurationText(s, w)
+		want := strings.Repeat(" ", w.TotalSeconds+3) // "(" + width + "s)"
+		if got != want {
+			t.Errorf("recapDurationText() = %q (len %d), want %q (len %d)", got, len(got), want, len(want))
+		}
+	})
+}
+
 func TestRecapHostRowTextUnselected(t *testing.T) {
 	w := recapColumnWidths{Host: 5, OK: 2, Changed: 1, Unreachable: 1, Failed: 1, Skipped: 1, Warnings: 1, Ignored: 1}
 	s := recapHostSummary{OK: 12, Changed: 0, Unreachable: 0, Failed: 1, Skipped: 0, Warnings: 0, Ignored: 0}
