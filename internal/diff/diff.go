@@ -396,19 +396,23 @@ func DiffHostList(task *playbook.TaskNode, wholeLineFlag string, underlineHosts 
 		if flag == "" && underlineHosts[host] {
 			flag = "u"
 		}
-		parts = append(parts, fmt.Sprintf("[%s]%s[-::-]", DiffColorTag(task.Hosts[host], flag), tview.Escape(host)))
+		parts = append(parts, fmt.Sprintf("[%s]%s[-::-]", DiffColorTag(task, host, flag), tview.Escape(host)))
 	}
 	return strings.Join(parts, " ")
 }
 
-// DiffColorTag is ColorTag(o) with flag ("u"/"s"/"") appended as the tag's
-// own third (flags) component when set - tview's own "[fg::flags]" form,
+// DiffColorTag is uikit.HostColorTag(task, host, task.Hosts[host], true)
+// (so an ignore_errors: true failure gets uikit.IgnoredColor rather than
+// the plain alarming Failed red, matching TaskLabel/HostLabel - design-docs/
+// OwnCallbackPlugin.md) with flag ("u"/"s"/"") appended as the tag's own
+// third (flags) component when set - tview's own "[fg::flags]" form,
 // already used elsewhere in this file (PlayRowText's own "[white::b]").
-func DiffColorTag(o playbook.Outcome, flag string) string {
+func DiffColorTag(task *playbook.TaskNode, host string, flag string) string {
+	tag := uikit.HostColorTag(task, host, task.Hosts[host], true)
 	if flag == "" {
-		return uikit.ColorTag(o)
+		return tag
 	}
-	return uikit.ColorTag(o) + "::" + flag
+	return tag + "::" + flag
 }
 
 // DiffHostRows renders a TaskAlignment's own expanded host rows - shown
@@ -466,7 +470,7 @@ func DiffHostRowText(task *playbook.TaskNode, host string, flag string, selected
 	if selected {
 		return prefix + fmt.Sprintf("[%s:lightgray:b%s]%s[-:-:-]", uikit.PureBlack, flag, line)
 	}
-	return prefix + fmt.Sprintf("[%s]%s[-::-]", DiffColorTag(o, flag), line)
+	return prefix + fmt.Sprintf("[%s]%s[-::-]", DiffColorTag(task, host, flag), line)
 }
 
 // TviewTagPattern matches a real tview color/style tag - the same tag

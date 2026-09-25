@@ -1,5 +1,6 @@
 #!/bin/sh
-# tangsible installer — per-user, no root, one step at a time.
+# tangsible installer — per-user by default, no root required, one step at
+# a time.
 #
 # Two modes, picked automatically:
 #
@@ -16,8 +17,22 @@
 #       tar xzf tangsible_*.tar.gz && ./tangsible_*/install.sh
 #
 # Either way it prompts before every step (reading /dev/tty, so the pipe
-# form still asks), uses no sudo, and writes only inside your home
-# directory. Force a mode with --local / --download.
+# form still asks) and never invokes sudo itself. By default it writes
+# only inside your home directory ($HOME/.local, honouring
+# $XDG_BIN_HOME/$XDG_DATA_HOME). Force a mode with --local / --download.
+#
+# System-wide install, for every user on the machine: pass --prefix and
+# run the whole script as root yourself, e.g.
+#
+#       sudo ./install.sh --local --prefix /usr/local --yes
+#
+# which lands the binary/plugin/docs under /usr/local/bin and
+# /usr/local/share the same way this script always has, just rooted
+# somewhere other than your home directory - nothing about the mechanism
+# changes, only the paths (see PREFIX/BIN_DIR/DATA_DIR below).
+#
+# If you're instead building an actual distro package (.deb/.rpm/AUR/
+# nix/...), don't use this script at all - see PACKAGING.md.
 #
 # (A cryptographic signature on the checksums file would be the next trust
 # step up for the download mode; not there yet.)
@@ -41,12 +56,14 @@ PREFIX="${TANGSIBLE_PREFIX:-$HOME/.local}"
 
 usage() {
 	cat <<'EOF'
-tangsible installer — per-user install, no root.
+tangsible installer — per-user by default; --prefix (+ sudo) for
+system-wide. Not for building a distro package - see PACKAGING.md.
 
 Usage:
   install.sh [options]                       # from an unpacked release archive
   curl -fsSL <url>/install.sh | sh           # bootstrap: download + install
   curl -fsSL <url>/install.sh | sh -s -- --yes
+  sudo install.sh --local --prefix /usr/local --yes  # system-wide, all users
 
 Options:
   -y, --yes             accept every step without prompting
@@ -54,9 +71,10 @@ Options:
   --download            ignore local files; fetch a release
   --version <vX.Y.Z>    download mode: install a specific release (default: latest)
   --no-completions      skip the shell completion files
-  --prefix <dir>        install under <dir>/bin and <dir>/share
-                        (default: ~/.local, honouring $XDG_DATA_HOME)
-  --uninstall           remove a previous per-user install
+  --prefix <dir>        install under <dir>/bin and <dir>/share instead of
+                        ~/.local (honouring $XDG_DATA_HOME) - e.g.
+                        /usr/local for a system-wide install (run as root)
+  --uninstall           remove a previous install at the same --prefix
   -h, --help            show this help
 
 Environment:
@@ -118,6 +136,25 @@ DOC_DIR="$DATA_DIR/doc/tangsible"
 # <data dir>/... via $XDG_DATA_DIRS, so these follow --prefix / $XDG_DATA_HOME.
 BASH_COMP_DIR="$DATA_DIR/bash-completion/completions"
 FISH_COMP_DIR="$DATA_DIR/fish/vendor_completions.d"
+# Same $DATA_DIR everything else here uses - not $BIN_DIR: a plugin file
+# is data, not an executable, so it belongs under .../share like the docs/
+# man pages above, not mixed into .../bin. ResolveCallbackPluginDir (Go
+# side, design-docs/OwnCallbackPlugin.md) derives this exact same path
+# structurally from the running executable's own location (its bin/ dir's
+# own parent + /share/tangsible) rather than from $XDG_DATA_HOME directly,
+# which is what keeps the two sides agreeing under --prefix too, without
+# either needing to know what flag the other was given at install time.
+CALLBACK_DIR="$DATA_DIR/tangsible"
+
+# Whether the resolved install location is inside $HOME - drives the root
+# check and the "no sudo, nothing outside your home directory" messaging
+# below. Checked against BIN_DIR itself, not just whether --prefix/-y were
+# given, so it's also correct for someone who set $XDG_BIN_HOME/
+# $XDG_DATA_HOME to somewhere outside $HOME without using --prefix at all.
+case "$BIN_DIR" in
+"$HOME"/*) TARGET_IN_HOME=1 ;;
+*) TARGET_IN_HOME=0 ;;
+esac
 
 # ----------------------------------------------------------------------
 # helpers
@@ -165,7 +202,8 @@ fetch_stdout() {
 # ----------------------------------------------------------------------
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || echo ".")
 looks_local() {
-	[ -f "$SELF_DIR/tangsible" ] && [ -d "$SELF_DIR/man" ] && [ -f "$SELF_DIR/LICENSE" ]
+	[ -f "$SELF_DIR/tangsible" ] && [ -d "$SELF_DIR/man" ] && [ -f "$SELF_DIR/LICENSE" ] &&
+		[ -f "$SELF_DIR/callback/tangsible_jsonl.py" ]
 }
 if [ "$MODE" = auto ]; then
 	if looks_local; then MODE=local; else MODE=download; fi
@@ -181,6 +219,7 @@ if [ "$DO_UNINSTALL" = 1 ]; then
 	say "Removing a per-user tangsible install."
 	say ""
 	confirm "Remove $BIN_DIR/tangsible?" && rm -f "$BIN_DIR/tangsible"
+	confirm "Remove the bundled callback plugin $CALLBACK_DIR/ ?" && rm -rf "$CALLBACK_DIR"
 	confirm "Remove man pages $MAN_DIR/tangsible*.1?" && rm -f "$MAN_DIR"/tangsible*.1
 	confirm "Remove $DOC_DIR/ ?" && rm -rf "$DOC_DIR"
 	confirm "Remove shell completions?" && {
@@ -195,12 +234,29 @@ fi
 # root check
 # ----------------------------------------------------------------------
 if [ "$(id -u)" = 0 ]; then
+	if [ "$TARGET_IN_HOME" = 1 ]; then
+		say ""
+		say "WARNING: running as root with no --prefix given. That means"
+		say "installing into /root ($HOME), not a system-wide install."
+		say "Pass --prefix (e.g. --prefix /usr/local) if you meant to"
+		say "install for all users, or re-run as your own user."
+		say ""
+		confirm "Continue anyway?" || exit 1
+	else
+		say ""
+		say "Running as root - installing system-wide, for every user:"
+		say "  binary -> $BIN_DIR/tangsible"
+		say "  data   -> $DATA_DIR/..."
+		say ""
+		confirm "Continue?" || exit 1
+	fi
+elif [ "$TARGET_IN_HOME" = 0 ]; then
 	say ""
-	say "WARNING: running as root. This script only ever does a per-user"
-	say "install — as root that means into /root ($HOME). It is not a"
-	say "system-wide installer. You probably want to run it as your user."
+	say "note: $BIN_DIR is outside your home directory. This will only"
+	say "work if you already own it or it's writable by your user - a"
+	say "genuinely system-wide location (e.g. /usr/local) normally needs"
+	say "sudo/root."
 	say ""
-	confirm "Continue anyway?" || exit 1
 fi
 
 # ----------------------------------------------------------------------
@@ -275,6 +331,7 @@ else
 fi
 
 [ -f "$SRC/tangsible" ] || err "no ./tangsible in $SRC"
+[ -f "$SRC/callback/tangsible_jsonl.py" ] || err "no ./callback/tangsible_jsonl.py in $SRC"
 
 # ----------------------------------------------------------------------
 # plan
@@ -291,14 +348,19 @@ if [ -n "$CURRENT" ]; then
 	say "  (replacing: $CURRENT at $(command -v tangsible))"
 fi
 say "  1. binary            -> $BIN_DIR/tangsible"
-say "  2. man pages         -> $MAN_DIR/"
-say "  3. README + LICENSE  -> $DOC_DIR/"
+say "  2. callback plugin   -> $CALLBACK_DIR/"
+say "  3. man pages         -> $MAN_DIR/"
+say "  4. README + LICENSE  -> $DOC_DIR/"
 if [ "$WANT_COMPLETIONS" = 1 ]; then
-	say "  4. bash completion   -> $BASH_COMP_DIR/tangsible"
-	say "  5. fish completion   -> $FISH_COMP_DIR/tangsible.fish"
+	say "  5. bash completion   -> $BASH_COMP_DIR/tangsible"
+	say "  6. fish completion   -> $FISH_COMP_DIR/tangsible.fish"
 fi
 say ""
-say "  No sudo. Nothing outside your home directory."
+if [ "$TARGET_IN_HOME" = 1 ]; then
+	say "  No sudo. Nothing outside your home directory."
+else
+	say "  Installing outside your home directory, to $BIN_DIR / $DATA_DIR."
+fi
 say ""
 
 did_bin=0
@@ -313,7 +375,14 @@ if confirm "Install the tangsible binary to $BIN_DIR/tangsible ?"; then
 	did_bin=1
 fi
 
-# 2. man pages
+# 2. callback plugin - required for "run"/"rerun" to work at all
+if confirm "Install the bundled callback plugin to $CALLBACK_DIR/ - required for tangsible run/rerun ?"; then
+	mkdir -p "$CALLBACK_DIR"
+	cp "$SRC/callback/tangsible_jsonl.py" "$SRC/callback/LICENSE" "$CALLBACK_DIR/"
+	say "    installed $CALLBACK_DIR/"
+fi
+
+# 3. man pages
 if confirm "Install the man pages to $MAN_DIR/ ?"; then
 	mkdir -p "$MAN_DIR"
 	n=0
@@ -325,7 +394,7 @@ if confirm "Install the man pages to $MAN_DIR/ ?"; then
 	say "    installed $n man page(s)"
 fi
 
-# 3. docs
+# 4. docs
 if confirm "Install README and LICENSE to $DOC_DIR/ ?"; then
 	mkdir -p "$DOC_DIR"
 	for f in README.md LICENSE; do
@@ -334,7 +403,7 @@ if confirm "Install README and LICENSE to $DOC_DIR/ ?"; then
 	say "    installed $DOC_DIR/"
 fi
 
-# 4/5. completions
+# 5/6. completions
 if [ "$WANT_COMPLETIONS" = 1 ]; then
 	if [ -f "$SRC/completions/tangsible.bash" ] &&
 		confirm "Install bash completion to $BASH_COMP_DIR/tangsible ?"; then

@@ -23,6 +23,43 @@ import (
 	"code.aw.net/claude/tangsible/internal/playbook"
 )
 
+// TestBuildTaskTab_RecolorsIgnoredFailure covers the drill-down view's own
+// "Status:" line (design-docs/OwnCallbackPlugin.md) - the third surface
+// (after the tree's collapsed and expanded rows) that shows a host's own
+// outcome, so it must agree with both: IgnoredColor instead of the plain
+// Failed red, plus an "(ignored)" suffix on the status text itself, since
+// this line has no separate parenthetical detail the way HostLabel's own
+// OutcomeDetailText does to carry that word instead.
+func TestBuildTaskTab_RecolorsIgnoredFailure(t *testing.T) {
+	ignored := &playbook.TaskNode{
+		Name:    "diverging task",
+		Hosts:   map[string]playbook.Outcome{"host1": playbook.OutcomeFailed},
+		Ignored: map[string]bool{"host1": true},
+	}
+	got := BuildTaskTab(ignored, "host1", map[string]interface{}{}, playbook.OutcomeFailed)
+	if !strings.Contains(got, "["+IgnoredColor+"::b]") {
+		t.Errorf("BuildTaskTab(ignored) = %q, want it to contain the IgnoredColor tag", got)
+	}
+	if strings.Contains(got, "["+ColorTag(playbook.OutcomeFailed)+"::b]") {
+		t.Errorf("BuildTaskTab(ignored) = %q, want it to NOT contain the plain Failed color tag", got)
+	}
+	if !strings.Contains(got, "Status: ") || !strings.Contains(got, "Failed (ignored)") {
+		t.Errorf("BuildTaskTab(ignored) = %q, want the status text to read \"Failed (ignored)\"", got)
+	}
+
+	genuine := &playbook.TaskNode{
+		Name:  "diverging task",
+		Hosts: map[string]playbook.Outcome{"host2": playbook.OutcomeFailed},
+	}
+	got = BuildTaskTab(genuine, "host2", map[string]interface{}{}, playbook.OutcomeFailed)
+	if !strings.Contains(got, "["+ColorTag(playbook.OutcomeFailed)+"::b]") {
+		t.Errorf("BuildTaskTab(genuine) = %q, want it to contain the plain Failed color tag", got)
+	}
+	if strings.Contains(got, "(ignored)") {
+		t.Errorf("BuildTaskTab(genuine) = %q, want no \"(ignored)\" suffix", got)
+	}
+}
+
 func TestRoleFromPath(t *testing.T) {
 	cases := []struct {
 		name string

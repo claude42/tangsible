@@ -112,14 +112,12 @@ normally require writing temporary playbooks.
 
 - Go 1.24+ to build.
 - `ansible-playbook`
-- The `ansible.posix` collection:
-  ```
-  ansible-galaxy collection install ansible.posix
-  ```
-  Tangsible relies on that collection's `jsonl` callback plugin to receive
-  Ansible events while the playbook is running.
 - A real terminal (TTY) - Tangsible opens a full-screen UI and cannot run in
   a piped or headless shell.
+
+Tangsible ships its own bundled ansible callback plugin to receive Ansible
+events while a playbook runs, so no extra collection install is needed -
+see [License](#license) for the (GPL-3.0) plugin's own licensing.
 
 ## Install
 
@@ -151,7 +149,11 @@ Use
 go install code.aw.net/claude/tangsible@latest
 ```
 
-to install it in `$GOPATH/bin` (usually `~/go/bin`).
+to install it in `$GOPATH/bin` (usually `~/go/bin`). This installs only the
+binary, not the bundled callback plugin. Fetch `callback/tangsible_jsonl.py`
+from this repo and either place it at `$XDG_DATA_HOME/tangsible/` (default
+`~/.local/share/tangsible/`) or point `$TANGSIBLE_CALLBACK_DIR` at it.
+`tangsible version` reports whether it was actually found.
 
 ### From source
 
@@ -163,6 +165,13 @@ go build ./...
 
 This produces a `tangsible` binary in the current directory. You can use the
 provided `install.sh` to install it.
+
+### System-wide, or as a distro package
+
+`install.sh --prefix /usr/local` (run as root) installs tangsible for every
+user on a machine without building a package. If you're packaging tangsible
+for a distro instead (`.deb`/`.rpm`/AUR/nix/...), see `PACKAGING.md` for the
+file layout and why `install.sh` isn't the right tool for that job.
 
 ## Quick start
 
@@ -367,9 +376,6 @@ and should best be gitignored.
 Tangsible is currently aimed at the common interactive use case rather than
 complete `ansible-playbook` feature parity.
 
-- **`strategy: free`** is not supported. Tangsible's current data model
-  assumes a shared task progression across hosts, whereas `free` allows each
-  host to progress independently.
 - **Execution environments** are so far not (yet) supported; neither is **ansible-runner**.
 - **Interactive input after the TUI starts is not supported**. For example, a bare pause: task does not wait for input. `--step` will not work, neither will the ansible debugger.
   
@@ -393,6 +399,14 @@ go vet ./...     # lint
 go test ./...    # unit tests
 ```
 
+`go build`/`go run .` alone won't have the bundled callback plugin installed,
+so a plain build from source needs `$TANGSIBLE_CALLBACK_DIR` pointed at the
+repo's `callback/` directory to run a playbook, e.g.:
+
+```
+TANGSIBLE_CALLBACK_DIR="$PWD/callback" go run . run site.yml
+```
+
 There are also end-to-end smoke tests that run the real binary inside a
 `tmux` pane:
 
@@ -405,4 +419,8 @@ test run.
 
 ## License
 
-Apache-2.0 - see `LICENSE`.
+The `tangsible` binary/CLI is **Apache-2.0** licensed - see `LICENSE`.
+
+The bundled `callback/tangsible_jsonl.py` Ansible callback plugin is a
+**GPL-3.0-or-later** derivative of `ansible.posix.jsonl` - see
+`callback/LICENSE`.

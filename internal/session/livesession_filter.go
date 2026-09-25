@@ -85,7 +85,7 @@ func (s *liveSession) closeDialogs() {
 // fall back to it" case to fall back to.
 func (s *liveSession) applyFilter(newFilter uikit.FilterQuery) {
 	if newFilter != s.currentFilter && !s.following {
-		activeTask := s.activeTaskNow()
+		activeTasks := s.activeTasks()
 		var anchor *playbook.TaskNode
 		switch id := s.currentID.(type) {
 		case *playbook.TaskNode:
@@ -95,7 +95,7 @@ func (s *liveSession) applyFilter(newFilter uikit.FilterQuery) {
 		case *playbook.PlayNode:
 			stillVisible := false
 			for _, t := range id.Tasks {
-				if uikit.TaskVisible(t, newFilter, s.sourceIndex, t == activeTask) {
+				if uikit.TaskVisible(t, newFilter, s.sourceIndex, activeTasks[t]) {
 					stillVisible = true
 					break
 				}
@@ -104,8 +104,8 @@ func (s *liveSession) applyFilter(newFilter uikit.FilterQuery) {
 				anchor = id.Tasks[0]
 			}
 		}
-		if anchor != nil && !uikit.TaskVisible(anchor, newFilter, s.sourceIndex, anchor == activeTask) {
-			if nt := uikit.NearestVisibleTask(uikit.AllTasks(s.state), anchor, uikit.VisibleTasks(s.state, newFilter, s.sourceIndex, activeTask)); nt != nil {
+		if anchor != nil && !uikit.TaskVisible(anchor, newFilter, s.sourceIndex, activeTasks[anchor]) {
+			if nt := uikit.NearestVisibleTask(uikit.AllTasks(s.state), anchor, uikit.VisibleTasks(s.state, newFilter, s.sourceIndex, activeTasks)); nt != nil {
 				s.currentID = nt
 			}
 		}

@@ -119,6 +119,45 @@ func (p *TabbedPane) Primitive() tview.Primitive {
 	return p.root
 }
 
+// Clear removes every currently registered tab and force-blurs this
+// pane's own internal primitives, leaving it as if never used - a real,
+// reported bug this exists to fix (design-docs/ErrorOutput.md's own
+// investigation traces it start to finish): once this pane has been
+// focused at all, its own internal p.pages (the tview.Pages actually
+// switching between tab content) is left with hasFocus stuck true
+// forever after the caller stops using this pane - confirmed live with a
+// debug build that this survives even removing every tab (RemovePage for
+// each, same as SetTabs's own per-call cleanup) and even calling
+// Application.SetFocus elsewhere: whatever tview.Pages.Focus's own
+// internal delegation history left on p.pages's *own* embedded Box is
+// untouched by either of those, and Pages.HasFocus()'s "true if my own
+// Box.hasFocus is set" fallback (pages.go, checked once no registered
+// page itself reports focus) is what actually stays stale - so this
+// calls p.pages.Blur()/p.root.Blur() directly, the only thing that
+// reliably clears it.
+//
+// Why this matters beyond this one pane looking wrong: tview's own
+// Pages.InputHandler (used by this app's own top-level s.pages, "main"/
+// "output"/"split"/dialog pages) walks its registered pages in
+// registration order and dispatches every keystroke to the *first* one
+// whose own Item.HasFocus() is true - "output"/"split" register before
+// every dialog page, so a stuck outputTabs silently hijacked every real
+// keystroke meant for whatever dialog opened next (reported live: the
+// re-run dialog's own text fields accepted mouse clicks/checkbox toggles
+// fine - Pages.MouseHandler dispatches by Visible, an entirely separate,
+// unaffected mechanism - but typing and Tab did nothing at all). Callers
+// leaving this pane's content behind entirely (not just switching which
+// tab is active) must call this.
+func (p *TabbedPane) Clear() {
+	for _, name := range p.names {
+		p.pages.RemovePage(name)
+	}
+	p.names = nil
+	p.active = 0
+	p.pages.Blur()
+	p.root.Blur()
+}
+
 // SetTabs replaces the pane's own tab list wholesale - names (also used
 // as each tab's own Pages page name, so they must be unique) paired 1:1
 // with content primitives. Preserves the active tab by name if it's still

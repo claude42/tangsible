@@ -55,7 +55,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -499,6 +499,19 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	var procH runner.ProcHandle
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
+	// lastStderr (design-docs/ErrorOutput.md) is seeded from this entry's
+	// own saved <RunID>.stderr (config.ReadRunStderr) - WriteRunStderr
+	// already saved it alongside the .jsonl ReplayRunLog just read above,
+	// so a replayed failed run gets the exact same inline error-output
+	// block a live one does, not just its tree. nil (config.ReadRunStderr's
+	// own "nothing to show" case - no file, or an entry saved before this
+	// reader existed) degrades to rebuild()'s existing "nothing wired"
+	// behavior for it. Overwritten for real the moment a rerun happens
+	// from within this session, same as exitCode/progH below.
+	var lastStderr atomic.Pointer[[]string]
+	if saved := config.ReadRunStderr(config.TangsibleStatePath, e.RunID); saved != nil {
+		lastStderr.Store(&saved)
+	}
 	processDone.Store(true)
 	exitCode.Store(int32(e.ExitCode))
 
@@ -534,7 +547,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		outcomes = append(outcomes, o)
 		outcomesMu.Unlock()
 	}
-	requestRerun := runner.NewRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome, sourceIndex)
+	requestRerun := runner.NewRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &progH, apply, recordOutcome, sourceIndex)
 
 	revisitReturn := func() {
 		quitting.Store(true) // before Stop() - same race note as main.go's
@@ -542,7 +555,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		app.Stop()
 	}
 
-	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode,
+	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode, &lastStderr,
 		sourceIndex, knownTags, knownPlayNames, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
 		// initialPlay is always "" here, unlike Tags/SkipTags/Hosts just
 		// after it - --start-at-play is never recorded into invArgs (see
@@ -581,7 +594,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	outcomesMu.Unlock()
 	for _, o := range all {
 		if o.ExitCode != runner.AnsibleUserInterruptedExitCode {
-			for _, l := range o.ChildStderr {
+			for _, l := range runner.FilterRedundantWarnings(o.ChildStderr) {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
 		}

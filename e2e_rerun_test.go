@@ -72,6 +72,18 @@ func repoRoot(t *testing.T) string {
 	return wd
 }
 
+// e2eCallbackEnv is the "TANGSIBLE_CALLBACK_DIR=... " shell prefix every
+// e2e-launched binary invocation below needs: buildE2EBinary builds into a
+// fresh t.TempDir(), with no sibling callback/ directory the way a real
+// release archive/install would have next to the binary (design-docs/
+// OwnCallbackPlugin.md's ResolveCallbackPluginDir) - pointed at this
+// repo's own tracked callback/ dir instead, the same dev-only override
+// used throughout that doc's own manual testing.
+func e2eCallbackEnv(t *testing.T) string {
+	t.Helper()
+	return fmt.Sprintf("TANGSIBLE_CALLBACK_DIR=%s", shellQuote(filepath.Join(repoRoot(t), "callback")))
+}
+
 // shellQuote wraps s in single quotes, escaping any embedded ones - safe
 // to splice into a shell command line sent via tmux send-keys, in case a
 // t.TempDir() or repo path ever contains a space.
@@ -221,7 +233,7 @@ func TestE2E_RerunDialog_TabCyclingLandsInCorrectField(t *testing.T) {
 	playbook := filepath.Join(repoRoot(t), "testdata", "outcomes.yml")
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s -i localhost,", shellQuote(workDir), shellQuote(bin), shellQuote(playbook)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s -i localhost,", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook)), "Enter")
 	s.waitFor("Playbook completed successfully", 15*time.Second)
 
 	s.send("r")
@@ -293,7 +305,7 @@ func TestE2E_RerunDialog_StartWithPlaySkipsEarlierPlays(t *testing.T) {
 	}
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s -i localhost,", shellQuote(workDir), shellQuote(bin), shellQuote(playbook)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s -i localhost,", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook)), "Enter")
 	s.waitFor("Playbook completed successfully", 15*time.Second)
 
 	s.send("r")
@@ -389,7 +401,7 @@ func TestE2E_RerunDialog_ResumeWhereFailedCascadesToHostLimitedRerun(t *testing.
 	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s -i %s", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
@@ -434,7 +446,7 @@ func TestE2E_RerunDialog_UncheckingResumeClearsPlayAndOnlyFailed(t *testing.T) {
 	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s -i %s", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
@@ -473,7 +485,7 @@ func TestE2E_RerunDialog_OnlyFailedAndOnlyUnreachableUnionIntoHosts(t *testing.T
 	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s -i %s", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
@@ -507,7 +519,7 @@ func TestE2E_RerunDialog_EditingHostsFieldUnchecksBothOnlyCheckboxes(t *testing.
 	playbook, inventory := writeFailedUnreachableFixture(t, workDir)
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s -i %s", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s -i %s", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
@@ -558,7 +570,7 @@ func TestE2E_RerunDialog_ClearedFieldStaysCleared(t *testing.T) {
 	inventory := filepath.Join(repoRoot(t), "testdata", "multihost-inventory.ini")
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s -i %s -l host1", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s -i %s -l host1", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook), shellQuote(inventory)), "Enter")
 	s.waitFor("Playbook completed successfully", 15*time.Second)
 
 	s.send("r")
@@ -612,11 +624,11 @@ func TestE2E_CLIRerun_ShowsDialogBeforeRunning(t *testing.T) {
 	// ever render, so waiting for that text is enough to know the write
 	// already landed - no extra wait for the seeding process to exit.
 	seed := startTmuxSession(t)
-	seed.send(fmt.Sprintf("cd %s && %s run %s -i localhost, -l localhost", shellQuote(workDir), shellQuote(bin), shellQuote(playbook)), "Enter")
+	seed.send(fmt.Sprintf("cd %s && %s %s run %s -i localhost, -l localhost", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook)), "Enter")
 	seed.waitFor("Playbook completed successfully", 15*time.Second)
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s rerun", shellQuote(workDir), shellQuote(bin)), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s rerun", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
 	got := s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
 
 	if strings.Contains(got, "Playbook completed successfully") {
@@ -674,7 +686,7 @@ func TestE2E_CLIStartAtPlay(t *testing.T) {
 	}
 
 	s := startTmuxSession(t)
-	s.send(fmt.Sprintf("cd %s && %s run %s --start-at-play %s -i localhost,", shellQuote(workDir), shellQuote(bin), shellQuote(playbook), shellQuote("second play")), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s run %s --start-at-play %s -i localhost,", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook), shellQuote("second play")), "Enter")
 	got := s.waitFor("Playbook completed successfully", 15*time.Second)
 
 	if strings.Contains(got, "first play") {

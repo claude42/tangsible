@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Shells out to ansible-playbook using the ansible.posix.jsonl stdout
-// callback and streams events live into an interactive TUI as they arrive.
+// Shells out to ansible-playbook using tangsible's own bundled aggregate
+// callback plugin (design-docs/OwnCallbackPlugin.md, a GPL-3.0 fork of
+// ansible.posix.jsonl) and streams events live into an interactive TUI as
+// they arrive.
 package session
 
 import (
@@ -534,6 +536,14 @@ func Main(build BuildInfo) {
 	state := &pb.PlaybookState{}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
+	// lastStderr (design-docs/ErrorOutput.md) holds the current/most
+	// recent generation's own collected stderr lines, written by
+	// runner.RunOneGeneration/NewRequestRerun's own fail() right alongside
+	// exitCode - see RunOneGeneration's own doc comment for why that
+	// ordering (both stored before processDone) is what makes rebuild()'s
+	// own read of it, once processDone is observed true, safe with no
+	// separate lock.
+	var lastStderr atomic.Pointer[[]string]
 	if pending == nil {
 		// "rerun": no generation is in flight yet, or ever has been - true
 		// is what's accurate here, and what NewLiveTUI's
@@ -571,9 +581,9 @@ func Main(build BuildInfo) {
 	// playbook/roleDisplayName/state/procH/processDone/exitCode/progH/
 	// apply/recordOutcome are just what it closes over here.
 	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan runner.StreamItem, stderrLines <-chan []string, runID string, peeked ...runner.StreamItem) {
-		runner.RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, &exitCode, &processDone, recordOutcome, peeked...)
+		runner.RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, &exitCode, &processDone, &lastStderr, recordOutcome, peeked...)
 	}
-	requestRerun := runner.NewRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &progH, apply, recordOutcome, sourceIndex)
+	requestRerun := runner.NewRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &progH, apply, recordOutcome, sourceIndex)
 
 	// displayName is what the TUI's top bar shows - normally the resolved
 	// playbook's own filename, but a role session's playbook local holds
@@ -586,7 +596,7 @@ func Main(build BuildInfo) {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, sourceIndex, knownTags, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, sourceIndex, knownTags, knownPlayNames, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)
@@ -607,10 +617,14 @@ func Main(build BuildInfo) {
 	// mid-session rerun doesn't erase what an earlier generation reported -
 	// that generation's own tree view is long gone by the time Tangsible
 	// finally exits (Rerun.md's re-run forgets the previous run's results),
-	// so this is the only remaining record of it.
+	// so this is the only remaining record of it - except for
+	// FilterRedundantWarnings' own [WARNING]: lines, which are dropped
+	// here specifically because that generation's own JSON events (the
+	// same data behind those [WARNING]: lines) got saved to a run log and
+	// stay reachable via "tangsible revisit" even after this session ends.
 	for _, o := range all {
 		if o.ExitCode != runner.AnsibleUserInterruptedExitCode {
-			for _, l := range o.ChildStderr {
+			for _, l := range runner.FilterRedundantWarnings(o.ChildStderr) {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
 		}

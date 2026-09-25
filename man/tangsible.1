@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible" "1" "2026-09-17" "Tangsible" "Tangsible Manual"
+.TH "tangsible" "1" "2026-09-20" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -74,13 +74,8 @@ Print version information about tangsible and all components it'\&s using.\&
 .RE
 .SH REQUIREMENTS
 .PP
-\fBtangsible\fR requires \fBansible-playbook\fR and the jsonl plugin from the \fBansible.\&posix\fR collection to be installed and on \fBPATH\fR:
-.PP
-.nf
-.RS 4
-ansible-galaxy collection install ansible\&.posix
-.fi
-.RE
+\fBtangsible\fR requires \fBansible-playbook\fR, \fBansible-inventory\fR, \fBansible-doc\fR,
+\fBansible-config\fR, and \fBansible-vault\fR to be installed and on \fBPATH\fR.\&
 .PP
 .SH CONFIGURATION
 .PP
@@ -124,13 +119,8 @@ invocation.\&
 \fBnotify_playbook_finished\fR/\fBnotify_task_failed\fR send a terminal notification
 (a desktop notification via OSC 9, OSC 777, or kitty'\&s OSC 99, or a plain
 terminal bell) when the playbook finishes, or when a task fails,
-respectively.\& There'\&s no auto-detection of which protocol a terminal
-supports; pick the one yours understands.\& Neither fires for a
-user-interrupted run (\fBq\fR/\fBCtrl-C\fR) or for a pre-flight failure (bad
-playbook path, missing inventory, .\&.\&.\&).\& \fBnotify_task_failed_max\fR caps how
-many individual task-failed notifications fire per run; once reached,
-further failures are counted silently and reported as a single "N further
-task failures suppressed" notification once the run finishes.\&
+respectively.\& \fBnotify_task_failed_max\fR caps how many individual task-failed
+notifications fire per run.\&
 .PP
 .SH FILES
 .PP

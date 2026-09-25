@@ -106,9 +106,14 @@ type GenerationOutcome struct {
 }
 
 // SpawnGeneration starts one ansible-playbook invocation for playbook+args,
-// wiring up its stdout/stderr exactly as every generation needs (see
+// wiring up its event stream/stderr exactly as every generation needs (see
 // ScanEvents/StreamStderr) and pointing procH at the new child so Ctrl-C/q
-// forwarding targets it. Shared by the first invocation and every rerun
+// forwarding targets it. The returned stdoutCh - named for historical
+// continuity with the days when ansible.posix.jsonl wrote events straight
+// to stdout - is now actually sourced from the dedicated event fd our own
+// bundled plugin writes to (design-docs/OwnCallbackPlugin.md); the child's
+// real stdout is left untouched for the user's own stdout callback. Shared
+// by the first invocation and every rerun
 // since - the only thing that differs between them is what main does with
 // the first item off the returned channel (see main's pre-flight gate,
 // which only ever applies to the first invocation - a rerun's own
@@ -132,25 +137,47 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle) (cmd *ex
 	cmdArgs = append(cmdArgs, args...)
 	cmdArgs = append(cmdArgs, "--diff")
 	cmd = exec.Command("ansible-playbook", cmdArgs...)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
-		// Pin compact (single-line) JSON so our line-based scanner can't be
-		// broken by a user's ansible.cfg overriding this to pretty-print.
-		"ANSIBLE_JSON_INDENT=0",
-	)
 
-	stdout, err := cmd.StdoutPipe()
+	pluginEnv, err := CallbackPluginEnv()
 	if err != nil {
-		return nil, nil, nil, "", fmt.Errorf("failed to attach stdout: %w", err)
+		return nil, nil, nil, "", err
 	}
+
+	// The plugin (design-docs/OwnCallbackPlugin.md) is an 'aggregate'
+	// callback, not a 'stdout' one, so it needs a dedicated transport
+	// rather than the stdout pipe: a pipe whose write end is inherited by
+	// the child as fd 3 (ExtraFiles' documented numbering - fd 3 is the
+	// first slot after the child's own stdin/stdout/stderr), named to the
+	// plugin via TANGSIBLE_EVENT_FD. This frees stdout for the user's own
+	// stdout callback (left at ansible-playbook's default unless the user
+	// configured one) - deliberately left unread here (cmd.Stdout stays
+	// nil, so exec redirects it to /dev/null) since capturing/surfacing it
+	// is Phase 2, not this step.
+	eventR, eventW, err := os.Pipe()
+	if err != nil {
+		return nil, nil, nil, "", fmt.Errorf("failed to create event pipe: %w", err)
+	}
+	cmd.ExtraFiles = []*os.File{eventW}
+
+	cmd.Env = append(append(os.Environ(), pluginEnv...), "TANGSIBLE_EVENT_FD=3")
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		eventR.Close()
+		eventW.Close()
 		return nil, nil, nil, "", fmt.Errorf("failed to attach stderr: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
+		eventR.Close()
+		eventW.Close()
 		return nil, nil, nil, "", fmt.Errorf("failed to start ansible-playbook: %w", err)
 	}
 	procH.Store(cmd.Process)
+
+	// Our own copy of the write end must close now, not just the child's:
+	// eventR only sees EOF once every copy of the write end is closed, and
+	// exec.Cmd never closes ExtraFiles entries itself.
+	eventW.Close()
 
 	runID = config.NewRunID(time.Now())
 	logFile := config.CreateRunLog(config.TangsibleStatePath, runID)
@@ -158,7 +185,7 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle) (cmd *ex
 		runID = ""
 	}
 
-	stdoutCh = ScanEvents(stdout, logFile)
+	stdoutCh = ScanEvents(eventR, logFile)
 	lines := make(chan []string, 1)
 	go func() { lines <- StreamStderr(stderr) }()
 
@@ -247,6 +274,36 @@ func StreamStderr(r io.Reader) []string {
 		lines = append(lines, scanner.Text())
 	}
 	return lines
+}
+
+// FilterRedundantWarnings drops every line whose trimmed text starts with
+// "[WARNING]:" - ansible-core's own stable, long-standing prefix for
+// Display.warning() output. Confirmed live (design-docs/
+// OwnCallbackPlugin.md's own testing): a per-task/per-host warning printed
+// this way is always *also* embedded in that host's own JSON result
+// ("warnings" field) - the same data the drill-down's Warnings section and
+// the tree's own ⚠ marker already read - so printing it a second time
+// after the TUI closes is pure duplication, not new information. Anything
+// else (real errors, tracebacks, config problems) passes through
+// unchanged, since those typically have no other visibility path.
+//
+// Deliberately NOT applied to StartFirstGeneration's own pre-flight-
+// failure dump: that path never builds a TUI at all (a bad playbook path,
+// a parse error, a missing inventory - see its own doc comment), so
+// stderr - [WARNING]: lines included - is the *only* signal the user ever
+// gets; filtering there would risk silently swallowing the one clue
+// available. Only applied where a drill-down (live, or via a saved run log
+// through "revisit") genuinely already covers the same ground: main.go's
+// and revisit.go's own post-app.Run() dumps.
+func FilterRedundantWarnings(lines []string) []string {
+	var kept []string
+	for _, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "[WARNING]:") {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	return kept
 }
 
 // StreamItem is one unit of stdout output. isEvent is true whenever the

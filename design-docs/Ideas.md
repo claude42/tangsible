@@ -9,10 +9,6 @@ immediately implemented.
 
   to print out all variables
 
-* Strategy free
-
-* Show corresponding file in drilldown view
-
 * Use virtual terminal to run ansible-playbook - to support things like
   --step, the debuger or ansible.builtin.pause
 
@@ -32,8 +28,6 @@ immediately implemented.
 
 * More Rerun Options: Failed, Current, Start with Current, Select Tasks, Failed Hosts, All
   hosts
-
-* Show global stderr after summary page
 
 * tangsible config
 
@@ -69,7 +63,22 @@ immediately implemented.
 
 * --check -> visualize items which do not support --check
 
-* add ignored to the OK:x/Chgd:x/Skip:x/Fail:x/Unrch:x fallback
+* Go to first failed task keyboard shortcut
+
+* edit file
+
+* hide encrypted values in drill down
+
+* show template for all hosts
+
+* show undefined variables in template
+
+
+
+* system wide install + /etc/tangsible/config.toml
+
+* allow tangsible run -l host playbook.yml (in addition to tangsible run
+  playbook.yml -l host)
 
 ------
 

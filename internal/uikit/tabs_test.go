@@ -253,3 +253,40 @@ func TestTabbedPaneSetHeaderStyleChangesTagColor(t *testing.T) {
 		t.Errorf("header text = %q, want no leftover navy tags after SetHeaderStyle", got)
 	}
 }
+
+// TestTabbedPaneClearResetsStateAndBlursStuckFocus is a real, reported bug
+// (design-docs/ErrorOutput.md): once this pane's own internal p.pages has
+// ever been focused, plain tab removal (what SetTabs itself already does
+// on every call) isn't enough to stop Primitive().HasFocus() from
+// reporting true forever after - confirmed only Clear's own explicit
+// p.pages.Blur()/p.root.Blur() calls fix it. Focus() is invoked directly
+// here (a no-op delegate) rather than through a real *tview.Application,
+// mirroring how this whole package's other tests exercise tview
+// primitives with no live screen.
+func TestTabbedPaneClearResetsStateAndBlursStuckFocus(t *testing.T) {
+	p := NewTabbedPane()
+	p.SetTabs([]string{"Task", "Output"}, primitives(2))
+
+	// A self-forwarding delegate, standing in for *tview.Application.
+	// SetFocus's own real recursive behavior (application.go: each
+	// container that delegates rather than taking focus itself calls this
+	// same delegate again on whichever child it hands off to) - a plain
+	// no-op delegate wouldn't actually focus anything, since Flex/Pages'
+	// own Focus() only hands off to this callback rather than calling
+	// Box.Focus() on themselves directly.
+	var focus func(tview.Primitive)
+	focus = func(prim tview.Primitive) { prim.Focus(focus) }
+	p.Primitive().Focus(focus)
+	if !p.Primitive().HasFocus() {
+		t.Fatal("Primitive().HasFocus() = false right after Focus(), want true (test setup itself is broken)")
+	}
+
+	p.Clear()
+
+	if got := p.ActiveName(); got != "" {
+		t.Errorf("ActiveName() after Clear() = %q, want \"\"", got)
+	}
+	if p.Primitive().HasFocus() {
+		t.Error("Primitive().HasFocus() = true after Clear(), want false - this is exactly the bug that silently hijacked keyboard input meant for whatever dialog opened next")
+	}
+}

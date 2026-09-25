@@ -423,7 +423,14 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 		return "", fmt.Errorf("%s", msg)
 	}
 
-	entries := runner.ParseListTasksOutput(stdout.String())
+	// nil, not source.FreeStrategyPlayNames(playbook): this tab answers
+	// "which plays/tasks would actually run" (CLAUDE.md's own Host/hosts
+	// section) - a free-strategy play's tasks genuinely do run for this
+	// host, so excluding them here (the way BuildProgressSkeleton's live
+	// progress-fill prediction has to, design-docs/StrategyFree.md) would
+	// wrongly drop real, correct entries from a static preview that was
+	// never trying to predict live event matching in the first place.
+	entries := runner.ParseListTasksOutput(stdout.String(), nil)
 	if len(entries) == 0 {
 		return fmt.Sprintf("no plays would run for host %q", hostname), nil
 	}
@@ -598,12 +605,13 @@ func FetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 		}
 	}
 
+	pluginEnv, err := runner.CallbackPluginEnv()
+	if err != nil {
+		return "", err
+	}
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
 	cmd := exec.Command("ansible-playbook", args...)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
-		"ANSIBLE_JSON_INDENT=0",
-	)
+	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()

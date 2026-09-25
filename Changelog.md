@@ -9,18 +9,39 @@
   or were unreachable in the previous run.
 - `rerun` verb: matching `--only-failed`, `--only-unreachable`,
   `--resume-where-failed` flags to pre-fill/pre-check those checkboxes.
-- `y` copies the currently active tab's content to the clipboard (via OSC 52)
+- Drill down view: `y` copies the currently active tab's content to the
+  clipboard (via OSC 52)
 - Terminal notifications on playbook finish / task failure
 - New drill-down tab: File displays the contents of the file associated to
   the task
+- Tangsible now ships its own bundled ansible callback plugin
+  instead of relying on the `ansible.posix` collection's `jsonl` callback.
+- Per-host task durations and total runtimes
+- Handler tasks are now tagged `[Handler]` in the tree, distinguishing them
+  from regular tasks.
+- A task that failed with `ignore_errors: true` is now tagged `ignored` in
+  the tree, and the end-of-run summary gains a matching "ignored" category.
+- `strategy: free` is now supported - including showing more than one task's
+  spinner at once
+- ansible-playbook stderr output is now shown inline, right below the
+  "Playbook failed" line
+- System-wide installs via install.sh --prefix &lt;dir&gt;
+- Support system-wide config file /etc/tangsible/config.toml
 
 ### Changed
 
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely
   nothing to show, instead of an empty tab.
+- Ignored failures (`ignore_errors: true`) now render in the same orange
+  used for their `ignored` tag everywhere a host's outcome is shown (tree
+  rows, drill-down status line, diff view), instead of alarming red.
 
 ### Fixed
 
+- Re-run dialog: opening the output drill-down for a failed host and then
+  closing it before pressing `r` could leave the dialog's own text fields
+  silently unable to accept keyboard input (typing, Tab) - mouse
+  interaction and Escape still worked.
 - `rerun`: "Resume where failed" failed the whole rerun outright when the
   target play had no explicit `name:` in the playbook.
 - Two-paned drill-down: keyboard scrolling (arrows, Ctrl-F/Ctrl-B, Home/End)
@@ -35,6 +56,7 @@
 ### Removed
 
 - Re-run dialog: dropped the "Start with task" field.
+- The `ansible.posix` collection is no longer required.
 
 ## [0.1.3] - 2026-09-05
 

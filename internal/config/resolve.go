@@ -38,18 +38,20 @@ const TangsibleDir = ".tangsible"
 var TangsibleConfigPath = filepath.Join(TangsibleDir, "config.toml")
 
 // SettingsConfig is the shape of Tangsible's user-authored settings files -
-// the project-local .tangsible/config.toml (tangsibleConfigPath) and the
-// global $XDG_CONFIG_HOME/tangsible/config.toml (resolved via configHome)
-// - both read-only from Tangsible's own point of view: nothing in this
-// program ever opens either one for writing. That read-only guarantee is
-// the actual fix design-docs/Dottangsible-directory.md exists to make
-// possible - not just moving invocation history out of the way, but
-// removing every code path that could ever clobber a user's own comments
-// or formatting in this file. The two files keep sharing this one type
-// (and readSettingsConfig) rather than forking it, since their shape truly
-// is identical - the global file's own DefaultTreeState is simply never
-// consulted in practice (see its own doc comment below), harmlessly
-// unused rather than modeled separately.
+// the project-local .tangsible/config.toml (tangsibleConfigPath), the
+// global $XDG_CONFIG_HOME/tangsible/config.toml (resolved via configHome),
+// and the system-wide SystemConfigPath (/etc/tangsible/config.toml, an
+// admin-set default below both of those) - all three read-only from
+// Tangsible's own point of view: nothing in this program ever opens any of
+// them for writing. That read-only guarantee is the actual fix
+// design-docs/Dottangsible-directory.md exists to make possible - not just
+// moving invocation history out of the way, but removing every code path
+// that could ever clobber a user's own comments or formatting in this
+// file. All three files keep sharing this one type (and
+// readSettingsConfig) rather than forking it, since their shape truly is
+// identical - the global and system files' own DefaultTreeState etc. are
+// simply never consulted in practice (see its own doc comment below),
+// harmlessly unused rather than modeled separately.
 //
 // State that Tangsible itself owns and writes - invocation history, and
 // which target ran most recently - lives in the separate stateConfig
@@ -308,6 +310,47 @@ func ConfigHome() string {
 	return filepath.Join(home, ".config")
 }
 
+// SystemConfigPath is the system-wide settings file an administrator can
+// author to set a shared default (currently just General.DefaultPlaybook,
+// the only key ResolvePlaybook's cascade actually consults beyond the
+// project-local file - see SettingsConfig's own doc comment) for every
+// user on a machine, below the project and per-user tiers.
+//
+// Deliberately /etc/tangsible/config.toml, not $XDG_CONFIG_DIRS/tangsible/
+// config.toml (i.e. /etc/xdg/tangsible/config.toml by its own default).
+// The Base Directory Specification technically covers this case, but in
+// practice $XDG_CONFIG_DIRS is honored almost exclusively by desktop-
+// session components (autostart entries, menus, user-dirs.defaults) - on a
+// real system, checking /etc/xdg turns up exactly that and nothing else,
+// while CLI/server tools that want a system config tier overwhelmingly use
+// a plain /etc/<name>.conf or /etc/<name>/ instead (matching FHS's own
+// stance on /etc: host-specific configuration, no XDG involvement
+// mandated). This follows that convention instead, using the same
+// config.toml filename and [general] shape as the other two tiers so an
+// admin can hand a user roughly the file they'd have written themselves.
+//
+// A var, not a const, purely so tests can point it at a temp file instead
+// of the real /etc/tangsible/config.toml - same reasoning as
+// TangsibleConfigPath being a var.
+var SystemConfigPath = filepath.Join("/etc", "tangsible", "config.toml")
+
+// DataHome mirrors ConfigHome for the XDG Base Directory Specification's
+// data-home rule: $XDG_DATA_HOME if set and non-empty, else
+// $HOME/.local/share. Used by runner.ResolveCallbackPluginDir to find the
+// bundled ansible callback plugin's installed location (design-docs/
+// OwnCallbackPlugin.md's "Shipping the .py"). Returns "" if neither can be
+// determined, same convention as ConfigHome.
+func DataHome() string {
+	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share")
+}
+
 // ReadTOMLFile decodes path as TOML into a T, returning T's zero value if
 // the file doesn't exist (silently - the common case for most of
 // resolvePlaybook's sources, not worth a warning) or can't be parsed (a
@@ -345,8 +388,9 @@ func ReadDefaultPlaybook(path string) string {
 }
 
 // ResolvePlaybook determines which playbook to run when none was given
-// explicitly on the command line, trying each source in order and
-// returning the first hit along with a short description of where it
+// explicitly on the command line, trying each source in order - env var,
+// project config, per-user config, system config, then a bare site.yml -
+// and returning the first hit along with a short description of where it
 // came from (for the startup note main prints to stderr). Returns
 // ("", "") if nothing could be determined - the caller treats that as a
 // usage error.
@@ -368,6 +412,9 @@ func ResolvePlaybook() (path, source string) {
 		if v := ReadDefaultPlaybook(configPath); v != "" {
 			return v, configPath
 		}
+	}
+	if v := ReadDefaultPlaybook(SystemConfigPath); v != "" {
+		return v, SystemConfigPath
 	}
 	if _, err := os.Stat("site.yml"); err == nil {
 		return "site.yml", "./site.yml"

@@ -57,6 +57,11 @@ but it's still very cumbersome.
   * Implementing a Python callback plugin that interfaces with my app sounds
     like more complexity than necessary (but if the benefits would outweigh
     the simple shell command solution I would be open to it)
+  * Note (2026-09-18): the benefits did end up outweighing it - see
+    `design-docs/OwnCallbackPlugin.md`. Tangsible now ships its own bundled
+    GPL-3.0 fork of `ansible.posix.jsonl` as an `aggregate` callback,
+    dropping the `ansible.posix` collection requirement and unblocking
+    real per-host task timing (`PerHostTaskTiming.md`).
 * In the beginning only expose a very limited subset of ansible-playbooks
   features / configs. Only add more as necessary.
 

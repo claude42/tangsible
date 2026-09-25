@@ -19,8 +19,12 @@ import (
 	"time"
 )
 
-// RawEvent is the subset of the ansible.posix.jsonl event schema this app
-// cares about. Fields we don't need are simply dropped by json.Unmarshal.
+// RawEvent is the subset of the event schema this app cares about, emitted
+// by tangsible's own bundled callback plugin (design-docs/
+// OwnCallbackPlugin.md) - a GPL-3.0 fork of ansible.posix.jsonl that
+// deliberately mimics its schema byte-for-byte except where noted (Host
+// below), so this type doubles as the schema for both. Fields we don't
+// need are simply dropped by json.Unmarshal.
 // Hosts keeps each host's full original bytes (rather than decoding
 // straight into HostResult) so the complete result - not just the fields
 // below - can be recorded and shown later; see aggregate.go's TaskNode.Raw.
@@ -29,6 +33,15 @@ type RawEvent struct {
 	Play  *PlayRef                   `json:"play"`
 	Task  *TaskRef                   `json:"task"`
 	Hosts map[string]json.RawMessage `json:"hosts"`
+
+	// Host is only ever populated on a "v2_runner_on_start" event - the one
+	// event this app's bundled callback plugin fork emits that jsonl.py
+	// never did under the linear strategy (design-docs/
+	// OwnCallbackPlugin.md). It names which single host was just dispatched
+	// for the current task, disambiguating "genuinely slow" from "queued
+	// behind a full --forks" once paired with that same host's later
+	// outcome-event timestamp (aggregate.go's TaskNode.Started/Finished).
+	Host string `json:"host"`
 
 	// TimestampText is the event's own "_timestamp" (empirically RFC3339
 	// with fractional seconds, e.g. "2026-08-06T12:41:02.439015Z").
@@ -62,6 +75,25 @@ type TaskRef struct {
 	// output drill-down view to look up the task's raw source text via
 	// source.go's taskSourceIndex.
 	Path string `json:"path"`
+	// ID is the task's own stable UUID (task._uuid, stringified) - present
+	// on every task-start and terminal event alike, under stock
+	// ansible.posix.jsonl as much as this app's own bundled fork
+	// (design-docs/OwnCallbackPlugin.md's own "_new_task shapes ...
+	// exactly as jsonl has it" - confirmed directly against jsonl.py's own
+	// source, not assumed). Unlike Name/Path, it's stable and unique
+	// across every event referencing the same task, which is what lets
+	// aggregate.go's findOrCreateTask resolve a task's own identity from
+	// any event that reports it - not just the one that happened to start
+	// it - see design-docs/StrategyFree.md.
+	ID string `json:"id"`
+	// IsHandler is only ever true on a "v2_playbook_on_handler_task_start"
+	// event - stamped by this app's own bundled callback plugin fork
+	// (design-docs/OwnCallbackPlugin.md), absent (so false) on every other
+	// event and on any pre-fork run log. jsonl.py's own emitted JSON has
+	// no field distinguishing a handler's task-start event from a regular
+	// task's, even though aggregate.go already gives each its own
+	// TaskNode - this is what lets that distinction actually render.
+	IsHandler bool `json:"is_handler"`
 }
 
 // HostResult is the handful of classification fields Apply needs to decide
@@ -144,4 +176,21 @@ func hasNonEmptyStderr(raw json.RawMessage) bool {
 		return false
 	}
 	return decoded.Stderr != ""
+}
+
+// hasIgnoreErrors reports whether raw carries "ignore_errors": true -
+// present only on a v2_runner_on_failed result whose task set
+// ignore_errors: true, only ever emitted at all by this app's own bundled
+// callback plugin fork (design-docs/OwnCallbackPlugin.md - jsonl.py itself
+// receives this as a callback kwarg but never writes it into the emitted
+// JSON), so this is always false for a pre-fork run log or any other
+// outcome kind.
+func hasIgnoreErrors(raw json.RawMessage) bool {
+	var decoded struct {
+		IgnoreErrors bool `json:"ignore_errors"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return false
+	}
+	return decoded.IgnoreErrors
 }
