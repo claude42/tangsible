@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
@@ -558,5 +559,42 @@ func TestDiffTaskKeyAndPlayName(t *testing.T) {
 	}
 	if got := DiffPlayName(PlayAlignment{OldPlay: oldP}); got != oldP {
 		t.Error("DiffPlayName() for an old-only alignment should return OldPlay")
+	}
+}
+
+func TestLastRunID(t *testing.T) {
+	cfg := config.StateConfig{
+		History: []config.PlaybookHistory{
+			{
+				Playbook: "site.yml",
+				Invocations: []config.InvocationRecord{
+					{RunID: "run-1"},
+					{RunID: "run-2"}, // most recent - last in run order, not first
+				},
+			},
+			{Role: "webserver", Invocations: []config.InvocationRecord{{RunID: "run-role-1"}}},
+			{Playbook: "no-run-id-yet.yml", Invocations: []config.InvocationRecord{{RunID: ""}}},
+			{Playbook: "no-invocations-at-all.yml"},
+		},
+	}
+
+	cases := []struct {
+		name     string
+		playbook string
+		role     string
+		want     string
+	}{
+		{"returns the most recent invocation's RunID, not the first", "site.yml", "", "run-2"},
+		{"a role-originated entry matches on Role, not Playbook", "", "webserver", "run-role-1"},
+		{"an invocation with no saved run log yet", "no-run-id-yet.yml", "", ""},
+		{"an entry with zero invocations", "no-invocations-at-all.yml", "", ""},
+		{"no matching history entry at all", "never-run.yml", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := LastRunID(cfg, c.playbook, c.role); got != c.want {
+				t.Errorf("LastRunID(cfg, %q, %q) = %q, want %q", c.playbook, c.role, got, c.want)
+			}
+		})
 	}
 }

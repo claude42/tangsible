@@ -99,6 +99,36 @@ func TestRevisitStatusLabel(t *testing.T) {
 	}
 }
 
+// TestRevisitStatusColor is RevisitStatusLabel's own sibling - both are
+// classifyExit's two return values, but only Label was exercised directly
+// above; Color needs its own pass since "Host failed" and plain "Failed"
+// intentionally share the same color (red) despite being different words -
+// this app's own "never rely on color as the sole signal" convention
+// (design-docs/Morehosts.md) applies here too.
+func TestRevisitStatusColor(t *testing.T) {
+	cases := []struct {
+		name           string
+		exitCode       int
+		hadUnreachable *bool
+		want           string
+	}{
+		{"success", 0, nil, "green"},
+		{"user interrupted", runner.AnsibleUserInterruptedExitCode, nil, "gray"},
+		{"generic failure", 1, nil, "red"},
+		{"host failed shares failure's own red, despite its own distinct label", 2, nil, "red"},
+		{"benign exit-4 unreachable", 4, boolPtr(true), "green"},
+		{"exit-4 parser error", 4, boolPtr(false), "red"},
+		{"unrecognized code", 255, nil, "red"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := RevisitStatusColor(c.exitCode, c.hadUnreachable); got != c.want {
+				t.Errorf("RevisitStatusColor(%d, %v) = %q, want %q", c.exitCode, c.hadUnreachable, got, c.want)
+			}
+		})
+	}
+}
+
 func TestRevisitRowTextStatusColor(t *testing.T) {
 	success := RevisitRowText(RevisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 0}, nil, 7, false)
 	if !strings.Contains(success, "[green]") || !strings.Contains(success, "Success") {

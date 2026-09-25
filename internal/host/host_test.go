@@ -23,6 +23,8 @@ import (
 	"testing"
 
 	"code.aw.net/claude/tangsible/internal/inventory"
+	"code.aw.net/claude/tangsible/internal/uikit"
+	"github.com/rivo/tview"
 )
 
 func TestParseHostArgs(t *testing.T) {
@@ -324,5 +326,45 @@ func TestDiscoverHostVarsFiles(t *testing.T) {
 
 	if got := DiscoverHostVarsFiles("nonexistent", []string{dir1, dir2}); len(got) != 0 {
 		t.Errorf("discoverHostVarsFiles(nonexistent) = %v, want empty", got)
+	}
+}
+
+func TestHostRowText(t *testing.T) {
+	if got, want := HostRowText("web1", false), "[white]web1[-]"; got != want {
+		t.Errorf("HostRowText(selected=false) = %q, want %q", got, want)
+	}
+	if got, want := HostRowText("web1", true), "["+uikit.PureBlack+":lightgray:b]web1[-:-:-]"; got != want {
+		t.Errorf("HostRowText(selected=true) = %q, want %q", got, want)
+	}
+}
+
+// TestHostRowTextEscapesBrackets confirms a hostname containing a literal
+// "[" (unusual, but not impossible - an inventory hostname is arbitrary
+// user-authored text) doesn't get misread as a color tag.
+func TestHostRowTextEscapesBrackets(t *testing.T) {
+	got := HostRowText("host[1]", false)
+	want := "[white]" + tview.Escape("host[1]") + "[-]"
+	if got != want {
+		t.Errorf("HostRowText() = %q, want %q", got, want)
+	}
+}
+
+func TestTabIndexByName(t *testing.T) {
+	names := []string{"Summary", "Groups", "Plays", "host_vars", "Everything known"}
+	cases := []struct {
+		name string
+		want int
+	}{
+		{"Summary", 0},
+		{"Plays", 2},
+		{"Everything known", 4},
+		{"no such tab", 0}, // documented fallback, not an error
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := TabIndexByName(names, c.name); got != c.want {
+				t.Errorf("TabIndexByName(names, %q) = %d, want %d", c.name, got, c.want)
+			}
+		})
 	}
 }

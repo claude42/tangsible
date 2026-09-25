@@ -392,3 +392,24 @@ func TestHostsWithOutcome_DedupesAcrossTasks(t *testing.T) {
 		t.Errorf("FailedHosts() = %v, want %v (deduped)", got, want)
 	}
 }
+
+func TestOutcomeString(t *testing.T) {
+	cases := []struct {
+		o    Outcome
+		want string
+	}{
+		{OutcomeOK, "OK"},
+		{OutcomeChanged, "Changed"},
+		{OutcomeSkipped, "Skipped"},
+		{OutcomeFailed, "Failed"},
+		{OutcomeUnreachable, "Unreachable"},
+		{Outcome(99), "?"}, // no such outcome - must not panic
+	}
+	for _, c := range cases {
+		t.Run(c.want, func(t *testing.T) {
+			if got := c.o.String(); got != c.want {
+				t.Errorf("Outcome(%d).String() = %q, want %q", c.o, got, c.want)
+			}
+		})
+	}
+}

@@ -364,3 +364,47 @@ func TestNotifyTaskFailedMax(t *testing.T) {
 		t.Errorf("NotifyTaskFailedMax with explicit config = %d, want 10", got)
 	}
 }
+
+func TestTwoPaneLayoutEnabled(t *testing.T) {
+	trueVal, falseVal := true, false
+	cases := []struct {
+		name  string
+		value *bool
+		want  bool
+	}{
+		{"unset - defaults to enabled", nil, true},
+		{"explicit true", &trueVal, true},
+		{"explicit false", &falseVal, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var cfg SettingsConfig
+			cfg.General.TwoPaneLayout = c.value
+			if got := TwoPaneLayoutEnabled(cfg); got != c.want {
+				t.Errorf("TwoPaneLayoutEnabled() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestColorEnabledByUser(t *testing.T) {
+	trueVal, falseVal := true, false
+	cases := []struct {
+		name  string
+		value *bool
+		want  bool
+	}{
+		{"unset - defaults to enabled", nil, true},
+		{"explicit true", &trueVal, true},
+		{"explicit false", &falseVal, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var cfg SettingsConfig
+			cfg.General.Color = c.value
+			if got := ColorEnabledByUser(cfg); got != c.want {
+				t.Errorf("ColorEnabledByUser() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
