@@ -111,6 +111,13 @@ type SettingsConfig struct {
 		// 0. See NotifyTaskFailedMax's own doc comment for what happens
 		// once the cap is reached.
 		NotifyTaskFailedMax *int `toml:"notify_task_failed_max"`
+		// TemplateHostsMax caps how many hosts the "template" Verb will
+		// render against without an explicit confirmation prompt
+		// (design-docs/Tangsible template.md) - reached when its own
+		// comma-separated hostname/group positional (including the "all"
+		// keyword) expands past this count. *int, nil-means-default-10, same
+		// shape as NotifyTaskFailedMax above and for the same reason.
+		TemplateHostsMax *int `toml:"template_hosts_max"`
 	} `toml:"general"`
 }
 
@@ -176,6 +183,23 @@ func NotifyTaskFailedMax(cfg SettingsConfig) int {
 		return defaultNotifyTaskFailedMax
 	}
 	return *cfg.General.NotifyTaskFailedMax
+}
+
+// defaultTemplateHostsMax is design-docs/Tangsible template.md's own
+// default for General.TemplateHostsMax.
+const defaultTemplateHostsMax = 10
+
+// TemplateHostsMax reads cfg.General.TemplateHostsMax, defaulting to
+// defaultTemplateHostsMax when unset (design-docs/Tangsible template.md).
+// Once the "template" Verb's own resolved host list - from its
+// comma-separated hostname/group positional, including the "all" keyword -
+// exceeds this count, it asks for confirmation before rendering against
+// all of them.
+func TemplateHostsMax(cfg SettingsConfig) int {
+	if cfg.General.TemplateHostsMax == nil {
+		return defaultTemplateHostsMax
+	}
+	return *cfg.General.TemplateHostsMax
 }
 
 // DefaultTreeExpanded reports whether cfg.General.DefaultTreeState says a

@@ -30,7 +30,7 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 	Run a single role in isolation, without hand-writing a wrapper playbook.
 
 *tangsible-template*(1)
-	Render one Jinja2 template through Ansible's own templating engine, against an existing inventory host.
+	Render a Jinja2 template through Ansible's own templating engine, against one or more existing inventory hosts or groups.
 
 *tangsible-host*(1)
 	Show everything Tangsible can determine about one host: live facts, inventory group membership, which plays would run, host_vars, and the raw *ansible-inventory --host* dump.
@@ -73,6 +73,7 @@ run_dialog = "default"             # "default", "never", or "always"
 notify_playbook_finished = "off"   # "off", "osc9", "osc777", "osc99", or "bell"
 notify_task_failed = "off"         # same values as notify_playbook_finished
 notify_task_failed_max = 5         # default: 5
+template_hosts_max = 10            # default: 10, see tangsible-template(1)
 ```
 
 *run_dialog* governs whether the re-run dialog (*tangsible-rerun*(1)) opens
@@ -88,6 +89,11 @@ invocation.
 terminal bell) when the playbook finishes, or when a task fails,
 respectively. *notify_task_failed_max* caps how many individual task-failed
 notifications fire per run.
+
+*template_hosts_max* caps how many hosts *tangsible-template*(1) will
+render against without an explicit confirmation prompt, once its own
+comma-separated hostname/group argument (or the *all* keyword) expands
+past this count.
 
 # FILES
 

@@ -5,21 +5,21 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-template" "1" "2026-09-15" "Tangsible" "Tangsible Manual"
+.TH "tangsible-template" "1" "2026-09-25" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
-tangsible-template - debug a Jinja2 template against a real inventory host
+tangsible-template - debug a Jinja2 template against real inventory hosts
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible template\fR \fIpath\fR [\fIhostname\fR] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible template\fR \fIpath\fR [\fIhostSpec\fR] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
-\fBtemplate\fR renders \fIpath\fR through Ansible'\&s templating engine by generating a playbook that templates it via a \fBansible.\&builtin.\&template\fR task.\&
+\fBtemplate\fR renders \fIpath\fR through Ansible'\&s templating engine by generating a playbook that templates it via a \fBansible.\&builtin.\&template\fR task, showing one tab per rendered host plus a shared \fBSource\fR tab.\&
 .PP
-If \fIhostname\fR is omitted, the first host reported by \fBansible-inventory --list\fR is used.\& Extra variables can be supplied with \fB-e\fR, same as any \fBansible-playbook\fR invocation.\& If \fIpath\fR lives in a role'\&s conventional \fBtemplates/\fR directory, that role'\&s own \fBdefaults/main.\&yml\fR and \fBvars/main.\&yml\fR are made available automatically.\&
+\fIhostSpec\fR is a comma-separated list of tokens, each either a literal hostname, an inventory group name, or the special keyword \fBall\fR (every host in the inventory) - mixing them freely is fine, the result is just their deduplicated union.\& If \fIhostSpec\fR is omitted entirely, the first host reported by \fBansible-inventory --list\fR is used.\& If resolution produces more hosts than the \fBtemplate_hosts_max\fR config setting (default 10, see \fBtangsible\fR(1)), you'\&re asked to confirm before rendering against all of them.\& Extra variables can be supplied with \fB-e\fR, same as any \fBansible-playbook\fR invocation.\& If \fIpath\fR lives in a role'\&s conventional \fBtemplates/\fR directory, that role'\&s own \fBdefaults/main.\&yml\fR and \fBvars/main.\&yml\fR are made available automatically.\&
 .PP
 .SH KEY BINDINGS
 .PP
@@ -35,12 +35,12 @@ Scroll the active tab.\&
 .RE
 \fBe\fR
 .RS 4
-Edit the Jinja2 template file.\&
+Edit the Jinja2 template file, then re-render every open host tab.\&
 .PP
 .RE
 \fBh\fR
 .RS 4
-Open the "change host" dialog: type a new hostname, Enter to re-render against it, Esc to cancel.\&
+Open the "change host" dialog: type a new hostname, Enter to re-render just that tab against it - or switch to it if already open - Esc to cancel.\&
 .PP
 .RE
 \fB/\fR
@@ -72,12 +72,12 @@ Quit.\&
 .PP
 \fB0\fR
 .RS 4
-Normal exit, however the view was closed.\&
+Normal exit, however the view was closed - also returned if you decline the "render against N hosts?\&" confirmation prompt.\&
 .PP
 .RE
 \fB1\fR
 .RS 4
-\fIpath\fR couldn'\&t be read, no host could be resolved from the inventory, or a scratch file this view depends on internally couldn'\&t be created.\&
+\fIpath\fR couldn'\&t be read, a token in \fIhostSpec\fR wasn'\&t a known host or group, no host could be resolved from the inventory, or a scratch file this view depends on internally couldn'\&t be created.\&
 .PP
 .RE
 \fB2\fR

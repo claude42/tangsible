@@ -25,11 +25,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
@@ -39,45 +41,116 @@ import (
 )
 
 // ParseTemplateArgs splits args (everything after the "template" Verb)
-// into the required template path, an optional hostname, and everything
-// else as passthrough args - per design-docs/Tangsible template.md's own
-// syntax, "tangsible template <path to template> [<hostname>] [-e...]":
-// hostname is only recognized when it's the *second* leading positional,
-// immediately after the path and before any flag-shaped token - anything
-// after the first flag-shaped token (or after hostname, if present) is
-// rest. ok is false if no template path was given at all (a missing or
-// flag-shaped first argument).
-func ParseTemplateArgs(args []string) (templatePath, hostname string, rest []string, ok bool) {
+// into the required template path, an optional hostname/group spec, and
+// everything else as passthrough args - per design-docs/Tangsible
+// template.md's own syntax, "tangsible template <path to template>
+// [<hostname>[,<hostname>|<group>|all]...] [-e...]": hostSpec is only
+// recognized when it's the *second* leading positional, immediately after
+// the path and before any flag-shaped token - anything after the first
+// flag-shaped token (or after hostSpec, if present) is rest. ok is false
+// if no template path was given at all (a missing or flag-shaped first
+// argument). hostSpec is returned as one raw string, still
+// comma-unsplit - SplitHostTokens (below) does that, keeping this
+// function's own job purely about syntax-level positional/flag splitting.
+func ParseTemplateArgs(args []string) (templatePath, hostSpec string, rest []string, ok bool) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return "", "", nil, false
 	}
 	templatePath = args[0]
 	remaining := args[1:]
 	if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") {
-		hostname = remaining[0]
+		hostSpec = remaining[0]
 		remaining = remaining[1:]
 	}
-	return templatePath, hostname, remaining, true
+	return templatePath, hostSpec, remaining, true
 }
 
-// ResolveInventoryHost runs `ansible-inventory --list`, forwarding
-// passthroughArgs verbatim (the same -i/-e/... args this invocation was
-// given - ansible-inventory accepts a real subset of ansible-playbook's
-// own flags, confirmed via `ansible-inventory --help`; passing one it
-// doesn't recognize surfaces ansible's own clear error rather than
-// tangsible trying to filter the list itself), and returns the first host
-// per inventory.FlattenInventoryHosts' own deterministic ordering. inventory.ListInventoryHosts
-// (host.go) does the actual invocation and JSON parsing - shared with the
-// "hosts" Verb's own full host listing (design-docs/HostVerb.md).
-func ResolveInventoryHost(passthroughArgs []string) (string, error) {
-	hosts, err := inventory.ListInventoryHosts(passthroughArgs)
+// SplitHostTokens splits spec (ParseTemplateArgs' own positional
+// hostname/group argument) on commas into trimmed, non-empty tokens, in
+// order - design-docs/Tangsible template.md's comma-separated
+// hostname/group list, each token resolved later by ResolveHostTokens. An
+// empty/whitespace-only spec returns nil - RunTemplateVerb takes that to
+// mean "no hosts given at all," falling back to ResolveInventoryHost's own
+// single-host auto-pick.
+func SplitHostTokens(spec string) []string {
+	if strings.TrimSpace(spec) == "" {
+		return nil
+	}
+	var tokens []string
+	for _, p := range strings.Split(spec, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			tokens = append(tokens, t)
+		}
+	}
+	return tokens
+}
+
+// resolveHostTokens is ResolveHostTokens' pure core: each token resolves
+// as a group name first (including the reserved "all" group, which is
+// what backs design-docs/Tangsible template.md's "all" keyword - no
+// special-casing needed at all, since ansible-inventory --list already
+// reports "all" as a real, always-present group - see
+// inventory.IsGroup), falling back to a literal hostname; a token that's
+// neither is a usage error, reported immediately rather than silently
+// producing an empty render for it. Mixing hosts and groups (including
+// "all") freely is harmless - the result is just their union, in
+// first-appearance order, deduplicated.
+func resolveHostTokens(tokens []string, raw map[string]json.RawMessage, allHosts []string) ([]string, error) {
+	knownHost := make(map[string]bool, len(allHosts))
+	for _, h := range allHosts {
+		knownHost[h] = true
+	}
+
+	seen := make(map[string]bool, len(allHosts))
+	var result []string
+	add := func(h string) {
+		if !seen[h] {
+			seen[h] = true
+			result = append(result, h)
+		}
+	}
+
+	for _, tok := range tokens {
+		switch {
+		case inventory.IsGroup(raw, tok):
+			for _, h := range inventory.GroupHosts(raw, tok) {
+				add(h)
+			}
+		case knownHost[tok]:
+			add(tok)
+		default:
+			return nil, fmt.Errorf("%q is not a known host or group in the inventory", tok)
+		}
+	}
+	return result, nil
+}
+
+// ResolveHostTokens is resolveHostTokens' public, single-shellout
+// convenience form - fetches the raw inventory itself via
+// inventory.ListInventoryRaw. RunTemplateVerb calls resolveHostTokens
+// directly instead, against a raw tree it already fetched for its own
+// autocomplete candidates, so it never pays for two ansible-inventory
+// --list invocations.
+func ResolveHostTokens(tokens []string, passthroughArgs []string) ([]string, error) {
+	raw, err := inventory.ListInventoryRaw(passthroughArgs)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if len(hosts) == 0 {
-		return "", fmt.Errorf("no hosts found in the inventory")
-	}
-	return hosts[0], nil
+	return resolveHostTokens(tokens, raw, inventory.FlattenInventoryHosts(raw))
+}
+
+// ConfirmManyHosts prompts (via out) for a yes/no confirmation before
+// rendering against count hosts - design-docs/Tangsible template.md's
+// >template_hosts_max guard (config.TemplateHostsMax), shown in the
+// terminal's own normal cooked mode since it runs before the TUI (and its
+// raw-mode screen) exists at all. Reads one line from in; only an
+// explicit "y"/"yes" (case-insensitive) counts as yes, matching the
+// "[y/N]" default-to-no prompt text.
+func ConfirmManyHosts(count int, in io.Reader, out io.Writer) bool {
+	fmt.Fprintf(out, "This will render the template against %d hosts - continue? [y/N] ", count)
+	line, _ := bufio.NewReader(in).ReadString('\n')
+	line = strings.ToLower(strings.TrimSpace(line))
+	return line == "y" || line == "yes"
 }
 
 // RoleVarsFiles returns the existing defaults/main.yml and vars/main.yml
@@ -290,9 +363,9 @@ func PreferredEditor() string {
 // main.go calls os.Exit on the returned code only after this function has
 // already returned.
 func RunTemplateVerb(args []string) int {
-	templatePath, hostname, rest, ok := ParseTemplateArgs(args)
+	templatePath, hostSpec, rest, ok := ParseTemplateArgs(args)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s template <path to template> [<hostname>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s template <path to template> [<hostname>[,<hostname>|<group>|all]...] [ansible-playbook args...]\n", os.Args[0])
 		return 2
 	}
 	if _, err := os.Stat(templatePath); err != nil {
@@ -300,14 +373,51 @@ func RunTemplateVerb(args []string) int {
 		return 1
 	}
 
-	if hostname == "" {
-		h, err := ResolveInventoryHost(rest)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "tangsible: couldn't resolve a host from the inventory: %v\n", err)
+	// Fetched once, up front, regardless of whether hostSpec was given at
+	// all - both the "no hosts given, pick the first one" fallback below
+	// and the host-swap dialog's own autocomplete candidates need it, and
+	// resolveHostTokens (the comma-separated case) needs the raw group
+	// tree specifically, not just ListInventoryHosts' already-flattened
+	// list.
+	raw, err := inventory.ListInventoryRaw(rest)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't resolve a host from the inventory: %v\n", err)
+		return 1
+	}
+	allHosts := inventory.FlattenInventoryHosts(raw)
+
+	var hosts []string
+	if tokens := SplitHostTokens(hostSpec); len(tokens) == 0 {
+		if len(allHosts) == 0 {
+			fmt.Fprintln(os.Stderr, "tangsible: no hosts found in the inventory")
 			return 1
 		}
-		hostname = h
+		hosts = allHosts[:1]
+	} else {
+		h, err := resolveHostTokens(tokens, raw, allHosts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
+			return 1
+		}
+		hosts = h
 	}
+
+	if maxHosts := config.TemplateHostsMax(config.ReadSettingsConfig(config.TangsibleConfigPath)); len(hosts) > maxHosts {
+		if !ConfirmManyHosts(len(hosts), os.Stdin, os.Stderr) {
+			fmt.Fprintln(os.Stderr, "tangsible: cancelled")
+			return 0
+		}
+	}
+
+	// Autocomplete candidates for the 'h' change-host dialog: literal
+	// hostnames only, not group names - confirmed live that suggesting a
+	// group there is actively misleading, since (unlike the CLI's own
+	// comma-separated hostname/group positional) the dialog only ever
+	// swaps in one literal host, per design-docs/Tangsible template.md's
+	// own "Changing hosts" section; RenderTemplate's own event lookup is
+	// keyed by hostname, so picking a group would just render "no result
+	// reported" instead of doing anything useful.
+	hostCandidates := append([]string{}, allHosts...)
 
 	outFile, err := os.CreateTemp("", "tangsible-template-out-*")
 	if err != nil {
@@ -325,32 +435,60 @@ func RunTemplateVerb(args []string) int {
 	}
 	defer os.Remove(stubPath)
 
-	RunTemplateTUI(templatePath, stubPath, outputPath, hostname, rest)
+	RunTemplateTUI(templatePath, stubPath, outputPath, hosts, hostCandidates, rest)
 	return 0
 }
 
 // RunTemplateTUI builds and runs the standalone single-view program
-// design-docs/Tangsible template.md describes: a thin header (template
-// path + current hostname, the same "outputTopBar" pattern the existing
-// drill-down view already uses), a two-tab body (design-docs/Tabbed
-// UI.md) - "Source" (the template file's own raw content) and "Rendered"
-// (the render's own result, or its error message in place of content on
-// failure, exactly like this view's original single-body behavior, just
-// relocated into a tab) - and a bottom keybinding-hint bar. No
-// Pages("main")/tree underneath any of this, since there's nothing here
-// to navigate back to.
-func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest []string) {
+// design-docs/Tangsible template.md describes: a thin header (just the
+// template's own path - each host's own name lives on its own tab title
+// instead, not duplicated here), one tab per host in hosts plus a shared
+// "Source" tab (the template file's own raw content, host-independent),
+// and a bottom keybinding-hint bar. No Pages("main")/tree underneath any
+// of this, since there's nothing here to navigate back to. hostCandidates
+// (every known literal hostname, no group names - see its own doc comment
+// at the call site) backs the 'h' dialog's own autocomplete.
+func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandidates, rest []string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
 	header := tview.NewTextView().SetDynamicColors(true)
 	header.SetTextStyle(uikit.BarStyle)
+	header.SetText(fmt.Sprintf(" Template: %s ", tview.Escape(templatePath)))
 
+	// hosts is this session's own mutable list of open host tabs (renamed
+	// in place by the 'h' dialog - see applyHostChange); renderedViews is
+	// kept in the exact same order/index, one persistent TextView per
+	// host tab, reused across reprocesses and renames alike (only its own
+	// SetText call ever changes, never the widget itself) - the same
+	// "long-lived TextViews, content arrives via SetText" shape host.go's
+	// detail view already uses.
+	renderedViews := make([]*tview.TextView, len(hosts))
+	for i := range renderedViews {
+		renderedViews[i] = tview.NewTextView().SetDynamicColors(true)
+		renderedViews[i].SetText("Rendering...")
+	}
 	sourceView := tview.NewTextView().SetDynamicColors(true)
-	renderedView := tview.NewTextView().SetDynamicColors(true)
 
 	tabs := uikit.NewTabbedPane()
-	tabs.SetTabs([]string{"Rendered", "Source"}, []tview.Primitive{renderedView, sourceView})
+	// rebuildTabs re-derives the tab list from hosts/renderedViews - called
+	// up front and again whenever hosts itself changes (currently just
+	// applyHostChange's own rename). SetTabs' own "preserve active tab by
+	// name" fallback can't find a just-renamed tab under its old name, so
+	// every caller that renames a host follows this with an explicit
+	// tabs.SetActiveByName of the new name.
+	rebuildTabs := func() {
+		names := make([]string, 0, len(hosts)+1)
+		content := make([]tview.Primitive, 0, len(hosts)+1)
+		for i, h := range hosts {
+			names = append(names, h)
+			content = append(content, renderedViews[i])
+		}
+		names = append(names, "Source")
+		content = append(content, sourceView)
+		tabs.SetTabs(names, content)
+	}
+	rebuildTabs()
 
 	// searchBar (design-docs/Search.md) replaces the plain footer TextView
 	// in flex's own bottom slot - see its own doc comment (uikit) and
@@ -358,8 +496,29 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	// the same "long-lived TextViews, content arrives via SetText" shape
 	// host.go's detail view does, unlike tui.go/diff.go's own drill-downs.
 	searchBar := uikit.NewTabSearchBar(app, tabs,
-		" tab/shift-tab: switch tab  e: edit template  h: change host  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ",
+		" tab/shift-tab: switch tab  e: edit template (reprocesses every host)  h: change host  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ",
 		tabs.Primitive())
+
+	// lastActiveHostIndex is which host tab the 'h' dialog targets -
+	// updated reactively below whenever the active tab is a host tab
+	// (left unchanged while the host-independent Source tab is active, so
+	// 'h' still has a sensible target then too). NewTabSearchBar already
+	// wired tabs.SetChangedFunc(searchBar.Clear) internally
+	// (design-docs/Search.md's "switching tabs clears an active in-tab
+	// search"); TabbedPane only ever holds one such callback, so this
+	// composes both rather than silently dropping the search-bar's own.
+	lastActiveHostIndex := 0
+	tabs.SetChangedFunc(func() {
+		searchBar.Clear()
+		if name := tabs.ActiveName(); name != "" {
+			for i, h := range hosts {
+				if h == name {
+					lastActiveHostIndex = i
+					break
+				}
+			}
+		}
+	})
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 1, 0, false).
@@ -368,18 +527,11 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 
 	pages := tview.NewPages().AddPage("main", flex, true, true)
 
-	currentHost := initialHost
-
-	setHeader := func() {
-		header.SetText(fmt.Sprintf(" Template: %s   Host: %s ", tview.Escape(templatePath), tview.Escape(currentHost)))
-	}
-	setHeader()
-	renderedView.SetText("Rendering...")
-
 	// refreshSource re-reads the template file itself into the Source
 	// tab - called both up front and every time 'e' returns from the
 	// editor, since that's the one thing that can actually change the
-	// file's own content (switching hosts or reprocessing never does).
+	// file's own content (switching/adding hosts or reprocessing never
+	// does).
 	refreshSource := func() {
 		searchBar.ClearForView(sourceView) // its own content is about to
 		// change - design-docs/Search.md's "a search does not survive
@@ -394,37 +546,115 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	}
 	refreshSource()
 
-	// render runs one synchronous ansible-playbook invocation on its own
-	// goroutine (so a slow render - a large template, slow fact-gathering,
-	// ...  - never freezes the event loop or its own "Rendering..."
-	// placeholder from ever being drawn) and updates the view via
-	// QueueUpdateDraw once it's done, same pattern requestRerun's own
-	// generations already use elsewhere.
-	render := func() {
-		result, err := RenderTemplate(stubPath, outputPath, currentHost, rest)
-		app.QueueUpdateDraw(func() {
-			setHeader()
-			searchBar.ClearForView(renderedView)
-			switch {
-			case err != nil:
-				renderedView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
-			case result.Failed:
-				renderedView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
-			default:
-				renderedView.SetText(tview.Escape(result.Content))
-			}
-			renderedView.ScrollToBeginning()
-		})
+	// applyRenderResult writes one host's own finished render (or error)
+	// into its tab - shared by renderAll/renderHost below. Guards against
+	// a stale result: if hosts[i] no longer equals host (a rename via 'h'
+	// landed on the same index while this particular render was still in
+	// flight - only possible because a rename is itself deferred behind
+	// the rendering/pendingRerenderAll guard below, but defended here too
+	// rather than relying on that alone), the result is simply dropped.
+	applyRenderResult := func(i int, host string, result TemplateResult, err error) {
+		if i < 0 || i >= len(hosts) || i >= len(renderedViews) || hosts[i] != host {
+			return
+		}
+		view := renderedViews[i]
+		searchBar.ClearForView(view)
+		switch {
+		case err != nil:
+			view.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+		case result.Failed:
+			view.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
+		default:
+			view.SetText(tview.Escape(result.Content))
+		}
+		view.ScrollToBeginning()
 	}
-	go render()
+
+	// rendering/pendingRerenderAll serialize every render this view ever
+	// runs against the one shared, reused stub/outputPath pair
+	// (design-docs/Tangsible template.md's own "sequential rendering"
+	// decision and Cleanup section) - two ansible-playbook invocations
+	// racing the same outputPath would otherwise be a real, not
+	// hypothetical, bug. A render requested while one is already in
+	// flight (e.g. 'e' pressed again before a many-host reprocess
+	// finishes) is never silently dropped: it's coalesced into a single
+	// trailing renderAll once the current one completes - always safe
+	// (redoing a host that didn't strictly need it), never wrong (a
+	// completed edit never fails to eventually reprocess), and simple
+	// (the pending intent doesn't need to remember which specific request
+	// caused it).
+	rendering := false
+	pendingRerenderAll := false
+	var renderAll func()
+	finishRendering := func() {
+		rendering = false
+		if pendingRerenderAll {
+			pendingRerenderAll = false
+			renderAll()
+		}
+	}
+	renderAll = func() {
+		if rendering {
+			pendingRerenderAll = true
+			return
+		}
+		rendering = true
+		for _, v := range renderedViews {
+			v.SetText("Rendering...")
+		}
+		go func() {
+			snapshot := append([]string(nil), hosts...)
+			for i, h := range snapshot {
+				result, err := RenderTemplate(stubPath, outputPath, h, rest)
+				i, h, result, err := i, h, result, err
+				app.QueueUpdateDraw(func() {
+					applyRenderResult(i, h, result, err)
+				})
+			}
+			app.QueueUpdateDraw(finishRendering)
+		}()
+	}
+	renderHost := func(i int) {
+		if rendering {
+			pendingRerenderAll = true
+			return
+		}
+		rendering = true
+		host := hosts[i]
+		renderedViews[i].SetText("Rendering...")
+		go func() {
+			result, err := RenderTemplate(stubPath, outputPath, host, rest)
+			app.QueueUpdateDraw(func() {
+				applyRenderResult(i, host, result, err)
+				finishRendering()
+			})
+		}()
+	}
+	renderAll() // renderAll itself is non-blocking - the actual
+	// ansible-playbook invocations run on their own goroutine it spawns
+	// internally, same as every other call site below.
 
 	// Host-switch dialog: a single-field modal, same CenteredModal/Pages
 	// overlay pattern NewLiveTUI's own filter/search dialogs use - first
 	// iteration is plain text entry, per design-docs/Tangsible
 	// template.md's own "Changing hosts" section (a picker list gleaned
 	// from the inventory is a natural later improvement, not required
-	// here).
+	// here); autocomplete against hostCandidates (literal hostnames only)
+	// is wired below.
 	hostInput := tview.NewInputField().SetLabel("Host: ")
+	hostInput.SetAutocompleteFunc(func(text string) []string {
+		return uikit.MatchSingleValue(hostCandidates, text)
+	}).SetAutocompleteUseTags(false). // plain hostnames/group names, and
+		// avoids a literal '[' in one being misread as a color tag.
+		SetAutocompletedFunc(func(text string, index, source int) bool {
+			if source == tview.AutocompletedNavigate {
+				return false // preview-on-navigate only moves the
+				// highlight, doesn't write into the field itself - same
+				// reasoning as the re-run dialog's own wireAutocomplete.
+			}
+			hostInput.SetText(text)
+			return true
+		})
 	// A real tview.NewBox() for every spacer item below, not a bare nil -
 	// see tui.go's NewLiveTUI (searchDialogFlex/filterFlex) for why: a nil
 	// Flex item draws nothing, so nothing ever repaints its cells over
@@ -438,9 +668,19 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 	pages.AddPage("host", uikit.CenteredModal(hostFlex, 50, 7), true, false)
 
 	hostDialogOpen := false
+	// hostDialogTarget is the index into hosts this dialog is currently
+	// editing - snapshotted from lastActiveHostIndex at open time, not
+	// re-read at apply time, so it can't drift if the active tab happens
+	// to change while the dialog is up (it can't today - the dialog is
+	// modal - but there's no reason to depend on that).
+	hostDialogTarget := 0
 	openHostDialog := func() {
 		hostDialogOpen = true
-		hostInput.SetText(currentHost)
+		hostDialogTarget = lastActiveHostIndex
+		if hostDialogTarget < 0 || hostDialogTarget >= len(hosts) {
+			hostDialogTarget = 0
+		}
+		hostInput.SetText(hosts[hostDialogTarget])
 		pages.ShowPage("host")
 		app.SetFocus(hostInput)
 	}
@@ -449,17 +689,29 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 		pages.HidePage("host")
 		app.SetFocus(tabs.Primitive())
 	}
-	// applyHostChange is the Enter/Apply-button shared body - switches to
-	// whatever's currently typed into hostInput (a no-op if it's empty or
-	// unchanged) and re-renders, but does not itself close the dialog:
-	// both callers below do that as their own last step.
+	// applyHostChange is the Enter/Apply-button shared body - renames
+	// hostDialogTarget's own tab to whatever's currently typed into
+	// hostInput (a no-op if it's empty or unchanged) and re-renders just
+	// that one host, but does not itself close the dialog: both callers
+	// below do that as their own last step. If the typed host is already
+	// open under a different tab, this switches to that existing tab
+	// instead of creating a duplicate - uikit.TabbedPane's own tab names
+	// double as tview.Pages page names, so they must stay unique.
 	applyHostChange := func() {
-		if v := strings.TrimSpace(hostInput.GetText()); v != "" && v != currentHost {
-			currentHost = v
-			setHeader()
-			renderedView.SetText("Rendering...")
-			go render()
+		newHost := strings.TrimSpace(hostInput.GetText())
+		if newHost == "" || newHost == hosts[hostDialogTarget] {
+			return
 		}
+		for _, h := range hosts {
+			if h == newHost {
+				tabs.SetActiveByName(newHost)
+				return
+			}
+		}
+		hosts[hostDialogTarget] = newHost
+		rebuildTabs()
+		tabs.SetActiveByName(newHost)
+		renderHost(hostDialogTarget)
 	}
 	hostInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
@@ -586,8 +838,10 @@ func RunTemplateTUI(templatePath, stubPath, outputPath, initialHost string, rest
 				_ = cmd.Run()
 			})
 			refreshSource()
-			renderedView.SetText("Rendering...")
-			go render()
+			renderAll() // every open host tab, not just the active one -
+			// the template file just changed, so every tab's own rendered
+			// content is now stale, not just whichever happens to be
+			// visible.
 			return nil
 		case event.Rune() == 'h':
 			openHostDialog()

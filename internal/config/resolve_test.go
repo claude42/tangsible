@@ -430,6 +430,18 @@ func TestNotifyTaskFailedMax(t *testing.T) {
 	}
 }
 
+func TestTemplateHostsMax(t *testing.T) {
+	var cfg SettingsConfig
+	if got := TemplateHostsMax(cfg); got != defaultTemplateHostsMax {
+		t.Errorf("TemplateHostsMax with unset config = %d, want default %d", got, defaultTemplateHostsMax)
+	}
+	explicit := 25
+	cfg.General.TemplateHostsMax = &explicit
+	if got := TemplateHostsMax(cfg); got != 25 {
+		t.Errorf("TemplateHostsMax with explicit config = %d, want 25", got)
+	}
+}
+
 func TestTwoPaneLayoutEnabled(t *testing.T) {
 	trueVal, falseVal := true, false
 	cases := []struct {

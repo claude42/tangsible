@@ -40,8 +40,8 @@ type AnsibleInventoryGroup struct {
 	Children []string `json:"children"`
 }
 
-// FlattenInventoryHosts walks raw's group tree from "all" down through
-// Children, collecting every group's own Hosts into a deduplicated,
+// GroupHosts walks raw's group tree from start down through Children,
+// collecting every reachable group's own Hosts into a deduplicated,
 // alphabetically sorted list. Sorted deliberately, not left in whatever
 // order the source happened to produce - `ansible-inventory --list` and
 // `ansible ... --list-hosts` were both confirmed empirically to return
@@ -49,7 +49,11 @@ type AnsibleInventoryGroup struct {
 // between the two tools, and Go's own map iteration order is
 // unspecified - "the first host" needs one well-defined answer, not
 // whatever an upstream tool's internal traversal happens to produce.
-func FlattenInventoryHosts(raw map[string]json.RawMessage) []string {
+// FlattenInventoryHosts (below) is just this walked from "all"; a caller
+// resolving one specific named group (design-docs/Tangsible template.md's
+// comma-separated host/group list) calls this directly with that group's
+// own name instead.
+func GroupHosts(raw map[string]json.RawMessage, start string) []string {
 	seen := map[string]bool{}
 	visited := map[string]bool{}
 	var walk func(name string)
@@ -73,7 +77,7 @@ func FlattenInventoryHosts(raw map[string]json.RawMessage) []string {
 			walk(c)
 		}
 	}
-	walk("all")
+	walk(start)
 
 	hosts := make([]string, 0, len(seen))
 	for h := range seen {
@@ -83,12 +87,48 @@ func FlattenInventoryHosts(raw map[string]json.RawMessage) []string {
 	return hosts
 }
 
-// ListInventoryHosts runs `ansible-inventory --list`, forwarding
-// passthroughArgs verbatim, and returns every host it finds
-// (FlattenInventoryHosts, above) - shared by the "hosts" Verb's own
-// full listing (host.go) and, via resolveInventoryHost (template.go),
-// "template"'s single-host resolution.
-func ListInventoryHosts(passthroughArgs []string) ([]string, error) {
+// FlattenInventoryHosts is GroupHosts walked from "all" - every host in
+// the whole inventory, not just one group's own.
+func FlattenInventoryHosts(raw map[string]json.RawMessage) []string {
+	return GroupHosts(raw, "all")
+}
+
+// IsGroup reports whether name is a real group in raw - i.e. one of its
+// own top-level keys, excluding the special "_meta" entry
+// `ansible-inventory --list` always includes alongside the real group
+// tree. "all" is always a real group by this definition (every inventory
+// has one, confirmed against `ansible-inventory --list`'s own output),
+// which is exactly what lets design-docs/Tangsible template.md's "all"
+// keyword resolve through the ordinary group path with no special-casing
+// at all.
+func IsGroup(raw map[string]json.RawMessage, name string) bool {
+	_, ok := raw[name]
+	return ok && name != "_meta"
+}
+
+// GroupNames returns every real group name in raw (IsGroup's own
+// definition), alphabetically sorted - the "template" Verb's own source
+// for group-name autocomplete candidates (design-docs/Tangsible
+// template.md), alongside FlattenInventoryHosts' plain hostnames.
+func GroupNames(raw map[string]json.RawMessage) []string {
+	names := make([]string, 0, len(raw))
+	for name := range raw {
+		if name == "_meta" {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ListInventoryRaw runs `ansible-inventory --list`, forwarding
+// passthroughArgs verbatim, and returns its raw, still-nested group tree -
+// FlattenInventoryHosts/GroupHosts/GroupNames/IsGroup all work from this
+// same shape, so a caller needing more than just the flat host list (e.g.
+// "template"'s own host/group token resolution) fetches it once here
+// rather than through ListInventoryHosts' own already-flattened result.
+func ListInventoryRaw(passthroughArgs []string) (map[string]json.RawMessage, error) {
 	cmd := exec.Command("ansible-inventory", append([]string{"--list"}, passthroughArgs...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -107,6 +147,19 @@ func ListInventoryHosts(passthroughArgs []string) ([]string, error) {
 			snippet = snippet[:300] + "..."
 		}
 		return nil, fmt.Errorf("ansible-inventory --list didn't produce valid JSON (%v) - it printed:\n%s", err, snippet)
+	}
+	return raw, nil
+}
+
+// ListInventoryHosts runs `ansible-inventory --list`, forwarding
+// passthroughArgs verbatim, and returns every host it finds
+// (FlattenInventoryHosts, above) - shared by the "hosts" Verb's own
+// full listing (host.go); the "template" Verb's own host/group resolution
+// needs the raw, unflattened tree instead (ListInventoryRaw, below).
+func ListInventoryHosts(passthroughArgs []string) ([]string, error) {
+	raw, err := ListInventoryRaw(passthroughArgs)
+	if err != nil {
+		return nil, err
 	}
 	return FlattenInventoryHosts(raw), nil
 }

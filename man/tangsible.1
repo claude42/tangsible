@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible" "1" "2026-09-20" "Tangsible" "Tangsible Manual"
+.TH "tangsible" "1" "2026-09-25" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -44,7 +44,7 @@ Run a single role in isolation, without hand-writing a wrapper playbook.\&
 .RE
 \fBtangsible-template\fR(1)
 .RS 4
-Render one Jinja2 template through Ansible'\&s own templating engine, against an existing inventory host.\&
+Render a Jinja2 template through Ansible'\&s own templating engine, against one or more existing inventory hosts or groups.\&
 .PP
 .RE
 \fBtangsible-host\fR(1)
@@ -105,6 +105,7 @@ run_dialog = "default"             # "default", "never", or "always"
 notify_playbook_finished = "off"   # "off", "osc9", "osc777", "osc99", or "bell"
 notify_task_failed = "off"         # same values as notify_playbook_finished
 notify_task_failed_max = 5         # default: 5
+template_hosts_max = 10            # default: 10, see tangsible-template(1)
 .fi
 .RE
 .PP
@@ -121,6 +122,11 @@ invocation.\&
 terminal bell) when the playbook finishes, or when a task fails,
 respectively.\& \fBnotify_task_failed_max\fR caps how many individual task-failed
 notifications fire per run.\&
+.PP
+\fBtemplate_hosts_max\fR caps how many hosts \fBtangsible-template\fR(1) will
+render against without an explicit confirmation prompt, once its own
+comma-separated hostname/group argument (or the \fBall\fR keyword) expands
+past this count.\&
 .PP
 .SH FILES
 .PP

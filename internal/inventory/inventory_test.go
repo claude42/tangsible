@@ -67,3 +67,71 @@ func TestFlattenInventoryHosts(t *testing.T) {
 		}
 	})
 }
+
+func TestGroupHosts(t *testing.T) {
+	raw := map[string]json.RawMessage{
+		"all":    json.RawMessage(`{"children": ["web", "db"]}`),
+		"web":    json.RawMessage(`{"hosts": ["web1", "web2"], "children": ["webdmz"]}`),
+		"webdmz": json.RawMessage(`{"hosts": ["webdmz1"]}`),
+		"db":     json.RawMessage(`{"hosts": ["db1"]}`),
+	}
+
+	t.Run("a named group only reaches its own subtree", func(t *testing.T) {
+		got := GroupHosts(raw, "web")
+		want := []string{"web1", "web2", "webdmz1"}
+		if !slices.Equal(got, want) {
+			t.Errorf("GroupHosts(web) = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("all still reaches everything, same as FlattenInventoryHosts", func(t *testing.T) {
+		got := GroupHosts(raw, "all")
+		want := FlattenInventoryHosts(raw)
+		if !slices.Equal(got, want) {
+			t.Errorf("GroupHosts(all) = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("an unknown group name - empty result, not a panic", func(t *testing.T) {
+		if got := GroupHosts(raw, "nosuchgroup"); len(got) != 0 {
+			t.Errorf("GroupHosts(nosuchgroup) = %v, want empty", got)
+		}
+	})
+}
+
+func TestIsGroup(t *testing.T) {
+	raw := map[string]json.RawMessage{
+		"all":   json.RawMessage(`{"children": ["web"]}`),
+		"web":   json.RawMessage(`{"hosts": ["web1"]}`),
+		"_meta": json.RawMessage(`{"hostvars": {}}`),
+	}
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"all", true},
+		{"web", true},
+		{"_meta", false}, // the special entry, never a real group
+		{"web1", false},  // a host, not a group
+		{"nosuchgroup", false},
+	}
+	for _, c := range cases {
+		if got := IsGroup(raw, c.name); got != c.want {
+			t.Errorf("IsGroup(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestGroupNames(t *testing.T) {
+	raw := map[string]json.RawMessage{
+		"all":   json.RawMessage(`{"children": ["web", "db"]}`),
+		"web":   json.RawMessage(`{"hosts": ["web1"]}`),
+		"db":    json.RawMessage(`{"hosts": ["db1"]}`),
+		"_meta": json.RawMessage(`{"hostvars": {}}`),
+	}
+	got := GroupNames(raw)
+	want := []string{"all", "db", "web"}
+	if !slices.Equal(got, want) {
+		t.Errorf("GroupNames() = %v, want %v (sorted, _meta excluded)", got, want)
+	}
+}

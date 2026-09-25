@@ -27,6 +27,10 @@
   "Playbook failed" line
 - System-wide installs via install.sh --prefix &lt;dir&gt;
 - Support system-wide config file /etc/tangsible/config.toml
+- `template` now accepts more than one hostname, group names or "all". Each
+  host gets its own tab.
+- New `template_hosts_max` config key (default 10) - `template` now asks for
+  confirmation before rendering against more hosts than this.
 
 ### Changed
 

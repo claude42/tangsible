@@ -207,6 +207,24 @@ func (p *TabbedPane) ActiveName() string {
 	return p.names[p.active]
 }
 
+// SetActiveByName switches to the tab named name if present, reporting
+// whether it was found. Unlike SetTabs' own preserve-by-name fallback
+// (which only ever runs implicitly during a tab-list rebuild), this lets a
+// caller explicitly jump to a specific tab right after rebuilding under a
+// new name - the template Verb's own host-swap dialog needs this: the tab
+// being shown is renamed in place (its title is the hostname, per
+// design-docs/Tangsible template.md), so SetTabs' own preserve-by-old-name
+// lookup can't find it and would otherwise fall back to tab 0.
+func (p *TabbedPane) SetActiveByName(name string) bool {
+	for i, n := range p.names {
+		if n == name {
+			p.setActive(i)
+			return true
+		}
+	}
+	return false
+}
+
 // ActiveTextView returns the currently active tab's own content as a
 // *tview.TextView, and whether that succeeded - false if there are no
 // tabs, or the active one isn't a *tview.TextView. Every tab at every

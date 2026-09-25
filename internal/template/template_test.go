@@ -15,6 +15,7 @@
 package template
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -194,6 +195,105 @@ func TestWriteTemplateStub(t *testing.T) {
 	}
 	if strings.Contains(content, "vars_files:") {
 		t.Error("stub content unexpectedly contains vars_files: for a template outside any role")
+	}
+}
+
+func TestSplitHostTokens(t *testing.T) {
+	cases := []struct {
+		spec string
+		want []string
+	}{
+		{"", nil},
+		{"   ", nil},
+		{"web1", []string{"web1"}},
+		{"web1,web2", []string{"web1", "web2"}},
+		{"web1, web2 , all", []string{"web1", "web2", "all"}},
+		{"web1,,web2", []string{"web1", "web2"}},
+	}
+	for _, c := range cases {
+		if got := SplitHostTokens(c.spec); !slices.Equal(got, c.want) {
+			t.Errorf("SplitHostTokens(%q) = %v, want %v", c.spec, got, c.want)
+		}
+	}
+}
+
+func TestResolveHostTokens(t *testing.T) {
+	raw := map[string]json.RawMessage{
+		"all": json.RawMessage(`{"children": ["web", "db"]}`),
+		"web": json.RawMessage(`{"hosts": ["web1", "web2"]}`),
+		"db":  json.RawMessage(`{"hosts": ["db1"]}`),
+	}
+	allHosts := []string{"db1", "web1", "web2"}
+
+	t.Run("a literal host resolves to itself", func(t *testing.T) {
+		got, err := resolveHostTokens([]string{"web1"}, raw, allHosts)
+		if err != nil {
+			t.Fatalf("resolveHostTokens() error: %v", err)
+		}
+		if !slices.Equal(got, []string{"web1"}) {
+			t.Errorf("resolveHostTokens(web1) = %v, want [web1]", got)
+		}
+	})
+
+	t.Run("a group name expands to its own hosts", func(t *testing.T) {
+		got, err := resolveHostTokens([]string{"web"}, raw, allHosts)
+		if err != nil {
+			t.Fatalf("resolveHostTokens() error: %v", err)
+		}
+		if !slices.Equal(got, []string{"web1", "web2"}) {
+			t.Errorf("resolveHostTokens(web) = %v, want [web1 web2]", got)
+		}
+	})
+
+	t.Run(`the "all" keyword needs no special-casing - it's already a real group`, func(t *testing.T) {
+		got, err := resolveHostTokens([]string{"all"}, raw, allHosts)
+		if err != nil {
+			t.Fatalf("resolveHostTokens() error: %v", err)
+		}
+		if !slices.Equal(got, allHosts) {
+			t.Errorf("resolveHostTokens(all) = %v, want %v", got, allHosts)
+		}
+	})
+
+	t.Run("mixing hosts, a group, and all is a harmless deduplicated union", func(t *testing.T) {
+		got, err := resolveHostTokens([]string{"web1", "db", "all"}, raw, allHosts)
+		if err != nil {
+			t.Fatalf("resolveHostTokens() error: %v", err)
+		}
+		if !slices.Equal(got, []string{"web1", "db1", "web2"}) {
+			t.Errorf("resolveHostTokens(web1,db,all) = %v, want [web1 db1 web2] (first-appearance order, deduplicated)", got)
+		}
+	})
+
+	t.Run("an unknown token is a usage error", func(t *testing.T) {
+		if _, err := resolveHostTokens([]string{"nosuchhost"}, raw, allHosts); err == nil {
+			t.Error("resolveHostTokens(nosuchhost) error = nil, want an error")
+		}
+	})
+}
+
+func TestConfirmManyHosts(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"explicit yes", "y\n", true},
+		{"explicit yes, full word, any case", "YES\n", true},
+		{"empty line defaults to no", "\n", false},
+		{"anything else is no", "sure\n", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var out strings.Builder
+			got := ConfirmManyHosts(12, strings.NewReader(c.input), &out)
+			if got != c.want {
+				t.Errorf("ConfirmManyHosts(12, %q) = %v, want %v", c.input, got, c.want)
+			}
+			if !strings.Contains(out.String(), "12") {
+				t.Errorf("ConfirmManyHosts() prompt = %q, want it to mention the host count", out.String())
+			}
+		})
 	}
 }
 
