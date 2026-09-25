@@ -12,6 +12,12 @@ per-host variable state) is sound, but the exact hook point
 risk" below. Depends on `design-docs/OwnCallbackPlugin.md`'s fd-transport
 plugin, which is merged and live (`callback/tangsible_jsonl.py`).
 
+**2026-09-25 addendum:** "Phase 2" below sketches an interactive
+breakpoint/single-step debugger on the same strategy-plugin foundation -
+conceptual only, confirmed feasible against ansible-core's own source, not
+designed in detail. Everything above this addendum is Phase 1 and unchanged
+by it.
+
 ## Motivating gap
 
 The existing Resolved tab (`internal/session/resolved.go`) re-renders a
@@ -240,3 +246,92 @@ since that would meaningfully change the calculus.
 - Whether the `_process_pending_results` hook point survives a live spike
   unchanged, or needs a different override point - the design above is the
   starting hypothesis, not a confirmed fact.
+
+## Phase 2: interactive debugger (breakpoints / single-step)
+
+**Status: discussed 2026-09-25, conceptual only.** Feasibility was checked
+by reading ansible-core's actual strategy source (2.19.11, as installed),
+not just reasoned about abstractly. Sequenced after Phase 1 above - shares
+its foundation, isn't a prerequisite for it.
+
+### Motivating idea
+
+Pause playbook execution at a chosen point - a breakpoint on a specific
+task/play, or single-step through every task - and resume only on a signal
+from Tangsible's own TUI. Not a stdin prompt: raw-mode `tcell` already owns
+the terminal, the same "interactive input requested after the TUI already
+owns the terminal" gap `CLAUDE.md`'s Current scope constraints section
+already documents as unsupported.
+
+### Precedent already in ansible-core
+
+Confirmed live in `/usr/lib/python3/dist-packages/ansible/plugins/strategy/`
+on this box, not assumed:
+
+- `StrategyBase._take_step` (`linear.py`, the real `--step` CLI flag)
+  already blocks synchronously *before* queuing every task, via
+  `display.prompt()`, until the user answers y/n/c - single-step mode,
+  already built, just wired to stdin.
+- The `ENABLE_TASK_DEBUGGER` `cmd.Cmd`-based debugger (`debug_closure`,
+  wrapping `StrategyBase._process_pending_results`) blocks *after* a
+  result, with `task`/`host`/`task_vars`/`result` in scope, and can
+  `continue`/`redo` (rolls back host state, re-queues the same task)/`exit`
+  - breakpoint-on-result, already built.
+
+Both prove "a strategy plugin blocks its own execution thread until told to
+proceed" is a normal, already-shipped pattern at this layer - the real gap
+is *what it blocks on* (stdin, incompatible with the TUI owning the
+terminal), not *whether it can block*.
+
+### What would need to be new
+
+1. **A second, bidirectional control channel.** The existing
+   `TANGSIBLE_EVENT_FD` (`OwnCallbackPlugin.md`) is one-way,
+   child-to-parent only. A debugger needs the reverse direction too:
+   Tangsible writes a command (`step`, `continue`, `set-breakpoint
+   <task-id>`) that the strategy plugin is blocked reading. Likely a
+   second inherited fd via the same `cmd.ExtraFiles` mechanism, rather
+   than overloading the event fd for both directions.
+2. **A pause point in the strategy plugin**, one of two candidates (both
+   already used by ansible-core itself, for the same purpose):
+   - Pre-dispatch, right where `task_vars` is computed and before
+     `_queue_task` (mirrors `_take_step`'s hook point) - lets a paused
+     breakpoint show/edit variable state *before* the task runs.
+   - Post-result, inside `_process_pending_results` (mirrors the
+     `cmd.Cmd` debugger's hook point) - lets a paused breakpoint inspect
+     the outcome before deciding whether to continue.
+   Single-step wants the first; a named/conditional breakpoint could use
+   either, depending on whether it means "before this task" or "after
+   this task."
+3. **Breakpoint identification.** Same non-uniqueness problem `Start with
+   a play`'s doc already solved for `--start-at-task`: task names repeat
+   across a playbook. Breakpoints would need to key on `task.id`/path the
+   way `findOrCreateTask` (Aggregation, main `CLAUDE.md`) already does,
+   not on task name.
+4. **A "paused" TUI state.** The live tree needs a visible paused/waiting
+   indicator plus UI affordances for step/continue/toggle-breakpoint - net
+   new chrome, not reuse of an existing dialog.
+
+### Known gap
+
+No single clean pause point exists under `strategy: free` (hosts progress
+independently - no shared "next task" moment). Same accepted-gap shape as
+`StrategyFree.md`'s progress-fill skeleton, and as this doc's own decision
+2 (a play with an explicit `strategy:` override skips debug mode
+entirely). Not chased further here.
+
+### Relationship to Phase 1
+
+Complementary, not competing: the pause point is exactly where `task_vars`
+is freshly computed or freshly merged (see "Why a strategy plugin" above),
+so a paused breakpoint can reuse Phase 1's captured-snapshot machinery to
+show live variable state for free, once Phase 1 ships.
+
+### Not decided
+
+- Whether this ships as the same `tangsible_debug` plugin (extended) or a
+  second, distinct strategy plugin.
+- Exact breakpoint UI/config shape - set live from the TUI, a config-file
+  list of task paths, or both.
+- Whether single-step and named breakpoints share one mechanism or need
+  separate code paths.
