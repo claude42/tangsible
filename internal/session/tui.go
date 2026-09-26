@@ -200,6 +200,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.revisitReturn = revisitReturn
 	s.targetPlaybook = targetPlaybook
 	s.targetRole = targetRole
+	s.lastTitlePercent = -1 // sentinel: no percentage ever written to the
+	// window title yet (0 is a real, reachable value at the very start of
+	// a run) - see updateWindowTitle.
 
 	s.startedAt = time.Now() // wall-clock the TUI itself came up - see
 	// TopBarText's doc comment for why this is deliberately not sourced

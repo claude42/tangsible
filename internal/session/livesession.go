@@ -82,6 +82,13 @@ type liveSession struct {
 	twoPaneLayout bool
 	requestRerun  func(startAtPlay, tags, skipTags, hosts string)
 	progH         *atomic.Pointer[runner.ProgressTracker]
+	// lastTitlePercent is the percentage (0-100) most recently written to
+	// the window title (updateWindowTitle, design-docs/
+	// ProgressIndicator.md) - -1 means none yet, so the very first real
+	// percentage (including a genuine 0) still triggers a write. Throttles
+	// SetWindowTitle to "only when the number actually changed" rather
+	// than writing an escape sequence on every 200ms heartbeat tick.
+	lastTitlePercent int
 	// revisitReturn/targetPlaybook/targetRole - only needed by the input
 	// dispatcher (livesession_input.go): revisitReturn backs Esc-at-the-
 	// bare-tree's "back to the revisit list" case, targetPlaybook/

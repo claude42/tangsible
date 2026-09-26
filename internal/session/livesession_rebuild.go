@@ -15,6 +15,7 @@
 package session
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -32,6 +33,37 @@ import (
 // yet at all).
 func (s *liveSession) progressPosition() (position, total int) {
 	return s.progH.Load().Position()
+}
+
+// updateWindowTitle mirrors the top bar's own progress percentage
+// (design-docs/ProgressIndicator.md) into the terminal's window title via
+// uikit.SetWindowTitle, throttled to only actually write when the integer
+// percentage changes - s.lastTitlePercent starts at -1 so the very first
+// real value (including a genuine 0%) still writes once. No skeleton at
+// all (progressTotal == 0) leaves the title exactly as
+// uikit.RunWithTitleStack's own PushWindowTitle found it - same "nothing
+// to show" convention progressPercentPrefix follows for the top bar text.
+// frozen clamps to 100, same reason and same place progressPercentPrefix
+// clamps the top bar's own text - a finished run showing anything short
+// of 100% here would read as a bug, not as a report on prediction
+// accuracy. Best-effort: SetWindowTitle's own error is deliberately
+// dropped, same as every other terminal-escape-sequence writer in this
+// codebase (CopyToClipboard is the one exception, since a failed
+// clipboard copy is itself the whole point of that command and has to be
+// reported).
+func (s *liveSession) updateWindowTitle(progressPos, progressTotal int, frozen bool) {
+	if progressTotal <= 0 {
+		return
+	}
+	pct := progressPos * 100 / progressTotal
+	if frozen {
+		pct = 100
+	}
+	if pct == s.lastTitlePercent {
+		return
+	}
+	s.lastTitlePercent = pct
+	_ = uikit.SetWindowTitle(fmt.Sprintf("%d%%  %s", pct, s.playbookName))
 }
 
 // activeTasks returns the set of tasks currently in flight (playbook.
@@ -217,6 +249,7 @@ func (s *liveSession) rebuild() {
 	// other, and there's no reason to re-read the tracker twice for
 	// one rebuild pass anyway.
 	progressPos, progressTotal := s.progressPosition()
+	s.updateWindowTitle(progressPos, progressTotal, frozen)
 
 	// Two-pane layout (design-docs/TwoPanedLayout.md) is live, not
 	// decided once at open time: every rebuild - including ones driven
@@ -275,7 +308,7 @@ func (s *liveSession) rebuild() {
 				hostAndTask = s.outputHost + "   " + s.outputTask.Name
 			}
 			s.splitHeader.SetText(uikit.ProgressFillLine(
-				uikit.ComposeSplitHeaderLine(s.playbookName, s.isRole, hostAndTask, elapsed, frozen, s.currentFilter, totalWidth, s.showElapsed()),
+				uikit.ComposeSplitHeaderLine(s.playbookName, s.isRole, hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.showElapsed()),
 				progressPos, progressTotal, frozen, s.chromeColorName()))
 		} else {
 			// Padded to the full terminal width before the fill is

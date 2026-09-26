@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Implements the top bar's own proportional progress fill (tui.go's
-// TopBarText/ComposeSplitHeaderLine - a background sweep, not a literal
-// "Task x/y" number since design-docs/ProgressIndicator.md, for exactly
-// the reason documented below). There is no event in the jsonl stream
+// Implements the top bar's own progress indicator (tui.go's
+// TopBarText/ComposeSplitHeaderLine): a proportional background fill,
+// plus a literal "Task x/y" number - temporarily reinstated, design-docs/
+// ProgressIndicator.md, for exactly the reason documented below, which
+// still applies even with the number back on screen. There is no event
+// in the jsonl stream
 // that tells us upfront how many tasks a run will execute (CLAUDE.md's
 // own Aggregation section: plays/tasks are only ever discovered as they
 // start), so this predicts a task sequence ahead of time from a second,

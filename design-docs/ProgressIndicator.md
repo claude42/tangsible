@@ -1,5 +1,28 @@
 # Progress indicator: drop the numbers, keep the bar
 
+**Status: temporarily reinstated for a live re-check.** The rationale
+below (why the number was dropped) still holds - this isn't a reversal of
+the decision, just a live check of whether the gap actually got smaller
+now that the run has its own bundled callback plugin (`design-docs/
+OwnCallbackPlugin.md`). A literal progress number is back in
+`ComposeTopBarLine`/`ComposeSplitHeaderLine` (`internal/uikit/
+tui_layout.go`, via the shared `progressPercentPrefix` helper) - shown as
+an integer percentage ("42%"), not the original "Task x/y" form, but
+driven by the exact same `progressPos`/`progressTotal` and carrying the
+exact same accuracy caveat below - except once the run is frozen, where
+it's clamped to 100% (matching `progressFillLine`'s own long-standing
+snap-to-100%-when-frozen behavior for the background fill, which the
+original "Task x/y" text deliberately did NOT do): a finished run showing
+anything short of 100% would read as tangsible being broken, not as a
+report on the prediction's own accuracy - that accuracy is still fully
+visible mid-run, before the clamp kicks in. Also mirrored into the
+terminal's window title while running (`internal/uikit/windowtitle.go`,
+`updateWindowTitle`), pushed/popped off xterm's own title stack (CSI
+22/23;2t) so it never overwrites whatever title was there before
+tangsible started. If it still diverges meaningfully from the recap's own
+count on a real, role-heavy playbook, drop it again; if not, this note
+(and "Decision" below) needs updating to reflect keeping it.
+
 ## Situation
 
 The top bar's "Task x/y" indicator (`internal/runner/progress.go`) predicts

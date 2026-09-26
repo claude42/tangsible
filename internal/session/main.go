@@ -620,7 +620,7 @@ func Main(build BuildInfo) {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)
 	}
 
-	runErr := app.Run()
+	runErr := uikit.RunWithTitleStack(app)
 	quitting.Store(true) // defensive: also stop the streamer if Run() ever
 	// returns for a reason other than our own Stop()
 

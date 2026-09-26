@@ -580,7 +580,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, runner.InitialRerunDefaults{}, startWithRerunDialog, startWithRerunDialog, requestRerun, invArgs.Rest, &progH, revisitReturn,
 		e.Playbook, e.Role)
 
-	runErr := app.Run()
+	runErr := uikit.RunWithTitleStack(app)
 	quitting.Store(true) // defensive: same reasoning as main.go's own
 	// post-Run() store - stop the streamer/heartbeat/resize-watcher
 	// goroutines if Run() ever returns for a reason other than our own

@@ -33,6 +33,8 @@
   host gets its own tab, colored red if its own last render errored.
 - New `template_hosts_max` config key (default 10) - `template` now asks for
   confirmation before rendering against more hosts than this.
+- A progress percentage is shown in the progress bar and in the terminal's
+  window title while a run is live.
 
 ### Changed
 

@@ -59,22 +59,43 @@ func MinutesSeconds(d time.Duration) (mm, ss int) {
 // The whole bar doubles as a literal progress fill (design-docs' own
 // "the headline as a progress bar" idea) via progressFillLine - see its
 // own doc comment for the fill/escaping details. progressPos/
-// progressTotal are used only for that fill here, never rendered as
-// literal text (see design-docs/ProgressIndicator.md for why: the
-// upfront --list-tasks-based prediction they come from can't see
-// handlers or a looped include_tasks/import_tasks, so showing it as a
-// number invited exactly the "why do these two counts disagree" confusion
-// a live report surfaced - the recap's own end-of-run count is the one
-// number this app ever asserts as accurate). composeTopBarLine below is
-// this function's own plain-text half, split out only because TopBarText
+// progressTotal drive that fill here; TEMPORARILY (design-docs/
+// ProgressIndicator.md's own removal rationale still applies - this is
+// only back for a live re-check now that the run has its own bundled
+// callback plugin, not a reversal of that decision) they're also shown
+// as a literal percentage again via composeTopBarLine below, this
+// function's own plain-text half, split out only because TopBarText
 // itself is a thin composeTopBarLine+progressFillLine wrapper - split
 // mode uses its own, separately-composed composeSplitHeaderLine instead
 // of this one (see its own doc comment for why a shared tree-only
 // composer isn't reused there).
 func TopBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, bgColorName string, showElapsed bool) string {
 	return ProgressFillLine(
-		ComposeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, width, showElapsed),
+		ComposeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, progressPos, progressTotal, width, showElapsed),
 		progressPos, progressTotal, frozen, bgColorName)
+}
+
+// progressPercentPrefix renders progressPos/progressTotal as a plain
+// integer percentage (e.g. "42%  "), or "" if progressTotal is 0 (no
+// skeleton at all) - shared by ComposeTopBarLine/ComposeSplitHeaderLine.
+// Temporarily reinstated as a literal number (design-docs/
+// ProgressIndicator.md) alongside the background fill. Floored, not
+// rounded, so a still-running number never claims more progress than
+// actually happened - but once frozen, clamped to 100 regardless of
+// whether the tracker actually matched every skeleton entry, matching
+// progressFillLine's own snap-to-100%-when-frozen behavior (see its doc
+// comment): the run is genuinely done at that point, so "73%" sitting
+// next to a fully-filled bar would read as a bug, not as useful
+// information about the prediction's own accuracy.
+func progressPercentPrefix(progressPos, progressTotal int, frozen bool) string {
+	if progressTotal <= 0 {
+		return ""
+	}
+	pct := progressPos * 100 / progressTotal
+	if frozen {
+		pct = 100
+	}
+	return fmt.Sprintf("%d%%  ", pct)
 }
 
 // ComposeTopBarLine builds the top bar's own plain, unfilled, already-
@@ -83,30 +104,31 @@ func TopBarText(playbookName string, isRole bool, hosts []string, elapsed time.D
 // progressFillLineAt) so a caller that needs to coordinate this bar's
 // own fill boundary against something else (split mode's own tree-bar +
 // divider + drill-down-bar alignment, in rebuild) can do so without
-// duplicating this composition logic. Takes no progressPos/progressTotal
-// of its own (design-docs/ProgressIndicator.md) - those only ever drive
-// TopBarText's own separate fill step now, never this function's text.
+// duplicating this composition logic.
 //
 // showElapsed false (design-docs/Revisit.md: a revisit session, where
 // elapsed is always ~0 - Phase 1 only ever saved a run's start time, never
 // its duration, so there's nothing real to show) drops the spinner/mm:ss
 // clock entirely rather than displaying a value that would just read as
-// wrong - the right-hand side is simply empty in that case now, since
-// there's nothing else this function ever puts there.
-func ComposeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, width int, showElapsed bool) string {
+// wrong - the progress percentage alone still shows if there's a
+// progressPrefix to show (never the case for a revisit session in
+// practice, since replay never builds a progress skeleton either, but
+// this function doesn't assume that - the two are independent knobs).
+func ComposeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
 	}
 	mm, ss := MinutesSeconds(elapsed)
+	progressPrefix := progressPercentPrefix(progressPos, progressTotal, frozen)
 	var right string
 	switch {
 	case !showElapsed:
-		right = ""
+		right = progressPrefix
 	case frozen:
-		right = fmt.Sprintf("%02d:%02d ", mm, ss)
+		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
 	default:
-		right = fmt.Sprintf("%c %02d:%02d ", SpinnerAt(elapsed), mm, ss)
+		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, SpinnerAt(elapsed), mm, ss)
 	}
 
 	prefix := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: ", label, playbookName, filter.label())
@@ -143,27 +165,24 @@ func ComposeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 // separator on this line - there's exactly one relevant host/task
 // pane-side, not "every host seen so far" the way the tree-only bar's
 // own host list is), then - flush right, same as topBarText's own right
-// side - the heartbeat (spinner + elapsed, or just elapsed once frozen).
-// No progressPos/progressTotal parameters here at all (design-docs/
-// ProgressIndicator.md) - like ComposeTopBarLine, this function never
-// rendered them as text beyond the "Task x/y" prefix that decision
-// removed, so there's nothing left for it to need them for; the caller's
-// own separate ProgressFillLine wrapping still drives the fill from
-// them directly.
-func ComposeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, width int, showElapsed bool) string {
+// side - the progress percentage (temporarily reinstated, see
+// progressPercentPrefix's own doc comment) and the heartbeat (spinner +
+// elapsed, or just elapsed once frozen).
+func ComposeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	label := "Playbook"
 	if isRole {
 		label = "Role"
 	}
 	mm, ss := MinutesSeconds(elapsed)
+	progressPrefix := progressPercentPrefix(progressPos, progressTotal, frozen)
 	var right string
 	switch {
 	case !showElapsed:
-		right = ""
+		right = progressPrefix
 	case frozen:
-		right = fmt.Sprintf("%02d:%02d ", mm, ss)
+		right = fmt.Sprintf("%s%02d:%02d ", progressPrefix, mm, ss)
 	default:
-		right = fmt.Sprintf("%c %02d:%02d ", SpinnerAt(elapsed), mm, ss)
+		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, SpinnerAt(elapsed), mm, ss)
 	}
 
 	left := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: %s", label, playbookName, filter.label(), hostAndTask)
