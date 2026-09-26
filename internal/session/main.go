@@ -479,13 +479,17 @@ func Main(build BuildInfo) {
 	// Built synchronously - parsing a project's own YAML files is expected
 	// to be well under the noise floor of an interactive ansible run at
 	// this project's stated ~10-host target scale, so this isn't worth
-	// backgrounding. Unaffected by a rerun - still the same playbook
-	// (Rerun.md's interactive re-run never changes it), so there's no need
-	// to rebuild this per generation. For "run" this is deliberately after
-	// the pre-flight gate above, so a bad playbook path/parse error
-	// doesn't pay for it - "rerun" has no such gate to be after (see
-	// pending's own case above), so it's simply built before anything
-	// else instead.
+	// backgrounding. This is only this session's very first build, seeding
+	// the sourceIndex map that runner.NewRequestRerun (generation.go) then
+	// mutates in place on every later interactive rerun via its own
+	// source.MergeSourceIndex call - re-walking the playbook's directory
+	// tree each time so an edit made mid-session (a common dev-loop case)
+	// shows up in the drill-down's "Task definition" tab on the very next
+	// rerun, not just once at session startup. For "run" this initial
+	// build is deliberately after the pre-flight gate above, so a bad
+	// playbook path/parse error doesn't pay for it - "rerun" has no such
+	// gate to be after (see pending's own case above), so it's simply
+	// built before anything else instead.
 	sourceIndex, knownTags, _ := source.BuildTaskSourceIndex(playbook)
 	knownPlayNames := source.ListTopLevelPlayNames(playbook)
 	// knownGroups backs the re-run dialog's own "Limit hosts to:" field

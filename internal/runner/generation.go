@@ -134,16 +134,19 @@ type InitialRerunDefaults struct {
 //
 // sourceIndex is the caller's own live TaskSourceIndex (a map, so mutating
 // it here is visible to every closure already holding the same reference,
-// e.g. tui.go's formatHostOutput) - merged into, in place, with a trimmed
-// copy's own re-indexed entries whenever startAtPlay actually spawns
-// against one (source.MergeSourceIndex below), so the drill-down view's
-// "Task definition" tab still finds a task defined directly in the
-// top-level playbook, whose RawEvent.Task.Path now points into the
-// trimmed file rather than the original one indexed at session start.
-// Safe to mutate with no lock: this happens synchronously, on whatever
-// goroutine calls the returned func (tview's event-loop goroutine, same
-// invariant state.Reset() above already relies on), never concurrently
-// with formatHostOutput's own reads of the same map.
+// e.g. tui.go's formatHostOutput) - re-merged in place from spawnPlaybook's
+// own directory tree on every rerun (source.MergeSourceIndex below), not
+// just a startAtPlay's trimmed copy: without this, sourceIndex would stay
+// a snapshot frozen at session startup, so a playbook edited mid-session
+// (a common dev-loop case) would keep showing pre-edit "Task definition"
+// text on every subsequent rerun even though ansible-playbook itself always
+// executes the current on-disk file. The trimmed-copy case additionally
+// needs this because the running generation's own RawEvent.Task.Path
+// points into the trimmed file rather than the original one indexed at
+// session start. Safe to mutate with no lock: this happens synchronously,
+// on whatever goroutine calls the returned func (tview's event-loop
+// goroutine, same invariant state.Reset() above already relies on), never
+// concurrently with formatHostOutput's own reads of the same map.
 func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, tags, skipTags, hosts string) {
 	return func(startAtPlay, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
@@ -222,9 +225,24 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 				return
 			default:
 				spawnPlaybook, cleanupTemp = tempPath, cleanup
-				source.MergeSourceIndex(sourceIndex, spawnPlaybook)
 			}
 		}
+
+		// Re-index from disk on every rerun, not just a startAtPlay's
+		// trimmed copy - sourceIndex is otherwise a snapshot frozen at
+		// session startup (main.go's own BuildTaskSourceIndex call), so a
+		// playbook edited between generations (a common dev-loop case:
+		// tweak a task, rerun without leaving Tangsible) would otherwise
+		// keep showing the pre-edit "Task definition" text forever, even
+		// though ansible-playbook itself always executes the current
+		// on-disk file. MergeSourceIndex overwrites existing keys in place
+		// and already walks spawnPlaybook's whole directory tree regardless
+		// of which single file changed, so reusing it unconditionally here
+		// (instead of only for the trimmed-copy case) is a correct,
+		// no-extra-mechanism fix - same best-effort posture (a no-op on any
+		// read/parse failure) as every other source-lookup miss in this
+		// codebase.
+		source.MergeSourceIndex(sourceIndex, spawnPlaybook)
 
 		// Rebuilt synchronously, same place/reasoning as state.Reset()
 		// above - tags/skip-tags/hosts (and --start-at-task/startAtPlay)
