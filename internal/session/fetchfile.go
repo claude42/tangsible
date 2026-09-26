@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
@@ -167,7 +168,7 @@ func fetchRemoteFileContents(remotePath, host string, rest []string) (string, er
 	if raw == nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" && runErr != nil {
-			msg = runErr.Error()
+			msg = execerr.Fallback("ansible-playbook", runErr)
 		}
 		if msg == "" {
 			msg = fmt.Sprintf("no result reported for host %q", host)

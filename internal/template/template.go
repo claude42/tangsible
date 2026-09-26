@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
@@ -317,7 +318,7 @@ func RenderTemplate(stubPath, outputPath, hostname string, rest []string) (Templ
 	if raw == nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" && runErr != nil {
-			msg = runErr.Error()
+			msg = execerr.Fallback("ansible-playbook", runErr)
 		}
 		if msg == "" {
 			msg = fmt.Sprintf("no result reported for host %q - check that it resolves in the inventory", hostname)

@@ -33,6 +33,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
@@ -222,6 +223,9 @@ func FetchHostGroups(hostname string, rest []string) (string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if msg := execerr.NotFoundMessage("ansible-inventory", err); msg != "" {
+			return "", fmt.Errorf("%s", msg)
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
@@ -418,7 +422,7 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
-			msg = err.Error()
+			msg = execerr.Fallback("ansible-playbook", err)
 		}
 		return "", fmt.Errorf("%s", msg)
 	}
@@ -477,6 +481,9 @@ func RunAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if msg := execerr.NotFoundMessage("ansible-inventory", err); msg != "" {
+			return nil, fmt.Errorf("%s", msg)
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
@@ -659,7 +666,7 @@ func FetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 	if raw == nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" && runErr != nil {
-			msg = runErr.Error()
+			msg = execerr.Fallback("ansible-playbook", runErr)
 		}
 		if msg == "" {
 			detail := fmt.Sprintf("%d jsonl events were parsed, none for this host", eventCount)

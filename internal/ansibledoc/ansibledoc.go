@@ -27,6 +27,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"code.aw.net/claude/tangsible/internal/execerr"
 )
 
 // ansiCSI matches an ANSI CSI escape sequence (ESC "[" ... final byte) -
@@ -69,7 +71,7 @@ func FetchAnsibleDoc(action string) (string, error) {
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
-			msg = err.Error()
+			msg = execerr.Fallback("ansible-doc", err)
 		}
 		return "", errors.New(msg)
 	}

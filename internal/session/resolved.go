@@ -34,6 +34,7 @@ import (
 	"regexp"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/template"
@@ -225,7 +226,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	if raw == nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" && runErr != nil {
-			msg = runErr.Error()
+			msg = execerr.Fallback("ansible-playbook", runErr)
 		}
 		if msg == "" {
 			msg = fmt.Sprintf("no result reported for host %q", host)

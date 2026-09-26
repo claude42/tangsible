@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/execerr"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 )
 
@@ -170,6 +171,9 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle) (cmd *ex
 	if err := cmd.Start(); err != nil {
 		eventR.Close()
 		eventW.Close()
+		if msg := execerr.NotFoundMessage("ansible-playbook", err); msg != "" {
+			return nil, nil, nil, "", errors.New(msg)
+		}
 		return nil, nil, nil, "", fmt.Errorf("failed to start ansible-playbook: %w", err)
 	}
 	procH.Store(cmd.Process)

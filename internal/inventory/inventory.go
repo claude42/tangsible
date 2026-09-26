@@ -27,6 +27,8 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+
+	"code.aw.net/claude/tangsible/internal/execerr"
 )
 
 // ansibleInventoryGroup is the shape of one non-"_meta" entry in
@@ -134,6 +136,9 @@ func ListInventoryRaw(passthroughArgs []string) (map[string]json.RawMessage, err
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if msg := execerr.NotFoundMessage("ansible-inventory", err); msg != "" {
+			return nil, fmt.Errorf("%s", msg)
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
