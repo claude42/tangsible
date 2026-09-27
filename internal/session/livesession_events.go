@@ -50,8 +50,31 @@ func (s *liveSession) onTaskAdded(play *playbook.PlayNode, task *playbook.TaskNo
 	s.rebuild()
 }
 
-// onHostRecorded is wired to state.OnHostRecorded.
-func (s *liveSession) onHostRecorded(*playbook.TaskNode, string) { s.rebuild() }
+// onHostRecorded is wired to state.OnHostRecorded - fires once per host per
+// task, right after PlaybookState.recordHost has already set task.Hosts[host]
+// and task.Ignored[host] (task.record, called just before this hook), so
+// both are safe to read here.
+//
+// notify_task_failed (design-docs/Notifications.md) lives here rather than
+// in applyLive's own per-event switch specifically to get task.Ignored for
+// free: the bundled callback plugin (unlike stock ansible.posix.jsonl) does
+// emit ignore_errors, and task.Ignored[host] already carries it by the time
+// this fires - an ignore_errors: true failure is deliberately not notified,
+// matching real ansible-playbook's own recap treatment of it as distinct
+// from a genuine failure, even though this app's own Outcome/tree-coloring
+// elsewhere still deliberately folds the two together (see aggregate.go's
+// own doc comment on Ignored).
+func (s *liveSession) onHostRecorded(task *playbook.TaskNode, host string) {
+	if task.Hosts[host] == playbook.OutcomeFailed && !task.Ignored[host] && s.notifyTaskFailedKind != config.NotificationOff {
+		if s.taskFailedNotifyCount < s.notifyTaskFailedMax {
+			s.taskFailedNotifyCount++
+			_ = uikit.SendNotification(s.notifyTaskFailedKind, uikit.NotificationTitle, uikit.TaskFailedBody(task.Name, host))
+		} else {
+			s.suppressedTaskFailures++
+		}
+	}
+	s.rebuild()
+}
 
 // applyLive feeds one playbook.RawEvent in on the app's own update queue -
 // NewLiveTUI's second return value, called by main.go's scanEvents loop
@@ -59,28 +82,5 @@ func (s *liveSession) onHostRecorded(*playbook.TaskNode, string) { s.rebuild() }
 func (s *liveSession) applyLive(ev playbook.RawEvent) {
 	s.app.QueueUpdateDraw(func() {
 		s.state.Apply(ev)
-
-		// notify_task_failed (design-docs/Notifications.md). No
-		// ignore_errors exclusion: the ansible.posix.jsonl callback
-		// never includes that field in the events it emits at all
-		// (confirmed by reading its source directly - see recap.go's
-		// own doc comment for the identical finding) - so, same as
-		// this app's Fail-rollup elsewhere, an ignore_errors: true
-		// failure notifies exactly like a real one, until a future
-		// custom callback plugin (design-docs/OwnCallbackPlugin.md)
-		// can supply that field. v2_runner_on_failed's own hosts map
-		// always carries exactly one entry (jsonl.py records one
-		// host's result per event) - ranging over it is just how a
-		// single-entry map is read, not an assumption of more.
-		if ev.Event == "v2_runner_on_failed" && s.notifyTaskFailedKind != config.NotificationOff && ev.Task != nil {
-			for host := range ev.Hosts {
-				if s.taskFailedNotifyCount < s.notifyTaskFailedMax {
-					s.taskFailedNotifyCount++
-					_ = uikit.SendNotification(s.notifyTaskFailedKind, uikit.NotificationTitle, uikit.TaskFailedBody(ev.Task.Name, host))
-				} else {
-					s.suppressedTaskFailures++
-				}
-			}
-		}
 	})
 }

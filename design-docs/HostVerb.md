@@ -234,6 +234,102 @@ either unit tests or the live verification above:
   parsed and for which other hostnames, if any), which would have
   shortened this considerably had it existed from the start.
 
-## Session
+## New ideas
 
-claude --resume ec2c598e-a7a4-48d3-b955-43ea1879eda1
+### Host list
+
+* In the host list, show a green or red dot behind the host name
+  * dot should be green if ansible.builtin.ping was successful for this host
+  * dot should be red otherwise
+
+* when using tangsible hosts, a similar two-pane layout shall be used (if
+  there's enough horizontal space) as is currently being used for tangsible
+  run's drilldown view
+
+### Summary
+
+* Restructure Summary page (see below)
+* Extract from the previous runs the last times tangsible has run a playbook
+  that included that specific host and visualize this in the Summary tab
+
+
+
+
+Characteristics
+===============
+
+Host:           nirvana
+FQDN:           nirvana.aw.net
+OS:             Linux, 6.12.107+deb13-amd64
+Distribution:   Debian, 13.7
+Architecture:   x86_64
+Processor:      Intel(R) Xeon(R) CPU E5-2650 v4 @ 2.20GHz
+RAM:            1.9 GB
+Virtualization: VM
+IPv4:           10.0.1.1, 172.17.0.1, 130.185.249.9, 172.19.0.1, 172.18.0.1
+IPv6:           fd99::1:29db, 2a04:92c7:2:2f4::29db
+
+Recent
+======
+
+2026-09-10 10:12 site.yml:       ok=189  skipped=50  changed=7  unreachable=0  failed=0  warnings=3  ignored=0
+2026-09-08 01:23 demo.yml:       ok=1    skipped=0   changed=9  unreachable=0  failed=0  warnings=0  ignored=0
+2026-09-07 11:11 site.yml:       ok=0    skipped=0   changed=0  unreachable=1  failed=0  warnings=0  ignored=0
+
+Keys
+====
+
+Host key (ed25519): ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKk2zbib2TXQc0gRabiu7RmnVA9qmm+xBSf/NErF1Bp/
+Host key (ecdsa):   ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFZraX+3826cNR7DR6yJ8aqOHmhJ8L3No52E26gAchtpuvtfcbR21CAhLxyM6xu14aaTk6+1LQG3j/TCfEKsE6I=
+Host key (rsa):     ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCliYu71VW8g7u3cMOh99JOi2uZwEoYsOP5MS0aGCTJHHWU9RaKo6LOWbTyHKQqcCq3vZcRJcv913W9KvjtGoSNkghX5sIEJgUTxyc0jFG+WA0mTTVpNX9ZExFrjr23KYnyXAHqeEZI0/
+NRkKly0MnNnDZhxq/cSw1DeyZJfL7wuD1k4Us0qqhHgOUmVt8NOhGbLfxJDV0c+7BboAZEkjXB9E+Ca/S22wT0zAvQIqjOCzYacLHSehAqCaJy8bCmnS1YkPisZTRSdutqeBKFFxlPVgL0MSWGRUFGeKThtbbE/4MbrkRTPwrL/
+TZwTOpN7f8VYqQYQFlLwKOJBtB5FMgl1GatHcbsB6zawTD0RFgnUWzENxooKDH8Dj3xh4E5OeimqkK6lPE3yc0qfBKPJutyQCF2rUbZ6jMqq1zNafjVIboiqK6GoguabUxSj9BCnm8lGc0wSO8UvPkN+lQo+oTPrlJI5PkhzNkrtOD11bOjsqC49X3fj+RdfXJbaplp2
+SM=
+
+### Decisions (from discussion)
+
+* **Host list ping dots run concurrently, update lazily per row.** Every
+  row's `ansible.builtin.ping` fires the instant the list itself renders -
+  same "kick off eagerly, populate via `app.QueueUpdateDraw` once done"
+  pattern the five detail tabs already use (`BuildHostDetailPrimitive`),
+  just one goroutine per row instead of one per tab. A row shows its dot
+  the moment its own ping lands, independent of every other row's timing -
+  no batching, no "wait for all to finish" gate. The Summary tab drops its
+  own ping line entirely now that the list already shows it per host - no
+  duplicate ping for the currently-selected host.
+* **"Recent" reuses `recapForHost` (recap.go) against a replayed historical
+  `PlaybookState`, not a new counting mechanism.** Same replay
+  `revisit.OpenRevisitEntry` already does for a saved
+  `.tangsible/runs/<RunID>.jsonl` - build a fresh `PlaybookState` from the
+  stored jsonl, then `recapForHost(state, hostname)` for the exact same
+  counts the live recap shows, `ignored` included: the bundled callback
+  plugin already emits `ignore_errors` and `TaskNode.Ignored`/`recap.go`
+  already carry it end-to-end (confirmed directly against `events.go`'s
+  `hasIgnoreErrors`) - an earlier assumption during this discussion that
+  this was still an open gap was wrong.
+* **Deliberately spans every playbook/role in `state.toml`'s `History`**,
+  not just the one this invocation's own `<playbook>` argument names -
+  accepted as inconsistent with `host`/`hosts`'s own single-playbook
+  argument (which the Plays tab still uses) but kept anyway, since which
+  playbooks have touched this host at all is itself useful information,
+  more useful than a narrower but consistent view.
+* **Bounded scan, not bounded results.** Finding "the last 5 times this
+  host was touched" means replaying candidate invocations until 5 matches
+  turn up, which could otherwise mean opening every invocation of every
+  playbook ever run in the project for a rarely-targeted host. Capped at
+  the 20 most recent invocations project-wide (newest-first across every
+  `PlaybookHistory` entry, not 20 per playbook - `MaxHistoryPerPlaybook`
+  already bounds the per-playbook side of this separately), stopping early
+  once 5 host-matches are found. An invocation with no `RunID` (never
+  saved, or cleared by `PruneMissingRunLogs`) is silently skipped, the same
+  "best-effort, never an error" convention every other run-log consumer in
+  this app already follows.
+* **Two-pane `hosts` layout live-syncs the detail pane on cursor move,
+  split mode only.** Moving the list cursor immediately retargets and
+  refetches the detail pane's tabs for the newly-selected host - no Enter
+  needed - matching the run drill-down's own split-mode live-sync
+  (`showOutputWithOrigin`). Full-screen mode (narrow terminal, or
+  `tangsible host <hostname>` invoked directly) keeps today's Enter-gated
+  behavior unchanged; only split mode gets this. No debounce on rapid
+  cursor movement for now - deliberately left unbuilt until it's actually
+  felt to be a problem in live use, not guessed at up front.
