@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/diff"
 	"code.aw.net/claude/tangsible/internal/host"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
@@ -59,6 +60,19 @@ func Main(build BuildInfo) {
 	if v == config.VerbVersion {
 		os.Exit(RunVersion(build))
 	}
+
+	// Color config (design-docs/ColorConfig.md) applies to every remaining
+	// Verb uniformly, including "vault" below (harmless there - it never
+	// constructs a TUI at all) - resolved once, here, before any of them
+	// gets a chance to render anything, the same "read once at startup"
+	// posture every other [general]/[colors] setting already has. Two
+	// packages, two calls: uikit.ApplyColorConfig covers every color var
+	// this package touches directly; diff.ApplyColorConfig covers its own
+	// one color var (DiffChromeColor/DiffChromeStyle) that internal/uikit
+	// can't reach into.
+	colorCfg := config.MergedSettingsConfig().Colors
+	uikit.ApplyColorConfig(colorCfg)
+	diff.ApplyColorConfig(colorCfg)
 
 	// "template" (design-docs/Tangsible template.md), "host"/"hosts"
 	// (design-docs/HostVerb.md), "revisit" (design-docs/Revisit.md), and

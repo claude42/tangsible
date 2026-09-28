@@ -115,13 +115,14 @@ template_hosts_max = 10
 Every key in the table is optional; an absent key always means "use the
 documented default," never an error.
 
-## Planned, not yet implemented
+## `[colors]`
 
-`ColorConfig.md` proposes a `[colors]` table for overriding roughly 34
-individual UI colors (outcome colors, chrome bars, section headings, and
-so on) — a design still under review, not built. It would follow the same
-project → global → system cascade documented above, now that this page's
-own "global vs. project-local" question has been settled in favor of
-treating every setting the same way. `[general] color` above is unrelated
-to that proposal either way: it's a pre-existing on/off switch for one
-specific row's color usage, not part of it.
+`design-docs/ColorConfig.md` documents a separate `[colors]` table for
+overriding all 34 individual UI colors (outcome colors, chrome bars,
+section headings, and so on) — implemented, cascading project → global →
+system exactly like `[general]` above. Not repeated in this file's own
+table: `ColorConfig.md`'s own "Key naming rule" section is the reference
+for that table's key list (one key per `uikit.*Color`/`diff.DiffChromeColor`
+var, design-docs/Colors.md). `[general] color` above is unrelated to
+`[colors]` either way: it's a pre-existing on/off switch for one specific
+row's color usage, not one of its 34 keys.

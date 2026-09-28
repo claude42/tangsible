@@ -123,6 +123,11 @@ type SettingsConfig struct {
 		// shape as NotifyTaskFailedMax above and for the same reason.
 		TemplateHostsMax *int `toml:"template_hosts_max"`
 	} `toml:"general"`
+
+	// Colors is design-docs/ColorConfig.md's own `[colors]` table - see
+	// ColorsConfig's own doc comment (colorsconfig.go) for its shape and
+	// naming rule.
+	Colors ColorsConfig `toml:"colors"`
 }
 
 // NotificationKind is General.NotifyPlaybookFinished/NotifyTaskFailed's
@@ -478,6 +483,7 @@ func MergedSettingsConfig() SettingsConfig {
 	merged.General.NotifyTaskFailed = firstNonEmpty(project.General.NotifyTaskFailed, global.General.NotifyTaskFailed, system.General.NotifyTaskFailed)
 	merged.General.NotifyTaskFailedMax = firstNonNil(project.General.NotifyTaskFailedMax, global.General.NotifyTaskFailedMax, system.General.NotifyTaskFailedMax)
 	merged.General.TemplateHostsMax = firstNonNil(project.General.TemplateHostsMax, global.General.TemplateHostsMax, system.General.TemplateHostsMax)
+	merged.Colors = mergeColors(project.Colors, global.Colors, system.Colors)
 	return merged
 }
 

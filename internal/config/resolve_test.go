@@ -398,6 +398,23 @@ func TestMergedSettingsConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("[colors] keys cascade the same way as [general] keys", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		xdgHome := filepath.Join(dir, "xdg-config")
+		t.Setenv("XDG_CONFIG_HOME", xdgHome)
+		mustWriteFile(t, ".tangsible/config.toml", "[colors]\noutcome_ok = \"lime\"\n")
+		mustWriteFile(t, filepath.Join(xdgHome, "tangsible", "config.toml"), "[colors]\noutcome_ok = \"blue\"\nchrome_live = \"teal\"\n")
+
+		got := MergedSettingsConfig().Colors
+		if got.OutcomeOK == nil || *got.OutcomeOK != "lime" {
+			t.Errorf("Colors.OutcomeOK = %v, want a pointer to %q (project wins)", got.OutcomeOK, "lime")
+		}
+		if got.ChromeLive == nil || *got.ChromeLive != "teal" {
+			t.Errorf("Colors.ChromeLive = %v, want a pointer to %q (falls through to global)", got.ChromeLive, "teal")
+		}
+	})
+
 	t.Run("nothing set anywhere leaves every key at its zero value", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Chdir(dir)

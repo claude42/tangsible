@@ -16,23 +16,26 @@ package uikit
 
 import (
 	"time"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 // BarStyle is used for every non-list chrome bar (top bar, bottom bar, and
-// the output drill-down page's own top/bottom bars) - white on blue, bold.
-var BarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorNavy).Bold(true)
+// the output drill-down page's own top/bottom bars) - white on blue, bold
+// by default. Built via buildChromeStyle (colors.go) from ChromeLiveColor
+// rather than a hardcoded tcell.ColorNavy literal, so design-docs/
+// ColorConfig.md's own chrome_live config key actually reaches this bar,
+// not just ChromeLiveColor's own plain-tag-string uses elsewhere -
+// ApplyColorConfig (colors.go) rebuilds this var the same way after
+// resolving any config override.
+var BarStyle = buildChromeStyle("white", ChromeLiveColor)
 
 // ReplayBarStyle is design-docs/Revisit.md's own chrome for a revisited
-// (historical) run - the same bars barStyle normally covers, plus the
+// (historical) run - the same bars BarStyle normally covers, plus the
 // two-pane divider's own background (see NewLiveTUI's chromeStyle/chromeBg
 // locals), switch to this instead for as long as the session is showing
-// replayed data rather than a live/finished one. tcell.ColorPurple, not a
-// hex value - a fixed base-16 ANSI palette slot, same reasoning as maroon
-// (not brown/darkred) elsewhere in this file: reliable across terminal
-// themes rather than RGB-approximated. See design-docs/Colors.md.
-var ReplayBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorPurple).Bold(true)
+// replayed data rather than a live/finished one. Built from
+// ChromeRevisitColor the same way BarStyle is built from ChromeLiveColor
+// - see its own doc comment.
+var ReplayBarStyle = buildChromeStyle("white", ChromeRevisitColor)
 
 // CheckBarStyle is the chrome for a session whose current generation was
 // invoked with --check (a dry run: ansible-playbook still runs for real,
@@ -41,28 +44,24 @@ var ReplayBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(
 // as long as the running/finished generation is a --check one, so "this
 // didn't actually change anything" is visible in the chrome itself rather
 // than only discoverable by reading --check off the command line after
-// the fact. tcell.ColorOlive, not a hex value - a fixed base-16 ANSI
-// palette slot, same reasoning as maroon/purple/fuchsia elsewhere in this
-// file. Picked from the same "still-unused base-16 slot" shortlist
-// (olive, lime) that ReplayBarStyle's own doc comment already names as
-// having been passed over in favor of purple - see design-docs/Colors.md.
-var CheckBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorOlive).Bold(true)
+// the fact. Built from ChromeCheckColor the same way BarStyle is built
+// from ChromeLiveColor - see its own doc comment.
+var CheckBarStyle = buildChromeStyle("white", ChromeCheckColor)
 
 // SearchBarStyle is the drill-down/host-detail/template view's own bottom
 // bar style while an in-tab search (design-docs/Search.md) is being
-// composed or is currently active - black on yellow, the same "a distinct
-// color signals a mode change" precedent BarStyle/ReplayBarStyle already
-// establish for the whole session's chrome, applied here to just the one
-// bar instead of every bar at once (a search is scoped to a single tab,
-// not global to the session the way revisit-mode is). Built from
-// search.go's own searchMatchForegroundColor/searchMatchBackgroundColor
-// via tcell.GetColor (rather than separate tcell.ColorBlack/ColorYellow
-// literals, which had drifted out of sync with those constants despite
-// this doc comment's own "matches the color" claim - a real gap, not
-// just a stale comment: the two were never actually wired together) so
-// the bar and the highlighted text are guaranteed to read as the same
-// mode, not just coincidentally matching defaults.
-var SearchBarStyle = tcell.StyleDefault.Foreground(tcell.GetColor(searchMatchForegroundColor)).Background(tcell.GetColor(searchMatchBackgroundColor)).Bold(true)
+// composed or is currently active - black on yellow by default, the same
+// "a distinct color signals a mode change" precedent BarStyle/
+// ReplayBarStyle already establish for the whole session's chrome,
+// applied here to just the one bar instead of every bar at once (a
+// search is scoped to a single tab, not global to the session the way
+// revisit-mode is). Built from search.go's own
+// searchMatchForegroundColor/searchMatchBackgroundColor via
+// buildChromeStyle, so the bar and the highlighted text are guaranteed
+// to read as the same mode, not just coincidentally matching defaults -
+// and so design-docs/ColorConfig.md's own search_match_foreground/
+// search_match_background config keys reach this bar too.
+var SearchBarStyle = buildChromeStyle(searchMatchForegroundColor, searchMatchBackgroundColor)
 
 const SpinnerInterval = 200 * time.Millisecond
 
@@ -136,54 +135,12 @@ const (
 	// color, so the separator blends from one into the other instead of an
 	// abrupt full-cell change.
 	HalfBlock = "▌"
-
-	// NothingReportedColor covers two meanings that read the same way -
-	// "nothing to show here (yet)": a host AllHosts knows about run-wide
-	// but that hasn't reported for *this* task yet (tui_layout.go), and
-	// recap.go's own zero-count de-emphasis (a field whose count is 0).
-	NothingReportedColor = "gray"
-
-	// SelectedRowTextColor is every selected row's own text color,
-	// app-wide - needs to read as unambiguously black against the light
-	// backgrounds those rows use, so it's a fixed hex value rather than
-	// tcell's named "black": some terminal themes remap the base-16 ANSI
-	// "black" slot to a dark gray rather than true black (the same
-	// base-16-vs-fixed-value trap already documented for red/maroon, see
-	// colorTag).
-	SelectedRowTextColor = "#1a1a1a"
-
-	// ProgressFillColor is topBarText's own "headline as a progress bar"
-	// fill - a fixed hex value, not tcell's named "green", for the same
-	// reason pureBlack isn't named "black": tcell's nearest-color search
-	// prefers an EXACT match to a base-16 slot's own nominal RGB even when
-	// given as a hex value (confirmed against tcell's colorfit.go, same
-	// finding pureBlack's own doc comment already made), and some terminal
-	// themes remap that slot to something that reads poorly under white
-	// text. Deliberately not the nominal xterm green (#008000) for exactly
-	// that reason - nudged dark enough to keep white bold text readable
-	// while still landing on a fixed, non-remappable extended-256 slot.
-	ProgressFillColor = "#146414"
-
-	// WarningColor marks a ⚠ indicator wherever one appears (taskLabel's
-	// own collapsed-row aggregate marker, hostLabel's own per-host
-	// marker, recap.go's own "warnings" category) - a pinkish shade,
-	// matching real ansible-playbook's own default [WARNING] color.
-	// Unlike pureBlack/progressFillColor above, a plain named tcell color
-	// is fine here rather than a hand-picked hex: "hotpink" doesn't equal
-	// any base-16 ANSI slot's own nominal RGB, so it's not subject to the
-	// same terminal-theme remapping risk those two had to work around.
-	WarningColor = "hotpink"
-
-	// IgnoredColor marks recap.go's own "ignored" category (design-docs/
-	// OwnCallbackPlugin.md) - deliberately distinct from both WarningColor
-	// (an unrelated cross-cutting concept, a task's own "warnings" field)
-	// and every outcome color in ColorTag (an ignored failure still
-	// records as OutcomeFailed - see TaskNode.Ignored's own doc comment -
-	// so reusing red there would blur the very distinction this color
-	// exists to draw). Same "plain named tcell color is fine" reasoning
-	// as WarningColor above.
-	IgnoredColor = "orange"
 )
+
+// NothingReportedColor/SelectedRowTextColor/ProgressFillColor/
+// WarningColor/IgnoredColor used to live here - moved to colors.go, now
+// var not const, so ApplyColorConfig can overwrite them alongside every
+// other color var (see that file's own top-of-file note for why).
 
 // HostIndent is a host row's own fixed leading indent width - wider than
 // taskIndent's, deliberately: a host row sits one level deeper than its

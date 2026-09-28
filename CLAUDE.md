@@ -52,6 +52,8 @@ template_hosts_max = 10             # see Template below
 
 All unrecognized/absent values silently fall back to these documented defaults — no warnings, consistent with `resolvePlaybook`'s existing "swallow and fall back" convention.
 
+The same file also has a `[colors]` table — one key per `uikit.*Color`/`diff.DiffChromeColor` var (design-docs/Colors.md), the var's own name snake_cased with the trailing `Color` dropped (e.g. `outcome_ok`, `chrome_live`), same project → global → system cascade as `[general]` above. `uikit.ApplyColorConfig`/`diff.ApplyColorConfig` resolve and apply it once, from `session.Main`, before any Verb constructs a TUI — see design-docs/ColorConfig.md for the full key list and mechanism.
+
 Requires `ansible-playbook`. Tangsible ships its own bundled ansible callback plugin (see Data source below) - no separate collection install needed.
 
 ## Architecture

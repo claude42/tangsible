@@ -44,8 +44,13 @@ import (
 // meaning even though "yellow" itself is reused - this is chrome/
 // highlight background, not outcome foreground text, a different enough
 // visual pattern that the two aren't likely to be mistaken for each
-// other in practice.
-const (
+// other in practice. var, not const, like every other color in this
+// package (colors.go) - design-docs/ColorConfig.md's own
+// search_match_foreground/search_match_background/
+// search_current_match_foreground/search_current_match_background config
+// keys, resolved by colors.go's own ApplyColorConfig, need to be able to
+// overwrite these.
+var (
 	searchMatchForegroundColor = "black"
 	searchMatchBackgroundColor = "yellow"
 

@@ -10,26 +10,26 @@ place and something else entirely in another) - that's normal here, not
 a sign of drift, as long as the two meanings never appear together where
 they could be confused for each other.
 
-## Every color is now a named Go constant
+## Every color is a named, configurable Go var
 
-As of this pass, every color listed in the Quick reference table below is
-backed by an exported Go constant (or, for the three/four chrome bars, a
-`tcell.Style`) - no more bare string literals (`"green"`, `"maroon"`, ...)
-scattered at call sites. Most live in `internal/uikit/colors.go`, one
-constant per genuinely distinct semantic meaning. A handful of
-already-existing constants predate this pass and stay where they were:
-`uikit.NothingReportedColor`, `uikit.SelectedRowTextColor`, `uikit.ProgressFillColor`,
-`uikit.WarningColor`, `uikit.IgnoredColor` (`internal/uikit/tui_style.go`),
-`uikit.BarStyle`/`ReplayBarStyle`/`CheckBarStyle` (same file),
-`diff.DiffChromeStyle`/`DiffChromeColor` (`internal/diff/diff.go`),
-and search.go's own unexported `searchMatchForegroundColor`/`searchMatchBackgroundColor`/
-`searchCurrentMatchForegroundColor`/`searchCurrentMatchBackgroundColor`.
+Every color listed in the Quick reference table below is backed by an
+exported Go var (or, for the four chrome bars, a `tcell.Style` built from
+one) - no bare string literals (`"green"`, `"maroon"`, ...) scattered at
+call sites. Almost all of them live in `internal/uikit/colors.go`, one
+var per genuinely distinct semantic meaning; `diff.DiffChromeColor`
+(`internal/diff/diff.go`) is its own package's fourth chrome variant, and
+search.go's own unexported `searchMatchForegroundColor`/
+`searchMatchBackgroundColor`/`searchCurrentMatchForegroundColor`/
+`searchCurrentMatchBackgroundColor` stay right next to the one thing that
+reads them besides `colors.go`'s own `ApplyColorConfig`.
 
-This is step one of a three-step plan (per design-docs/ColorConfig.md):
-constants first, then decide which of the now-visible duplicate-valued
-constants are worth collapsing (**in progress** - see below for what's
-already been merged), then make the surviving set configurable via
-`config.toml`. Merged so far:
+`var`, not `const`: this was a three-step plan (per design-docs/
+ColorConfig.md), now complete - name every color as its own constant,
+decide which of the resulting duplicate-valued constants were worth
+collapsing (see "Merged so far" below), then make the surviving set
+overridable from `config.toml`'s `[colors]` table (`uikit.ApplyColorConfig`/
+`diff.ApplyColorConfig`, called once at startup - design-docs/
+ColorConfig.md has the full mechanism). Merged so far:
 
 - `uikit.GrayTag` renamed to `uikit.NothingReportedColor` and kept as the
   shared constant for both "host hasn't reported for this task yet" and
@@ -171,12 +171,15 @@ ones a terminal theme can remap). "No" means an explicit RGB value
 instead (a named-but-still-RGB color, or one of this app's own hex
 literals) - always renders the same regardless of the terminal's theme.
 
-"Source" is where the color actually comes from in code - as of this
-pass, every row is an exported Go constant (or `tcell.Style`, for the
-three/four chrome bars) rather than a bare string literal. All live in
-`internal/uikit` unless noted otherwise. A row that previously listed
-several colors separated by `/` is one line per color, each with its own
-constant, so a future config key can target exactly one of them.
+"Source" is where the color actually comes from in code - every row is
+an exported Go var (or `tcell.Style`, for the four chrome bars) rather
+than a bare string literal, all live in `internal/uikit` unless noted
+otherwise, and every one is individually configurable via
+design-docs/ColorConfig.md's own `[colors]` table (same key as the var's
+own name, snake_cased, minus the trailing "Color"). A row that
+previously listed several colors separated by `/` is one line per color,
+each with its own var/key, so a config override can target exactly one
+of them.
 
 | Semantic meaning | Color name | Source | ANSI (base-16)? |
 |---|---|---|---|
@@ -229,15 +232,18 @@ constant, so a future config key can target exactly one of them.
 | Drill-down: same tabs' own values (incl. Output's own "Label: value" lines, Items bullets) | lightsteelblue | `uikit.ValueHighlightColor` (same constant as `host`/`hosts`) | No |
 | Chrome color's own plain tag-name equivalent: live/revisit/check | navy / purple / olive | `uikit.ChromeLiveColor` / `ChromeRevisitColor` / `ChromeCheckColor` | Yes |
 
-## Remaining constants, grouped by value
+## Remaining vars, grouped by value
 
-Every `uikit.*Color`/`*ColorName` constant still standing, grouped by
-today's default value - the fastest way to see which groups still hold
-more than one distinct label (candidates for the next merge pass) versus
-which are already down to one. Not counted here: the `tcell.Style` chrome
-vars (`BarStyle`/`ReplayBarStyle`/`CheckBarStyle`/`diff.DiffChromeStyle`/
-`SearchBarStyle`), `uikit.HalfBlock` (not a color), and any already-merged
-constant (see "Merged so far" above) - this is the surviving set only.
+Every `uikit.*Color`/`diff.DiffChromeColor` var still standing, grouped
+by today's default value - the fastest way to see which groups still
+hold more than one distinct label (candidates for a future merge)
+versus which are already down to one. Not counted here: the `tcell.Style`
+chrome vars (`BarStyle`/`ReplayBarStyle`/`CheckBarStyle`/
+`diff.DiffChromeStyle`/`SearchBarStyle` - each built from one of the
+vars below, not an independent value of its own), `uikit.HalfBlock` (not
+a color), and any already-merged var (see "Merged so far" above) - this
+is the surviving set only. Every one of these is also its own
+`config.toml` `[colors]` key - see design-docs/ColorConfig.md.
 
 | Value | Constants sharing it |
 |---|---|

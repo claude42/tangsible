@@ -21,6 +21,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
+	"github.com/gdamore/tcell/v2"
 )
 
 func TestStripTags(t *testing.T) {
@@ -626,5 +627,29 @@ func TestLastRunID(t *testing.T) {
 				t.Errorf("LastRunID(cfg, %q, %q) = %q, want %q", c.playbook, c.role, got, c.want)
 			}
 		})
+	}
+}
+
+// TestApplyColorConfig mirrors internal/uikit's own TestApplyColorConfig -
+// same "package-level mutable state, save and restore via t.Cleanup"
+// discipline, and the same thing worth actually checking: a valid
+// override reaches the derived tcell.Style (DiffChromeStyle), not just
+// its own plain-string form (DiffChromeColor).
+func TestApplyColorConfig(t *testing.T) {
+	origColor := DiffChromeColor
+	origStyle := DiffChromeStyle
+	t.Cleanup(func() {
+		DiffChromeColor = origColor
+		DiffChromeStyle = origStyle
+	})
+
+	valid := "orange"
+	ApplyColorConfig(config.ColorsConfig{DiffChrome: &valid})
+
+	if DiffChromeColor != "orange" {
+		t.Errorf("DiffChromeColor = %q, want %q", DiffChromeColor, "orange")
+	}
+	if _, bg, _ := DiffChromeStyle.Decompose(); bg != tcell.GetColor("orange") {
+		t.Errorf("DiffChromeStyle's own background wasn't rebuilt from the overridden DiffChromeColor")
 	}
 }

@@ -37,24 +37,42 @@ import (
 	"github.com/rivo/tview"
 )
 
-// DiffChromeStyle is design-docs/Diff.md's own "yet another coloring so
+// DiffChromeColor is design-docs/Diff.md's own "yet another coloring so
 // it's clear we are in diff mode" - a fourth chrome color alongside
-// BarStyle (navy, live) and ReplayBarStyle (purple, revisit). fuchsia,
-// like purple/maroon elsewhere in this app, is a fixed base-16 ANSI
-// palette slot rather than an RGB approximation, so it renders reliably
-// across terminal themes - see design-docs/Colors.md. The tree's own
+// BarStyle (navy, live) and ReplayBarStyle (purple, revisit), and
+// DiffChromeStyle's own tag-name equivalent for outputTabs.SetHeaderStyle
+// below, whose active/inactive tab tags bake in a color name string
+// rather than a tcell.Style (a single style can't vary per-column - see
+// TabbedPane.SetHeaderStyle's own doc comment). Defaults to fuchsia,
+// like purple/maroon elsewhere in this app a fixed base-16 ANSI palette
+// slot rather than an RGB approximation, so it renders reliably across
+// terminal themes - see design-docs/Colors.md. var, not const:
+// design-docs/ColorConfig.md's own diff_chrome config key, resolved by
+// ApplyColorConfig below, needs to be able to overwrite it.
+var DiffChromeColor = "fuchsia"
+
+// DiffChromeStyle is DiffChromeColor's own tcell.Style form - white
+// foreground (design-docs/ColorConfig.md's own Open questions #8: the
+// chrome bars' shared foreground has no backing var of its own,
+// deliberately, so there's nothing for a config key to override there
+// yet), DiffChromeColor background via tcell.GetColor. The tree's own
 // content is NOT recolored to match (see DiffTaskRowText/DiffHostRowText
 // below) - only this chrome is; content keeps the normal outcome palette,
 // with underline/strikethrough as the only diff signal, per your own
 // "colored as normal... differences only visualized by underlining."
-var DiffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorFuchsia).Bold(true)
+var DiffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.GetColor(DiffChromeColor)).Bold(true)
 
-// DiffChromeColor is DiffChromeStyle's own tag-name equivalent -
-// "fuchsia" - for outputTabs.SetHeaderStyle below, whose active/inactive
-// tab tags bake in a color name string rather than a tcell.Style (a
-// single style can't vary per-column - see TabbedPane.SetHeaderStyle's
-// own doc comment).
-const DiffChromeColor = "fuchsia"
+// ApplyColorConfig overwrites DiffChromeColor (and rebuilds DiffChromeStyle
+// from it) from cfg, design-docs/ColorConfig.md's own resolved [colors]
+// config - internal/diff's own half of what internal/uikit's own
+// ApplyColorConfig does for every other color var, called alongside it
+// from main.go before any TUI is constructed. Reuses uikit.
+// ResolveColorOverride rather than a second copy of its validate-and-warn
+// logic, since this package already imports uikit.
+func ApplyColorConfig(cfg config.ColorsConfig) {
+	DiffChromeColor = uikit.ResolveColorOverride("diff_chrome", cfg.DiffChrome, DiffChromeColor)
+	DiffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.GetColor(DiffChromeColor)).Bold(true)
+}
 
 // ReplayRun loads a saved run's own .jsonl (runlog.go) into a fresh
 // PlaybookState - the exact replay mechanism OpenRevisitEntry already
