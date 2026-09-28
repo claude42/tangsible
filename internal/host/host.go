@@ -270,14 +270,14 @@ func FetchHostGroups(hostname string, rest []string) (string, error) {
 		// real. No annotation at all for "all"; every other group still
 		// gets its own "(direct)"/"(via ...)" detail.
 		if m.Group == "all" {
-			fmt.Fprintf(&b, "[green]%s[-]\n", tview.Escape(m.Group))
+			fmt.Fprintf(&b, "[%s]%s[-]\n", uikit.KeyHighlightColor, tview.Escape(m.Group))
 			continue
 		}
 		detail := "(direct)"
 		if m.Via != "" {
 			detail = fmt.Sprintf("(via %s)", m.Via)
 		}
-		fmt.Fprintf(&b, "[green]%s[-]%s  [lightsteelblue]%s[-]\n", tview.Escape(m.Group), strings.Repeat(" ", pad), tview.Escape(detail))
+		fmt.Fprintf(&b, "[%s]%s[-]%s  [%s]%s[-]\n", uikit.KeyHighlightColor, tview.Escape(m.Group), strings.Repeat(" ", pad), uikit.ValueHighlightColor, tview.Escape(detail))
 	}
 	return b.String(), nil
 }
@@ -470,7 +470,7 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 // task's name this way.
 func highlightRolePrefix(task string) string {
 	if role, name := uikit.SplitRolePrefix(task); role != "" {
-		return "[green]" + tview.Escape(role) + "[-]" + "[lightsteelblue]" + " : " + tview.Escape(name) + "[-]"
+		return "[" + uikit.KeyHighlightColor + "]" + tview.Escape(role) + "[-]" + "[" + uikit.ValueHighlightColor + "]" + " : " + tview.Escape(name) + "[-]"
 	}
 	return tview.Escape(task)
 }
@@ -578,7 +578,7 @@ func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]
 // heading text above it, one single [green]...[-] span covering both
 // lines rather than two separately-colored pieces.
 func hostSectionHeading(label string) string {
-	return fmt.Sprintf("[green]%s\n%s[-]\n\n", tview.Escape(label), strings.Repeat("=", len([]rune(label))))
+	return fmt.Sprintf("[%s]%s\n%s[-]\n\n", uikit.KeyHighlightColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
 }
 
 // HostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab
@@ -764,7 +764,7 @@ func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather boo
 		if json.Unmarshal(out, &cached) == nil {
 			if _, ok := cached[FactCacheCanaryKey]; ok {
 				return hostFactsResult{
-					prefix:          "[gray](from fact cache)[-]\n\n",
+					prefix:          "[" + uikit.AnnotationColor + "](from fact cache)[-]\n\n",
 					characteristics: formatCharacteristics(hostname, cached),
 					facts:           cached,
 				}, nil
@@ -774,7 +774,7 @@ func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather boo
 
 	if skipLiveGather {
 		return hostFactsResult{
-			characteristics: "[maroon]Host unavailable.[-]\n",
+			characteristics: "[" + uikit.OutcomeUnreachableColor + "]Host unavailable.[-]\n",
 		}, nil
 	}
 
@@ -856,10 +856,10 @@ func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather boo
 	_ = json.Unmarshal(raw, &decoded)
 	result := playbook.DecodeHostResult(raw)
 	if result.Unreachable {
-		return hostFactsResult{characteristics: fmt.Sprintf("[maroon::b]Unreachable[-::-]\n\n%s\n", tview.Escape(result.Msg))}, nil
+		return hostFactsResult{characteristics: fmt.Sprintf("[%s::b]Unreachable[-::-]\n\n%s\n", uikit.OutcomeUnreachableColor, tview.Escape(result.Msg))}, nil
 	}
 	if result.Failed {
-		return hostFactsResult{characteristics: fmt.Sprintf("[red::b]Failed[-::-]\n\n%s\n", tview.Escape(result.Msg))}, nil
+		return hostFactsResult{characteristics: fmt.Sprintf("[%s::b]Failed[-::-]\n\n%s\n", uikit.SummaryFailedColor, tview.Escape(result.Msg))}, nil
 	}
 	facts, _ := decoded["ansible_facts"].(map[string]interface{})
 	return hostFactsResult{characteristics: formatCharacteristics(hostname, facts), facts: facts}, nil
@@ -1089,7 +1089,7 @@ func formatCharacteristics(hostname string, facts map[string]interface{}) string
 			value = "-"
 		}
 		label := f.label + ":"
-		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]%s[-]\n", label, strings.Repeat(" ", width-len(label)+1), tview.Escape(value))
+		fmt.Fprintf(&b, "[%s]%s[-]%s[%s]%s[-]\n", uikit.KeyHighlightColor, label, strings.Repeat(" ", width-len(label)+1), uikit.ValueHighlightColor, tview.Escape(value))
 	}
 	return b.String()
 }
@@ -1108,7 +1108,7 @@ func formatHostKeyLines(keyLines []HostKeyLine) string {
 	}
 	var b strings.Builder
 	for _, k := range keyLines {
-		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]%s[-]\n", k.label, strings.Repeat(" ", width-len(k.label)+1), tview.Escape(k.value))
+		fmt.Fprintf(&b, "[%s]%s[-]%s[%s]%s[-]\n", uikit.KeyHighlightColor, k.label, strings.Repeat(" ", width-len(k.label)+1), uikit.ValueHighlightColor, tview.Escape(k.value))
 	}
 	return b.String()
 }
@@ -1254,8 +1254,8 @@ func formatRecentRunLines(lines []recentRunLine) string {
 	var b strings.Builder
 	for i, l := range lines {
 		pad := width - len([]rune(prefixes[i])) + 1
-		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]ok=%-4d skipped=%-4d changed=%-4d unreachable=%-4d failed=%-4d warnings=%-4d ignored=%d[-]\n",
-			tview.Escape(prefixes[i]), strings.Repeat(" ", pad),
+		fmt.Fprintf(&b, "[%s]%s[-]%s[%s]ok=%-4d skipped=%-4d changed=%-4d unreachable=%-4d failed=%-4d warnings=%-4d ignored=%d[-]\n",
+			uikit.KeyHighlightColor, tview.Escape(prefixes[i]), strings.Repeat(" ", pad), uikit.ValueHighlightColor,
 			l.counts.OK, l.counts.Skipped, l.counts.Changed, l.counts.Unreachable, l.counts.Failed, l.counts.Warnings, l.counts.Ignored)
 	}
 	return b.String()
@@ -1429,7 +1429,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 				// this one tab so a fetch landing on a *different* tab
 				// doesn't clear a search that's still perfectly valid.
 				if err != nil {
-					view.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+					view.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 				} else {
 					view.SetText(text)
 				}
@@ -1465,7 +1465,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 			// receive blocked forever just because Summary itself failed
 			app.QueueUpdateDraw(func() {
 				searchBar.ClearForView(summaryView)
-				summaryView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+				summaryView.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 				summaryView.ScrollToBeginning()
 			})
 			return
@@ -1522,7 +1522,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		app.QueueUpdateDraw(func() {
 			searchBar.ClearForView(everythingView)
 			if err != nil {
-				everythingView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+				everythingView.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 			} else {
 				everythingView.SetText(uikit.HighlightJSONKeys(string(raw)))
 			}
@@ -1641,18 +1641,18 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 // placeholder spinner, matching that decision's own "row shows its dot
 // the moment its own ping lands" wording.
 func HostRowText(hostname string, selected bool, pingKnown, pingOK bool) string {
-	color := "gray" // pending - that row's own ping hasn't landed yet
+	color := uikit.NothingReportedColor // pending - that row's own ping hasn't landed yet
 	if pingKnown {
-		color = "red"
+		color = uikit.OutcomeFailedColor
 		if pingOK {
-			color = "green"
+			color = uikit.OutcomeOKColor
 		}
 	}
 	dot := fmt.Sprintf("[%s]●[-]  ", color)
 	if selected {
-		return dot + fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, tview.Escape(hostname))
+		return dot + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(hostname))
 	}
-	return dot + "[white]" + tview.Escape(hostname) + "[-]"
+	return dot + "[" + uikit.PlayTitleColor + "]" + tview.Escape(hostname) + "[-]"
 }
 
 // RunHostsListTUI implements "tangsible hosts"'s own list-then-detail

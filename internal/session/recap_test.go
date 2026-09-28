@@ -286,7 +286,7 @@ func TestRecapHostRowText_NoDurationRendersExactlyAsBefore(t *testing.T) {
 	s := recapHostSummary{OK: 2, Skipped: 1}
 	w := recapColumnWidths{Host: 4, OK: 1, Skipped: 1}
 	got := recapHostRowText("web1", s, w, false)
-	want := "[white::b]web1[-::-] : [green]ok=2[-]  [teal]skipped=1[-]  [gray]changed=0[-]  [gray]unreachable=0[-]  [gray]failed=0[-]  [gray]warnings=0[-]  [gray]ignored=0[-]"
+	want := "[green::b]web1[-::-] : [green]ok=2[-]  [teal]skipped=1[-]  [gray]changed=0[-]  [gray]unreachable=0[-]  [gray]failed=0[-]  [gray]warnings=0[-]  [gray]ignored=0[-]"
 	if got != want {
 		t.Errorf("recapHostRowText = %q, want %q", got, want)
 	}
@@ -305,9 +305,9 @@ func TestRecapHostRowText_Duration(t *testing.T) {
 		want string
 	}{
 		{"somehost", recapHostSummary{OK: 1, HasDuration: true, TotalDuration: 5300 * time.Millisecond},
-			"[white::b]somehost  ( 5.3s)[-::-]: [green]ok=1[-]  [gray]skipped=0[-]  [gray]changed=0[-]  [gray]unreachable=0[-]  [gray]failed=0[-]  [gray]warnings=0[-]  [gray]ignored=0[-]"},
+			"[green::b]somehost  ( 5.3s)[-::-]: [green]ok=1[-]  [gray]skipped=0[-]  [gray]changed=0[-]  [gray]unreachable=0[-]  [gray]failed=0[-]  [gray]warnings=0[-]  [gray]ignored=0[-]"},
 		{"otherhost", recapHostSummary{OK: 1, HasDuration: true, TotalDuration: 10200 * time.Millisecond},
-			"[white::b]otherhost (10.2s)[-::-]: [green]ok=1[-]  [gray]skipped=0[-]  [gray]changed=0[-]  [gray]unreachable=0[-]  [gray]failed=0[-]  [gray]warnings=0[-]  [gray]ignored=0[-]"},
+			"[green::b]otherhost (10.2s)[-::-]: [green]ok=1[-]  [gray]skipped=0[-]  [gray]changed=0[-]  [gray]unreachable=0[-]  [gray]failed=0[-]  [gray]warnings=0[-]  [gray]ignored=0[-]"},
 	}
 	for _, c := range cases {
 		if got := recapHostRowText(c.host, c.s, w, false); got != c.want {

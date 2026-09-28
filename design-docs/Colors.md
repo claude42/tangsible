@@ -10,19 +10,107 @@ place and something else entirely in another) - that's normal here, not
 a sign of drift, as long as the two meanings never appear together where
 they could be confused for each other.
 
+## Every color is now a named Go constant
+
+As of this pass, every color listed in the Quick reference table below is
+backed by an exported Go constant (or, for the three/four chrome bars, a
+`tcell.Style`) - no more bare string literals (`"green"`, `"maroon"`, ...)
+scattered at call sites. Most live in `internal/uikit/colors.go`, one
+constant per genuinely distinct semantic meaning. A handful of
+already-existing constants predate this pass and stay where they were:
+`uikit.NothingReportedColor`, `uikit.SelectedRowTextColor`, `uikit.ProgressFillColor`,
+`uikit.WarningColor`, `uikit.IgnoredColor` (`internal/uikit/tui_style.go`),
+`uikit.BarStyle`/`ReplayBarStyle`/`CheckBarStyle` (same file),
+`diff.DiffChromeStyle`/`DiffChromeColor` (`internal/diff/diff.go`),
+and search.go's own unexported `searchMatchForegroundColor`/`searchMatchBackgroundColor`/
+`searchCurrentMatchForegroundColor`/`searchCurrentMatchBackgroundColor`.
+
+This is step one of a three-step plan (per design-docs/ColorConfig.md):
+constants first, then decide which of the now-visible duplicate-valued
+constants are worth collapsing (**in progress** - see below for what's
+already been merged), then make the surviving set configurable via
+`config.toml`. Merged so far:
+
+- `uikit.GrayTag` renamed to `uikit.NothingReportedColor` and kept as the
+  shared constant for both "host hasn't reported for this task yet" and
+  recap's own "zero-count de-emphasis" - the two meanings were already
+  reading identically ("nothing to show here").
+- `uikit.RecapHeadingColor` removed outright; the recap's own "Summary"
+  heading, its per-host summary row headings, and the error-output
+  block's own "Error output:" heading now all use
+  `uikit.KeyHighlightColor` (green) instead of a dedicated white - the
+  same green every other section heading in this app (drill-down/
+  `host`/`hosts` tabs) already uses. This is a real, visible color
+  change (white → green for those three headings), not just a rename.
+- `uikit.AnnotationColor` (source location, fact-cache note,
+  search-dialog hint) stays its own constant, deliberately not folded
+  into `NothingReportedColor` even though the default value is identical
+  - an annotation is present-but-secondary, not a "nothing yet"
+    placeholder.
+- `uikit.InactiveTabTextColor`/`uikit.ActiveTabBackground` merged into
+  one constant, `uikit.TabTextColor` - unlike the look-alikes above,
+  these weren't just coincidentally the same value: `TabbedPane.
+  renderHeader` renders the active tab as chrome-color-on-this-color and
+  the inactive tab as this-color-on-chrome-color, a literal fg/bg swap
+  of the same two colors. There was never a code path where the two
+  halves of that swap could sensibly diverge.
+- `uikit.PingPendingColor`/`PingReachableColor`/`PingDownColor` removed
+  outright; `host`/`hosts`' own connectivity dot now reuses
+  `uikit.NothingReportedColor` (pending)/`uikit.OutcomeOKColor`
+  (reachable)/`uikit.OutcomeFailedColor` (down) directly - a ping's own
+  three states already map cleanly onto "nothing to show yet"/OK/Failed,
+  so a dedicated ping palette added a name without adding a distinction.
+  Kept `uikit.AsyncErrorColor` separate, though, on the same call: a
+  fetch/render machinery failure (Tangsible's own Go code erroring out)
+  isn't the same kind of thing as a task outcome, unlike a ping result.
+- `uikit.RevisitSuccessColor`/`RevisitFailureColor`/`RevisitAbortedColor`
+  removed outright; `classifyExit` now returns `uikit.OutcomeOKColor`/
+  `uikit.OutcomeFailedColor`/`uikit.NothingReportedColor` directly - not
+  an exact conceptual match (a past run's exit code isn't literally a
+  `playbook.Outcome`), but close enough to read the same way, the same
+  call made for the ping-dot colors above.
+- `uikit.StatusSuccessColor`/`StatusFailureColor` removed outright;
+  `StatusRowText`'s success/failure cases return `uikit.OutcomeOKColor`/
+  `uikit.OutcomeFailedColor` directly, same reasoning as the revisit
+  list above. `uikit.StatusBenignColor` (the "exit 4, but a real
+  unreachable host" case) stays its own constant, deliberately not
+  folded into `OutcomeChangedColor` even though both are `"yellow"` -
+  "some hosts were unreachable" and "a task reported changed" are
+  unrelated facts that just happen to share an attention-color today.
+- `uikit.SummaryUnreachableColor`/`HostUnavailableColor` (`host`/`hosts`'
+  Summary tab: a genuine live Unreachable result, and the "Host
+  unavailable." note shown when the live gather is skipped entirely
+  because the ping dot already found the host down) both removed;
+  both call sites now use `uikit.OutcomeUnreachableColor` directly - a
+  real failure and the skip-it-entirely placeholder read the same way as
+  the tree's own Unreachable outcome, whether or not a live attempt
+  actually happened this time. `uikit.SummaryFailedColor` (the sibling
+  "genuinely Failed" case, right next to these two in the same function)
+  stays its own constant for now - not asked about, not merged.
+- `uikit.OutputErrorColor` (the drill-down Output tab's own Error
+  section, i.e. a task's own stderr) removed; that call site now uses
+  `uikit.OutcomeFailedColor` directly - this is genuinely a ran task's
+  own Failed-outcome content. `uikit.AsyncErrorColor` (host/hosts'/
+  template's own fetch/render failure heading) stays separate: that one
+  is Tangsible's own tooling failing to get a result at all, not a
+  `playbook.Outcome`.
+
 ## The five outcome colors
 
 `uikit.ColorTag(o Outcome)`, the single source of truth every other
 outcome-coloring call site (task/host rows, the recap, `tangsible diff`'s
-own rows) calls rather than hardcoding a name again:
+own rows) calls rather than hardcoding a name again - its own switch now
+reads from `uikit.OutcomeOKColor`/`OutcomeChangedColor`/
+`OutcomeSkippedColor`/`OutcomeFailedColor`/`OutcomeUnreachableColor`
+instead of a bare literal per case:
 
-| Outcome     | Color  |
-|-------------|--------|
-| OK          | green  |
-| Changed     | yellow |
-| Skipped     | teal   |
-| Failed      | red    |
-| Unreachable | maroon |
+| Outcome     | Color  | Constant                    |
+|-------------|--------|------------------------------|
+| OK          | green  | `uikit.OutcomeOKColor`          |
+| Changed     | yellow | `uikit.OutcomeChangedColor`     |
+| Skipped     | teal   | `uikit.OutcomeSkippedColor`     |
+| Failed      | red    | `uikit.OutcomeFailedColor`      |
+| Unreachable | maroon | `uikit.OutcomeUnreachableColor` |
 
 `teal` is the closest named match for ANSI cyan; `maroon` (not
 `brown`/`darkred`) stays a base-16 ANSI slot like the other four, so it
@@ -34,21 +122,25 @@ A value that exactly matches a base-16 slot's nominal RGB gets resolved
 back to that (remappable) slot even given as hex - these deliberately
 don't:
 
-- `uikit.PureBlack = "#1a1a1a"` - every selected row's text, app-wide.
+- `uikit.SelectedRowTextColor = "#1a1a1a"` - every selected row's text, app-wide.
 - `uikit.ProgressFillColor = "#146414"` - darker than nominal green so
   white text stays readable on top of it.
 - `uikit.WarningColor = "hotpink"` - the one exception that's a plain
   name, since "hotpink" isn't near any base-16 slot's RGB to begin with.
 
-`orange`, `lightgray`, `aqua`, `lightsteelblue`, and `silver` are also
-non-base-16 named colors (extended/X11, resolved by RGB) - same
+`orange` (`uikit.IgnoredColor`), `lightgray` (`uikit.SelectedRowBackgroundColor`),
+`aqua` (`uikit.SelectionColor`), `lightsteelblue`
+(`uikit.ValueHighlightColor`), and `silver` (`uikit.TaskTitleColor`) are
+also non-base-16 named colors (extended/X11, resolved by RGB) - same
 non-remappable guarantee, just no hand-picked hex needed.
 
 ## Notes worth keeping
 
-- **Gray** carries several unrelated meanings depending on context (not
-  reported yet, zero-count de-emphasis, a moot annotation/outcome, a
-  ping still in flight) - see the table for which is which.
+- **Gray** carries several unrelated meanings depending on context - not
+  reported yet / zero-count de-emphasis / a ping still in flight / a
+  revisit list's aborted run (all `uikit.NothingReportedColor`), and a
+  supplementary annotation (`uikit.AnnotationColor`) - two constants
+  sharing one default value today; see the table for which is which.
 - **In-tab search**'s current-match highlight writes its fg/bg
   pre-swapped, because `TextView.Highlight()` itself swaps whatever a
   region already has - without the pre-swap the current match rendered
@@ -56,16 +148,21 @@ non-remappable guarantee, just no hand-picked hex needed.
 - **Halfblock** (▌) isn't a color - it's how two adjacent hostnames'
   outcome colors blend at their boundary on a selected row (left host's
   color as foreground, right's as background). Selected rows only.
-- The search feature's own black is plain `"black"`, not `PureBlack` -
-  the one place that skips the remapping safeguard above. Not a reported
-  problem, just a latent inconsistency.
+- The search feature's own black is plain `"black"` (`searchMatchForegroundColor`/
+  `searchCurrentMatchForegroundColor`), not `SelectedRowTextColor` - the one place that skips the
+  remapping safeguard above. Not a reported problem, just a latent
+  inconsistency, left as-is by this pass (a behavior question, not a
+  missing-constant one).
 - The two-pane divider and inactive tab bar always track whichever
-  chrome color the surrounding session is currently using (navy/purple/
-  olive/fuchsia) - never hardcoded separately.
+  chrome color the surrounding session is currently using -
+  `uikit.ChromeLiveColor` ("navy") / `uikit.ChromeRevisitColor`
+  ("purple") / `uikit.ChromeCheckColor` ("olive") /
+  `diff.DiffChromeColor` ("fuchsia") - never hardcoded separately.
 - The green-key/lightsteelblue-value highlighters (`uikit.HighlightYAMLKeys`/
   `HighlightJSONKeys`/`HighlightKeyValueLines`) are one shared
   implementation in `internal/uikit`, used by both `host`/`hosts` and the
-  run drill-down's own tabs - not two copies that happen to agree.
+  run drill-down's own tabs - not two copies that happen to agree. Both
+  colors are `uikit.KeyHighlightColor`/`uikit.ValueHighlightColor`.
 
 ## Quick reference
 
@@ -74,44 +171,101 @@ ones a terminal theme can remap). "No" means an explicit RGB value
 instead (a named-but-still-RGB color, or one of this app's own hex
 literals) - always renders the same regardless of the terminal's theme.
 
-| Semantic meaning | Color name | ANSI (base-16)? |
-|---|---|---|
-| OK outcome | green | Yes |
-| Changed outcome | yellow | Yes |
-| Skipped outcome | teal | Yes |
-| Failed outcome | red | Yes |
-| Unreachable outcome | maroon | Yes |
-| Host hasn't reported for this task yet | gray | Yes |
-| Zero-count de-emphasis (recap / Morehosts.md summary string) | gray | Yes |
-| Supplementary annotation (source location, fact-cache note) | gray | Yes |
-| Task row title | silver | Yes |
-| Play row title | white | Yes |
-| Chrome bars: live session | white on navy | Yes |
-| Chrome bars: revisited session | white on purple | Yes |
-| Chrome bars: `tangsible diff` | white on fuchsia | Yes |
-| Chrome bars: `--check` session | white on olive | Yes |
-| Progress-sweep text (top bar) | white | Yes |
-| Recap heading ("Summary") | white | Yes |
-| Inactive tab | white on session chrome | Yes |
-| Selected-row text (app-wide) | PureBlack (`#1a1a1a`) | No |
-| Selected-row background, label portion | lightgray | No |
-| Progress-sweep fill background | ProgressFillColor (`#146414`) | No |
-| Warning glyph/section; recap "warnings" category | WarningColor = hotpink | No |
-| Ignored failure (tree rows, recap, drill-down Task tab Status line) | IgnoredColor = orange | No |
-| Filter dialog: current-selection marker | aqua | Yes |
-| Output tab's Error section | red | Yes |
-| Async fetch/render error heading (`host`/`hosts`, `template`) | red | Yes |
-| Diff tab: added / removed lines / hunk headers | green / red / teal | Yes |
-| `tangsible diff` verb: unmatched-task note | yellow | Yes |
-| Status line: success / benign-unreachable / failure | green / yellow / red | Yes |
-| Revisit list: success / failed / aborted | green / red / gray | Yes |
-| Active tab | session chrome on white | Yes |
-| Search bar / non-current match | black on yellow | Yes (bg) |
-| Search: current match | black on orange | No (bg) |
-| `host`/`hosts`: every tab's own keys/headings | green | Yes |
-| `host`/`hosts`: every tab's own values | lightsteelblue | No |
-| `host`/`hosts`: list's connectivity dot (pending / reachable / down) | gray / green / red | Yes |
-| `host`/`hosts`: Summary's live Unreachable/Failed heading | maroon / red | Yes |
-| `host`/`hosts`: Summary's "Host unavailable." skip note | maroon | Yes |
-| Drill-down: Task/Output/Task definition/Resolved/Details tabs' own keys/headings | green | Yes |
-| Drill-down: same tabs' own values (incl. Output's own "Label: value" lines, Items bullets) | lightsteelblue | No |
+"Source" is where the color actually comes from in code - as of this
+pass, every row is an exported Go constant (or `tcell.Style`, for the
+three/four chrome bars) rather than a bare string literal. All live in
+`internal/uikit` unless noted otherwise. A row that previously listed
+several colors separated by `/` is one line per color, each with its own
+constant, so a future config key can target exactly one of them.
+
+| Semantic meaning | Color name | Source | ANSI (base-16)? |
+|---|---|---|---|
+| OK outcome | green | `uikit.OutcomeOKColor` (read by `ColorTag`) | Yes |
+| Changed outcome | yellow | `uikit.OutcomeChangedColor` | Yes |
+| Skipped outcome | teal | `uikit.OutcomeSkippedColor` | Yes |
+| Failed outcome | red | `uikit.OutcomeFailedColor` | Yes |
+| Unreachable outcome | maroon | `uikit.OutcomeUnreachableColor` | Yes |
+| Host hasn't reported for this task yet | gray | `uikit.NothingReportedColor` | Yes |
+| Zero-count de-emphasis (recap / Morehosts.md summary string) | gray | `uikit.NothingReportedColor` | Yes |
+| Supplementary annotation (source location, fact-cache note, search-dialog hint) | gray | `uikit.AnnotationColor` | Yes |
+| Task row title | silver | `uikit.TaskTitleColor` | Yes |
+| Play row title | white | `uikit.PlayTitleColor` | Yes |
+| Chrome bars: live session | white on navy | `uikit.BarStyle` | Yes |
+| Chrome bars: revisited session | white on purple | `uikit.ReplayBarStyle` | Yes |
+| Chrome bars: `tangsible diff` | white on fuchsia | `diff.DiffChromeStyle` | Yes |
+| Chrome bars: `--check` session | white on olive | `uikit.CheckBarStyle` | Yes |
+| Progress-sweep text (top bar) | white | `uikit.ProgressTextColor` | Yes |
+| Inactive tab | white on session chrome | fg `uikit.TabTextColor`, bg `chromeColorName()` (`TabbedPane.renderHeader`) | Yes |
+| Selected-row text (app-wide) | near-black (`#1a1a1a`) | `uikit.SelectedRowTextColor` | No |
+| Selected-row background, label portion | lightgray | `uikit.SelectedRowBackgroundColor` | No |
+| Progress-sweep fill background | ProgressFillColor (`#146414`) | `uikit.ProgressFillColor` | No |
+| Warning glyph/section; recap "warnings" category | WarningColor = hotpink | `uikit.WarningColor` | No |
+| Ignored failure (tree rows, recap, drill-down Task tab Status line) | IgnoredColor = orange | `uikit.IgnoredColor` | No |
+| Filter dialog: current-selection marker | aqua | `uikit.SelectionColor` | Yes |
+| Output tab's Error section | red | `uikit.OutcomeFailedColor` (same constant as "Failed outcome") | Yes |
+| Async fetch/render error heading (`host`/`hosts`, `template`) | red | `uikit.AsyncErrorColor` | Yes |
+| Diff tab: added lines | green | `uikit.DiffAddedColor` | Yes |
+| Diff tab: removed lines | red | `uikit.DiffRemovedColor` | Yes |
+| Diff tab: hunk headers | teal | `uikit.DiffHunkColor` | Yes |
+| `tangsible diff` verb: unmatched-task note | yellow | `uikit.DiffUnmatchedTaskColor` | Yes |
+| Status line: success | green | `uikit.OutcomeOKColor` (same constant as "OK outcome") | Yes |
+| Status line: benign-unreachable | yellow | `uikit.StatusBenignColor` | Yes |
+| Status line: failure | red | `uikit.OutcomeFailedColor` (same constant as "Failed outcome") | Yes |
+| Revisit list: success | green | `uikit.OutcomeOKColor` (same constant as "OK outcome") | Yes |
+| Revisit list: failed | red | `uikit.OutcomeFailedColor` (same constant as "Failed outcome") | Yes |
+| Revisit list: aborted | gray | `uikit.NothingReportedColor` (same constant as "Host hasn't reported...") | Yes |
+| Active tab | session chrome on white | fg `chromeColorName()`, bg `uikit.TabTextColor` (same constant as "Inactive tab", swapped - `TabbedPane.renderHeader`) | Yes |
+| Search bar / non-current match | black on yellow | `searchMatchForegroundColor`/`searchMatchBackgroundColor` (`internal/uikit/search.go`, unexported) | Yes (bg) |
+| Search: current match | black on orange | `searchCurrentMatchForegroundColor`/`searchCurrentMatchBackgroundColor` (`internal/uikit/search.go`, unexported) | No (bg) |
+| `host`/`hosts`: every tab's own keys/headings | green | `uikit.KeyHighlightColor` | Yes |
+| `host`/`hosts`: every tab's own values | lightsteelblue | `uikit.ValueHighlightColor` | No |
+| `host`/`hosts`: connectivity dot - pending | gray | `uikit.NothingReportedColor` (same constant as "Host hasn't reported...") | Yes |
+| `host`/`hosts`: connectivity dot - reachable | green | `uikit.OutcomeOKColor` (same constant as "OK outcome") | Yes |
+| `host`/`hosts`: connectivity dot - down | red | `uikit.OutcomeFailedColor` (same constant as "Failed outcome") | Yes |
+| `host`/`hosts`: Summary's live Unreachable heading | maroon | `uikit.OutcomeUnreachableColor` (same constant as "Unreachable outcome") | Yes |
+| `host`/`hosts`: Summary's live Failed heading | red | `uikit.SummaryFailedColor` | Yes |
+| `host`/`hosts`: Summary's "Host unavailable." skip note | maroon | `uikit.OutcomeUnreachableColor` (same constant as "Unreachable outcome") | Yes |
+| Drill-down: Task/Output/Task definition/Resolved/Details tabs' own keys/headings; recap's "Summary"/per-host headings; error-output heading | green | `uikit.KeyHighlightColor` (same constant as `host`/`hosts` - shared implementation) | Yes |
+| Drill-down: same tabs' own values (incl. Output's own "Label: value" lines, Items bullets) | lightsteelblue | `uikit.ValueHighlightColor` (same constant as `host`/`hosts`) | No |
+| Chrome color's own plain tag-name equivalent: live/revisit/check | navy / purple / olive | `uikit.ChromeLiveColor` / `ChromeRevisitColor` / `ChromeCheckColor` | Yes |
+
+## Remaining constants, grouped by value
+
+Every `uikit.*Color`/`*ColorName` constant still standing, grouped by
+today's default value - the fastest way to see which groups still hold
+more than one distinct label (candidates for the next merge pass) versus
+which are already down to one. Not counted here: the `tcell.Style` chrome
+vars (`BarStyle`/`ReplayBarStyle`/`CheckBarStyle`/`diff.DiffChromeStyle`/
+`SearchBarStyle`), `uikit.HalfBlock` (not a color), and any already-merged
+constant (see "Merged so far" above) - this is the surviving set only.
+
+| Value | Constants sharing it |
+|---|---|
+| `green` | `OutcomeOKColor`, `DiffAddedColor`, `KeyHighlightColor` |
+| `yellow` | `OutcomeChangedColor`, `DiffUnmatchedTaskColor`, `StatusBenignColor` |
+| `teal` | `OutcomeSkippedColor`, `DiffHunkColor` |
+| `red` | `OutcomeFailedColor`, `AsyncErrorColor`, `DiffRemovedColor`, `SummaryFailedColor` |
+| `maroon` | `OutcomeUnreachableColor` |
+| `gray` | `NothingReportedColor`, `AnnotationColor` |
+| `silver` | `TaskTitleColor` |
+| `white` | `PlayTitleColor`, `ProgressTextColor`, `TabTextColor` |
+| `lightgray` | `SelectedRowBackgroundColor` |
+| `lightsteelblue` | `ValueHighlightColor` |
+| `aqua` | `SelectionColor` |
+| `navy` | `ChromeLiveColor` |
+| `purple` | `ChromeRevisitColor` |
+| `olive` | `ChromeCheckColor` |
+| `fuchsia` | `diff.DiffChromeColor` (own package) |
+| `#1a1a1a` | `SelectedRowTextColor` |
+| `#146414` | `ProgressFillColor` |
+| `hotpink` | `WarningColor` |
+| `orange` | `IgnoredColor` |
+| `black` (unexported, `search.go`) | `searchMatchForegroundColor`, `searchCurrentMatchForegroundColor` |
+| `yellow`/`orange` (unexported bg roles, `search.go`) | `searchMatchBackgroundColor`, `searchCurrentMatchBackgroundColor` - not folded into the exported `yellow`/`orange` rows above since these are background roles on a fixed black-text search highlight, a different kind of use than any row above |
+
+Four value-groups still hold more than one label: `green` (3),
+`yellow` (3), `teal` (2), `red` (4), and `gray` (2) - everything else is
+already a singleton (nothing left in that value to merge into it) or has
+an already-documented reason to stay split (see "Merged so far" and the
+per-constant doc comments in `internal/uikit/colors.go` for the ones
+already considered and kept apart).

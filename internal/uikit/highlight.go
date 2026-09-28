@@ -50,11 +50,11 @@ func HighlightJSONKeys(raw string) string {
 	lines := strings.Split(raw, "\n")
 	for i, line := range lines {
 		if m := jsonKeyLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[green]" + tview.Escape(m[2]+m[3]) + "[-]" + "[lightsteelblue]" + tview.Escape(m[4]) + "[-]"
+			lines[i] = tview.Escape(m[1]) + "[" + KeyHighlightColor + "]" + tview.Escape(m[2]+m[3]) + "[-]" + "[" + ValueHighlightColor + "]" + tview.Escape(m[4]) + "[-]"
 			continue
 		}
 		if m := jsonValueLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[lightsteelblue]" + tview.Escape(m[2]) + "[-]" + tview.Escape(m[3])
+			lines[i] = tview.Escape(m[1]) + "[" + ValueHighlightColor + "]" + tview.Escape(m[2]) + "[-]" + tview.Escape(m[3])
 			continue
 		}
 		lines[i] = tview.Escape(line)
@@ -100,21 +100,21 @@ func HighlightYAMLKeys(raw string) string {
 
 		if blockScalarIndent != -1 {
 			if trimmed == "" || indent > blockScalarIndent {
-				lines[i] = "[lightsteelblue]" + tview.Escape(line) + "[-]"
+				lines[i] = "[" + ValueHighlightColor + "]" + tview.Escape(line) + "[-]"
 				continue
 			}
 			blockScalarIndent = -1
 		}
 
 		if m := YamlKeyLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[green]" + tview.Escape(m[2]+m[3]) + "[-]" + "[lightsteelblue]" + tview.Escape(m[4]) + "[-]"
+			lines[i] = tview.Escape(m[1]) + "[" + KeyHighlightColor + "]" + tview.Escape(m[2]+m[3]) + "[-]" + "[" + ValueHighlightColor + "]" + tview.Escape(m[4]) + "[-]"
 			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[4])) {
 				blockScalarIndent = indent
 			}
 			continue
 		}
 		if m := yamlListItemLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[lightsteelblue]" + tview.Escape(m[2]) + "[-]"
+			lines[i] = tview.Escape(m[1]) + "[" + ValueHighlightColor + "]" + tview.Escape(m[2]) + "[-]"
 			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[2])) {
 				blockScalarIndent = indent
 			}
@@ -149,7 +149,7 @@ func HighlightKeyValueLines(text string) string {
 			lines[i] = tview.Escape(line)
 			continue
 		}
-		lines[i] = "[green]" + tview.Escape(m[1]) + ":[-]" + "[lightsteelblue]" + tview.Escape(m[2]) + "[-]"
+		lines[i] = "[" + KeyHighlightColor + "]" + tview.Escape(m[1]) + ":[-]" + "[" + ValueHighlightColor + "]" + tview.Escape(m[2]) + "[-]"
 	}
 	return strings.Join(lines, "\n")
 }

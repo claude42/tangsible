@@ -67,7 +67,7 @@ func InRect(x, y int, p tview.Primitive) bool {
 func FilterDialogText(active FilterQuery) string {
 	mark := func(mode FilterMode) string {
 		if mode == active.Mode {
-			return "[aqua]*[-]"
+			return "[" + SelectionColor + "]*[-]"
 		}
 		return " "
 	}

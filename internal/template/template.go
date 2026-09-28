@@ -546,7 +546,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		// content changing under it," scoped to just this tab.
 		data, err := os.ReadFile(templatePath)
 		if err != nil {
-			sourceView.SetText("[red]" + tview.Escape(err.Error()) + "[-]")
+			sourceView.SetText("[" + uikit.AsyncErrorColor + "]" + tview.Escape(err.Error()) + "[-]")
 			return
 		}
 		sourceView.SetText(tview.Escape(string(data)))
@@ -586,9 +586,9 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		failed := err != nil || result.Failed
 		switch {
 		case err != nil:
-			view.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+			view.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 		case result.Failed:
-			view.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
+			view.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
 		default:
 			view.SetText(tview.Escape(result.Content))
 		}

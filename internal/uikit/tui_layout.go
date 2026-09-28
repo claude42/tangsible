@@ -233,7 +233,7 @@ func ProgressFillLineAt(line string, fillWidth int, bgColorName string) string {
 		fillWidth = 0
 	}
 	filled, unfilled := string(runes[:fillWidth]), string(runes[fillWidth:])
-	return fmt.Sprintf("[white:%s:b]%s[-:-:-][white:%s:b]%s[-:-:-]", ProgressFillColor, tview.Escape(filled), bgColorName, tview.Escape(unfilled))
+	return fmt.Sprintf("[%s:%s:b]%s[-:-:-][%s:%s:b]%s[-:-:-]", ProgressTextColor, ProgressFillColor, tview.Escape(filled), ProgressTextColor, bgColorName, tview.Escape(unfilled))
 }
 
 // ProgressFillLine wraps an already-composed, already-width-padded plain
@@ -268,7 +268,7 @@ func ProgressFillLineAt(line string, fillWidth int, bgColorName string) string {
 // already computed against the unescaped line.
 func ProgressFillLine(line string, progressPos, progressTotal int, frozen bool, bgColorName string) string {
 	if progressTotal <= 0 {
-		return fmt.Sprintf("[white:%s:b]%s[-:-:-]", bgColorName, tview.Escape(line))
+		return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", ProgressTextColor, bgColorName, tview.Escape(line))
 	}
 	return ProgressFillLineAt(line, ProgressFillWidth(len([]rune(line)), progressPos, progressTotal, frozen), bgColorName)
 }
@@ -320,9 +320,9 @@ func TruncateHostsList(hosts []string, maxWidth int) string {
 func PlayRowText(play *playbook.PlayNode, selected bool) string {
 	name := tview.Escape(play.Name)
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", PureBlack, name)
+		return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", SelectedRowTextColor, SelectedRowBackgroundColor, name)
 	}
-	return fmt.Sprintf("[white::b]%s[-::-]", name)
+	return fmt.Sprintf("[%s::b]%s[-::-]", PlayTitleColor, name)
 }
 
 // ColorTag returns the tview style-tag foreground color name for o, per
@@ -331,15 +331,15 @@ func PlayRowText(play *playbook.PlayNode, selected bool) string {
 func ColorTag(o playbook.Outcome) string {
 	switch o {
 	case playbook.OutcomeOK:
-		return "green"
+		return OutcomeOKColor
 	case playbook.OutcomeChanged:
-		return "yellow"
+		return OutcomeChangedColor
 	case playbook.OutcomeSkipped:
-		return "teal"
+		return OutcomeSkippedColor
 	case playbook.OutcomeFailed:
-		return "red"
+		return OutcomeFailedColor
 	case playbook.OutcomeUnreachable:
-		return "maroon" // deliberately muted vs "red" - see TUI.md; both are
+		return OutcomeUnreachableColor // deliberately muted vs "red" - see TUI.md; both are
 		// base ANSI-16 names (index 9 vs 1), not RGB-approximated extended
 		// W3C names, so they stay reliably distinct across terminal themes.
 	default:
@@ -356,7 +356,7 @@ func ColorTag(o playbook.Outcome) string {
 // rather than by outcome.
 func SummaryFieldColor(o playbook.Outcome, n int) string {
 	if n == 0 {
-		return GrayTag
+		return NothingReportedColor
 	}
 	return ColorTag(o)
 }
@@ -705,7 +705,7 @@ func TaskDisplayName(task *playbook.TaskNode) string {
 // HostColorTag is the single source of truth for TaskLabel's own
 // per-host segment on the collapsed row, HostLabel's own whole-row
 // color use, and (via internal/diff's own DiffColorTag) the diff view's
-// per-host coloring: GrayTag if host hasn't reported for task yet
+// per-host coloring: NothingReportedColor if host hasn't reported for task yet
 // (TaskLabel's own case only - HostLabel/the diff view are never called
 // before a host has reported), IgnoredColor (not the plain Failed red)
 // if it reported Failed specifically because of an ignore_errors: true
@@ -718,7 +718,7 @@ func TaskDisplayName(task *playbook.TaskNode) string {
 // HostLabel's own rows are already per-host for exactly this reason.
 func HostColorTag(task *playbook.TaskNode, host string, o playbook.Outcome, done bool) string {
 	if !done {
-		return GrayTag
+		return NothingReportedColor
 	}
 	if o == playbook.OutcomeFailed && task.Ignored[host] {
 		return IgnoredColor
@@ -788,9 +788,9 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 		}
 		title := tview.Escape(rawTitle)
 		if selected {
-			return prefix + "[" + PureBlack + ":lightgray:b]" + title + "[-:-:-]"
+			return prefix + "[" + SelectedRowTextColor + ":" + SelectedRowBackgroundColor + ":b]" + title + "[-:-:-]"
 		}
-		return prefix + "[silver::-]" + title + "[-::-]"
+		return prefix + "[" + TaskTitleColor + "::-]" + title + "[-::-]"
 	}
 
 	nameWidth := len(nameRunes)
@@ -827,9 +827,9 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 			// label:count fields the way there is for hostnames, and
 			// Morehosts.md doesn't ask for one.
 			plain := tview.Escape(HostSummaryPlainText(ok, changed, skipped, failed, unreachable))
-			return prefix + "[" + PureBlack + ":lightgray:b]" + title + strings.Repeat(" ", padding) + plain + "[-:-:-]"
+			return prefix + "[" + SelectedRowTextColor + ":" + SelectedRowBackgroundColor + ":b]" + title + strings.Repeat(" ", padding) + plain + "[-:-:-]"
 		}
-		styledTitle := "[silver::-]" + title + "[-::-]"
+		styledTitle := "[" + TaskTitleColor + "::-]" + title + "[-::-]"
 		return prefix + styledTitle + strings.Repeat(" ", padding) + HostSummaryColoredText(ok, changed, skipped, failed, unreachable, useColor)
 	}
 
@@ -845,7 +845,7 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 		}
 		var b strings.Builder
 		b.WriteString(prefix)
-		b.WriteString("[" + PureBlack + ":lightgray:b]")
+		b.WriteString("[" + SelectedRowTextColor + ":" + SelectedRowBackgroundColor + ":b]")
 		b.WriteString(title)
 		b.WriteString(strings.Repeat(" ", greyPadding))
 		b.WriteString("[-:-:-]")
@@ -861,10 +861,10 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 			tag := HostColorTag(task, h, o, done)
 			name := tview.Escape(layout.HostDisplay[i])
 			if i == 0 {
-				fmt.Fprintf(&b, "[%s:%s:b] %s[-:-:-]", PureBlack, tag, name)
+				fmt.Fprintf(&b, "[%s:%s:b] %s[-:-:-]", SelectedRowTextColor, tag, name)
 			} else {
 				b.WriteString(HostTransition(prevTag, tag))
-				fmt.Fprintf(&b, "[%s:%s:b]%s[-:-:-]", PureBlack, tag, name)
+				fmt.Fprintf(&b, "[%s:%s:b]%s[-:-:-]", SelectedRowTextColor, tag, name)
 			}
 			prevTag = tag
 		}
@@ -875,7 +875,7 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 	// same halfBlock transition used in the selected branch above here too,
 	// but confirmed (by looking at it) that it doesn't read well against
 	// unselected hostnames' plain foreground-only coloring - reverted.
-	styledTitle := "[silver::-]" + title + "[-::-]"
+	styledTitle := "[" + TaskTitleColor + "::-]" + title + "[-::-]"
 	hostSegments := make([]string, len(allHosts))
 	for i, h := range allHosts {
 		o, done := task.Hosts[h]
@@ -1029,7 +1029,7 @@ func HostLabel(task *playbook.TaskNode, host string, layout DurationLayout, sele
 	// a second, easy-to-drift copy of the "Failed + Ignored" special case.
 	tag := HostColorTag(task, host, o, true)
 	if selected {
-		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", PureBlack, tag, line)
+		return prefix + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", SelectedRowTextColor, tag, line)
 	}
 	return prefix + fmt.Sprintf("[%s]%s[-]", tag, line)
 }

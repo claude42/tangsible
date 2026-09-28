@@ -53,8 +53,9 @@ const errorOutputHeadingText = "Error output:"
 // ends in a genuine failure (rebuild()'s own GenuineFailure gate, same
 // predicate the auto-jump-to-failed-host feature already uses) - a blank
 // divider, a plain heading (styled like recap.go's own "Summary" heading:
-// bold white, not a failure color, so it's never mistaken for part of the
-// stderr text itself), then the collected stderr word-wrapped to width
+// bold uikit.KeyHighlightColor, not a failure color, so it's never
+// mistaken for part of the stderr text itself), then the collected
+// stderr word-wrapped to width
 // (uikit.WrapText - TreeList's own rows are single-line and don't wrap on
 // their own, see its own doc comment). Filtered through runner.
 // FilterRedundantWarnings first, the same filter the post-quit stderr
@@ -83,7 +84,7 @@ func (s *liveSession) errorOutputRows(width int) []uikit.Row {
 
 	rows := []uikit.Row{
 		{Text: "", ID: errorOutputDivider},
-		{Text: "[white::b]" + errorOutputHeadingText + "[-::-]", ID: errorOutputHeading},
+		{Text: "[" + uikit.KeyHighlightColor + "::b]" + errorOutputHeadingText + "[-::-]", ID: errorOutputHeading},
 	}
 	idx := 0
 	for _, l := range lines {

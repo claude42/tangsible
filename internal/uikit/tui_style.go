@@ -56,8 +56,8 @@ var CheckBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(t
 // bar instead of every bar at once (a search is scoped to a single tab,
 // not global to the session the way revisit-mode is). Matches the color
 // TextSearch's own match highlighting uses (search.go's
-// searchMatchFg/searchMatchBg), so the bar and the highlighted text read
-// as the same mode.
+// searchMatchForegroundColor/searchMatchBackgroundColor), so the bar and the
+// highlighted text read as the same mode.
 var SearchBarStyle = tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorYellow).Bold(true)
 
 const SpinnerInterval = 200 * time.Millisecond
@@ -133,16 +133,20 @@ const (
 	// abrupt full-cell change.
 	HalfBlock = "▌"
 
-	GrayTag = "gray" // placeholder color for a host AllHosts knows about
-	// run-wide but that hasn't reported for *this* task yet.
+	// NothingReportedColor covers two meanings that read the same way -
+	// "nothing to show here (yet)": a host AllHosts knows about run-wide
+	// but that hasn't reported for *this* task yet (tui_layout.go), and
+	// recap.go's own zero-count de-emphasis (a field whose count is 0).
+	NothingReportedColor = "gray"
 
-	// PureBlack is a fixed hex value, not tcell's named "black" - some
-	// terminal themes remap the base-16 ANSI "black" slot to a dark gray
-	// rather than true black (the same base-16-vs-fixed-value trap already
-	// documented for red/maroon, see colorTag). Used for every selected-row
-	// text color, which specifically needs to read as unambiguously black
-	// against the light backgrounds those rows use.
-	PureBlack = "#1a1a1a"
+	// SelectedRowTextColor is every selected row's own text color,
+	// app-wide - needs to read as unambiguously black against the light
+	// backgrounds those rows use, so it's a fixed hex value rather than
+	// tcell's named "black": some terminal themes remap the base-16 ANSI
+	// "black" slot to a dark gray rather than true black (the same
+	// base-16-vs-fixed-value trap already documented for red/maroon, see
+	// colorTag).
+	SelectedRowTextColor = "#1a1a1a"
 
 	// ProgressFillColor is topBarText's own "headline as a progress bar"
 	// fill - a fixed hex value, not tcell's named "green", for the same

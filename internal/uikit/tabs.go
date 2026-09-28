@@ -86,7 +86,7 @@ func NewTabbedPane() *TabbedPane {
 		AddItem(header, 1, 0, false).
 		AddItem(pages, 0, 1, true)
 
-	return &TabbedPane{header: header, pages: pages, root: root, headerColorName: "navy"}
+	return &TabbedPane{header: header, pages: pages, root: root, headerColorName: ChromeLiveColor}
 }
 
 // SetHeaderStyle updates the tab bar's own chrome to match whichever of
@@ -305,31 +305,32 @@ func (p *TabbedPane) renderHeader() {
 			b.WriteString("  ")
 		}
 		// labelFg is the label's own text color - headerColorName (active,
-		// inverted onto a white background) or white (inactive) by
-		// default, overridden per-tab by SetTabColorOverrides (e.g. "red"
-		// for the template Verb's own errored-host tabs). Only the
-		// label's own foreground is overridden - the trailing reset tag
-		// after it (back to plain chrome) is untouched, since the gap
-		// before the next tab is blank space either way.
+		// inverted onto a TabTextColor background) or TabTextColor
+		// (inactive) by default, overridden per-tab by
+		// SetTabColorOverrides (e.g. "red" for the template Verb's own
+		// errored-host tabs). Only the label's own foreground is
+		// overridden - the trailing reset tag after it (back to plain
+		// chrome) is untouched, since the gap before the next tab is
+		// blank space either way.
 		labelFg := p.headerColorName
 		if i != p.active {
-			labelFg = "white"
+			labelFg = TabTextColor
 		}
 		if c, ok := p.tabColors[name]; ok {
 			labelFg = c
 		}
 		if i == p.active {
-			// Explicit <labelFg>-on-white (the session's own current
-			// chrome color, white-on-<name> swapped - see SetHeaderStyle)
-			// rather than relying on [::R]'s empty color fields to inherit
-			// the header's base TextStyle - confirmed live that
-			// inheritance doesn't reliably happen the way a bare
+			// Explicit <labelFg>-on-TabTextColor (the session's own current
+			// chrome color, TabTextColor-on-<name> swapped - see
+			// SetHeaderStyle) rather than relying on [::R]'s empty color
+			// fields to inherit the header's base TextStyle - confirmed live
+			// that inheritance doesn't reliably happen the way a bare
 			// attribute-only tag might suggest, so every segment here
 			// fully specifies its own colors instead, active and inactive
 			// alike, leaving nothing to inherit at all.
-			fmt.Fprintf(&b, "[%s:white:B] %s [white:%s:-]", labelFg, tview.Escape(name), p.headerColorName)
+			fmt.Fprintf(&b, "[%s:%s:B] %s [%s:%s:-]", labelFg, TabTextColor, tview.Escape(name), TabTextColor, p.headerColorName)
 		} else {
-			fmt.Fprintf(&b, "[%s:%s:-] %s [white:%s:-]", labelFg, p.headerColorName, tview.Escape(name), p.headerColorName)
+			fmt.Fprintf(&b, "[%s:%s:-] %s [%s:%s:-]", labelFg, p.headerColorName, tview.Escape(name), TabTextColor, p.headerColorName)
 		}
 	}
 	p.header.SetText(b.String())

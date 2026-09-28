@@ -92,11 +92,11 @@ func TestTaskLabel_NoHandlerTagForRegularTask(t *testing.T) {
 // Ignored, ColorTag(o) for every other outcome (Ignored is only ever
 // meaningfully true alongside Failed - TaskNode.Ignored's own doc comment -
 // but this must not special-case some other outcome if it were somehow
-// set), and GrayTag whenever the host simply hasn't reported yet.
+// set), and NothingReportedColor whenever the host simply hasn't reported yet.
 func TestHostColorTag(t *testing.T) {
 	task := newTaskNode()
 
-	if got, want := HostColorTag(task, "web1", playbook.OutcomeOK, false), GrayTag; got != want {
+	if got, want := HostColorTag(task, "web1", playbook.OutcomeOK, false), NothingReportedColor; got != want {
 		t.Errorf("not done: HostColorTag() = %q, want %q", got, want)
 	}
 	if got, want := HostColorTag(task, "web1", playbook.OutcomeOK, true), ColorTag(playbook.OutcomeOK); got != want {

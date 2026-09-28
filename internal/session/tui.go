@@ -317,11 +317,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// concern the way s.chromeStyle/s.chromeBg (below) have for revisit.
 	s.liveChromeStyle = uikit.BarStyle
 	s.liveChromeBg = tcell.ColorNavy
-	s.liveChromeColorName = "navy"
+	s.liveChromeColorName = uikit.ChromeLiveColor
 	if s.checkMode {
 		s.liveChromeStyle = uikit.CheckBarStyle
 		s.liveChromeBg = tcell.ColorOlive
-		s.liveChromeColorName = "olive"
+		s.liveChromeColorName = uikit.ChromeCheckColor
 	}
 
 	// s.chromeStyle/s.chromeBg pick the initial look for every chrome bar/the
@@ -445,7 +445,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// activation keypress first - there's nothing else in this dialog to
 	// browse first, so there's no "menu mode" to be in before typing.
 	searchHeadline := tview.NewTextView().SetDynamicColors(true).
-		SetText(" [::b]Search[::-]\n\n [gray]Enter to apply, Esc to cancel[-]")
+		SetText(" [::b]Search[::-]\n\n [" + uikit.AnnotationColor + "]Enter to apply, Esc to cancel[-]")
 	s.searchInput = tview.NewInputField().SetLabel("Search: ")
 	// Top/bottom margin Box items, same as s.filterFlex's own - a real
 	// tview.NewBox() rather than a bare nil, so its Draw() still fills its

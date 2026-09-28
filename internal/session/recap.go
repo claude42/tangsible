@@ -235,13 +235,14 @@ const (
 )
 
 // recapHeadingText is the plain "Summary" heading (design-docs/Recap.md)
-// shown right above the recap section - white bold, matching
-// PlayRowText's own heading-like styling elsewhere in this tree rather
-// than introducing a new color with no outcome to justify it.
+// shown right above the recap section - bold uikit.KeyHighlightColor,
+// the same green the drill-down/host-hosts tabs already use for their
+// own section headings, rather than introducing a new color with no
+// outcome to justify it.
 const recapHeadingText = "Summary"
 
 func recapHeadingRowText() string {
-	return "[white::b]" + recapHeadingText + "[-::-]"
+	return "[" + uikit.KeyHighlightColor + "::b]" + recapHeadingText + "[-::-]"
 }
 
 // recapHeadingUnderlineRowText underlines recapHeadingText with a run of
@@ -251,7 +252,7 @@ func recapHeadingRowText() string {
 // translated to a plain tree row here since a tree row can't hold
 // SectionLabel's own embedded newlines the way a TextView can.
 func recapHeadingUnderlineRowText() string {
-	return "[white]" + strings.Repeat("=", len(recapHeadingText)) + "[-]"
+	return "[" + uikit.KeyHighlightColor + "]" + strings.Repeat("=", len(recapHeadingText)) + "[-]"
 }
 
 // pluralS returns "" for n == 1, "s" otherwise - shared by every
@@ -412,7 +413,7 @@ func recapComputeColumnWidths(state *playbook.PlaybookState) recapColumnWidths {
 
 // recapSummaryFieldColor is recapHostRowText's own per-field color choice:
 // recapCategoryColor's own outcome color (green ok, yellow changed, ...,
-// pink warnings) when n is greater than zero, or GrayTag - the exact same
+// pink warnings) when n is greater than zero, or NothingReportedColor - the exact same
 // dark gray already used elsewhere for a host that hasn't reported for a
 // task yet - when n is zero. A live, real-world recap experiment showed
 // six always-colored "label=N" segments read as fairly uniform "wall of
@@ -421,7 +422,7 @@ func recapComputeColumnWidths(state *playbook.PlaybookState) recapColumnWidths {
 // report stand out, at a glance, without reading every number.
 func recapSummaryFieldColor(label string, n int) string {
 	if n == 0 {
-		return uikit.GrayTag
+		return uikit.NothingReportedColor
 	}
 	return recapCategoryColor(label)
 }
@@ -496,13 +497,13 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 		// shifting the "ok=" column by one space compared to the
 		// unselected rendering right above/below it.
 		firstSeg := func(label string, width, n int) string {
-			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", uikit.PureBlack, recapSummaryFieldColor(label, n), label, width, n)
+			return fmt.Sprintf("[%s:%s:b]%s=%*d[-:-:-]", uikit.SelectedRowTextColor, recapSummaryFieldColor(label, n), label, width, n)
 		}
 		seg := func(label string, width, n int) string {
-			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", uikit.PureBlack, recapSummaryFieldColor(label, n), label, width, n)
+			return fmt.Sprintf("[%s:%s:b]  %s=%*d[-:-:-]", uikit.SelectedRowTextColor, recapSummaryFieldColor(label, n), label, width, n)
 		}
-		return fmt.Sprintf("[%s:lightgray:b]%s%s%s[-:-:-]%s%s%s%s%s%s%s",
-			uikit.PureBlack, tview.Escape(hostPadded), durText, sep,
+		return fmt.Sprintf("[%s:%s:b]%s%s%s[-:-:-]%s%s%s%s%s%s%s",
+			uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(hostPadded), durText, sep,
 			firstSeg("ok", w.OK, s.OK),
 			seg("skipped", w.Skipped, s.Skipped),
 			seg("changed", w.Changed, s.Changed),
@@ -515,7 +516,7 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 	seg := func(label string, width, n int) string {
 		return fmt.Sprintf("[%s]%s=%*d[-]", recapSummaryFieldColor(label, n), label, width, n)
 	}
-	return fmt.Sprintf("[white::b]%s%s[-::-]%s%s  %s  %s  %s  %s  %s  %s",
+	return fmt.Sprintf("[%s::b]%s%s[-::-]%s%s  %s  %s  %s  %s  %s  %s", uikit.KeyHighlightColor,
 		tview.Escape(hostPadded), durText, sep,
 		seg("ok", w.OK, s.OK),
 		seg("skipped", w.Skipped, s.Skipped),
@@ -533,7 +534,7 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 func recapCategoryRowText(c recapCategory, selected bool) string {
 	line := fmt.Sprintf("  %s (%d)", c.Label, len(c.Tasks))
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, line)
+		return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, line)
 	}
 	return fmt.Sprintf("[%s]%s[-]", c.Color, line)
 }
@@ -562,7 +563,7 @@ func recapTaskDetail(task *playbook.TaskNode, host, label string) string {
 func recapTaskRowText(task *playbook.TaskNode, detail, color string, selected bool) string {
 	line := fmt.Sprintf("    %s%s", tview.Escape(task.Name), tview.Escape(detail))
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, line)
+		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.SelectedRowTextColor, line)
 	}
 	return fmt.Sprintf("[%s]%s[-]", color, line)
 }

@@ -169,7 +169,7 @@ func (s *liveSession) currentMainBottomBarText() string {
 // characters at all.
 func (s *liveSession) chromeColorName() string {
 	if s.revisitActive {
-		return "purple"
+		return uikit.ChromeRevisitColor
 	}
 	return s.liveChromeColorName
 }

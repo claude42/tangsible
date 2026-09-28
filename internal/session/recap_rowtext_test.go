@@ -33,7 +33,7 @@ import (
 
 func TestRecapHeadingRowText(t *testing.T) {
 	got := recapHeadingRowText()
-	want := "[white::b]Summary[-::-]"
+	want := "[green::b]Summary[-::-]"
 	if got != want {
 		t.Errorf("recapHeadingRowText() = %q, want %q", got, want)
 	}
@@ -41,7 +41,7 @@ func TestRecapHeadingRowText(t *testing.T) {
 
 func TestRecapHeadingUnderlineRowText(t *testing.T) {
 	got := recapHeadingUnderlineRowText()
-	want := "[white]=======[-]" // len("Summary") == 7
+	want := "[green]=======[-]" // len("Summary") == 7
 	if got != want {
 		t.Errorf("recapHeadingUnderlineRowText() = %q, want %q", got, want)
 	}
@@ -112,8 +112,8 @@ func TestRecapSummaryFieldColor(t *testing.T) {
 		n     int
 		want  string
 	}{
-		{"zero count grays out regardless of label", "ok", 0, uikit.GrayTag},
-		{"zero count grays out warnings too", "warnings", 0, uikit.GrayTag},
+		{"zero count grays out regardless of label", "ok", 0, uikit.NothingReportedColor},
+		{"zero count grays out warnings too", "warnings", 0, uikit.NothingReportedColor},
 		{"non-zero ok is green", "ok", 5, "green"},
 		{"non-zero failed is red", "failed", 1, "red"},
 		{"non-zero warnings is the warning color, not an outcome color", "warnings", 1, uikit.WarningColor},
@@ -191,9 +191,9 @@ func TestRecapHostRowTextUnselected(t *testing.T) {
 	// Every field present, right-padded to its own column width, colored
 	// by whether it's zero (gray) or not (its outcome color).
 	for _, want := range []string{
-		"[white::b]web1 [-::-]", // hostname padded out to w.Host=5
+		"[green::b]web1 [-::-]", // hostname padded out to w.Host=5
 		"[green]ok=12[-]",       // non-zero -> outcome color
-		"[gray]skipped=0[-]",    // zero -> GrayTag
+		"[gray]skipped=0[-]",    // zero -> NothingReportedColor
 		"[gray]changed=0[-]",
 		"[gray]unreachable=0[-]",
 		"[red]failed=1[-]", // non-zero -> outcome color
@@ -222,7 +222,7 @@ func TestRecapHostRowTextUnselected(t *testing.T) {
 	}
 
 	// Unselected rendering must never use the selected rendering's
-	// PureBlack-foreground/lightgray-background tag shape.
+	// SelectedRowTextColor-foreground/lightgray-background tag shape.
 	if strings.Contains(got, "lightgray") {
 		t.Errorf("recapHostRowText(selected=false) = %q, must not use the selected style", got)
 	}
@@ -234,22 +234,22 @@ func TestRecapHostRowTextSelected(t *testing.T) {
 
 	got := recapHostRowText("web1", s, w, true)
 
-	// The hostname segment gets the uniform PureBlack-on-lightgray title
+	// The hostname segment gets the uniform SelectedRowTextColor-on-lightgray title
 	// background, matching HostRowText/TaskLabel's own selected-row
 	// convention elsewhere.
-	if !strings.Contains(got, "["+uikit.PureBlack+":lightgray:b]web1") {
+	if !strings.Contains(got, "["+uikit.SelectedRowTextColor+":lightgray:b]web1") {
 		t.Errorf("recapHostRowText(selected=true) = %q, want the hostname wrapped in the selected title style", got)
 	}
-	// Each "label=N" segment inverts to PureBlack text on its own outcome
+	// Each "label=N" segment inverts to SelectedRowTextColor text on its own outcome
 	// color as a background, not the plain unselected "[color]label=N[-]"
 	// shape.
-	if !strings.Contains(got, "["+uikit.PureBlack+":green:b]ok=12") {
-		t.Errorf("recapHostRowText(selected=true) = %q, want the ok segment as PureBlack-on-green", got)
+	if !strings.Contains(got, "["+uikit.SelectedRowTextColor+":green:b]ok=12") {
+		t.Errorf("recapHostRowText(selected=true) = %q, want the ok segment as SelectedRowTextColor-on-green", got)
 	}
-	if !strings.Contains(got, "["+uikit.PureBlack+":red:b]  failed=1") {
-		t.Errorf("recapHostRowText(selected=true) = %q, want the failed segment as PureBlack-on-red with its own leading gap", got)
+	if !strings.Contains(got, "["+uikit.SelectedRowTextColor+":red:b]  failed=1") {
+		t.Errorf("recapHostRowText(selected=true) = %q, want the failed segment as SelectedRowTextColor-on-red with its own leading gap", got)
 	}
-	if !strings.Contains(got, "["+uikit.PureBlack+":gray:b]  ignored=0") {
+	if !strings.Contains(got, "["+uikit.SelectedRowTextColor+":gray:b]  ignored=0") {
 		t.Errorf("recapHostRowText(selected=true) = %q, want the trailing ignored segment in the selected style too", got)
 	}
 	if strings.Contains(got, "[green]ok=12[-]") {
@@ -267,7 +267,7 @@ func TestRecapCategoryRowText(t *testing.T) {
 	if got, want := recapCategoryRowText(c, false), "[red]  failed (2)[-]"; got != want {
 		t.Errorf("recapCategoryRowText(selected=false) = %q, want %q", got, want)
 	}
-	if got, want := recapCategoryRowText(c, true), "["+uikit.PureBlack+":lightgray:b]  failed (2)[-:-:-]"; got != want {
+	if got, want := recapCategoryRowText(c, true), "["+uikit.SelectedRowTextColor+":lightgray:b]  failed (2)[-:-:-]"; got != want {
 		t.Errorf("recapCategoryRowText(selected=true) = %q, want %q", got, want)
 	}
 }
@@ -280,7 +280,7 @@ func TestRecapTaskRowText(t *testing.T) {
 	if got, want := recapTaskRowText(task, detail, color, false), "[green]    install nginx (that line)[-]"; got != want {
 		t.Errorf("recapTaskRowText(selected=false) = %q, want %q", got, want)
 	}
-	if got, want := recapTaskRowText(task, detail, color, true), "["+uikit.PureBlack+":lightgray:b]    install nginx (that line)[-:-:-]"; got != want {
+	if got, want := recapTaskRowText(task, detail, color, true), "["+uikit.SelectedRowTextColor+":lightgray:b]    install nginx (that line)[-:-:-]"; got != want {
 		t.Errorf("recapTaskRowText(selected=true) = %q, want %q", got, want)
 	}
 }

@@ -931,7 +931,7 @@ func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]inter
 	var b strings.Builder
 	for _, f := range fields {
 		label := f.label + ":"
-		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]%s[-]\n", label, strings.Repeat(" ", width-len(label)+1), tview.Escape(f.value))
+		fmt.Fprintf(&b, "[%s]%s[-]%s[%s]%s[-]\n", KeyHighlightColor, label, strings.Repeat(" ", width-len(label)+1), ValueHighlightColor, tview.Escape(f.value))
 	}
 
 	status := o.String()
@@ -939,7 +939,7 @@ func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]inter
 		status += " (ignored)"
 	}
 	label := statusLabel + ":"
-	fmt.Fprintf(&b, "[green]%s[-]%s[%s::b]%s[-::-]\n", label, strings.Repeat(" ", width-len(label)+1), HostColorTag(task, host, o, true), tview.Escape(status))
+	fmt.Fprintf(&b, "[%s]%s[-]%s[%s::b]%s[-::-]\n", KeyHighlightColor, label, strings.Repeat(" ", width-len(label)+1), HostColorTag(task, host, o, true), tview.Escape(status))
 	return b.String()
 }
 
@@ -1010,7 +1010,7 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 			}
 		}
 	}
-	writeTextSection("green", "Output", outputText, true)
+	writeTextSection(KeyHighlightColor, "Output", outputText, true)
 
 	// Warnings: design-docs/Drilldown, Task List.md's general rule, not
 	// module-specific like everything else here - any result carrying a
@@ -1033,9 +1033,9 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// own bullet, so each item's reason sits next to the item it belongs
 	// to rather than requiring a trip to Details' full JSON to find it.
 	if items := LoopItemDetails(decoded); len(items) > 0 {
-		b.WriteString(SectionLabel("green", "Items"))
+		b.WriteString(SectionLabel(KeyHighlightColor, "Items"))
 		for _, item := range items {
-			fmt.Fprintf(&b, "* [lightsteelblue]%s[-]\n", tview.Escape(item.Label))
+			fmt.Fprintf(&b, "* [%s]%s[-]\n", ValueHighlightColor, tview.Escape(item.Label))
 			if item.Msg != "" {
 				fmt.Fprintf(&b, "  %s\n", tview.Escape(item.Msg))
 			}
@@ -1044,7 +1044,7 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	}
 
 	stderr, _ := decoded["stderr"].(string)
-	writeTextSection("red", "Error", stderr, false)
+	writeTextSection(OutcomeFailedColor, "Error", stderr, false)
 
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -1165,11 +1165,11 @@ func ColorizedUnifiedDiff(a, b []string, fromFile, toFile string) string {
 	for _, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "+"):
-			fmt.Fprintf(&out, "[green]%s[-]\n", tview.Escape(line))
+			fmt.Fprintf(&out, "[%s]%s[-]\n", DiffAddedColor, tview.Escape(line))
 		case strings.HasPrefix(line, "-"):
-			fmt.Fprintf(&out, "[red]%s[-]\n", tview.Escape(line))
+			fmt.Fprintf(&out, "[%s]%s[-]\n", DiffRemovedColor, tview.Escape(line))
 		case strings.HasPrefix(line, "@@"):
-			fmt.Fprintf(&out, "[teal]%s[-]\n", tview.Escape(line))
+			fmt.Fprintf(&out, "[%s]%s[-]\n", DiffHunkColor, tview.Escape(line))
 		default:
 			out.WriteString(tview.Escape(line))
 			out.WriteString("\n")
@@ -1230,7 +1230,7 @@ func BuildSourceTab(path string, sourceIndex map[string]string) string {
 	b.WriteString(HighlightYAMLKeys(source))
 	b.WriteString("\n")
 	if loc := TaskSourceLocation(path); loc != "" {
-		fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
+		fmt.Fprintf(&b, "[%s]%s[-]\n", AnnotationColor, tview.Escape(loc))
 	}
 	return b.String()
 }

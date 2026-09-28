@@ -546,14 +546,14 @@ func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 	}
 
 	// Selecting the task row (id == newTask, per DiffTaskKey) must render
-	// THAT row with the selected (PureBlack-on-lightgray) styling, and
+	// THAT row with the selected (SelectedRowTextColor-on-lightgray) styling, and
 	// leave the play row unselected.
 	rows := FlattenDiffRows([]PlayAlignment{pa}, map[*playbook.TaskNode]bool{}, newTask, func(TaskAlignment, string) {})
 	if len(rows) != 2 {
 		t.Fatalf("FlattenDiffRows() = %d rows, want 2 (play, task)", len(rows))
 	}
 	if !strings.Contains(rows[1].Text, "lightgray") {
-		t.Errorf("FlattenDiffRows() task row (selected) = %q, want the selected PureBlack:lightgray styling", rows[1].Text)
+		t.Errorf("FlattenDiffRows() task row (selected) = %q, want the selected SelectedRowTextColor:lightgray styling", rows[1].Text)
 	}
 	if strings.Contains(rows[0].Text, "lightgray") {
 		t.Errorf("FlattenDiffRows() play row (not selected) = %q, want no selected styling", rows[0].Text)
@@ -567,7 +567,7 @@ func TestFlattenDiffRowsRendersTheSelectedRow(t *testing.T) {
 		t.Fatalf("FlattenDiffRows() = %d rows, want 3 (play, task, host)", len(rows))
 	}
 	if !strings.Contains(rows[2].Text, "lightgray") {
-		t.Errorf("FlattenDiffRows() host row (selected) = %q, want the selected PureBlack:lightgray styling", rows[2].Text)
+		t.Errorf("FlattenDiffRows() host row (selected) = %q, want the selected SelectedRowTextColor:lightgray styling", rows[2].Text)
 	}
 	if strings.Contains(rows[1].Text, "lightgray") {
 		t.Errorf("FlattenDiffRows() task row (not selected, host is) = %q, want no selected styling", rows[1].Text)

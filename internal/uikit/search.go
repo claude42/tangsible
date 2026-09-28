@@ -30,9 +30,11 @@ import (
 	"github.com/rivo/tview"
 )
 
-// searchMatchFg/searchMatchBg color every match that isn't the current
-// one; searchCurrentMatchFg/Bg colors the current one - a deliberately
-// different hue (orange, not yellow) rather than leaning on tview's own
+// searchMatchForegroundColor/searchMatchBackgroundColor color every
+// match that isn't the current one;
+// searchCurrentMatchForegroundColor/searchCurrentMatchBackgroundColor
+// color the current one - a deliberately different hue (orange, not
+// yellow) rather than leaning on tview's own
 // Highlight()-driven automatic color-inversion, which would only ever
 // invert whatever color a region's surrounding text already happened to
 // have, not read as a consistent "this one is current" signal on its own
@@ -44,11 +46,11 @@ import (
 // visual pattern that the two aren't likely to be mistaken for each
 // other in practice.
 const (
-	searchMatchFg = "black"
-	searchMatchBg = "yellow"
+	searchMatchForegroundColor = "black"
+	searchMatchBackgroundColor = "yellow"
 
-	searchCurrentMatchFg = "black"
-	searchCurrentMatchBg = "orange"
+	searchCurrentMatchForegroundColor = "black"
+	searchCurrentMatchBackgroundColor = "orange"
 )
 
 // matchSpan is one match's byte offsets into TextSearch's own cached
@@ -178,7 +180,7 @@ func (s *TextSearch) render() {
 	pos := 0
 	for i, m := range s.matches {
 		b.WriteString(tview.Escape(s.plain[pos:m.start]))
-		fg, bg := searchMatchFg, searchMatchBg
+		fg, bg := searchMatchForegroundColor, searchMatchBackgroundColor
 		if i == s.current {
 			// Pre-swapped, deliberately: Highlight() below renders its
 			// target region with fg/bg swapped *on top of* whatever color
@@ -186,14 +188,14 @@ func (s *TextSearch) render() {
 			// a live render, not just inferred from its doc comment
 			// ("background and foreground colors swapped"). Tagging the
 			// current match with the swapped pair here is what makes it
-			// actually render as searchCurrentMatchFg-on-
-			// searchCurrentMatchBg once Highlight() does its own
+			// actually render as searchCurrentMatchForegroundColor-on-
+			// searchCurrentMatchBackgroundColor once Highlight() does its own
 			// inversion - tagging it with the pair un-swapped (the naive
 			// approach) double-inverts it instead, which is what an
 			// earlier version of this did (live feedback: the current
 			// match rendered "yellow on black," not the intended orange
 			// block).
-			fg, bg = searchCurrentMatchBg, searchCurrentMatchFg
+			fg, bg = searchCurrentMatchBackgroundColor, searchCurrentMatchForegroundColor
 		}
 		id := fmt.Sprintf("match-%d", i)
 		fmt.Fprintf(&b, "[%q][%s:%s]%s[-:-:-][\"\"]", id, fg, bg, tview.Escape(s.plain[m.start:m.end]))

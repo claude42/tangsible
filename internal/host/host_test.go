@@ -339,7 +339,7 @@ func TestHostRowText(t *testing.T) {
 	if got, want := HostRowText("web1", false, false, false), "[gray]●[-]  [white]web1[-]"; got != want {
 		t.Errorf("HostRowText(selected=false) = %q, want %q", got, want)
 	}
-	if got, want := HostRowText("web1", true, false, false), "[gray]●[-]  ["+uikit.PureBlack+":lightgray:b]web1[-:-:-]"; got != want {
+	if got, want := HostRowText("web1", true, false, false), "[gray]●[-]  ["+uikit.SelectedRowTextColor+":lightgray:b]web1[-:-:-]"; got != want {
 		t.Errorf("HostRowText(selected=true) = %q, want %q", got, want)
 	}
 }

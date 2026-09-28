@@ -85,7 +85,7 @@ func TestErrorOutputRows_BuildsHeadingThenWrappedFilteredLines(t *testing.T) {
 	if _, ok := rows[0].ID.(errorOutputHeadingRowID); !ok || rows[0].Text != "" {
 		t.Errorf("rows[0] = %+v, want the blank divider row", rows[0])
 	}
-	if rows[1].ID != errorOutputHeading || rows[1].Text != "[white::b]"+errorOutputHeadingText+"[-::-]" {
+	if rows[1].ID != errorOutputHeading || rows[1].Text != "[green::b]"+errorOutputHeadingText+"[-::-]" {
 		t.Errorf("rows[1] = %+v, want the \"Error output:\" heading row", rows[1])
 	}
 

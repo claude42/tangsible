@@ -95,13 +95,13 @@ func StatusRowText(code int, hadUnreachable bool, userInterruptedCode int) strin
 	benignHostUnreachable := code == 4 && hadUnreachable
 	switch {
 	case code == 0:
-		return "[green]Playbook completed successfully[-]"
+		return "[" + OutcomeOKColor + "]Playbook completed successfully[-]"
 	case benignHostUnreachable:
-		return "[yellow]Playbook completed - one or more hosts were unreachable[-]"
+		return "[" + StatusBenignColor + "]Playbook completed - one or more hosts were unreachable[-]"
 	case code == userInterruptedCode:
-		return "[red]Playbook stopped, press q again to quit tangsible.[-]"
+		return "[" + OutcomeFailedColor + "]Playbook stopped, press q again to quit tangsible.[-]"
 	default:
-		return fmt.Sprintf("[red]Playbook failed (exit code %d)[-]", code)
+		return fmt.Sprintf("[%s]Playbook failed (exit code %d)[-]", OutcomeFailedColor, code)
 	}
 }
 

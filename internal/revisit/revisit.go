@@ -175,13 +175,13 @@ func classifyExit(exitCode int, hadUnreachable *bool) (label, color string) {
 	switch exitCode {
 	case -1: // this app's own sentinel: the process never even started -
 		// see SpawnGeneration/runner.NewRequestRerun's own spawn-failure path.
-		return "Failed", "red"
+		return "Failed", uikit.OutcomeFailedColor
 	case 0:
-		return "Success", "green"
+		return "Success", uikit.OutcomeOKColor
 	case runner.AnsibleUserInterruptedExitCode: // 99, the user's own q/Ctrl-C
-		return "Aborted", "gray"
+		return "Aborted", uikit.NothingReportedColor
 	case unhandledExceptionExitCode: // 250
-		return "Failed", "red"
+		return "Failed", uikit.OutcomeFailedColor
 	}
 
 	if exitCode > 0 && exitCode <= tqmMaxBitmask {
@@ -190,23 +190,23 @@ func classifyExit(exitCode int, hadUnreachable *bool) (label, color string) {
 			// Dominates regardless of what else is set - 6
 			// (failed|unreachable) reads as "Host failed," not
 			// "Success," since a genuine failure happened too.
-			return "Host failed", "red"
+			return "Host failed", uikit.OutcomeFailedColor
 		case exitCode&tqmBreakPlayBit != 0:
-			return "Failed", "red"
+			return "Failed", uikit.OutcomeFailedColor
 		case exitCode&tqmErrorBit != 0:
 			// Also covers AnsibleOptionsError's own fixed exit code 5
 			// (bad CLI args) colliding with the bitmask reading
 			// tqmErrorBit|tqmUnreachableHostsBit - both readings are
 			// already "Failed," so there's nothing to disambiguate.
-			return "Failed", "red"
+			return "Failed", uikit.OutcomeFailedColor
 		case exitCode == tqmUnreachableHostsBit: // == 4, and ONLY that bit
 			if hadUnreachable != nil && *hadUnreachable {
-				return "Success", "green"
+				return "Success", uikit.OutcomeOKColor
 			}
-			return "Failed", "red"
+			return "Failed", uikit.OutcomeFailedColor
 		}
 	}
-	return fmt.Sprintf("Failed (%d)", exitCode), "red" // genuinely unrecognized
+	return fmt.Sprintf("Failed (%d)", exitCode), uikit.OutcomeFailedColor // genuinely unrecognized
 }
 
 // RevisitStatusLabel renders e's own exit code as a short, explicit status
@@ -225,7 +225,7 @@ func RevisitStatusLabel(exitCode int, hadUnreachable *bool) string {
 
 // RevisitStatusColor is RevisitStatusLabel's own color, shared with the
 // selected-row case only insofar as an unselected row applies it directly
-// (a selected row uses the uniform PureBlack-on-lightgray convention
+// (a selected row uses the uniform SelectedRowTextColor-on-lightgray convention
 // instead, matching host.go's own HostRowText - see RevisitRowText).
 func RevisitStatusColor(exitCode int, hadUnreachable *bool) string {
 	_, color := classifyExit(exitCode, hadUnreachable)
@@ -273,7 +273,7 @@ func resolveHadUnreachable(e RevisitEntry) *bool {
 // instead would re-scan that entry's .jsonl on every single cursor move,
 // since this function is called fresh for every row on every rebuild.
 // Selected styling matches host.go's own HostRowText convention (uniform
-// PureBlack on lightgray, no per-segment color) rather than reinventing a
+// SelectedRowTextColor on lightgray, no per-segment color) rather than reinventing a
 // second one.
 func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, selected bool) string {
 	ts := FormatRevisitTime(e.Time)
@@ -281,9 +281,9 @@ func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, select
 	label, color := classifyExit(e.ExitCode, hadUnreachable)
 	padded := label + strings.Repeat(" ", labelWidth-len([]rune(label)))
 	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s - %s - %s[-:-:-]", uikit.PureBlack, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
+		return fmt.Sprintf("[%s:%s:b]%s - %s - %s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
 	}
-	return fmt.Sprintf("[white]%s[-] - [%s]%s[-] - %s", tview.Escape(ts), color, tview.Escape(padded), tview.Escape(cmd))
+	return fmt.Sprintf("[%s]%s[-] - [%s]%s[-] - %s", uikit.PlayTitleColor, tview.Escape(ts), color, tview.Escape(padded), tview.Escape(cmd))
 }
 
 // RunRevisitListTUI shows entries (already filtered/sorted newest-first by

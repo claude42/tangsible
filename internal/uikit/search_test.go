@@ -137,14 +137,14 @@ func TestTextSearchCurrentMatchColorDiffersFromOthers(t *testing.T) {
 			t.Errorf("cell %d: fg=%s bg=%s, want fg=%s bg=%s", col, fg, bg, wantFg, wantBg)
 		}
 	}
-	wantColor(t, 0, searchCurrentMatchFg, searchCurrentMatchBg)
-	wantColor(t, 8, searchMatchFg, searchMatchBg)
-	wantColor(t, 16, searchMatchFg, searchMatchBg)
+	wantColor(t, 0, searchCurrentMatchForegroundColor, searchCurrentMatchBackgroundColor)
+	wantColor(t, 8, searchMatchForegroundColor, searchMatchBackgroundColor)
+	wantColor(t, 16, searchMatchForegroundColor, searchMatchBackgroundColor)
 
 	s.Next() // index 1 (columns 8-10) is now current
-	wantColor(t, 0, searchMatchFg, searchMatchBg)
-	wantColor(t, 8, searchCurrentMatchFg, searchCurrentMatchBg)
-	wantColor(t, 16, searchMatchFg, searchMatchBg)
+	wantColor(t, 0, searchMatchForegroundColor, searchMatchBackgroundColor)
+	wantColor(t, 8, searchCurrentMatchForegroundColor, searchCurrentMatchBackgroundColor)
+	wantColor(t, 16, searchMatchForegroundColor, searchMatchBackgroundColor)
 }
 
 func TestStartTextSearch(t *testing.T) {

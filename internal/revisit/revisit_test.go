@@ -168,7 +168,7 @@ func TestRevisitRowTextStatusColor(t *testing.T) {
 		t.Errorf("RevisitRowText(exit 4, hadUnreachable=false) = %q, want a [red] \"Failed\" label", parserErr)
 	}
 
-	// Selected rendering uses the shared PureBlack-on-lightgray convention,
+	// Selected rendering uses the shared SelectedRowTextColor-on-lightgray convention,
 	// not a per-status color - same as host.go's own HostRowText.
 	selected := RevisitRowText(RevisitEntry{Playbook: "site.yml", Time: "2026-08-23T15:00:00Z", ExitCode: 2}, nil, 11, true)
 	if !strings.Contains(selected, "lightgray") {

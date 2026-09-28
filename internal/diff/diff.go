@@ -49,12 +49,12 @@ import (
 // "colored as normal... differences only visualized by underlining."
 var DiffChromeStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorFuchsia).Bold(true)
 
-// DiffChromeColorName is DiffChromeStyle's own tag-name equivalent -
+// DiffChromeColor is DiffChromeStyle's own tag-name equivalent -
 // "fuchsia" - for outputTabs.SetHeaderStyle below, whose active/inactive
 // tab tags bake in a color name string rather than a tcell.Style (a
 // single style can't vary per-column - see TabbedPane.SetHeaderStyle's
 // own doc comment).
-const DiffChromeColorName = "fuchsia"
+const DiffChromeColor = "fuchsia"
 
 // ReplayRun loads a saved run's own .jsonl (runlog.go) into a fresh
 // PlaybookState - the exact replay mechanism OpenRevisitEntry already
@@ -342,7 +342,7 @@ func DiffTaskRowText(a TaskAlignment, titleColWidth int, selected bool) string {
 // breathing room, same floor the live tree's own TaskLabel uses) is what
 // actually lines hosts up across every row - see DiffTitleColWidth, which
 // already accounts for marker's own width via DiffTaskDisplayWidth.
-// selected uses the same uniform PureBlack-on-lightgray convention
+// selected uses the same uniform SelectedRowTextColor-on-lightgray convention
 // host.go's own HostRowText/revisit.go's own RevisitRowText already do
 // for a read-only browsing list - not the live tree's own per-host
 // colored-background blending (TaskLabel's selected variant), which
@@ -361,9 +361,9 @@ func DiffTaskLine(task *playbook.TaskNode, titleColWidth int, wholeLineFlag, mar
 	padding := strings.Repeat(" ", pad)
 	hosts := DiffHostList(task, wholeLineFlag, underlineHosts)
 	if selected {
-		return fmt.Sprintf("%s[%s:lightgray:b%s]%s%s[-:-:-]%s", uikit.TaskIndent, uikit.PureBlack, wholeLineFlag, nameEscaped, padding, hosts)
+		return fmt.Sprintf("%s[%s:%s:b%s]%s%s[-:-:-]%s", uikit.TaskIndent, uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, wholeLineFlag, nameEscaped, padding, hosts)
 	}
-	return fmt.Sprintf("%s[silver::%s]%s[-::-]%s%s", uikit.TaskIndent, wholeLineFlag, nameEscaped, padding, hosts)
+	return fmt.Sprintf("%s[%s::%s]%s[-::-]%s%s", uikit.TaskIndent, uikit.TaskTitleColor, wholeLineFlag, nameEscaped, padding, hosts)
 }
 
 // SortedHostOrder returns a copy of hostOrder sorted alphabetically -
@@ -468,7 +468,7 @@ func DiffHostRowText(task *playbook.TaskNode, host string, flag string, selected
 	line := fmt.Sprintf("%s: %s%s", tview.Escape(host), o, tview.Escape(uikit.OutcomeDetail(task, host)))
 	prefix := tview.Escape(uikit.HostIndent)
 	if selected {
-		return prefix + fmt.Sprintf("[%s:lightgray:b%s]%s[-:-:-]", uikit.PureBlack, flag, line)
+		return prefix + fmt.Sprintf("[%s:%s:b%s]%s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, flag, line)
 	}
 	return prefix + fmt.Sprintf("[%s]%s[-::-]", DiffColorTag(task, host, flag), line)
 }
@@ -589,7 +589,7 @@ func UnmatchedTaskNote(side string) string {
 	if side == "new" {
 		this = "new"
 	}
-	return fmt.Sprintf("[yellow::b]Task only present in the %s run.[-::-]\n\n", this)
+	return fmt.Sprintf("[%s::b]Task only present in the %s run.[-::-]\n\n", uikit.DiffUnmatchedTaskColor, this)
 }
 
 // BuildDiffOutputTabs is diff mode's own drill-down tab builder
@@ -708,7 +708,7 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		AddItem(footer, 1, 0, false)
 
 	outputTabs := uikit.NewTabbedPane()
-	outputTabs.SetHeaderStyle(DiffChromeStyle, DiffChromeColorName) // match
+	outputTabs.SetHeaderStyle(DiffChromeStyle, DiffChromeColor) // match
 	// the verb's own fuchsia chrome - otherwise the tab bar's own
 	// "Output/Task/.../Diff" row stays TabbedPane's hardcoded navy
 	// default, the same gap fixed for tui.go's own check-mode/revisit
