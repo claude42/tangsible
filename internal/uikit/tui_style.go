@@ -54,11 +54,15 @@ var CheckBarStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(t
 // color signals a mode change" precedent BarStyle/ReplayBarStyle already
 // establish for the whole session's chrome, applied here to just the one
 // bar instead of every bar at once (a search is scoped to a single tab,
-// not global to the session the way revisit-mode is). Matches the color
-// TextSearch's own match highlighting uses (search.go's
-// searchMatchForegroundColor/searchMatchBackgroundColor), so the bar and the
-// highlighted text read as the same mode.
-var SearchBarStyle = tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorYellow).Bold(true)
+// not global to the session the way revisit-mode is). Built from
+// search.go's own searchMatchForegroundColor/searchMatchBackgroundColor
+// via tcell.GetColor (rather than separate tcell.ColorBlack/ColorYellow
+// literals, which had drifted out of sync with those constants despite
+// this doc comment's own "matches the color" claim - a real gap, not
+// just a stale comment: the two were never actually wired together) so
+// the bar and the highlighted text are guaranteed to read as the same
+// mode, not just coincidentally matching defaults.
+var SearchBarStyle = tcell.StyleDefault.Foreground(tcell.GetColor(searchMatchForegroundColor)).Background(tcell.GetColor(searchMatchBackgroundColor)).Bold(true)
 
 const SpinnerInterval = 200 * time.Millisecond
 
