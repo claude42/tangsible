@@ -35,6 +35,14 @@
   confirmation before rendering against more hosts than this.
 - A progress percentage is shown in the progress bar and in the terminal's
   window title while a run is live.
+- `hosts`: each row in the host list now shows a green/red connectivity
+  indicator based on `ansible.builtin.ping`.
+- `hosts`: on a wide enough terminal, the host list and the selected host's
+  detail view now open side by side instead of full-screen, with the detail
+  pane following the list cursor live.
+- `host`/`hosts`: new "Recent" section on the Summary tab, listing the last
+  few times any playbook or role run touched this host, with per-run outcome
+  counts.
 
 ### Changed
 
@@ -60,6 +68,8 @@
   element below it.
 - Search dialog: Escape didn't close it after a focus-stealing click had
   occurred first.
+- `host`/`hosts`: Summary and "Everything known" tabs now always show
+  consistent information
 
 ### Removed
 
