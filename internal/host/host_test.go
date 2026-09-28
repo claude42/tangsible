@@ -556,6 +556,34 @@ func TestHighlightJSONKeys_ArrayElements(t *testing.T) {
 	}
 }
 
+// TestMergeFactsIntoEverythingKnown confirms design-docs/HostVerb.md's own
+// "Everything known doesn't see what Summary gathered" fix: facts wins on
+// any key collision with raw's own declared data, and a key facts doesn't
+// mention (declared-only) survives untouched.
+func TestMergeFactsIntoEverythingKnown(t *testing.T) {
+	raw := []byte(`{"ansible_connection": "local", "ansible_architecture": "stale"}`)
+	facts := map[string]interface{}{"ansible_architecture": "x86_64", "ansible_memtotal_mb": float64(2048)}
+
+	got, err := mergeFactsIntoEverythingKnown(raw, facts)
+	if err != nil {
+		t.Fatalf("mergeFactsIntoEverythingKnown() error = %v", err)
+	}
+
+	var merged map[string]interface{}
+	if err := json.Unmarshal(got, &merged); err != nil {
+		t.Fatalf("mergeFactsIntoEverythingKnown() didn't produce valid JSON: %v\noutput:\n%s", err, got)
+	}
+	if merged["ansible_connection"] != "local" {
+		t.Errorf("merged[\"ansible_connection\"] = %v, want the declared-only value to survive untouched", merged["ansible_connection"])
+	}
+	if merged["ansible_architecture"] != "x86_64" {
+		t.Errorf("merged[\"ansible_architecture\"] = %v, want facts' own value to win over raw's stale one", merged["ansible_architecture"])
+	}
+	if merged["ansible_memtotal_mb"] != float64(2048) {
+		t.Errorf("merged[\"ansible_memtotal_mb\"] = %v, want a fact absent from raw entirely to still be added", merged["ansible_memtotal_mb"])
+	}
+}
+
 func TestHostSectionHeading(t *testing.T) {
 	if got, want := hostSectionHeading("Recent"), "[green]Recent\n======[-]\n\n"; got != want {
 		t.Errorf("hostSectionHeading() = %q, want %q", got, want)

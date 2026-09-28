@@ -519,21 +519,56 @@ func RunAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
 	return out, nil
 }
 
-// FetchHostEverythingKnown is design-docs/HostVerb.md's own fifth tab -
-// runAnsibleInventoryHost's own output shown verbatim (that tool's
-// default output is already pretty-printed JSON - confirmed empirically,
-// no reformatting needed). So this tab's content is: always declared
-// inventory data, plus whichever gathered facts happen to be sitting in
-// the fact cache already, if any - not fetched live either way, but not
-// guaranteed static either (see runAnsibleInventoryHost's own doc
-// comment). The Summary tab (fetchHostSummary) is the one that forces a
-// fresh, live gather when the cache doesn't already have what it needs.
-func FetchHostEverythingKnown(hostname string, rest []string) (string, error) {
+// FetchHostEverythingKnownRaw is design-docs/HostVerb.md's own fifth tab -
+// runAnsibleInventoryHost's own output, trimmed but not yet rendered
+// (BuildHostDetailPrimitive handles that, via highlightJSONKeys, both for
+// this raw form and again for mergeFactsIntoEverythingKnown's own merged
+// result - see that function's own doc comment for why this needed
+// splitting out of what used to be one single fetchHostEverythingKnown).
+// That tool's default output is already pretty-printed JSON - confirmed
+// empirically, no reformatting needed for this raw form. So this tab's
+// own base content is: always declared inventory data, plus whichever
+// gathered facts happen to be sitting in the fact cache already, if any -
+// not fetched live either way, but not guaranteed static either (see
+// runAnsibleInventoryHost's own doc comment).
+func FetchHostEverythingKnownRaw(hostname string, rest []string) ([]byte, error) {
 	out, err := RunAnsibleInventoryHost(hostname, rest)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return highlightJSONKeys(strings.TrimRight(string(out), "\n")), nil
+	return bytes.TrimRight(out, "\n"), nil
+}
+
+// mergeFactsIntoEverythingKnown overlays facts (Summary's own decoded
+// ansible_facts, from FetchHostFacts) onto raw's own JSON object, facts
+// winning on any key collision - design-docs/HostVerb.md's own "Everything
+// known doesn't see what Summary gathered" finding: the two tabs' own
+// independent fetches otherwise race, with Everything Known's quick,
+// cache-only ansible-inventory --host read finishing well before
+// Summary's live gather (if it needed one) ever does, so within a single
+// view-open Everything Known could show no facts at all even while
+// Summary, moments later, shows real ones. facts is the freshest,
+// most-authoritative data available regardless of that race (a real live
+// gather this exact session, or a confirmed-fresh cache hit) - merging it
+// in directly means Everything Known no longer depends on a second,
+// independently-timed cache read to ever show what this session itself
+// already found. Re-marshaled with json.MarshalIndent, matching
+// ansible-inventory's own default 4-space indent - key order ends up
+// alphabetical (encoding/json's own map-marshaling behavior), not
+// ansible-inventory's original order, an accepted cosmetic difference for
+// what was already just a raw data dump.
+func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]byte, error) {
+	var merged map[string]interface{}
+	if err := json.Unmarshal(raw, &merged); err != nil {
+		return nil, err
+	}
+	if merged == nil {
+		merged = map[string]interface{}{}
+	}
+	for k, v := range facts {
+		merged[k] = v
+	}
+	return json.MarshalIndent(merged, "", "    ")
 }
 
 // jsonKeyLine matches one line of pretty-printed JSON's own "key": value
@@ -1518,6 +1553,16 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		}()
 	}
 
+	// summaryFacts is how Summary's own goroutine hands its resolved
+	// ansible_facts (if any) over to Everything Known's own goroutine
+	// below, once - buffered so Summary's send never blocks regardless of
+	// whether Everything Known has reached its own receive yet. See
+	// mergeFactsIntoEverythingKnown's own doc comment for why this
+	// handoff exists at all: without it, Everything Known's own quick,
+	// cache-only read races Summary's own (possibly live-gathering) one
+	// and almost always loses.
+	summaryFacts := make(chan map[string]interface{}, 1)
+
 	// Summary gets its own bespoke goroutine rather than the generic fetch
 	// helper above: design-docs/HostVerb.md's own "New ideas" findings -
 	// Characteristics/Keys (fast: one cache-check-or-live-gather call) show
@@ -1531,6 +1576,8 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	go func() {
 		res, err := FetchHostFacts(stubPath, hostname, rest, pingKnown && !pingOK)
 		if err != nil {
+			summaryFacts <- nil // never leave Everything Known's own
+			// receive blocked forever just because Summary itself failed
 			app.QueueUpdateDraw(func() {
 				searchBar.ClearForView(summaryView)
 				summaryView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
@@ -1538,6 +1585,10 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 			})
 			return
 		}
+		summaryFacts <- res.facts // nil for any of hostFactsResult's own
+		// pre-rendered cases (Unreachable/Failed/skipped) - Everything
+		// Known's own receiver already treats an empty map as "nothing to
+		// merge," so a nil send here needs no special-casing there.
 		doc := summaryDoc{prefix: res.prefix, characteristics: res.characteristics, recent: "scanning recent runs..."}
 		if keyLines := HostKeyLines(res.facts); len(keyLines) > 0 {
 			doc.keys = formatHostKeyLines(keyLines)
@@ -1573,7 +1624,41 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	fetch(groupsView, func() (string, error) { return FetchHostGroups(hostname, rest) })
 	fetch(playsView, func() (string, error) { return FetchHostPlays(playbook, rest, hostname) })
 	fetch(hostVarsView, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
-	fetch(everythingView, func() (string, error) { return FetchHostEverythingKnown(hostname, rest) })
+
+	// Everything known also gets its own bespoke goroutine rather than the
+	// generic fetch helper: it renders immediately from its own
+	// ansible-inventory --host call exactly as before (unchanged speed),
+	// then re-renders a second time once summaryFacts delivers whatever
+	// Summary's own goroutine (above) found - merging those facts in
+	// (mergeFactsIntoEverythingKnown) rather than leaving this tab
+	// dependent on winning its own race against Summary's live gather.
+	go func() {
+		raw, err := FetchHostEverythingKnownRaw(hostname, rest)
+		app.QueueUpdateDraw(func() {
+			searchBar.ClearForView(everythingView)
+			if err != nil {
+				everythingView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+			} else {
+				everythingView.SetText(highlightJSONKeys(string(raw)))
+			}
+			everythingView.ScrollToBeginning()
+		})
+		if err != nil {
+			return
+		}
+		facts := <-summaryFacts
+		if len(facts) == 0 {
+			return
+		}
+		merged, mergeErr := mergeFactsIntoEverythingKnown(raw, facts)
+		if mergeErr != nil {
+			return // best-effort - the plain ansible-inventory dump
+			// already shown above stays as the final answer
+		}
+		app.QueueUpdateDraw(func() {
+			everythingView.SetText(highlightJSONKeys(string(merged)))
+		})
+	}()
 
 	return flex, tabs, header, searchBar
 }
