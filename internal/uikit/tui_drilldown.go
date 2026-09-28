@@ -433,26 +433,6 @@ func LoopItemLabels(decoded map[string]interface{}) []string {
 // uses.
 var YamlKeyLine = regexp.MustCompile(`^(\s*(?:-\s+)?)([A-Za-z0-9_.-]+)(:)(\s.*|)$`)
 
-// ColorizeYAML renders raw YAML task source (see source.go) with a light,
-// line-based highlight: each line's "key:" portion, if it has one, is
-// colored, so structure is scannable at a glance without a real
-// tokenizer. Every dynamic piece is escaped separately (not the line as a
-// whole before coloring) so a literal "[" in the source itself - e.g.
-// "tags: [foo, bar]", which this project's own test fixtures actually
-// contain - can never be misread as a color tag.
-func ColorizeYAML(raw string) string {
-	lines := strings.Split(raw, "\n")
-	for i, line := range lines {
-		m := YamlKeyLine.FindStringSubmatch(line)
-		if m == nil {
-			lines[i] = tview.Escape(line)
-			continue
-		}
-		lines[i] = tview.Escape(m[1]) + "[orange::b]" + tview.Escape(m[2]+m[3]) + "[-::-]" + tview.Escape(m[4])
-	}
-	return strings.Join(lines, "\n")
-}
-
 // SectionLabel's own trailing blank line (after the "====" underline,
 // before any content) matches design-docs/drilldown.txt's spacing - every
 // section there has one blank line between its underline and its content.
@@ -896,31 +876,70 @@ func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[strin
 }
 
 // BuildTaskTab renders the Task tab's own summary block
-// (Name/Action/Role/Host/Status). Role is derived from task.Path via
-// roleFromPath - a heuristic, not something any event reports directly -
-// and the line is omitted entirely when it's not role-sourced. Status
-// uses hostColorTag, not ColorTag(o) directly, so a failure ignored via
-// ignore_errors: true reads the same non-alarming IgnoredColor here as it
-// already does in the tree (collapsed and expanded both - design-docs/
-// OwnCallbackPlugin.md) rather than reverting to plain Failed red the
-// moment a user drills in - and the status text itself gets an
-// "(ignored)" suffix, the one place in this tab that would otherwise
-// have shown the same fact.
+// (Role/Task/Action/Host/Status), keys green and values lightsteelblue
+// (design-docs/Colors.md), values aligned to a shared column the same way
+// internal/host/host.go's own formatCharacteristics already does.
+//
+// Role/Task used to be a single "Name: <task.Name>" line. Split now,
+// because task.Name itself already carries the role, whenever there is
+// one: SplitRolePrefix's own doc comment has the "confirmed empirically"
+// detail - ansible-core prefixes a role-sourced task's own displayed name
+// with "<role> : ", unconditionally, whether or not the task has its own
+// explicit name: (an unnamed one gets "<role> : <module>" the same way).
+// RoleFromPath (a heuristic derived from task.Path, unrelated to naming)
+// is kept as a fallback for the rare case a replayed run log or an
+// ansible version predates that behavior - SplitRolePrefix's own result
+// wins whenever it finds one, since it's the more direct, no-heuristic
+// source.
+//
+// Status uses HostColorTag, not ColorTag(o) directly, so a failure
+// ignored via ignore_errors: true reads the same non-alarming
+// IgnoredColor here as it already does in the tree (collapsed and
+// expanded both - design-docs/OwnCallbackPlugin.md) rather than
+// reverting to plain Failed red the moment a user drills in - and the
+// status text itself gets an "(ignored)" suffix, the one place in this
+// tab that would otherwise have shown the same fact. That outcome color
+// is left as-is, not overridden to lightsteelblue like every other
+// value here - it's meaningful, not just a value, the same "color still
+// means exactly what it means everywhere else" principle the diff verb's
+// own content coloring already applies.
 func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]interface{}, o playbook.Outcome) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Name: %s\n", tview.Escape(task.Name))
+	role, taskName := SplitRolePrefix(task.Name)
+	if role == "" {
+		role = RoleFromPath(task.Path)
+	}
+
+	type field struct{ label, value string }
+	var fields []field
+	if role != "" {
+		fields = append(fields, field{"Role", role})
+	}
+	fields = append(fields, field{"Task", taskName})
 	if action, ok := decoded["action"].(string); ok && action != "" {
-		fmt.Fprintf(&b, "Action: %s\n", tview.Escape(action))
+		fields = append(fields, field{"Action", action})
 	}
-	if role := RoleFromPath(task.Path); role != "" {
-		fmt.Fprintf(&b, "Role: %s\n", tview.Escape(role))
+	fields = append(fields, field{"Host", host})
+
+	const statusLabel = "Status"
+	width := len(statusLabel) + 1
+	for _, f := range fields {
+		if l := len(f.label) + 1; l > width { // +1 for the trailing colon
+			width = l
+		}
 	}
-	fmt.Fprintf(&b, "Host: %s\n", tview.Escape(host))
+
+	var b strings.Builder
+	for _, f := range fields {
+		label := f.label + ":"
+		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]%s[-]\n", label, strings.Repeat(" ", width-len(label)+1), tview.Escape(f.value))
+	}
+
 	status := o.String()
 	if o == playbook.OutcomeFailed && task.Ignored[host] {
 		status += " (ignored)"
 	}
-	fmt.Fprintf(&b, "Status: [%s::b]%s[-::-]\n", HostColorTag(task, host, o, true), tview.Escape(status))
+	label := statusLabel + ":"
+	fmt.Fprintf(&b, "[green]%s[-]%s[%s::b]%s[-::-]\n", label, strings.Repeat(" ", width-len(label)+1), HostColorTag(task, host, o, true), tview.Escape(status))
 	return b.String()
 }
 
@@ -930,6 +949,19 @@ func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]inter
 // before, so several distinct pieces sharing one tab still read as
 // distinct pieces. "" (the tab omitted entirely by buildOutputTabs' own
 // add()) only if all four are empty.
+//
+// design-docs/Colors.md: Output's and Items' own headings are green now
+// (Warnings/Error keep their own, separate colors - WarningColor/red,
+// unchanged, still distinct from an outcome or from these two). Output's
+// own text additionally gets HighlightKeyValueLines - AdditionalOutputLines
+// (Filename:/Command:/User:/SSH public key:) is genuinely "Label: value"
+// shaped, and free-form module stdout/msg that happens to share that
+// shape gets the same treatment; text that doesn't match stays the
+// ordinary white it already was. Items' own bullets are lightsteelblue;
+// each item's own secondary reason line (below its bullet) stays
+// unstyled, since that's free-form text, not "the item" itself. Warnings/
+// Error content is untouched either way - not scoped by the request that
+// added this.
 func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	var b strings.Builder
 	// writeTextSection renders one label+plain-text piece - omitted
@@ -937,13 +969,17 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// own last line and adds two blank lines before whatever comes next,
 	// matching sectionLabel's own one-blank-line-after-the-underline
 	// spacing to produce drilldown.txt's two-blank-line gap between
-	// pieces.
-	writeTextSection := func(color, label, text string) {
+	// pieces. highlight is only ever true for the Output section itself.
+	writeTextSection := func(color, label, text string, highlight bool) {
 		if text == "" {
 			return
 		}
 		b.WriteString(SectionLabel(color, label))
-		b.WriteString(tview.Escape(text))
+		if highlight {
+			b.WriteString(HighlightKeyValueLines(text))
+		} else {
+			b.WriteString(tview.Escape(text))
+		}
 		b.WriteString("\n\n\n")
 	}
 	// Only one of MSG/STDOUT is shown, not both - see primaryOutputField;
@@ -974,7 +1010,7 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 			}
 		}
 	}
-	writeTextSection("aqua", "Output", outputText)
+	writeTextSection("green", "Output", outputText, true)
 
 	// Warnings: design-docs/Drilldown, Task List.md's general rule, not
 	// module-specific like everything else here - any result carrying a
@@ -982,7 +1018,7 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// e.g. ansible's own discovered-interpreter notice) gets its contents
 	// shown here, one per line, regardless of outcome or module.
 	if warnings := JoinedStringList(decoded["warnings"], "\n"); warnings != "" {
-		writeTextSection(WarningColor, "Warnings", warnings)
+		writeTextSection(WarningColor, "Warnings", warnings, false)
 	}
 
 	// Items: only present for a looped task (loop:/with_*) - see
@@ -997,9 +1033,9 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// own bullet, so each item's reason sits next to the item it belongs
 	// to rather than requiring a trip to Details' full JSON to find it.
 	if items := LoopItemDetails(decoded); len(items) > 0 {
-		b.WriteString(SectionLabel("yellow", "Items"))
+		b.WriteString(SectionLabel("green", "Items"))
 		for _, item := range items {
-			fmt.Fprintf(&b, "* %s\n", tview.Escape(item.Label))
+			fmt.Fprintf(&b, "* [lightsteelblue]%s[-]\n", tview.Escape(item.Label))
 			if item.Msg != "" {
 				fmt.Fprintf(&b, "  %s\n", tview.Escape(item.Msg))
 			}
@@ -1008,7 +1044,7 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	}
 
 	stderr, _ := decoded["stderr"].(string)
-	writeTextSection("red", "Error", stderr)
+	writeTextSection("red", "Error", stderr, false)
 
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -1191,7 +1227,7 @@ func BuildSourceTab(path string, sourceIndex map[string]string) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(ColorizeYAML(source))
+	b.WriteString(HighlightYAMLKeys(source))
 	b.WriteString("\n")
 	if loc := TaskSourceLocation(path); loc != "" {
 		fmt.Fprintf(&b, "[gray]%s[-]\n", tview.Escape(loc))
@@ -1255,8 +1291,11 @@ func ResolvedTabHidden(resolved ResolvedRender, source string) bool {
 	return source != "" && ResolvedMatchesSource(resolved, source)
 }
 
-// BuildResolvedTab renders the Resolved tab's own content. Never called
-// with resolved.Pending true - buildOutputTabs' own resolvedTabHidden gate
+// BuildResolvedTab renders the Resolved tab's own content, highlighted
+// the same way "Task definition" (BuildSourceTab) is - it's the same
+// task's own YAML, just with variables filled in, so the identical
+// key/value treatment applies (design-docs/Colors.md). Never called with
+// resolved.Pending true - buildOutputTabs' own resolvedTabHidden gate
 // (this tab's only call site) keeps the tab, and so this function, out of
 // the picture entirely until a resolve has actually finished - so unlike
 // its predecessor, this has no "Resolving..." case to render.
@@ -1264,7 +1303,7 @@ func BuildResolvedTab(resolved ResolvedRender) string {
 	if resolved.Err != "" {
 		return "Could not resolve: " + tview.Escape(resolved.Err)
 	}
-	return tview.Escape(resolved.Text)
+	return HighlightYAMLKeys(resolved.Text)
 }
 
 // DocsTabHidden is buildOutputTabs' "omit the Docs tab" decision, factored
@@ -1328,5 +1367,5 @@ func BuildDetailsTab(decoded map[string]interface{}, raw json.RawMessage) string
 	if err != nil {
 		return fmt.Sprintf("(failed to format: %s)\n%s", tview.Escape(err.Error()), tview.Escape(string(raw)))
 	}
-	return tview.Escape(string(pretty))
+	return HighlightJSONKeys(string(pretty))
 }

@@ -29,7 +29,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -401,7 +400,7 @@ func FetchHostVars(hostname, playbook string, rest []string) (string, error) {
 			content = fmt.Sprintf("(couldn't read: %v)", err)
 		}
 		b.WriteString(hostSectionHeading(path))
-		b.WriteString(highlightYAMLKeys(content))
+		b.WriteString(uikit.HighlightYAMLKeys(content))
 		b.WriteString("\n\n")
 	}
 	return b.String(), nil
@@ -466,16 +465,12 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 
 // highlightRolePrefix highlights a task line's own leading "<role> : "
 // prefix green, dropping the rest of the line (the task name itself) to
-// lightsteelblue - ansible's own --list-tasks output prefixes a
-// role-sourced task with its role's name and " : " (confirmed
-// empirically, --list-tasks against a real role-using playbook); a task
-// defined directly in the play has no such prefix at all. Splits on the
-// first " : " only - a task's own name containing that exact substring is
-// vanishingly unlikely, and would just mean this heuristic highlights a
-// bit too much, not a crash.
+// lightsteelblue - uikit.SplitRolePrefix's own doc comment has the
+// "confirmed empirically" detail on when ansible actually prefixes a
+// task's name this way.
 func highlightRolePrefix(task string) string {
-	if idx := strings.Index(task, " : "); idx != -1 {
-		return "[green]" + tview.Escape(task[:idx]) + "[-]" + "[lightsteelblue]" + tview.Escape(task[idx:]) + "[-]"
+	if role, name := uikit.SplitRolePrefix(task); role != "" {
+		return "[green]" + tview.Escape(role) + "[-]" + "[lightsteelblue]" + " : " + tview.Escape(name) + "[-]"
 	}
 	return tview.Escape(task)
 }
@@ -521,10 +516,11 @@ func RunAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
 
 // FetchHostEverythingKnownRaw is design-docs/HostVerb.md's own fifth tab -
 // runAnsibleInventoryHost's own output, trimmed but not yet rendered
-// (BuildHostDetailPrimitive handles that, via highlightJSONKeys, both for
-// this raw form and again for mergeFactsIntoEverythingKnown's own merged
-// result - see that function's own doc comment for why this needed
-// splitting out of what used to be one single fetchHostEverythingKnown).
+// (BuildHostDetailPrimitive handles that, via uikit.HighlightJSONKeys,
+// both for this raw form and again for mergeFactsIntoEverythingKnown's
+// own merged result - see that function's own doc comment for why this
+// needed splitting out of what used to be one single
+// fetchHostEverythingKnown).
 // That tool's default output is already pretty-printed JSON - confirmed
 // empirically, no reformatting needed for this raw form. So this tab's
 // own base content is: always declared inventory data, plus whichever
@@ -569,117 +565,6 @@ func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]
 		merged[k] = v
 	}
 	return json.MarshalIndent(merged, "", "    ")
-}
-
-// jsonKeyLine matches one line of pretty-printed JSON's own "key": value
-// shape - runAnsibleInventoryHost's own output (fetchHostEverythingKnown)
-// is JSON, not YAML, so uikit.YamlKeyLine's own unquoted-key pattern
-// doesn't apply here; same "good enough, line-based, not a real parser"
-// approach otherwise (a line with no matching key - a closing brace, an
-// array element - just renders unstyled).
-var jsonKeyLine = regexp.MustCompile(`^(\s*)("(?:[^"\\]|\\.)*")(:)(\s.*|)$`)
-
-// jsonValueLine matches a line that's nothing but a bare JSON value, no
-// key at all - the shape a line inside a JSON array takes (a string,
-// number, or true/false/null element, optionally trailing-comma'd).
-// jsonKeyLine's own "key": value shape never matches these (no colon at
-// all), which otherwise left every array element fully unstyled - a real,
-// reported gap: only an array's own opening "[" (part of its owning
-// key's own value, jsonKeyLine's m[4]) was ever colored, never the
-// elements themselves.
-var jsonValueLine = regexp.MustCompile(`^(\s*)("(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|true|false|null)(,?)$`)
-
-// highlightJSONKeys highlights each line's own quoted key green, and
-// every value - whether it's a key's own "key": value (jsonKeyLine) or a
-// bare array element with no key of its own (jsonValueLine) -
-// lightsteelblue. A structural-only line (an opening/closing brace or
-// bracket with nothing else on it) matches neither and stays unstyled.
-// Different color pairing than uikit.ColorizeYAML's own orange-plus-bold
-// convention for these pages. design-docs/HostVerb.md's own cosmetic pass
-// tried bold-only, then dim, then bright-white/silver, before landing
-// here per live feedback each time.
-func highlightJSONKeys(raw string) string {
-	lines := strings.Split(raw, "\n")
-	for i, line := range lines {
-		if m := jsonKeyLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[green]" + tview.Escape(m[2]+m[3]) + "[-]" + "[lightsteelblue]" + tview.Escape(m[4]) + "[-]"
-			continue
-		}
-		if m := jsonValueLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[lightsteelblue]" + tview.Escape(m[2]) + "[-]" + tview.Escape(m[3])
-			continue
-		}
-		lines[i] = tview.Escape(line)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// yamlListItemLine matches a bare block-sequence item with no key of its
-// own - "- <value>" (any leading indentation) - the shape a YAML list
-// holds when its entries are plain scalars or flow-lists ("- alpha",
-// "- [a, b]") rather than nested mappings. A mapping entry ("- key:
-// value") is already handled by uikit.YamlKeyLine itself, whose own
-// leading-marker group already accepts an optional "- " prefix - this
-// one only ever gets a chance on a line YamlKeyLine has already failed to
-// match, i.e. one with no "key:" shape at all. Left unstyled before this,
-// a real, reported gap: only a list's own flow-style opening (attached to
-// its owning key, e.g. "mylist: [") was ever colored, never a block-style
-// item on its own line.
-var yamlListItemLine = regexp.MustCompile(`^(\s*-\s+)(.+)$`)
-
-// yamlBlockScalarOpener matches a key/list-item's own value when it's
-// nothing but a block-scalar indicator - "|" or ">", optionally
-// chomp-marked ("+"/"-") and/or preceded by a YAML tag (most commonly
-// "!vault" - a real, reported gap: only that "!vault |" opener itself was
-// ever colored, never the raw multi-line blob underneath it) - meaning
-// every subsequent, more-indented (or blank) line is that one value's own
-// raw continuation text, not a further nested key/list-item of its own.
-var yamlBlockScalarOpener = regexp.MustCompile(`^(![^\s]+\s+)?[|>][+-]?\d*$`)
-
-// highlightYAMLKeys highlights each line's own "key:" portion (or, for a
-// bare list item, its whole value - yamlListItemLine) green for the key,
-// lightsteelblue for the value - the same regex-based, "good enough, not
-// a real YAML parser" approach uikit.ColorizeYAML already uses for the
-// drill-down's own Task section (uikit.YamlKeyLine), just without that
-// helper's own orange-plus-bold coloring - see highlightJSONKeys' own doc
-// comment for the styling history. blockScalarIndent tracks whether the
-// previous key/list-item's own value opened a raw multi-line scalar
-// (yamlBlockScalarOpener) - every line more indented than that (or blank)
-// is colored as that same value's own continuation instead of being
-// re-matched against the key/list-item patterns below, until indentation
-// drops back to the opener's own level or shallower.
-func highlightYAMLKeys(raw string) string {
-	lines := strings.Split(raw, "\n")
-	blockScalarIndent := -1
-	for i, line := range lines {
-		indent := len(line) - len(strings.TrimLeft(line, " "))
-		trimmed := strings.TrimSpace(line)
-
-		if blockScalarIndent != -1 {
-			if trimmed == "" || indent > blockScalarIndent {
-				lines[i] = "[lightsteelblue]" + tview.Escape(line) + "[-]"
-				continue
-			}
-			blockScalarIndent = -1
-		}
-
-		if m := uikit.YamlKeyLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[green]" + tview.Escape(m[2]+m[3]) + "[-]" + "[lightsteelblue]" + tview.Escape(m[4]) + "[-]"
-			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[4])) {
-				blockScalarIndent = indent
-			}
-			continue
-		}
-		if m := yamlListItemLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[lightsteelblue]" + tview.Escape(m[2]) + "[-]"
-			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[2])) {
-				blockScalarIndent = indent
-			}
-			continue
-		}
-		lines[i] = tview.Escape(line)
-	}
-	return strings.Join(lines, "\n")
 }
 
 // hostSectionHeading renders a host.go-local section header - the same
@@ -1639,7 +1524,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 			if err != nil {
 				everythingView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 			} else {
-				everythingView.SetText(highlightJSONKeys(string(raw)))
+				everythingView.SetText(uikit.HighlightJSONKeys(string(raw)))
 			}
 			everythingView.ScrollToBeginning()
 		})
@@ -1656,7 +1541,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 			// already shown above stays as the final answer
 		}
 		app.QueueUpdateDraw(func() {
-			everythingView.SetText(highlightJSONKeys(string(merged)))
+			everythingView.SetText(uikit.HighlightJSONKeys(string(merged)))
 		})
 	}()
 

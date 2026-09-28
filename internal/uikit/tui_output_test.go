@@ -43,7 +43,7 @@ func TestBuildTaskTab_RecolorsIgnoredFailure(t *testing.T) {
 	if strings.Contains(got, "["+ColorTag(playbook.OutcomeFailed)+"::b]") {
 		t.Errorf("BuildTaskTab(ignored) = %q, want it to NOT contain the plain Failed color tag", got)
 	}
-	if !strings.Contains(got, "Status: ") || !strings.Contains(got, "Failed (ignored)") {
+	if !strings.Contains(got, "Status:") || !strings.Contains(got, "Failed (ignored)") {
 		t.Errorf("BuildTaskTab(ignored) = %q, want the status text to read \"Failed (ignored)\"", got)
 	}
 
@@ -57,6 +57,84 @@ func TestBuildTaskTab_RecolorsIgnoredFailure(t *testing.T) {
 	}
 	if strings.Contains(got, "(ignored)") {
 		t.Errorf("BuildTaskTab(genuine) = %q, want no \"(ignored)\" suffix", got)
+	}
+}
+
+// TestBuildTaskTab_SplitsRoleFromName confirms design-docs/Colors.md's
+// own Task-tab restyling: a role-sourced task's own name ("<role> :
+// <task>", SplitRolePrefix's own doc comment has the "confirmed
+// empirically" detail) becomes a separate green "Role:" line ahead of
+// "Task:", not one combined "Name:" line - and that every label lines up
+// on the same column regardless of which fields are actually present.
+func TestBuildTaskTab_SplitsRoleFromName(t *testing.T) {
+	task := &playbook.TaskNode{
+		Name:  "webserver : install packages",
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+	}
+	got := BuildTaskTab(task, "web1", map[string]interface{}{}, playbook.OutcomeOK)
+	for _, want := range []string{
+		"[green]Role:[-]   [lightsteelblue]webserver[-]\n",
+		"[green]Task:[-]   [lightsteelblue]install packages[-]\n",
+		"[green]Host:[-]   [lightsteelblue]web1[-]\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("BuildTaskTab() missing line %q\nfull output:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Name:") {
+		t.Errorf("BuildTaskTab() = %q, want no leftover \"Name:\" line", got)
+	}
+}
+
+// TestBuildTaskTab_NoRole confirms a plain, non-role task (no " : " in
+// its own name at all) gets no Role: line - RoleFromPath's own path-based
+// fallback finds nothing either, since task.Path here doesn't match
+// roles/<name>/tasks/... shape.
+func TestBuildTaskTab_NoRole(t *testing.T) {
+	task := &playbook.TaskNode{
+		Name:  "say hi",
+		Path:  "/playbook.yml:3",
+		Hosts: map[string]playbook.Outcome{"web1": playbook.OutcomeOK},
+	}
+	got := BuildTaskTab(task, "web1", map[string]interface{}{}, playbook.OutcomeOK)
+	if strings.Contains(got, "Role:") {
+		t.Errorf("BuildTaskTab() = %q, want no Role: line for a non-role task", got)
+	}
+	if !strings.Contains(got, "[lightsteelblue]say hi[-]") {
+		t.Errorf("BuildTaskTab() = %q, want the Task: line's own value to be the full, unsplit name", got)
+	}
+}
+
+// TestBuildOutputTab_Coloring confirms design-docs/Colors.md's own
+// Output-tab restyling: the Output/Items headings are green (Warnings/
+// Error keep their own separate colors, untouched); "Label: value"
+// shaped lines under Output (AdditionalOutputLines' own Filename: line
+// here) get the usual green-key/lightsteelblue-value treatment, while
+// ordinary stdout text stays plain; loop items render lightsteelblue.
+func TestBuildOutputTab_Coloring(t *testing.T) {
+	decoded := map[string]interface{}{
+		"msg": "plain stdout line\nFilename: /etc/hosts",
+		"results": []interface{}{
+			map[string]interface{}{"item": "one"},
+			map[string]interface{}{"item": "two"},
+		},
+	}
+	got := BuildOutputTab(decoded, playbook.OutcomeOK)
+
+	if !strings.Contains(got, SectionLabel("green", "Output")) {
+		t.Errorf("BuildOutputTab() missing a green Output heading:\n%s", got)
+	}
+	if !strings.Contains(got, SectionLabel("green", "Items")) {
+		t.Errorf("BuildOutputTab() missing a green Items heading:\n%s", got)
+	}
+	if !strings.Contains(got, "plain stdout line") {
+		t.Errorf("BuildOutputTab() = %q, want the plain stdout line left unstyled", got)
+	}
+	if !strings.Contains(got, "[green]Filename:[-][lightsteelblue] /etc/hosts[-]") {
+		t.Errorf("BuildOutputTab() missing the highlighted Filename: line:\n%s", got)
+	}
+	if !strings.Contains(got, "* [lightsteelblue]") {
+		t.Errorf("BuildOutputTab() = %q, want each Items bullet colored lightsteelblue", got)
 	}
 }
 

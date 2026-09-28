@@ -483,9 +483,8 @@ func TestFormatRecentRunLines(t *testing.T) {
 // TestHighlightRolePrefix confirms the Plays tab's own cosmetic pass: a
 // role-sourced task ("<role> : <task>", ansible's own --list-tasks
 // format for a role task, confirmed empirically) gets just its role
-// portion highlighted (bright white, bold), the rest dropped to silver;
-// a plain play-level task (no " : " at all) renders unstyled but still
-// escaped.
+// portion highlighted green, the rest dropped to lightsteelblue; a plain
+// play-level task (no " : " at all) renders unstyled but still escaped.
 func TestHighlightRolePrefix(t *testing.T) {
 	if got, want := highlightRolePrefix("webserver : install packages"), "[green]webserver[-][lightsteelblue] : install packages[-]"; got != want {
 		t.Errorf("highlightRolePrefix() = %q, want %q", got, want)
@@ -495,66 +494,11 @@ func TestHighlightRolePrefix(t *testing.T) {
 	}
 }
 
-func TestHighlightYAMLKeys(t *testing.T) {
-	got := highlightYAMLKeys("name: install packages\n  - foo: bar\n# a comment\n")
-	want := "[green]name:[-][lightsteelblue] install packages[-]\n  - [green]foo:[-][lightsteelblue] bar[-]\n# a comment\n"
-	if got != want {
-		t.Errorf("highlightYAMLKeys() = %q, want %q", got, want)
-	}
-}
-
-func TestHighlightJSONKeys(t *testing.T) {
-	got := highlightJSONKeys(`{
-    "ansible_host": "192.0.2.254",
-    "nested": {
-        "inner": 1
-    }
-}`)
-	want := "{\n    [green]\"ansible_host\":[-][lightsteelblue] \"192.0.2.254\",[-]\n    [green]\"nested\":[-][lightsteelblue] {[-]\n        [green]\"inner\":[-][lightsteelblue] 1[-]\n    }\n}"
-	if got != want {
-		t.Errorf("highlightJSONKeys() = %q, want %q", got, want)
-	}
-}
-
-// TestHighlightYAMLKeys_ListItems confirms a bare block-sequence item
-// (no key of its own, e.g. "- alpha") gets its value highlighted too -
-// previously only a list's own flow-style opening (attached to its
-// owning key) was colored at all.
-func TestHighlightYAMLKeys_ListItems(t *testing.T) {
-	got := highlightYAMLKeys("mylist:\n  - alpha\n  - beta\n")
-	want := "[green]mylist:[-][lightsteelblue][-]\n  - [lightsteelblue]alpha[-]\n  - [lightsteelblue]beta[-]\n"
-	if got != want {
-		t.Errorf("highlightYAMLKeys() = %q, want %q", got, want)
-	}
-}
-
-// TestHighlightYAMLKeys_BlockScalar confirms an ansible-vault-shaped
-// multi-line block scalar ("key: !vault |" followed by more-indented
-// continuation lines) gets its whole value highlighted, not just the
-// "!vault |" opener itself - and that a later, equal-or-lower-indented
-// key correctly ends the continuation and resumes normal key/value
-// highlighting.
-func TestHighlightYAMLKeys_BlockScalar(t *testing.T) {
-	got := highlightYAMLKeys("secret: !vault |\n  line one\n  line two\nplain: value\n")
-	want := "[green]secret:[-][lightsteelblue] !vault |[-]\n" +
-		"[lightsteelblue]  line one[-]\n" +
-		"[lightsteelblue]  line two[-]\n" +
-		"[green]plain:[-][lightsteelblue] value[-]\n"
-	if got != want {
-		t.Errorf("highlightYAMLKeys() = %q, want %q", got, want)
-	}
-}
-
-// TestHighlightJSONKeys_ArrayElements confirms a bare array element (no
-// key of its own) gets highlighted too - previously only an array's own
-// opening "[" (part of its owning key's own value) was ever colored.
-func TestHighlightJSONKeys_ArrayElements(t *testing.T) {
-	got := highlightJSONKeys("{\n    \"tags\": [\n        \"web\",\n        \"prod\"\n    ]\n}")
-	want := "{\n    [green]\"tags\":[-][lightsteelblue] [[-]\n        [lightsteelblue]\"web\"[-],\n        [lightsteelblue]\"prod\"[-]\n    ]\n}"
-	if got != want {
-		t.Errorf("highlightJSONKeys() = %q, want %q", got, want)
-	}
-}
+// highlightYAMLKeys/highlightJSONKeys (and their own list-item/block-
+// scalar/array-element tests) moved to internal/uikit/highlight_test.go
+// once uikit.HighlightYAMLKeys/uikit.HighlightJSONKeys became shared
+// infrastructure for the run drill-down's own tabs too, not just this
+// package's.
 
 // TestMergeFactsIntoEverythingKnown confirms design-docs/HostVerb.md's own
 // "Everything known doesn't see what Summary gathered" fix: facts wins on
