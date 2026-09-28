@@ -61,7 +61,8 @@ touching hosts the user never asked to touch.
 **Confirmation above template_hosts_max.** If resolution (from an explicit
 host list, a group, or `all`) ends up with more hosts than
 `.tangsible/config.toml`'s `[general] template_hosts_max` (default 10,
-project-local only, same `*int`/nil-means-default shape as
+cascades project → global → system like every other `[general]` key -
+design-docs/ConfigOptions.md - same `*int`/nil-means-default shape as
 `notify_task_failed_max`), tangsible asks for confirmation in the
 terminal's own normal cooked mode before rendering against all of them -
 this runs before the TUI (and its raw-mode screen) exists at all, so a

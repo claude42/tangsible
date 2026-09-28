@@ -12,39 +12,57 @@ resolve.go`'s `SettingsConfig` struct directly.
 
 The same shape is also read from the global
 `$XDG_CONFIG_HOME/tangsible/config.toml` (default `~/.config/tangsible/
-config.toml`) — but, per the table below, only `default_playbook` actually
-participates in a cascade across both files. Every other option is read
-from the project-local file only; setting it in the global file has no
-effect.
+config.toml`) and the system-wide `/etc/tangsible/config.toml`. **Every
+key in `[general]` cascades the same way**: the project-local file wins if
+it sets the key at all, else the global file, else the system file, else
+the documented default (`MergedSettingsConfig`). This used to be true only
+of `default_playbook`, with every other key read from the project-local
+file alone — deliberately changed so no key behaves differently from its
+neighbor for a reason a user has no way to discover just from reading
+`config.toml`, regardless of whether any individual key's own case for
+staying project-local was reasonable on its own.
+
+`default_playbook` still has two sources none of the others do — see its
+own row below.
 
 ## `[general]`
 
-| Key | Type | Default | Scope |
+| Key | Type | Default | Notes |
 |---|---|---|---|
-| `default_playbook` | string | *(none — falls through to `./site.yml`)* | Cascades: `$TANGSIBLE_PLAYBOOK` → project `.tangsible/config.toml` → global config.toml → `./site.yml` |
-| `default_tree_state` | string: `"expanded"` \| `"collapsed"` | `"collapsed"` | Project-local only |
-| `two_pane_layout` | bool | `true` | Project-local only |
-| `color` | bool | `true` | Project-local only |
-| `run_dialog` | string: `"default"` \| `"never"` \| `"always"` | `"default"` | Project-local only |
+| `default_playbook` | string | *(none — falls through to `./site.yml`)* | Also checks `$TANGSIBLE_PLAYBOOK` first, above every config tier - see its own entry below |
+| `default_tree_state` | string: `"expanded"` \| `"collapsed"` | `"collapsed"` | |
+| `two_pane_layout` | bool | `true` | |
+| `color` | bool | `true` | |
+| `run_dialog` | string: `"default"` \| `"never"` \| `"always"` | `"default"` | |
+| `notify_playbook_finished` | string: `"off"` \| `"osc9"` \| `"osc777"` \| `"osc99"` \| `"bell"` | `"off"` | |
+| `notify_task_failed` | string: `"off"` \| `"osc9"` \| `"osc777"` \| `"osc99"` \| `"bell"` | `"off"` | |
+| `notify_task_failed_max` | int | `5` | |
+| `template_hosts_max` | int | `10` | |
+
+All nine cascade project → global → system → documented default, as
+described above.
 
 **`default_playbook`** — the playbook path used when a verb that needs one
 (`run`, the fallback half of `rerun`) isn't given one explicitly on the
-command line. The one option in this file that's genuinely resolved
-across multiple sources, not just this one file — see `tangsible(1)`'s
-CONFIGURATION section for the full cascade order.
+command line. Checked before any config tier at all: `$TANGSIBLE_PLAYBOOK`
+wins over every file below it — see `tangsible(1)`'s CONFIGURATION section
+for the full order, or `ResolvePlaybook`.
 
 **`default_tree_state`** — whether a freshly-started run's very first task
 row starts out expanded or collapsed. Case-insensitive; any value other
-than `"expanded"` (including a typo, or the key being absent) means
-collapsed, applied silently rather than warning.
+than `"expanded"` (including a typo, or the key being absent everywhere)
+means collapsed, applied silently rather than warning.
 
 **`two_pane_layout`** — whether the output drill-down keeps the tree pane
 visible alongside it on a wide enough terminal, instead of taking over the
 whole screen. See `TwoPanedLayout.md`. A `*bool` under the hood, not a
-plain `bool`: absent means enabled, so this is one of the options where
-you have to write `two_pane_layout = false` explicitly to turn it off —
-there's no way to distinguish "wrote `false`" from "didn't write anything"
-with a plain bool.
+plain `bool`: absent (everywhere) means enabled, so this is one of the
+options where you have to write `two_pane_layout = false` explicitly to
+turn it off — there's no way to distinguish "wrote `false`" from "didn't
+write anything" with a plain bool, and no way to distinguish "set to
+`false` in one tier" from "unset there, but set elsewhere" without keeping
+that tri-state through the whole cascade (`MergedSettingsConfig`'s own
+`firstNonNil`).
 
 **`color`** — whether a task row's collapsed per-host summary may render
 in color at all, independent of terminal capability and `$NO_COLOR` (all
@@ -64,6 +82,21 @@ Case-insensitive; any unrecognized value (including a typo) falls back to
 invocation, for `run`/`rerun`/`role` only — every other Verb rejects
 either flag outright.
 
+**`notify_playbook_finished`/`notify_task_failed`** — which terminal
+notification (if any) fires when a playbook finishes, or when a task
+fails, respectively (`Notifications.md`). Case-insensitive; any
+unrecognized value (including absence everywhere) means `"off"`.
+
+**`notify_task_failed_max`** — caps how many `notify_task_failed`
+notifications fire per generation before further failures are counted but
+not individually notified (`Notifications.md`).
+
+**`template_hosts_max`** — how many hosts the `template` Verb's own
+resolved host list (from its comma-separated hostname/group positional,
+including the `all` keyword) can reach before it asks for confirmation
+rather than rendering against all of them silently (`Tangsible
+template.md`).
+
 ## Example
 
 ```toml
@@ -73,6 +106,10 @@ default_tree_state = "expanded"
 two_pane_layout = true
 color = true
 run_dialog = "default"
+notify_playbook_finished = "off"
+notify_task_failed = "off"
+notify_task_failed_max = 5
+template_hosts_max = 10
 ```
 
 Every key in the table is optional; an absent key always means "use the
@@ -80,8 +117,11 @@ documented default," never an error.
 
 ## Planned, not yet implemented
 
-`ColorConfig.md` proposes a `[colors]` table for overriding roughly forty
+`ColorConfig.md` proposes a `[colors]` table for overriding roughly 34
 individual UI colors (outcome colors, chrome bars, section headings, and
-so on) — a design still under review, not built. `[general] color` above
-is unrelated: it's a pre-existing on/off switch for one specific row's
-color usage, not part of that proposal.
+so on) — a design still under review, not built. It would follow the same
+project → global → system cascade documented above, now that this page's
+own "global vs. project-local" question has been settled in favor of
+treating every setting the same way. `[general] color` above is unrelated
+to that proposal either way: it's a pre-existing on/off switch for one
+specific row's color usage, not part of it.

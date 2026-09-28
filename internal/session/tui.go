@@ -268,7 +268,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// fixed for the whole session, same convention s.checkMode just above
 	// already follows (none of these can change mid-session; there's no
 	// dialog field for them, unlike tags/hosts).
-	s.notifyCfg = config.ReadSettingsConfig(config.TangsibleConfigPath)
+	s.notifyCfg = config.MergedSettingsConfig()
 	s.notifyPlaybookFinishedKind = config.NotifyPlaybookFinishedKind(s.notifyCfg)
 	s.notifyTaskFailedKind = config.NotifyTaskFailedKind(s.notifyCfg)
 	s.notifyTaskFailedMax = config.NotifyTaskFailedMax(s.notifyCfg)

@@ -403,7 +403,7 @@ func RunTemplateVerb(args []string) int {
 		hosts = h
 	}
 
-	if maxHosts := config.TemplateHostsMax(config.ReadSettingsConfig(config.TangsibleConfigPath)); len(hosts) > maxHosts {
+	if maxHosts := config.TemplateHostsMax(config.MergedSettingsConfig()); len(hosts) > maxHosts {
 		if !ConfirmManyHosts(len(hosts), os.Stdin, os.Stderr) {
 			fmt.Fprintln(os.Stderr, "tangsible: cancelled")
 			return 0

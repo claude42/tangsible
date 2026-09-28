@@ -494,7 +494,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	sourceIndex, knownTags, _ := source.BuildTaskSourceIndex(playbook)
 	knownPlayNames := source.ListTopLevelPlayNames(playbook)
 
-	settings := config.ReadSettingsConfig(config.TangsibleConfigPath)
+	settings := config.MergedSettingsConfig()
 	invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(e.Args))
 	// knownGroups mirrors main.go's own best-effort inventory scan for the
 	// re-run dialog's "Limit hosts to:" autocomplete - see NewLiveTUIFunc's

@@ -49,9 +49,16 @@ var TangsibleConfigPath = filepath.Join(TangsibleDir, "config.toml")
 // that could ever clobber a user's own comments or formatting in this
 // file. All three files keep sharing this one type (and
 // readSettingsConfig) rather than forking it, since their shape truly is
-// identical - the global and system files' own DefaultTreeState etc. are
-// simply never consulted in practice (see its own doc comment below),
-// harmlessly unused rather than modeled separately.
+// identical.
+//
+// Every key below cascades project -> user -> system, the more specific
+// tier's own value winning whenever it sets the key at all
+// (MergedSettingsConfig) - originally only General.DefaultPlaybook worked
+// this way, with every other key read from the project-local file alone,
+// but a key that behaves differently from its neighbor for no reason a
+// user could discover just from reading config.toml was confusing enough
+// on its own to be worth fixing, independent of whether any one key's own
+// individual case for staying project-local was reasonable.
 //
 // State that Tangsible itself owns and writes - invocation history, and
 // which target ran most recently - lives in the separate stateConfig
@@ -61,10 +68,7 @@ type SettingsConfig struct {
 		DefaultPlaybook string `toml:"default_playbook"`
 		// DefaultTreeState governs whether a freshly-started run's very
 		// first task row starts expanded or collapsed - "expanded" or
-		// "collapsed" (case-insensitive, see defaultTreeExpanded), only
-		// ever read from the project-local .tangsible/config.toml, not the
-		// global one - unlike DefaultPlaybook, this isn't part of any
-		// resolution cascade.
+		// "collapsed" (case-insensitive, see defaultTreeExpanded).
 		DefaultTreeState string `toml:"default_tree_state"`
 		// TwoPaneLayout governs design-docs/TwoPanedLayout.md's two-pane
 		// drill-down (tree pane kept visible alongside the output view on a
@@ -335,10 +339,10 @@ func ConfigHome() string {
 }
 
 // SystemConfigPath is the system-wide settings file an administrator can
-// author to set a shared default (currently just General.DefaultPlaybook,
-// the only key ResolvePlaybook's cascade actually consults beyond the
-// project-local file - see SettingsConfig's own doc comment) for every
-// user on a machine, below the project and per-user tiers.
+// author to set a shared default for every [general] key (see
+// SettingsConfig's own doc comment for the project -> user -> system
+// cascade every key now goes through) for every user on a machine, below
+// the project and per-user tiers.
 //
 // Deliberately /etc/tangsible/config.toml, not $XDG_CONFIG_DIRS/tangsible/
 // config.toml (i.e. /etc/xdg/tangsible/config.toml by its own default).
@@ -409,6 +413,72 @@ func ReadSettingsConfig(path string) SettingsConfig {
 // key. See readTOMLFile for the shared read/warn behavior.
 func ReadDefaultPlaybook(path string) string {
 	return ReadSettingsConfig(path).General.DefaultPlaybook
+}
+
+// firstNonEmpty returns the first non-"" string in vals, or "" if every one
+// is "" - the merge rule every string-valued [general] key uses in
+// MergedSettingsConfig below: the more specific tier's own value wins,
+// falling through to a less specific tier only when the key is genuinely
+// absent there, not when it's merely set to something falsy.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// firstNonNil is firstNonEmpty's own analogue for the *bool/*int-shaped
+// [general] keys (TwoPaneLayout, Color, NotifyTaskFailedMax,
+// TemplateHostsMax) - same "more specific tier wins, fall through only on
+// genuine absence" rule, generic since those fields aren't all the same
+// underlying type.
+func firstNonNil[T any](vals ...*T) *T {
+	for _, v := range vals {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+// MergedSettingsConfig reads the project-local, global, and system config
+// files and merges them into one SettingsConfig, project overriding global
+// overriding system, field by field - the same project -> user -> system
+// cascade General.DefaultPlaybook has always used (see ResolvePlaybook),
+// now applied uniformly to every other [general] key too rather than
+// leaving DefaultPlaybook as the only one that behaves this way (your own
+// call, design-docs/ConfigOptions.md: a key that's project-local-only
+// while its neighbor cascades is confusing regardless of whether there's a
+// principled reason for the difference).
+//
+// Deliberately not folded into ResolvePlaybook itself: that function has
+// two sources this one doesn't (TANGSIBLE_PLAYBOOK, a bare ./site.yml
+// fallback) and reports which tier its own answer came from, for the
+// startup note main.go prints - a general merge has no single "source" to
+// report once several keys might each come from a different tier.
+// ResolvePlaybook keeps its own hand-rolled cascade rather than reading
+// General.DefaultPlaybook off this function's result.
+func MergedSettingsConfig() SettingsConfig {
+	project := ReadSettingsConfig(TangsibleConfigPath)
+	var global SettingsConfig
+	if home := ConfigHome(); home != "" {
+		global = ReadSettingsConfig(filepath.Join(home, "tangsible", "config.toml"))
+	}
+	system := ReadSettingsConfig(SystemConfigPath)
+
+	var merged SettingsConfig
+	merged.General.DefaultPlaybook = firstNonEmpty(project.General.DefaultPlaybook, global.General.DefaultPlaybook, system.General.DefaultPlaybook)
+	merged.General.DefaultTreeState = firstNonEmpty(project.General.DefaultTreeState, global.General.DefaultTreeState, system.General.DefaultTreeState)
+	merged.General.TwoPaneLayout = firstNonNil(project.General.TwoPaneLayout, global.General.TwoPaneLayout, system.General.TwoPaneLayout)
+	merged.General.Color = firstNonNil(project.General.Color, global.General.Color, system.General.Color)
+	merged.General.RunDialog = firstNonEmpty(project.General.RunDialog, global.General.RunDialog, system.General.RunDialog)
+	merged.General.NotifyPlaybookFinished = firstNonEmpty(project.General.NotifyPlaybookFinished, global.General.NotifyPlaybookFinished, system.General.NotifyPlaybookFinished)
+	merged.General.NotifyTaskFailed = firstNonEmpty(project.General.NotifyTaskFailed, global.General.NotifyTaskFailed, system.General.NotifyTaskFailed)
+	merged.General.NotifyTaskFailedMax = firstNonNil(project.General.NotifyTaskFailedMax, global.General.NotifyTaskFailedMax, system.General.NotifyTaskFailedMax)
+	merged.General.TemplateHostsMax = firstNonNil(project.General.TemplateHostsMax, global.General.TemplateHostsMax, system.General.TemplateHostsMax)
+	return merged
 }
 
 // ResolvePlaybook determines which playbook to run when none was given

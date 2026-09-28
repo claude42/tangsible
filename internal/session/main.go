@@ -166,7 +166,7 @@ func Main(build BuildInfo) {
 	// than after the switch alongside startExpanded/twoPaneLayout/
 	// colorEnabled: unlike those, "run"/"role" need it *during* the switch
 	// to make that spawn-timing decision.
-	runDialogPref := config.RunDialogPreference(config.ReadSettingsConfig(config.TangsibleConfigPath))
+	runDialogPref := config.RunDialogPreference(config.MergedSettingsConfig())
 	var showDialog bool
 
 	switch v {
@@ -543,13 +543,16 @@ func Main(build BuildInfo) {
 	// Read fresh here rather than threading through the "rerun" branch's
 	// own cfg local (which is scoped to that switch case, and is now a
 	// StateConfig rather than the SettingsConfig this needs anyway) - a
-	// second read of a small, local TOML file is cheap and consistent with
-	// how ResolvePlaybook/ReadDefaultPlaybook already re-read it
-	// independently elsewhere, rather than passing one shared value
-	// through the whole program.
-	startExpanded := config.DefaultTreeExpanded(config.ReadSettingsConfig(config.TangsibleConfigPath))
-	twoPaneLayout := config.TwoPaneLayoutEnabled(config.ReadSettingsConfig(config.TangsibleConfigPath))
-	colorEnabled := config.ColorEnabledByUser(config.ReadSettingsConfig(config.TangsibleConfigPath))
+	// second read of three small, local TOML files is cheap and consistent
+	// with how ResolvePlaybook/ReadDefaultPlaybook already re-read
+	// settings independently elsewhere, rather than passing one shared
+	// value through the whole program. Read once into a local, not once
+	// per call below, since MergedSettingsConfig itself now reads all
+	// three tiers each time it's called.
+	settings := config.MergedSettingsConfig()
+	startExpanded := config.DefaultTreeExpanded(settings)
+	twoPaneLayout := config.TwoPaneLayoutEnabled(settings)
+	colorEnabled := config.ColorEnabledByUser(settings)
 
 	state := &pb.PlaybookState{}
 	var processDone, quitting atomic.Bool

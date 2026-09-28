@@ -319,6 +319,98 @@ func TestResolvePlaybook(t *testing.T) {
 	})
 }
 
+// TestMergedSettingsConfig mirrors TestResolvePlaybook's own isolated-temp-
+// directory-per-case approach (same reasoning: reads .tangsible/config.toml
+// relative to the process's own cwd) - covers the general project -> user
+// -> system cascade every [general] key now goes through, not just
+// DefaultPlaybook's own (separately tested, ResolvePlaybook-specific)
+// cascade.
+func TestMergedSettingsConfig(t *testing.T) {
+	origSystemConfigPath := SystemConfigPath
+	SystemConfigPath = filepath.Join(t.TempDir(), "unused-etc-tangsible", "config.toml")
+	t.Cleanup(func() { SystemConfigPath = origSystemConfigPath })
+
+	t.Run("project wins over user and system", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		xdgHome := filepath.Join(dir, "xdg-config")
+		t.Setenv("XDG_CONFIG_HOME", xdgHome)
+		mustWriteFile(t, ".tangsible/config.toml", "[general]\ndefault_tree_state = \"expanded\"\n")
+		mustWriteFile(t, filepath.Join(xdgHome, "tangsible", "config.toml"), "[general]\ndefault_tree_state = \"collapsed\"\n")
+		systemConfig := filepath.Join(dir, "etc-tangsible", "config.toml")
+		mustWriteFile(t, systemConfig, "[general]\ndefault_tree_state = \"collapsed\"\n")
+		origSystemConfigPath := SystemConfigPath
+		SystemConfigPath = systemConfig
+		t.Cleanup(func() { SystemConfigPath = origSystemConfigPath })
+
+		if got := MergedSettingsConfig().General.DefaultTreeState; got != "expanded" {
+			t.Errorf("General.DefaultTreeState = %q, want %q", got, "expanded")
+		}
+	})
+
+	t.Run("user wins over system when project doesn't set the key", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		xdgHome := filepath.Join(dir, "xdg-config")
+		t.Setenv("XDG_CONFIG_HOME", xdgHome)
+		mustWriteFile(t, filepath.Join(xdgHome, "tangsible", "config.toml"), "[general]\nrun_dialog = \"always\"\n")
+		systemConfig := filepath.Join(dir, "etc-tangsible", "config.toml")
+		mustWriteFile(t, systemConfig, "[general]\nrun_dialog = \"never\"\n")
+		origSystemConfigPath := SystemConfigPath
+		SystemConfigPath = systemConfig
+		t.Cleanup(func() { SystemConfigPath = origSystemConfigPath })
+
+		if got := MergedSettingsConfig().General.RunDialog; got != "always" {
+			t.Errorf("General.RunDialog = %q, want %q", got, "always")
+		}
+	})
+
+	t.Run("system is the last resort", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty-xdg-config"))
+		systemConfig := filepath.Join(dir, "etc-tangsible", "config.toml")
+		mustWriteFile(t, systemConfig, "[general]\ntemplate_hosts_max = 42\n")
+		origSystemConfigPath := SystemConfigPath
+		SystemConfigPath = systemConfig
+		t.Cleanup(func() { SystemConfigPath = origSystemConfigPath })
+
+		got := MergedSettingsConfig().General.TemplateHostsMax
+		if got == nil || *got != 42 {
+			t.Errorf("General.TemplateHostsMax = %v, want 42", got)
+		}
+	})
+
+	t.Run("an explicit false at the project tier isn't masked by an unset global/system tier", func(t *testing.T) {
+		// The *bool fields' own "nil means true" default (TwoPaneLayoutEnabled)
+		// makes this the one case worth its own test: firstNonNil must treat
+		// an explicit "two_pane_layout = false" as genuinely set, not fall
+		// through past it the way it would if this collapsed false and nil
+		// together.
+		dir := t.TempDir()
+		t.Chdir(dir)
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty-xdg-config"))
+		mustWriteFile(t, ".tangsible/config.toml", "[general]\ntwo_pane_layout = false\n")
+
+		got := MergedSettingsConfig().General.TwoPaneLayout
+		if got == nil || *got != false {
+			t.Errorf("General.TwoPaneLayout = %v, want a pointer to false", got)
+		}
+	})
+
+	t.Run("nothing set anywhere leaves every key at its zero value", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty-xdg-config"))
+
+		got := MergedSettingsConfig()
+		want := SettingsConfig{}
+		if got != want {
+			t.Errorf("MergedSettingsConfig() = %+v, want the zero value", got)
+		}
+	})
+}
+
 func writeDefaultPlaybookConfig(t *testing.T, path, defaultPlaybook string) {
 	t.Helper()
 	content := "[general]\ndefault_playbook = \"" + defaultPlaybook + "\"\n"
