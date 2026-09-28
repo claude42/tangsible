@@ -29,8 +29,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
@@ -122,7 +125,14 @@ func RunHostsVerb(args []string) int {
 	}
 	defer os.Remove(stubPath)
 
-	RunHostsListTUI(hosts, playbook, rest, stubPath)
+	pingStubPath, err := WriteHostPingStub()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook: %v\n", err)
+		return 1
+	}
+	defer os.Remove(pingStubPath)
+
+	RunHostsListTUI(hosts, playbook, rest, stubPath, pingStubPath)
 	return 0
 }
 
@@ -261,14 +271,14 @@ func FetchHostGroups(hostname string, rest []string) (string, error) {
 		// real. No annotation at all for "all"; every other group still
 		// gets its own "(direct)"/"(via ...)" detail.
 		if m.Group == "all" {
-			fmt.Fprintf(&b, "%s\n", tview.Escape(m.Group))
+			fmt.Fprintf(&b, "[green]%s[-]\n", tview.Escape(m.Group))
 			continue
 		}
 		detail := "(direct)"
 		if m.Via != "" {
 			detail = fmt.Sprintf("(via %s)", m.Via)
 		}
-		fmt.Fprintf(&b, "%s%s  %s\n", tview.Escape(m.Group), strings.Repeat(" ", pad), tview.Escape(detail))
+		fmt.Fprintf(&b, "[green]%s[-]%s  [lightsteelblue]%s[-]\n", tview.Escape(m.Group), strings.Repeat(" ", pad), tview.Escape(detail))
 	}
 	return b.String(), nil
 }
@@ -390,8 +400,8 @@ func FetchHostVars(hostname, playbook string, rest []string) (string, error) {
 		if err != nil {
 			content = fmt.Sprintf("(couldn't read: %v)", err)
 		}
-		b.WriteString(uikit.SectionLabel("orange", path))
-		b.WriteString(tview.Escape(content))
+		b.WriteString(hostSectionHeading(path))
+		b.WriteString(highlightYAMLKeys(content))
 		b.WriteString("\n\n")
 	}
 	return b.String(), nil
@@ -446,12 +456,28 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 			if currentPlay != "" {
 				b.WriteString("\n")
 			}
-			b.WriteString(uikit.SectionLabel("orange", e.Play))
+			b.WriteString(hostSectionHeading(e.Play))
 			currentPlay = e.Play
 		}
-		fmt.Fprintf(&b, "  %s\n", tview.Escape(e.Task))
+		fmt.Fprintf(&b, "  %s\n", highlightRolePrefix(e.Task))
 	}
 	return b.String(), nil
+}
+
+// highlightRolePrefix highlights a task line's own leading "<role> : "
+// prefix green, dropping the rest of the line (the task name itself) to
+// lightsteelblue - ansible's own --list-tasks output prefixes a
+// role-sourced task with its role's name and " : " (confirmed
+// empirically, --list-tasks against a real role-using playbook); a task
+// defined directly in the play has no such prefix at all. Splits on the
+// first " : " only - a task's own name containing that exact substring is
+// vanishingly unlikely, and would just mean this heuristic highlights a
+// bit too much, not a crash.
+func highlightRolePrefix(task string) string {
+	if idx := strings.Index(task, " : "); idx != -1 {
+		return "[green]" + tview.Escape(task[:idx]) + "[-]" + "[lightsteelblue]" + tview.Escape(task[idx:]) + "[-]"
+	}
+	return tview.Escape(task)
 }
 
 // RunAnsibleInventoryHost runs "ansible-inventory --host <hostname>" and
@@ -507,7 +533,132 @@ func FetchHostEverythingKnown(hostname string, rest []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return tview.Escape(strings.TrimRight(string(out), "\n")), nil
+	return highlightJSONKeys(strings.TrimRight(string(out), "\n")), nil
+}
+
+// jsonKeyLine matches one line of pretty-printed JSON's own "key": value
+// shape - runAnsibleInventoryHost's own output (fetchHostEverythingKnown)
+// is JSON, not YAML, so uikit.YamlKeyLine's own unquoted-key pattern
+// doesn't apply here; same "good enough, line-based, not a real parser"
+// approach otherwise (a line with no matching key - a closing brace, an
+// array element - just renders unstyled).
+var jsonKeyLine = regexp.MustCompile(`^(\s*)("(?:[^"\\]|\\.)*")(:)(\s.*|)$`)
+
+// jsonValueLine matches a line that's nothing but a bare JSON value, no
+// key at all - the shape a line inside a JSON array takes (a string,
+// number, or true/false/null element, optionally trailing-comma'd).
+// jsonKeyLine's own "key": value shape never matches these (no colon at
+// all), which otherwise left every array element fully unstyled - a real,
+// reported gap: only an array's own opening "[" (part of its owning
+// key's own value, jsonKeyLine's m[4]) was ever colored, never the
+// elements themselves.
+var jsonValueLine = regexp.MustCompile(`^(\s*)("(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|true|false|null)(,?)$`)
+
+// highlightJSONKeys highlights each line's own quoted key green, and
+// every value - whether it's a key's own "key": value (jsonKeyLine) or a
+// bare array element with no key of its own (jsonValueLine) -
+// lightsteelblue. A structural-only line (an opening/closing brace or
+// bracket with nothing else on it) matches neither and stays unstyled.
+// Different color pairing than uikit.ColorizeYAML's own orange-plus-bold
+// convention for these pages. design-docs/HostVerb.md's own cosmetic pass
+// tried bold-only, then dim, then bright-white/silver, before landing
+// here per live feedback each time.
+func highlightJSONKeys(raw string) string {
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		if m := jsonKeyLine.FindStringSubmatch(line); m != nil {
+			lines[i] = tview.Escape(m[1]) + "[green]" + tview.Escape(m[2]+m[3]) + "[-]" + "[lightsteelblue]" + tview.Escape(m[4]) + "[-]"
+			continue
+		}
+		if m := jsonValueLine.FindStringSubmatch(line); m != nil {
+			lines[i] = tview.Escape(m[1]) + "[lightsteelblue]" + tview.Escape(m[2]) + "[-]" + tview.Escape(m[3])
+			continue
+		}
+		lines[i] = tview.Escape(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// yamlListItemLine matches a bare block-sequence item with no key of its
+// own - "- <value>" (any leading indentation) - the shape a YAML list
+// holds when its entries are plain scalars or flow-lists ("- alpha",
+// "- [a, b]") rather than nested mappings. A mapping entry ("- key:
+// value") is already handled by uikit.YamlKeyLine itself, whose own
+// leading-marker group already accepts an optional "- " prefix - this
+// one only ever gets a chance on a line YamlKeyLine has already failed to
+// match, i.e. one with no "key:" shape at all. Left unstyled before this,
+// a real, reported gap: only a list's own flow-style opening (attached to
+// its owning key, e.g. "mylist: [") was ever colored, never a block-style
+// item on its own line.
+var yamlListItemLine = regexp.MustCompile(`^(\s*-\s+)(.+)$`)
+
+// yamlBlockScalarOpener matches a key/list-item's own value when it's
+// nothing but a block-scalar indicator - "|" or ">", optionally
+// chomp-marked ("+"/"-") and/or preceded by a YAML tag (most commonly
+// "!vault" - a real, reported gap: only that "!vault |" opener itself was
+// ever colored, never the raw multi-line blob underneath it) - meaning
+// every subsequent, more-indented (or blank) line is that one value's own
+// raw continuation text, not a further nested key/list-item of its own.
+var yamlBlockScalarOpener = regexp.MustCompile(`^(![^\s]+\s+)?[|>][+-]?\d*$`)
+
+// highlightYAMLKeys highlights each line's own "key:" portion (or, for a
+// bare list item, its whole value - yamlListItemLine) green for the key,
+// lightsteelblue for the value - the same regex-based, "good enough, not
+// a real YAML parser" approach uikit.ColorizeYAML already uses for the
+// drill-down's own Task section (uikit.YamlKeyLine), just without that
+// helper's own orange-plus-bold coloring - see highlightJSONKeys' own doc
+// comment for the styling history. blockScalarIndent tracks whether the
+// previous key/list-item's own value opened a raw multi-line scalar
+// (yamlBlockScalarOpener) - every line more indented than that (or blank)
+// is colored as that same value's own continuation instead of being
+// re-matched against the key/list-item patterns below, until indentation
+// drops back to the opener's own level or shallower.
+func highlightYAMLKeys(raw string) string {
+	lines := strings.Split(raw, "\n")
+	blockScalarIndent := -1
+	for i, line := range lines {
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		trimmed := strings.TrimSpace(line)
+
+		if blockScalarIndent != -1 {
+			if trimmed == "" || indent > blockScalarIndent {
+				lines[i] = "[lightsteelblue]" + tview.Escape(line) + "[-]"
+				continue
+			}
+			blockScalarIndent = -1
+		}
+
+		if m := uikit.YamlKeyLine.FindStringSubmatch(line); m != nil {
+			lines[i] = tview.Escape(m[1]) + "[green]" + tview.Escape(m[2]+m[3]) + "[-]" + "[lightsteelblue]" + tview.Escape(m[4]) + "[-]"
+			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[4])) {
+				blockScalarIndent = indent
+			}
+			continue
+		}
+		if m := yamlListItemLine.FindStringSubmatch(line); m != nil {
+			lines[i] = tview.Escape(m[1]) + "[lightsteelblue]" + tview.Escape(m[2]) + "[-]"
+			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[2])) {
+				blockScalarIndent = indent
+			}
+			continue
+		}
+		lines[i] = tview.Escape(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// hostSectionHeading renders a host.go-local section header - the same
+// heading-plus-"="-underline shape as uikit.SectionLabel, but without
+// that helper's own deliberate color-coding (its own doc comment: Task/
+// Output/Errors/Details in the drill-down are colored so they're never
+// mistaken for an outcome color) - these pages have no outcome palette to
+// avoid colliding with. Green, grouped with every other "key" this
+// styling pass highlights (design-docs/HostVerb.md's own "Headlines and
+// keys" grouping); the "=" underline shares the same color tag as the
+// heading text above it, one single [green]...[-] span covering both
+// lines rather than two separately-colored pieces.
+func hostSectionHeading(label string) string {
+	return fmt.Sprintf("[green]%s\n%s[-]\n\n", tview.Escape(label), strings.Repeat("=", len([]rune(label))))
 }
 
 // HostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab
@@ -540,21 +691,86 @@ func FetchHostEverythingKnown(hostname string, rest []string) (string, error) {
 // always narrows this to exactly one host, but harmless and consistent.
 const HostSummaryStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: gather facts\n      ansible.builtin.setup:\n"
 
-// WriteHostSummaryStub writes hostSummaryStubYAML to a fresh temp file -
-// reused, unchanged, across every host summary fetch in one tangsible
-// session (the "hosts" Verb's own list-then-detail flow can view many
-// hosts one after another), same "one stable scratch file for the whole
-// session" convention as the "template" Verb's own stub/output pair.
-func WriteHostSummaryStub() (string, error) {
-	f, err := os.CreateTemp("", "tangsible-host-summary-*.yml")
+// HostPingStubYAML backs the host list's own connectivity dot
+// (design-docs/HostVerb.md's "New ideas": green if ansible.builtin.ping
+// succeeds, red otherwise) - a real `ansible.builtin.ping` task, run
+// through the same "ansible-playbook + bundled callback plugin" path as
+// every other live fetch in this file, deliberately not a raw ICMP/DNS/
+// SSH-port check from wherever tangsible itself happens to run: those
+// bypass Ansible's own connection plugin entirely (jump hosts,
+// non-standard ports, connection: local/docker/winrm) and can't tell you
+// anything about whether Ansible itself could actually manage the host.
+// ignore_unreachable matches hostSummaryStubYAML's own stub for the
+// identical reason (moot given --limit always narrows to one host, but
+// harmless and consistent).
+const HostPingStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: ping\n      ansible.builtin.ping:\n"
+
+// writeHostStub writes yamlContent to a fresh temp file matching pattern -
+// shared by WriteHostSummaryStub/WriteHostPingStub. Reused, unchanged,
+// across every fetch of its own kind in one tangsible session (the
+// "hosts" Verb's own list-then-detail flow can view many hosts one after
+// another), same "one stable scratch file for the whole session"
+// convention as the "template" Verb's own stub/output pair.
+func writeHostStub(yamlContent, pattern string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	if _, err := f.WriteString(HostSummaryStubYAML); err != nil {
+	if _, err := f.WriteString(yamlContent); err != nil {
 		return "", err
 	}
 	return f.Name(), nil
+}
+
+func WriteHostSummaryStub() (string, error) {
+	return writeHostStub(HostSummaryStubYAML, "tangsible-host-summary-*.yml")
+}
+
+func WriteHostPingStub() (string, error) {
+	return writeHostStub(HostPingStubYAML, "tangsible-host-ping-*.yml")
+}
+
+// FetchHostPing runs hostPingStubYAML against hostname and reports whether
+// it came back with a genuine v2_runner_on_ok - the host list's own
+// connectivity dot (design-docs/HostVerb.md). Deliberately always a live
+// attempt, never a fact-cache shortcut the way fetchHostSummary's own live
+// path has one: a cached fact proves nothing about whether the host is
+// reachable right now. Green-or-red only, matching that same decision -
+// a failure, an unreachable result, and an inability to even run
+// ansible-playbook at all (bad inventory, missing binary) all collapse to
+// the same "false", with no separate error surfaced for this dot's own
+// purposes (the five detail tabs already report a real error for exactly
+// this host if there's one to see).
+func FetchHostPing(stubPath, hostname string, rest []string) bool {
+	pluginEnv, err := runner.CallbackPluginEnv()
+	if err != nil {
+		return false
+	}
+	args := append([]string{stubPath, "--limit", hostname}, rest...)
+	cmd := exec.Command("ansible-playbook", args...)
+	cmd.Env = append(os.Environ(), pluginEnv...)
+	out, _ := cmd.Output()
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var ev playbook.RawEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		if ev.Event != "v2_runner_on_ok" {
+			continue
+		}
+		if _, ok := ev.Hosts[hostname]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // FactCacheCanaryKey is checked against runAnsibleInventoryHost's own
@@ -567,7 +783,20 @@ func WriteHostSummaryStub() (string, error) {
 // every individual field formatHostSummary might want.
 const FactCacheCanaryKey = "ansible_architecture"
 
-// FetchHostSummary first checks whether a fresh fact-cache entry already
+// hostFactsResult is FetchHostFacts' own return shape. characteristics is
+// always the Characteristics section's own eventual body - either
+// formatCharacteristics' normal field list (the common case, with facts
+// then set too, backing Keys/HostKeyLines) or a pre-rendered note in its
+// place: a live Unreachable/Failed result, or (skipLiveGather) a note
+// that the live gather was skipped entirely. Never both - facts is nil
+// whenever characteristics is pre-rendered instead of the normal list.
+type hostFactsResult struct {
+	prefix          string
+	characteristics string
+	facts           map[string]interface{}
+}
+
+// FetchHostFacts first checks whether a fresh fact-cache entry already
 // covers this host (runAnsibleInventoryHost, gated on factCacheCanaryKey)
 // and uses that directly, with no connection to the host at all, when it
 // does - restoring the original design intent ("if fact caching is
@@ -594,6 +823,13 @@ const FactCacheCanaryKey = "ansible_architecture"
 // is about to attempt the exact same thing anyway and will report its
 // own error if that fails too.
 //
+// skipLiveGather (design-docs/HostVerb.md's own "New ideas": a host the
+// hosts list's own ping dot already found unreachable shouldn't pay for a
+// second, doomed connection attempt just to open its Summary tab) only
+// ever short-circuits the live path below, never the cache check above a
+// stale-but-real cached fact is still worth showing even for a host
+// that's down right now.
+//
 // Falling through to the live path: stubPath runs synchronously, narrowed
 // to hostname via --limit, and this extracts that host's own
 // ansible_facts from the resulting jsonl stream - the same
@@ -602,19 +838,29 @@ const FactCacheCanaryKey = "ansible_architecture"
 // determined at all (a bad inventory/host); an unreachable/failed host is
 // reported as ordinary displayable text instead, not err, since that's
 // expected, common content for this tab, not a tool failure.
-func FetchHostSummary(stubPath, hostname string, rest []string) (string, error) {
+func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather bool) (hostFactsResult, error) {
 	if out, err := RunAnsibleInventoryHost(hostname, rest); err == nil {
 		var cached map[string]interface{}
 		if json.Unmarshal(out, &cached) == nil {
 			if _, ok := cached[FactCacheCanaryKey]; ok {
-				return "[gray](from fact cache)[-]\n\n" + FormatHostSummary(hostname, cached), nil
+				return hostFactsResult{
+					prefix:          "[gray](from fact cache)[-]\n\n",
+					characteristics: formatCharacteristics(hostname, cached),
+					facts:           cached,
+				}, nil
 			}
 		}
 	}
 
+	if skipLiveGather {
+		return hostFactsResult{
+			characteristics: "[maroon]Host unavailable.[-]\n",
+		}, nil
+	}
+
 	pluginEnv, err := runner.CallbackPluginEnv()
 	if err != nil {
-		return "", err
+		return hostFactsResult{}, err
 	}
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
 	cmd := exec.Command("ansible-playbook", args...)
@@ -683,20 +929,20 @@ func FetchHostSummary(stubPath, hostname string, rest []string) (string, error) 
 			}
 			msg = fmt.Sprintf("no result reported for host %q - check that it resolves in the inventory (%s)", hostname, detail)
 		}
-		return "", fmt.Errorf("%s", msg)
+		return hostFactsResult{}, fmt.Errorf("%s", msg)
 	}
 
 	var decoded map[string]interface{}
 	_ = json.Unmarshal(raw, &decoded)
 	result := playbook.DecodeHostResult(raw)
 	if result.Unreachable {
-		return fmt.Sprintf("[maroon::b]Unreachable[-::-]\n\n%s", tview.Escape(result.Msg)), nil
+		return hostFactsResult{characteristics: fmt.Sprintf("[maroon::b]Unreachable[-::-]\n\n%s\n", tview.Escape(result.Msg))}, nil
 	}
 	if result.Failed {
-		return fmt.Sprintf("[red::b]Failed[-::-]\n\n%s", tview.Escape(result.Msg)), nil
+		return hostFactsResult{characteristics: fmt.Sprintf("[red::b]Failed[-::-]\n\n%s\n", tview.Escape(result.Msg))}, nil
 	}
 	facts, _ := decoded["ansible_facts"].(map[string]interface{})
-	return FormatHostSummary(hostname, facts), nil
+	return hostFactsResult{characteristics: formatCharacteristics(hostname, facts), facts: facts}, nil
 }
 
 // FactString/factStringList pull a string/[]string field out of a decoded
@@ -890,14 +1136,11 @@ func HostKeyLines(facts map[string]interface{}) []HostKeyLine {
 	return lines
 }
 
-// FormatHostSummary renders design-docs/HostVerb.md's own "Content
-// summary page" draft from a decoded ansible_facts map - a fixed field
-// list, label-padded to line up, plus one further, separately-padded
-// block of Host key lines (see hostKeyLines) since that block's own
-// labels ("Host key (ed25519):") are a different width than the main
-// field labels and pooling them into one shared width would either
-// under-pad the main fields or over-pad them for no reason.
-func FormatHostSummary(hostname string, facts map[string]interface{}) string {
+// formatCharacteristics renders the Summary page's own fixed field list
+// (design-docs/HostVerb.md's "Content summary page" draft, since restyled
+// into the "Characteristics" section of the restructured page - see
+// formatHostSummary), label-padded to line up.
+func formatCharacteristics(hostname string, facts map[string]interface{}) string {
 	type field struct{ label, value string }
 	fields := []field{
 		{"Host", hostname},
@@ -926,21 +1169,250 @@ func FormatHostSummary(hostname string, facts map[string]interface{}) string {
 			value = "-"
 		}
 		label := f.label + ":"
-		fmt.Fprintf(&b, "%s%s%s\n", label, strings.Repeat(" ", width-len(label)+1), tview.Escape(value))
+		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]%s[-]\n", label, strings.Repeat(" ", width-len(label)+1), tview.Escape(value))
 	}
+	return b.String()
+}
 
-	keyLines := HostKeyLines(facts)
-	if len(keyLines) > 0 {
-		b.WriteString("\n")
-		keyWidth := 0
-		for _, k := range keyLines {
-			if l := len(k.label); l > keyWidth {
-				keyWidth = l
+// formatHostKeyLines renders hostKeyLines' own output, label-padded to
+// line up - separately from formatCharacteristics' own padding width,
+// since "Host key (ed25519):" is a different width than "IPv6:" and
+// pooling the two into one shared width would either under- or over-pad
+// one of the two blocks for no reason.
+func formatHostKeyLines(keyLines []HostKeyLine) string {
+	width := 0
+	for _, k := range keyLines {
+		if l := len(k.label); l > width {
+			width = l
+		}
+	}
+	var b strings.Builder
+	for _, k := range keyLines {
+		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]%s[-]\n", k.label, strings.Repeat(" ", width-len(k.label)+1), tview.Escape(k.value))
+	}
+	return b.String()
+}
+
+// RecentRunsScanLimit/RecentRunsShowLimit bound fetchRecentRuns'
+// (design-docs/HostVerb.md "New ideas") own state.toml scan: finding "the
+// last RecentRunsShowLimit times this host was touched" means replaying
+// candidate invocations, newest first, until that many matches turn up -
+// unbounded, that could mean opening every invocation of every playbook
+// ever run in the project for a rarely-targeted host. RecentRunsScanLimit
+// caps how many of the most recent invocations project-wide are ever even
+// looked at; RecentRunsShowLimit stops the scan early the moment enough
+// matches are already found.
+const (
+	RecentRunsScanLimit = 20
+	RecentRunsShowLimit = 5
+)
+
+// recentRunCandidate is one flattened invocation from state.toml's whole
+// History - across every playbook/role ever recorded, not just the one
+// this "host"/"hosts" invocation was itself given (design-docs/HostVerb.md's
+// own decision: which playbooks have touched this host at all is itself
+// useful information, kept even though it's inconsistent with the Plays
+// tab's own single-playbook scope).
+type recentRunCandidate struct {
+	name string // PlaybookHistory.Playbook, or .Role if that's what was set
+	config.InvocationRecord
+}
+
+// collectRecentRunCandidates flattens cfg's whole History into one
+// newest-first list, already capped at RecentRunsScanLimit - an invocation
+// with no RunID (never saved, or cleared by config.PruneMissingRunLogs) is
+// dropped here, before any replay is attempted, matching every other
+// run-log consumer's "best-effort, never an error" convention.
+func collectRecentRunCandidates(cfg config.StateConfig) []recentRunCandidate {
+	var all []recentRunCandidate
+	for _, h := range cfg.History {
+		name := h.Playbook
+		if name == "" {
+			name = h.Role
+		}
+		for _, inv := range h.Invocations {
+			if inv.RunID == "" {
+				continue
+			}
+			all = append(all, recentRunCandidate{name: name, InvocationRecord: inv})
+		}
+	}
+	sort.Slice(all, func(i, j int) bool {
+		ti, _ := time.Parse(time.RFC3339, all[i].Time)
+		tj, _ := time.Parse(time.RFC3339, all[j].Time)
+		return ti.After(tj)
+	})
+	if len(all) > RecentRunsScanLimit {
+		all = all[:RecentRunsScanLimit]
+	}
+	return all
+}
+
+// hostRunCounts mirrors internal/session/recap.go's own recapHostSummary,
+// just the seven summary counts "Recent" shows, with none of that type's
+// own Categories/TotalDuration tracking. Reimplemented locally rather than
+// reused across the package boundary: recapForHost is unexported, and
+// internal/session already imports internal/host (to dispatch the "host"/
+// "hosts" verbs), so the reverse import would be a cycle.
+type hostRunCounts struct {
+	OK, Skipped, Changed, Unreachable, Failed, Warnings, Ignored int
+}
+
+// hostCountsFor scans every task across every play in state for host's own
+// outcome, the same approach recapForHost uses for the live recap - found
+// is false if host never appears in state.AllHosts at all (nothing to
+// report, as opposed to a real zero-everywhere result).
+func hostCountsFor(state *playbook.PlaybookState, host string) (hostRunCounts, bool) {
+	idx := sort.SearchStrings(state.AllHosts, host)
+	if idx >= len(state.AllHosts) || state.AllHosts[idx] != host {
+		return hostRunCounts{}, false
+	}
+	var c hostRunCounts
+	for _, play := range state.Plays {
+		for _, task := range play.Tasks {
+			o, present := task.Hosts[host]
+			if !present {
+				continue
+			}
+			switch o {
+			case playbook.OutcomeOK:
+				c.OK++
+			case playbook.OutcomeChanged:
+				c.Changed++
+			case playbook.OutcomeSkipped:
+				c.Skipped++
+			case playbook.OutcomeUnreachable:
+				c.Unreachable++
+			case playbook.OutcomeFailed:
+				c.Failed++
+			}
+			if task.Warnings[host] {
+				c.Warnings++
+			}
+			if task.Ignored[host] {
+				c.Ignored++
 			}
 		}
-		for _, k := range keyLines {
-			fmt.Fprintf(&b, "%s%s%s\n", k.label, strings.Repeat(" ", keyWidth-len(k.label)+1), tview.Escape(k.value))
+	}
+	return c, true
+}
+
+// formatRecentTime renders InvocationRecord.Time (RFC3339 UTC, as
+// config.AppendInvocation stamps it) in the local zone, readably -
+// falling back to the raw stored string on a parse failure, the same
+// caveat FormatRevisitTime (internal/revisit) already applies to the
+// identical field for the identical reason.
+func formatRecentTime(raw string) string {
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return raw
+	}
+	return t.Local().Format("2006-01-02 15:04")
+}
+
+// recentRunLine is one already-matched "Recent" entry, ready to render.
+type recentRunLine struct {
+	name   string
+	time   string
+	counts hostRunCounts
+}
+
+// formatRecentRunLines renders lines' own "<time> <name>: ok=N ..." rows,
+// the prefix padded to a shared width so the count fields line up across
+// every row - the same label-padding convention formatCharacteristics/
+// formatHostKeyLines already use, just against a prefix computed per row
+// rather than a fixed label list.
+func formatRecentRunLines(lines []recentRunLine) string {
+	prefixes := make([]string, len(lines))
+	width := 0
+	for i, l := range lines {
+		prefixes[i] = fmt.Sprintf("%s %s:", formatRecentTime(l.time), l.name)
+		if w := len([]rune(prefixes[i])); w > width {
+			width = w
 		}
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		pad := width - len([]rune(prefixes[i])) + 1
+		fmt.Fprintf(&b, "[green]%s[-]%s[lightsteelblue]ok=%-4d skipped=%-4d changed=%-4d unreachable=%-4d failed=%-4d warnings=%-4d ignored=%d[-]\n",
+			tview.Escape(prefixes[i]), strings.Repeat(" ", pad),
+			l.counts.OK, l.counts.Skipped, l.counts.Changed, l.counts.Unreachable, l.counts.Failed, l.counts.Warnings, l.counts.Ignored)
+	}
+	return b.String()
+}
+
+// StreamRecentRuns renders design-docs/HostVerb.md's own "Recent" section
+// incrementally: up to RecentRunsShowLimit matches, newest first, calling
+// onMatch as each one is found rather than collecting everything before
+// returning. This is the whole fix for a real, reported problem: scanning/
+// replaying up to RecentRunsScanLimit run logs can genuinely take several
+// seconds on a project with a long history (found live - roughly 8s on
+// the reporting user's own hardware), and the Summary tab's other two
+// sections (Characteristics, Keys) have nothing to do with this scan at
+// all - blocking their own already-fast render on it, the way an earlier,
+// all-at-once fetchRecentRuns did, made the whole tab feel hung for no
+// reason. BuildHostDetailPrimitive's own Summary goroutine calls this
+// after Characteristics/Keys are already showing, appending each match to
+// the visible page as it arrives instead. Best-effort throughout, same as
+// that earlier version: a missing/unparseable state.toml reads as "no
+// history at all" (config.ReadState's own silent-on-missing behavior),
+// and a candidate whose run log has since vanished from disk
+// (runner.ReplayRunLog failing to open it) is silently skipped rather
+// than surfaced as an error - the same "best-effort, never an error"
+// treatment every other run-log consumer in this app already applies.
+func StreamRecentRuns(hostname string, onMatch func(recentRunLine)) {
+	cfg := config.ReadState(config.TangsibleStatePath)
+	candidates := collectRecentRunCandidates(cfg)
+
+	found := 0
+	for _, c := range candidates {
+		if found >= RecentRunsShowLimit {
+			return
+		}
+		jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, c.RunID)
+		state, err := runner.ReplayRunLog(jsonlPath)
+		if err != nil {
+			continue
+		}
+		counts, matched := hostCountsFor(state, hostname)
+		if !matched {
+			continue
+		}
+		found++
+		onMatch(recentRunLine{name: c.name, time: c.Time, counts: counts})
+	}
+}
+
+// summaryDoc composes the Summary tab's own three sections
+// (design-docs/HostVerb.md's restructured page) from whichever pieces are
+// known so far - Characteristics and Keys are set once, immediately after
+// the (possibly live) facts fetch completes; Recent grows one line at a
+// time as StreamRecentRuns finds matches. render() is called again after
+// every change, cheap since every piece is already-formatted, short text.
+type summaryDoc struct {
+	prefix          string // "(from fact cache)" note, or empty
+	characteristics string // formatCharacteristics' own field list, or a
+	// pre-rendered Unreachable/Failed/skipped note in its place (see
+	// hostFactsResult) - either way, always the Characteristics section's
+	// own body.
+	recent string
+	keys   string // empty when there's nothing to show - no Keys section at all then
+}
+
+func (d summaryDoc) render() string {
+	var b strings.Builder
+	b.WriteString(d.prefix)
+	b.WriteString(hostSectionHeading("Characteristics"))
+	b.WriteString(d.characteristics)
+
+	b.WriteString("\n")
+	b.WriteString(hostSectionHeading("Recent"))
+	b.WriteString(d.recent)
+
+	if d.keys != "" {
+		b.WriteString("\n")
+		b.WriteString(hostSectionHeading("Keys"))
+		b.WriteString(d.keys)
 	}
 	return b.String()
 }
@@ -988,7 +1460,12 @@ func TabIndexByName(names []string, name string) int {
 // async-update mechanism resolved.go/ansibledoc.go already use for the
 // drill-down view's own Resolved/Docs tabs, just kicked off eagerly for
 // every tab at once instead of lazily per tab-open.
-func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *uikit.TabSearchBar) {
+// pingKnown/pingOK carry the hosts list's own already-known connectivity
+// dot for this host, if any (false/false for the standalone "host" Verb,
+// which has no ping subsystem at all - RunHostDetailStandalone always
+// passes that) - see the Summary tab's own progressive-fetch goroutine
+// below for what this changes.
+func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string, pingKnown, pingOK bool) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *uikit.TabSearchBar) {
 	header := tview.NewTextView().SetDynamicColors(true)
 	header.SetTextStyle(uikit.BarStyle)
 	playbookLabel := playbook
@@ -1041,7 +1518,58 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		}()
 	}
 
-	fetch(summaryView, func() (string, error) { return FetchHostSummary(stubPath, hostname, rest) })
+	// Summary gets its own bespoke goroutine rather than the generic fetch
+	// helper above: design-docs/HostVerb.md's own "New ideas" findings -
+	// Characteristics/Keys (fast: one cache-check-or-live-gather call) show
+	// immediately, then Recent streams in on top of that separately
+	// (StreamRecentRuns), since its own state.toml/run-log scan can take
+	// several seconds on a project with a long history and has nothing to
+	// do with facts at all - blocking the whole tab on it made it feel
+	// hung for no reason. skipLiveGather (a host the list's own ping dot
+	// already found unreachable) avoids a second, doomed connection
+	// attempt just to build this tab - see FetchHostFacts' own doc comment.
+	go func() {
+		res, err := FetchHostFacts(stubPath, hostname, rest, pingKnown && !pingOK)
+		if err != nil {
+			app.QueueUpdateDraw(func() {
+				searchBar.ClearForView(summaryView)
+				summaryView.SetText("[red::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+				summaryView.ScrollToBeginning()
+			})
+			return
+		}
+		doc := summaryDoc{prefix: res.prefix, characteristics: res.characteristics, recent: "scanning recent runs..."}
+		if keyLines := HostKeyLines(res.facts); len(keyLines) > 0 {
+			doc.keys = formatHostKeyLines(keyLines)
+		}
+		app.QueueUpdateDraw(func() {
+			searchBar.ClearForView(summaryView)
+			summaryView.SetText(doc.render())
+			summaryView.ScrollToBeginning()
+		})
+
+		var lines []recentRunLine
+		StreamRecentRuns(hostname, func(l recentRunLine) {
+			lines = append(lines, l)
+			app.QueueUpdateDraw(func() {
+				doc.recent = formatRecentRunLines(lines)
+				summaryView.SetText(doc.render()) // SetText alone doesn't
+				// reset scroll position (tui_drilldown.go's own gotcha,
+				// confirmed here too) - deliberately not calling
+				// ScrollToBeginning() again on every one of these: doing
+				// so would yank the view back to the top every time a new
+				// Recent line lands, fighting anyone who scrolled down
+				// while it was still streaming in.
+			})
+		})
+		if len(lines) == 0 {
+			app.QueueUpdateDraw(func() {
+				doc.recent = "no recorded runs found that touched this host\n"
+				summaryView.SetText(doc.render())
+			})
+		}
+	}()
+
 	fetch(groupsView, func() (string, error) { return FetchHostGroups(hostname, rest) })
 	fetch(playsView, func() (string, error) { return FetchHostPlays(playbook, rest, hostname) })
 	fetch(hostVarsView, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
@@ -1062,7 +1590,7 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 	app.EnableMouse(true)
 
 	footerText := " tab/shift-tab: switch tab  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText)
+	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText, false, false)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyCtrlC {
@@ -1135,34 +1663,60 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 // normally, or black bold text on a light gray background when selected,
 // the same "cursor row" convention every other selectable row in this
 // app uses (PlayRowText/TaskLabel/HostLabel's own selected parameter,
-// tui.go).
-func HostRowText(hostname string, selected bool) string {
-	if selected {
-		return fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, tview.Escape(hostname))
+// tui.go). pingKnown/pingOK back design-docs/HostVerb.md's own "New
+// ideas" connectivity dot: a green "●" once this host's own
+// ansible.builtin.ping has come back OK, red once it's come back
+// anything else (failed/unreachable/couldn't even run), nothing at all
+// while that row's own ping is still in flight - lazy per-row update, no
+// placeholder spinner, matching that decision's own "row shows its dot
+// the moment its own ping lands" wording.
+func HostRowText(hostname string, selected bool, pingKnown, pingOK bool) string {
+	color := "gray" // pending - that row's own ping hasn't landed yet
+	if pingKnown {
+		color = "red"
+		if pingOK {
+			color = "green"
+		}
 	}
-	return "[white]" + tview.Escape(hostname) + "[-]"
+	dot := fmt.Sprintf("[%s]●[-]  ", color)
+	if selected {
+		return dot + fmt.Sprintf("[%s:lightgray:b]%s[-:-:-]", uikit.PureBlack, tview.Escape(hostname))
+	}
+	return dot + "[white]" + tview.Escape(hostname) + "[-]"
 }
 
 // RunHostsListTUI implements "tangsible hosts"'s own list-then-detail
 // flow: a scrollable TreeList (treelist.go - the same widget the main
-// tree view uses) of every host, Enter opens the identical five-tab
-// detail view "tangsible host <name>" would show for that same host
-// (buildHostDetailPrimitive), Esc from the detail view returns to the
-// list rather than quitting - the one behavioral difference from "host
+// tree view uses) of every host, each row showing its own
+// ansible.builtin.ping connectivity dot (design-docs/HostVerb.md's own
+// "New ideas", hostPingStubYAML/FetchHostPing) once that host's own ping
+// has come back. On a wide enough terminal, list and detail show side by
+// side (splitMode below) with the detail pane live-syncing to whichever
+// host the list's own cursor sits on, no Enter needed; on a narrower
+// terminal, Enter opens the identical five-tab detail view "tangsible
+// host <name>" would show for that host (buildHostDetailPrimitive), Esc
+// closes it back to the list - the one behavioral difference from "host
 // <name>"'s own standalone Esc-is-inert view. While a detail view is
-// open, n/N also jump straight to the next/previous host in the list
-// (navigateHostDetail) without leaving the detail view at all - the same
-// n/N convention the main tree's own drill-down view uses to hop between
-// hosts for the same task, applied here to hopping between hosts
-// directly. Built as a single tview.Application with a two-page Pages
-// (list, detail); detail's own
-// content is rebuilt fresh (buildHostDetailPrimitive called again) each
-// time a different host is selected rather than kept alive/cached across
+// open (either layout), n/N also jump straight to the next/previous host
+// in the list (navigateHostDetail) - the same n/N convention the main
+// tree's own drill-down view uses to hop between hosts for the same
+// task, applied here to hopping between hosts directly.
+//
+// Built as a single tview.Application with a three-page Pages ("list",
+// "detail", "split") - "list"/detailFlex are built once and reused
+// unchanged across page switches (the same "same primitive, multiple
+// named pages, only one ever frontmost" trick tui.go's own s.treeBody/
+// outputBody use for their three-page main/output/split split); "detail"
+// is rebuilt fresh (buildHostDetailPrimitive called again) each time a
+// different host is selected rather than kept alive/cached across
 // selections - design-docs/HostVerb.md's own "Findings from discussion"
 // never asked for cross-host caching, and a fresh five-way concurrent
 // fetch per selection is cheap enough at this project's own ~10-host
-// target scale.
-func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath string) {
+// target scale; "split"'s own outer wrapper Flex, in contrast, is
+// rebuilt on every layout() call regardless of whether the host changed -
+// cheap, since it only ever re-arranges already-built primitives, never
+// re-fetches anything.
+func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, pingStubPath string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -1182,38 +1736,93 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		AddItem(listFooter, 1, 0, false)
 	pages.AddPage("list", listFlex, true, true)
 
+	// splitDivider is design-docs/TwoPanedLayout.md's own one-column
+	// vertical rule, reused unchanged here for this "New ideas" two-pane
+	// hosts layout - a bare Box whose Draw() fills its own rect with this
+	// color, no content needed for a solid separator line. tcell.ColorNavy
+	// matches uikit.BarStyle's own background, the same chrome color
+	// listHeader/listFooter/the detail header already use.
+	splitDivider := tview.NewBox().SetBackgroundColor(tcell.ColorNavy)
+
 	var (
-		onList          = true
+		viewingDetail   bool // a detail view (either layout) is showing at all
+		splitMode       bool // meaningful only while viewingDetail: side-by-side vs full-screen
 		detailTabs      *uikit.TabbedPane
 		detailHeader    *tview.TextView
 		detailSearch    *uikit.TabSearchBar
+		detailPrimitive tview.Primitive
 		currentHostname string
+		lastTotalWidth  int
+		quitting        atomic.Bool
 	)
 
 	detailFooterText := " tab/shift-tab: switch tab  n/N: next/prev host  /: search tab  y: copy tab  esc: back to list  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	// splitDetailFooterText drops "esc: back to list" - split mode has no
+	// separate list page to go back to, the list is already visible right
+	// alongside. A known, accepted simplification: this text is fixed at
+	// BuildHostDetailPrimitive's own construction time and TabSearchBar
+	// has no way to update it later, so a detail view opened in one
+	// layout keeps that layout's own footer text even if a mid-session
+	// resize (layout, below) later switches which layout is actually
+	// showing it.
+	splitDetailFooterText := " tab/shift-tab: switch tab  n/N: next/prev host  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 
-	showDetail := func(hostname string) {
-		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, detailFooterText)
-		pages.RemovePage("detail")
-		pages.AddPage("detail", detail, true, true)
-		detailTabs, detailHeader, detailSearch = tabs, hdr, bar
-		currentHostname = hostname
-		pages.SwitchToPage("detail")
-		onList = false
-		app.SetFocus(tabs.Primitive())
+	var showDetail func(hostname string)
+	var layout func()
+
+	// pingKnown/pingOK back each row's own connectivity dot (HostRowText) -
+	// populated lazily, one goroutine per host, kicked off below.
+	pingKnown := map[string]bool{}
+	pingOK := map[string]bool{}
+
+	// TreeList (treelist.go), unlike tview.List, has no built-in "this is
+	// the current row" highlighting at all - tui.go's own tree gets its
+	// visible cursor purely by re-rendering whichever row is current with
+	// different style tags on every change (see its own rebuild()), never
+	// from the widget itself. A first version of this list added each
+	// host's row once, plain, and never did that - a real, reported bug:
+	// the cursor moved (Enter still opened the right host) but nothing
+	// ever looked selected. Fixed the same way tui.go's own tree is: a
+	// selectedIdx tracked here, and a full rebuildRows pass - re-adding
+	// every row, this one row styled per hostRowText's own selected
+	// variant (now also carrying that row's own ping dot) - triggered on
+	// every genuine cursor move.
+	//
+	// rebuilding guards against the same self-triggering hazard tui.go's
+	// own rebuild() documents: list.Clear() followed by re-AddItem()
+	// fires the list's own SetChangedFunc the instant the first row lands
+	// back in the now-empty list (index -1 -> 0), which would otherwise
+	// immediately re-enter rebuildRows recursively.
+	selectedIdx := 0
+	rebuilding := false
+	var rebuildRows func()
+	rebuildRows = func() {
+		rebuilding = true
+		defer func() { rebuilding = false }()
+		list.Clear()
+		for i, h := range hosts {
+			h := h
+			list.AddItem(HostRowText(h, i == selectedIdx, pingKnown[h], pingOK[h]), func() { showDetail(h) })
+		}
+		list.SetCurrentItem(selectedIdx)
 	}
 
 	// navigateHostDetail switches the open detail view to the previous/
 	// next host in the same order the list itself uses (hosts, already
-	// alphabetically sorted - inventory.FlattenInventoryHosts) - no wraparound at
-	// either end, matching this app's own navigation convention
-	// everywhere else (e.g. tui.go's navigateMainTask). The currently
-	// active tab is preserved across the switch by name (tabIndexByName)
-	// rather than always resetting to Summary: showDetail rebuilds a
-	// brand new TabbedPane from scratch for the new host (there's no way
-	// to just re-point an existing one at different content), so the old
-	// TabbedPane's own active tab has to be looked up by name and
-	// re-applied via repeated Next() calls on the new one.
+	// alphabetically sorted - inventory.FlattenInventoryHosts) - no
+	// wraparound at either end, matching this app's own navigation
+	// convention everywhere else (e.g. tui.go's navigateMainTask). Also
+	// moves the list's own cursor (selectedIdx/rebuildRows), not just the
+	// detail pane, so the two can never disagree about which host is
+	// "open" regardless of layout - a real gap in the pre-two-pane
+	// version, which left the list cursor stale after a plain n/N hop
+	// since the list was never visible at the same time anyway. The
+	// currently active tab is preserved across the switch by name
+	// (tabIndexByName) rather than always resetting to Summary -
+	// showDetail rebuilds a brand new TabbedPane from scratch for the new
+	// host (there's no way to just re-point an existing one at different
+	// content), so the old TabbedPane's own active tab has to be looked
+	// up by name and re-applied via repeated Next() calls on the new one.
 	navigateHostDetail := func(delta int) {
 		idx := -1
 		for i, h := range hosts {
@@ -1230,68 +1839,144 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 			return
 		}
 		activeTabName := detailTabs.ActiveName()
+		selectedIdx = newIdx
+		rebuildRows()
 		showDetail(hosts[newIdx])
 		for i := 0; i < TabIndexByName(HostDetailTabNames, activeTabName); i++ {
 			detailTabs.Next()
 		}
 	}
 
-	// TreeList (treelist.go), unlike tview.List, has no built-in "this is
-	// the current row" highlighting at all - tui.go's own tree gets its
-	// visible cursor purely by re-rendering whichever row is current with
-	// different style tags on every change (see its own rebuild()), never
-	// from the widget itself. A first version of this list added each
-	// host's row once, plain, and never did that - a real, reported bug:
-	// the cursor moved (Enter still opened the right host) but nothing
-	// ever looked selected. Fixed the same way tui.go's own tree is: a
-	// selectedIdx tracked here, and a full rebuildRows pass - re-adding
-	// every row, this one row styled per hostRowText's own selected
-	// variant - triggered on every genuine cursor move.
-	//
-	// rebuilding guards against the same self-triggering hazard tui.go's
-	// own rebuild() documents: list.Clear() followed by re-AddItem()
-	// fires the list's own SetChangedFunc the instant the first row lands
-	// back in the now-empty list (index -1 -> 0), which would otherwise
-	// immediately re-enter rebuildRows recursively.
-	selectedIdx := 0
-	rebuilding := false
-	var rebuildRows func()
-	rebuildRows = func() {
-		rebuilding = true
-		defer func() { rebuilding = false }()
-		list.Clear()
-		for i, h := range hosts {
-			h := h
-			list.AddItem(HostRowText(h, i == selectedIdx), func() { showDetail(h) })
+	showDetail = func(hostname string) {
+		_, _, totalWidth, _ := pages.GetInnerRect()
+		footer := detailFooterText
+		if totalWidth >= uikit.SplitMinTotalWidth {
+			footer = splitDetailFooterText
 		}
-		list.SetCurrentItem(selectedIdx)
+		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footer, pingKnown[hostname], pingOK[hostname])
+		pages.RemovePage("detail")
+		pages.AddPage("detail", detail, true, true)
+		detailTabs, detailHeader, detailSearch, detailPrimitive = tabs, hdr, bar, detail
+		currentHostname = hostname
+		viewingDetail = true
+		layout()
 	}
+
+	// layout decides, on every call, whether the terminal is currently
+	// wide enough for the side-by-side two-pane view (design-docs/
+	// HostVerb.md's "New ideas") and arranges pages accordingly - called
+	// after every host selection (showDetail) and, since nothing else in
+	// this standalone view already re-evaluates this on a timer, by a
+	// dedicated resize-watcher goroutine below (mirroring tui.go's own
+	// startResizeWatcher, needed for the identical reason: nothing else
+	// notices a bare terminal resize with no other event to piggyback
+	// on).
+	layout = func() {
+		_, _, totalWidth, _ := pages.GetInnerRect()
+		lastTotalWidth = totalWidth
+		splitMode = totalWidth >= uikit.SplitMinTotalWidth
+		if splitMode {
+			if !viewingDetail {
+				// Wide enough but nothing ever opened yet - split mode
+				// has no "nothing open" state at all (the detail pane is
+				// always right there alongside the list), so this
+				// auto-opens whatever the list's own cursor already sits
+				// on, matching design-docs/HostVerb.md's own "moving the
+				// cursor should immediately update the detail pane".
+				// Recurses exactly once (showDetail sets viewingDetail
+				// before calling back into layout), never deeper.
+				showDetail(hosts[selectedIdx])
+				return
+			}
+			splitFlex := tview.NewFlex().SetDirection(tview.FlexColumn).
+				AddItem(listFlex, uikit.SplitTreeWidth(totalWidth), 0, false).
+				AddItem(splitDivider, uikit.SplitDividerWidth, 0, false).
+				AddItem(detailPrimitive, 0, 1, true)
+			pages.RemovePage("split")
+			pages.AddPage("split", splitFlex, true, true)
+			pages.SwitchToPage("split")
+			// detailTabs, not list - the same real focus target as the
+			// full-screen "detail" page just below, so ↑/↓ scroll the
+			// active tab's own content in split mode too, matching how it
+			// already works in full-screen mode. A real, reported bug
+			// otherwise: with focus left on list, ↑/↓ only ever moved the
+			// host cursor, and there was no way to scroll a tab's own
+			// content at all. Host-to-host navigation while split still
+			// works via n/N (handleKey intercepts those regardless of
+			// real focus) and via a mouse click/wheel on the list pane
+			// itself (TreeList's own MouseHandler moves real focus back
+			// onto list when clicked, same as any other widget).
+			app.SetFocus(detailTabs.Primitive())
+			return
+		}
+		if viewingDetail {
+			pages.SwitchToPage("detail")
+			app.SetFocus(detailTabs.Primitive())
+		} else {
+			pages.SwitchToPage("list")
+			app.SetFocus(list)
+		}
+	}
+
 	list.SetChangedFunc(func(index int) {
 		if rebuilding {
 			return
 		}
 		selectedIdx = index
 		rebuildRows()
+		if splitMode {
+			// Live-sync (design-docs/HostVerb.md's own "New ideas"): in
+			// split mode, moving the list's own cursor is what opens/
+			// retargets the detail pane, no Enter needed. Deliberately no
+			// debounce on rapid movement (e.g. holding Down) - accepted
+			// as a real cost (each move fires a fresh concurrent 5-tab
+			// fetch for whichever host the cursor lands on next) until
+			// live use actually shows it's a problem, not guessed at up
+			// front.
+			showDetail(hosts[index])
+		}
 	})
 	rebuildRows()
 
+	// Every row's own connectivity dot (design-docs/HostVerb.md) fires
+	// the instant the list itself renders - one goroutine per host, the
+	// same "kick off eagerly, populate via app.QueueUpdateDraw once done"
+	// pattern BuildHostDetailPrimitive's own fetch helper already uses for
+	// the five detail tabs, just one goroutine per row instead of one per
+	// tab. A row shows its dot the moment its own ping lands, independent
+	// of every other row's timing - no batching, no "wait for all to
+	// finish" gate.
+	for _, h := range hosts {
+		h := h
+		go func() {
+			ok := FetchHostPing(pingStubPath, h, rest)
+			app.QueueUpdateDraw(func() {
+				pingKnown[h] = true
+				pingOK[h] = ok
+				rebuildRows()
+			})
+		}()
+	}
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyCtrlC {
-			if !onList {
+			if viewingDetail {
 				detailSearch.CloseComposing()
 			}
+			quitting.Store(true)
 			app.Stop()
 			return nil
 		}
 		// design-docs/Search.md, same reasoning as tui.go's identically-
 		// shaped branch: bypasses normal focus-driven dispatch, confirmed
 		// live to not reliably reach a primitive nested this deep.
-		if !onList && detailSearch.IsComposing() {
+		if viewingDetail && detailSearch.IsComposing() {
 			detailSearch.HandleComposingKey(event)
 			return nil
 		}
 		switch {
 		case event.Rune() == 'q':
+			quitting.Store(true)
 			app.Stop()
 			return nil
 		case event.Key() == tcell.KeyCtrlA:
@@ -1299,50 +1984,54 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		case event.Key() == tcell.KeyCtrlE:
 			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		}
-		if onList {
-			return event
-		}
-		switch {
-		case event.Key() == tcell.KeyEscape && detailSearch.HasActive():
-			detailSearch.Clear()
-			return nil
-		case event.Key() == tcell.KeyEscape:
-			pages.SwitchToPage("list")
-			onList = true
-			app.SetFocus(list)
-			return nil
-		case event.Key() == tcell.KeyTab:
-			detailTabs.Next()
-			return nil
-		case event.Key() == tcell.KeyBacktab:
-			detailTabs.Prev()
-			return nil
-		// n/N are context-sensitive here, the same way tui.go's own
-		// task-hop n/N become match-nav while a search is active: this
-		// view already used n/N for host-hop (navigateHostDetail) before
-		// search existed, and there's no separate key budget to give
-		// search its own - see design-docs/Search.md's own discussion of
-		// this exact collision.
-		case event.Rune() == 'n':
-			if detailSearch.HasActive() {
-				detailSearch.Next()
-			} else {
-				navigateHostDetail(1)
+		// Detail-specific bindings apply whenever a detail view exists at
+		// all - both the full-screen "detail" page and the split-mode
+		// "split" page show one, unlike the old onList-only gate this
+		// replaced, which only ever had to distinguish two pages, not
+		// three.
+		if viewingDetail {
+			switch {
+			case event.Key() == tcell.KeyEscape && detailSearch.HasActive():
+				detailSearch.Clear()
+				return nil
+			case event.Key() == tcell.KeyEscape && !splitMode:
+				pages.SwitchToPage("list")
+				viewingDetail = false
+				app.SetFocus(list)
+				return nil
+			case event.Key() == tcell.KeyTab:
+				detailTabs.Next()
+				return nil
+			case event.Key() == tcell.KeyBacktab:
+				detailTabs.Prev()
+				return nil
+			// n/N are context-sensitive here, the same way tui.go's own
+			// task-hop n/N become match-nav while a search is active: this
+			// view already used n/N for host-hop (navigateHostDetail)
+			// before search existed, and there's no separate key budget to
+			// give search its own - see design-docs/Search.md's own
+			// discussion of this exact collision.
+			case event.Rune() == 'n':
+				if detailSearch.HasActive() {
+					detailSearch.Next()
+				} else {
+					navigateHostDetail(1)
+				}
+				return nil
+			case event.Rune() == 'N':
+				if detailSearch.HasActive() {
+					detailSearch.Prev()
+				} else {
+					navigateHostDetail(-1)
+				}
+				return nil
+			case event.Rune() == '/':
+				detailSearch.Open()
+				return nil
+			case event.Rune() == 'y':
+				detailSearch.ShowMessage(uikit.CopyActiveTabStatus(detailTabs))
+				return nil
 			}
-			return nil
-		case event.Rune() == 'N':
-			if detailSearch.HasActive() {
-				detailSearch.Prev()
-			} else {
-				navigateHostDetail(-1)
-			}
-			return nil
-		case event.Rune() == '/':
-			detailSearch.Open()
-			return nil
-		case event.Rune() == 'y':
-			detailSearch.ShowMessage(uikit.CopyActiveTabStatus(detailTabs))
-			return nil
 		}
 		return event
 	})
@@ -1351,7 +2040,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 		if event == nil {
 			return nil, action
 		}
-		if onList {
+		if !viewingDetail {
 			if x, y := event.Position(); uikit.InRect(x, y, listHeader) || uikit.InRect(x, y, listFooter) {
 				return nil, action
 			}
@@ -1365,8 +2054,52 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath st
 				return nil, action
 			}
 		}
+		if splitMode {
+			// The list pane is also on screen in split mode and stays
+			// clickable/scrollable exactly as it is in full-screen list
+			// mode - list's own row-select callback (showDetail) is what
+			// live-syncs the detail pane, so clicking a row does the same
+			// thing n/N already does. Real keyboard focus defaults to
+			// detailTabs.Primitive() in split mode now (layout, above),
+			// not list - so ↑/↓ scroll the active tab's own content by
+			// default, matching full-screen mode; clicking a list row
+			// still moves real focus onto list for as long as the user
+			// keeps navigating there (TreeList.MouseHandler's own
+			// unconditional setFocus on click), reverting back to
+			// detailTabs on the next host selection (showDetail/layout).
+			if x, y := event.Position(); uikit.InRect(x, y, listHeader) || uikit.InRect(x, y, listFooter) {
+				return nil, action
+			}
+		}
 		return event, action
 	})
+
+	// A dedicated resize-watcher goroutine, mirroring tui.go's own
+	// startResizeWatcher: this view has no other ticker at all (fully
+	// event-driven, no live jsonl stream to piggyback a periodic rebuild
+	// on), so a bare terminal resize with no other keyboard/mouse event
+	// needs its own watcher to ever notice split mode should change.
+	go func() {
+		ticker := time.NewTicker(uikit.SpinnerInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			if quitting.Load() {
+				return
+			}
+			app.QueueUpdate(func() { // NOT QueueUpdateDraw - avoid forcing
+				// a real screen redraw on every tick when nothing changed.
+				_, _, totalWidth, _ := pages.GetInnerRect()
+				if totalWidth != lastTotalWidth {
+					layout()
+					// app.Draw() would deadlock here - see tui.go's own
+					// startResizeWatcher for why ForceDraw() is the one
+					// safe way to force a redraw from inside a queued
+					// update.
+					app.ForceDraw()
+				}
+			})
+		}
+	}()
 
 	app.SetRoot(pages, true).SetFocus(list)
 	if err := app.Run(); err != nil {

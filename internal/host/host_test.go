@@ -16,13 +16,17 @@ package host
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/inventory"
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/rivo/tview"
 )
@@ -230,27 +234,29 @@ func TestFormatHostSummary(t *testing.T) {
 		"ansible_ssh_host_key_ed25519_public":         "AAAAED",
 		"ansible_ssh_host_key_ed25519_public_keytype": "ssh-ed25519",
 	}
-	got := FormatHostSummary("web1", facts)
+	got := formatCharacteristics("web1", facts)
 
 	for _, want := range []string{
-		"Host:           web1\n",
-		"FQDN:           web1.example.com\n",
-		"OS:             Linux, 6.1.0-13-amd64\n",
-		"Distribution:   Debian, 13.6\n",
-		"Architecture:   x86_64\n",
-		"Processor:      AMD Ryzen 5 3600 6-Core Processor\n",
-		"RAM:            48.0 GB\n",
-		"Virtualization: Container\n",
-		"IPv4:           10.0.0.104\n",
-		"IPv6:           2a01:4f9:3080:14ad::104\n",
-		"Host key (ed25519): ssh-ed25519 AAAAED\n",
+		"[green]Host:[-]           [lightsteelblue]web1[-]\n",
+		"[green]FQDN:[-]           [lightsteelblue]web1.example.com[-]\n",
+		"[green]OS:[-]             [lightsteelblue]Linux, 6.1.0-13-amd64[-]\n",
+		"[green]Distribution:[-]   [lightsteelblue]Debian, 13.6[-]\n",
+		"[green]Architecture:[-]   [lightsteelblue]x86_64[-]\n",
+		"[green]Processor:[-]      [lightsteelblue]AMD Ryzen 5 3600 6-Core Processor[-]\n",
+		"[green]RAM:[-]            [lightsteelblue]48.0 GB[-]\n",
+		"[green]Virtualization:[-] [lightsteelblue]Container[-]\n",
+		"[green]IPv4:[-]           [lightsteelblue]10.0.0.104[-]\n",
+		"[green]IPv6:[-]           [lightsteelblue]2a01:4f9:3080:14ad::104[-]\n",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("formatHostSummary() missing line %q\nfull output:\n%s", want, got)
+			t.Errorf("formatCharacteristics() missing line %q\nfull output:\n%s", want, got)
 		}
 	}
+	if got := formatHostKeyLines(HostKeyLines(facts)); !strings.Contains(got, "[green]Host key (ed25519):[-] [lightsteelblue]ssh-ed25519 AAAAED[-]\n") {
+		t.Errorf("formatHostKeyLines(HostKeyLines(facts)) = %q, missing the ed25519 line", got)
+	}
 	if strings.Contains(got, "fe80::abc") {
-		t.Errorf("formatHostSummary() should have filtered the link-local IPv6 address, got:\n%s", got)
+		t.Errorf("formatCharacteristics() should have filtered the link-local IPv6 address, got:\n%s", got)
 	}
 }
 
@@ -330,10 +336,10 @@ func TestDiscoverHostVarsFiles(t *testing.T) {
 }
 
 func TestHostRowText(t *testing.T) {
-	if got, want := HostRowText("web1", false), "[white]web1[-]"; got != want {
+	if got, want := HostRowText("web1", false, false, false), "[gray]●[-]  [white]web1[-]"; got != want {
 		t.Errorf("HostRowText(selected=false) = %q, want %q", got, want)
 	}
-	if got, want := HostRowText("web1", true), "["+uikit.PureBlack+":lightgray:b]web1[-:-:-]"; got != want {
+	if got, want := HostRowText("web1", true, false, false), "[gray]●[-]  ["+uikit.PureBlack+":lightgray:b]web1[-:-:-]"; got != want {
 		t.Errorf("HostRowText(selected=true) = %q, want %q", got, want)
 	}
 }
@@ -342,10 +348,222 @@ func TestHostRowText(t *testing.T) {
 // "[" (unusual, but not impossible - an inventory hostname is arbitrary
 // user-authored text) doesn't get misread as a color tag.
 func TestHostRowTextEscapesBrackets(t *testing.T) {
-	got := HostRowText("host[1]", false)
-	want := "[white]" + tview.Escape("host[1]") + "[-]"
+	got := HostRowText("host[1]", false, false, false)
+	want := "[gray]●[-]  [white]" + tview.Escape("host[1]") + "[-]"
 	if got != want {
 		t.Errorf("HostRowText() = %q, want %q", got, want)
+	}
+}
+
+// TestHostRowTextPingDot confirms the connectivity dot (design-docs/
+// HostVerb.md's own "New ideas") leads the row (dot, then hostname),
+// gray while pingKnown is false (that row's own ping hasn't landed yet)
+// and colored per pingOK once it has - green for a successful
+// ansible.builtin.ping, red otherwise.
+func TestHostRowTextPingDot(t *testing.T) {
+	if got, want := HostRowText("web1", false, false, true), "[gray]●[-]  [white]web1[-]"; got != want {
+		t.Errorf("HostRowText(pingKnown=false) = %q, want %q (gray while pending)", got, want)
+	}
+	if got, want := HostRowText("web1", false, true, true), "[green]●[-]  [white]web1[-]"; got != want {
+		t.Errorf("HostRowText(pingKnown=true, pingOK=true) = %q, want %q", got, want)
+	}
+	if got, want := HostRowText("web1", false, true, false), "[red]●[-]  [white]web1[-]"; got != want {
+		t.Errorf("HostRowText(pingKnown=true, pingOK=false) = %q, want %q", got, want)
+	}
+}
+
+// TestCollectRecentRunCandidates confirms design-docs/HostVerb.md's own
+// "Recent" decisions: every PlaybookHistory entry contributes (not just
+// one playbook), an invocation with no RunID is dropped before anything
+// else, and the result is newest-first regardless of which entry (or
+// which playbook/role) it came from.
+func TestCollectRecentRunCandidates(t *testing.T) {
+	cfg := config.StateConfig{
+		History: []config.PlaybookHistory{
+			{
+				Playbook: "site.yml",
+				Invocations: []config.InvocationRecord{
+					{Time: "2026-09-07T11:11:00Z", RunID: "r1"},
+					{Time: "2026-09-10T10:12:00Z", RunID: "r3"},
+					{Time: "2026-09-09T00:00:00Z", RunID: ""}, // no RunID - dropped
+				},
+			},
+			{
+				Role: "postfix",
+				Invocations: []config.InvocationRecord{
+					{Time: "2026-09-08T01:23:00Z", RunID: "r2"},
+				},
+			},
+		},
+	}
+	got := collectRecentRunCandidates(cfg)
+	var gotRunIDs []string
+	for _, c := range got {
+		gotRunIDs = append(gotRunIDs, c.RunID)
+	}
+	want := []string{"r3", "r2", "r1"}
+	if !reflect.DeepEqual(gotRunIDs, want) {
+		t.Errorf("collectRecentRunCandidates() RunIDs = %v, want %v", gotRunIDs, want)
+	}
+	if got[1].name != "postfix" {
+		t.Errorf("collectRecentRunCandidates()[1].name = %q, want %q (a role entry's own Role field)", got[1].name, "postfix")
+	}
+}
+
+// TestCollectRecentRunCandidates_ScanCap confirms the RecentRunsScanLimit
+// cap applies project-wide (across every PlaybookHistory entry pooled
+// together), not per playbook - design-docs/HostVerb.md's own "Bounded
+// scan, not bounded results" decision.
+func TestCollectRecentRunCandidates_ScanCap(t *testing.T) {
+	var invocations []config.InvocationRecord
+	for i := 0; i < RecentRunsScanLimit+5; i++ {
+		invocations = append(invocations, config.InvocationRecord{
+			Time:  time.Date(2026, 1, 1, 0, 0, i, 0, time.UTC).Format(time.RFC3339),
+			RunID: fmt.Sprintf("r%d", i),
+		})
+	}
+	cfg := config.StateConfig{History: []config.PlaybookHistory{{Playbook: "site.yml", Invocations: invocations}}}
+	got := collectRecentRunCandidates(cfg)
+	if len(got) != RecentRunsScanLimit {
+		t.Fatalf("collectRecentRunCandidates() returned %d candidates, want %d", len(got), RecentRunsScanLimit)
+	}
+	if got[0].RunID != fmt.Sprintf("r%d", RecentRunsScanLimit+4) {
+		t.Errorf("collectRecentRunCandidates()[0].RunID = %q, want the single newest invocation", got[0].RunID)
+	}
+}
+
+// TestHostCountsFor builds a minimal PlaybookState directly via Apply
+// (the same public entry point a live/replayed run uses) and confirms
+// hostCountsFor tallies outcomes/warnings/ignored per host, matching
+// internal/session/recap.go's own recapForHost approach.
+func TestHostCountsFor(t *testing.T) {
+	s := &playbook.PlaybookState{}
+	s.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
+	s.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{ID: "t1", Name: "one"}})
+	s.Apply(playbook.RawEvent{Event: "v2_runner_on_ok", Task: &playbook.TaskRef{ID: "t1"},
+		Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"changed":false}`)}})
+	s.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{ID: "t2", Name: "two"}})
+	s.Apply(playbook.RawEvent{Event: "v2_runner_on_failed", Task: &playbook.TaskRef{ID: "t2"},
+		Hosts: map[string]json.RawMessage{"web1": json.RawMessage(`{"failed":true,"ignore_errors":true}`)}})
+
+	counts, found := hostCountsFor(s, "web1")
+	if !found {
+		t.Fatal("hostCountsFor(state, \"web1\") found = false, want true")
+	}
+	if counts.OK != 1 || counts.Failed != 1 || counts.Ignored != 1 {
+		t.Errorf("hostCountsFor() = %+v, want OK=1 Failed=1 Ignored=1", counts)
+	}
+
+	if _, found := hostCountsFor(s, "web2"); found {
+		t.Error("hostCountsFor(state, \"web2\") found = true, want false (never appeared in this run)")
+	}
+}
+
+func TestFormatRecentTime(t *testing.T) {
+	if got, want := formatRecentTime("2026-09-10T10:12:00Z"), "2026-09-10 10:12"; got != want {
+		t.Errorf("formatRecentTime() = %q, want %q", got, want)
+	}
+	// Falls back to the raw string on a parse failure - shouldn't happen
+	// for anything this app itself ever wrote, but not trusted blindly.
+	if got, want := formatRecentTime("not a timestamp"), "not a timestamp"; got != want {
+		t.Errorf("formatRecentTime() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatRecentRunLines(t *testing.T) {
+	got := formatRecentRunLines([]recentRunLine{
+		{name: "site.yml", time: "2026-09-10T10:12:00Z", counts: hostRunCounts{OK: 189, Skipped: 50, Changed: 7}},
+	})
+	want := "[green]2026-09-10 10:12 site.yml:[-] [lightsteelblue]ok=189  skipped=50   changed=7    unreachable=0    failed=0    warnings=0    ignored=0[-]\n"
+	if got != want {
+		t.Errorf("formatRecentRunLines() = %q, want %q", got, want)
+	}
+}
+
+// TestHighlightRolePrefix confirms the Plays tab's own cosmetic pass: a
+// role-sourced task ("<role> : <task>", ansible's own --list-tasks
+// format for a role task, confirmed empirically) gets just its role
+// portion highlighted (bright white, bold), the rest dropped to silver;
+// a plain play-level task (no " : " at all) renders unstyled but still
+// escaped.
+func TestHighlightRolePrefix(t *testing.T) {
+	if got, want := highlightRolePrefix("webserver : install packages"), "[green]webserver[-][lightsteelblue] : install packages[-]"; got != want {
+		t.Errorf("highlightRolePrefix() = %q, want %q", got, want)
+	}
+	if got, want := highlightRolePrefix("say hi"), "say hi"; got != want {
+		t.Errorf("highlightRolePrefix() = %q, want %q", got, want)
+	}
+}
+
+func TestHighlightYAMLKeys(t *testing.T) {
+	got := highlightYAMLKeys("name: install packages\n  - foo: bar\n# a comment\n")
+	want := "[green]name:[-][lightsteelblue] install packages[-]\n  - [green]foo:[-][lightsteelblue] bar[-]\n# a comment\n"
+	if got != want {
+		t.Errorf("highlightYAMLKeys() = %q, want %q", got, want)
+	}
+}
+
+func TestHighlightJSONKeys(t *testing.T) {
+	got := highlightJSONKeys(`{
+    "ansible_host": "192.0.2.254",
+    "nested": {
+        "inner": 1
+    }
+}`)
+	want := "{\n    [green]\"ansible_host\":[-][lightsteelblue] \"192.0.2.254\",[-]\n    [green]\"nested\":[-][lightsteelblue] {[-]\n        [green]\"inner\":[-][lightsteelblue] 1[-]\n    }\n}"
+	if got != want {
+		t.Errorf("highlightJSONKeys() = %q, want %q", got, want)
+	}
+}
+
+// TestHighlightYAMLKeys_ListItems confirms a bare block-sequence item
+// (no key of its own, e.g. "- alpha") gets its value highlighted too -
+// previously only a list's own flow-style opening (attached to its
+// owning key) was colored at all.
+func TestHighlightYAMLKeys_ListItems(t *testing.T) {
+	got := highlightYAMLKeys("mylist:\n  - alpha\n  - beta\n")
+	want := "[green]mylist:[-][lightsteelblue][-]\n  - [lightsteelblue]alpha[-]\n  - [lightsteelblue]beta[-]\n"
+	if got != want {
+		t.Errorf("highlightYAMLKeys() = %q, want %q", got, want)
+	}
+}
+
+// TestHighlightYAMLKeys_BlockScalar confirms an ansible-vault-shaped
+// multi-line block scalar ("key: !vault |" followed by more-indented
+// continuation lines) gets its whole value highlighted, not just the
+// "!vault |" opener itself - and that a later, equal-or-lower-indented
+// key correctly ends the continuation and resumes normal key/value
+// highlighting.
+func TestHighlightYAMLKeys_BlockScalar(t *testing.T) {
+	got := highlightYAMLKeys("secret: !vault |\n  line one\n  line two\nplain: value\n")
+	want := "[green]secret:[-][lightsteelblue] !vault |[-]\n" +
+		"[lightsteelblue]  line one[-]\n" +
+		"[lightsteelblue]  line two[-]\n" +
+		"[green]plain:[-][lightsteelblue] value[-]\n"
+	if got != want {
+		t.Errorf("highlightYAMLKeys() = %q, want %q", got, want)
+	}
+}
+
+// TestHighlightJSONKeys_ArrayElements confirms a bare array element (no
+// key of its own) gets highlighted too - previously only an array's own
+// opening "[" (part of its owning key's own value) was ever colored.
+func TestHighlightJSONKeys_ArrayElements(t *testing.T) {
+	got := highlightJSONKeys("{\n    \"tags\": [\n        \"web\",\n        \"prod\"\n    ]\n}")
+	want := "{\n    [green]\"tags\":[-][lightsteelblue] [[-]\n        [lightsteelblue]\"web\"[-],\n        [lightsteelblue]\"prod\"[-]\n    ]\n}"
+	if got != want {
+		t.Errorf("highlightJSONKeys() = %q, want %q", got, want)
+	}
+}
+
+func TestHostSectionHeading(t *testing.T) {
+	if got, want := hostSectionHeading("Recent"), "[green]Recent\n======[-]\n\n"; got != want {
+		t.Errorf("hostSectionHeading() = %q, want %q", got, want)
+	}
+	// A label containing a literal "[" (a host_vars file path could,
+	// however unlikely) must not be misread as a color tag.
+	if got, want := hostSectionHeading("a[b"), "[green]"+tview.Escape("a[b")+"\n"+strings.Repeat("=", 3)+"[-]\n\n"; got != want {
+		t.Errorf("hostSectionHeading() = %q, want %q", got, want)
 	}
 }
 

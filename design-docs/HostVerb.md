@@ -333,3 +333,254 @@ SM=
   behavior unchanged; only split mode gets this. No debounce on rapid
   cursor movement for now - deliberately left unbuilt until it's actually
   felt to be a problem in live use, not guessed at up front.
+
+## Status: New ideas
+
+Implemented (`host.go`, `host_test.go`), all four items above. Live-verified
+via tmux against a scratch inventory (three `ansible_connection=local`
+hosts):
+
+* Ping dots render green/lazily as each host's own `ansible.builtin.ping`
+  lands, independent of the others' timing; confirmed colored correctly via
+  `tmux capture-pane -e`, not just presence of the `●` glyph.
+* `tangsible hosts` on a wide terminal opens straight into split mode,
+  auto-selecting the first host with no Enter needed; moving the cursor
+  (arrow keys and `n`/`N`) live-retargets the detail pane in real time, tab
+  selection preserved across the hop.
+* Narrowing the terminal mid-session falls back to full-screen detail for
+  whatever host was last showing (Esc from there returns to the plain
+  list); widening back re-enters split mode showing whatever the list
+  cursor currently sits on. Both transitions verified live via
+  `tmux resize-window`.
+* Summary restructured into Characteristics/Recent/Keys sections
+  (`uikit.SectionLabel`-headed); Recent correctly shows "no recorded runs
+  found" with an empty `state.toml`, and correctly shows a real
+  `ok=1 skipped=0 changed=0 ...` line once a real `tangsible run` populated
+  one - confirmed by actually running one against the scratch inventory and
+  reopening `tangsible host` afterward, not just via the unit tests
+  (`TestCollectRecentRunCandidates`/`TestHostCountsFor`/
+  `TestFormatRecentRunLines`) covering the pure logic underneath it.
+
+Known, accepted simplifications (documented inline in `host.go`, not
+chased further): the split-mode detail footer keeps saying "esc: back to
+list" if a resize later drops out of split while that same detail is still
+open (`TabSearchBar` has no way to update its own hint text after
+construction); a mouse click landing on the detail pane's own `TextView`
+content in split mode can steal real keyboard focus away from the list
+until the next host selection resets it, unlike the run drill-down's own
+`handleOutputViewMouse`, which goes further to prevent that specific class
+of bug.
+
+## Follow-up findings, all from live use after the above shipped
+
+* **Dot placement reversed: leads the row, not "behind the host name" as
+  originally specced.** `HostRowText` now renders `<dot>  <hostname>`, not
+  the other way around - a live look at both showed leading dots easier to
+  scan down a column.
+* **Dot starts gray, not simply absent, while that row's own ping is still
+  in flight.** `HostRowText`'s `pingKnown`/`pingOK` pair is unchanged, but
+  the rendering is: gray when `!pingKnown`, green/red once it is - every
+  row always shows *a* dot from the moment the list itself renders, never
+  a blank gap that later gets a dot inserted.
+* **The Summary tab took ~8s on a real project - traced to the "Recent"
+  scan, not the live fact gather.** Reported live, then confirmed by
+  reading the code: the original all-at-once `fetchRecentRuns` blocked the
+  *entire* Summary tab's own single `fetch()` call on replaying up to
+  `RecentRunsScanLimit` run logs before returning anything at all, even
+  though Characteristics/Keys have nothing to do with that scan and were
+  already sitting in memory by the time it started. Fixed by splitting the
+  Summary tab's own goroutine in two: `FetchHostFacts` (facts only, same
+  cost as before) renders and shows Characteristics/Keys immediately, then
+  `StreamRecentRuns` - `fetchRecentRuns`'s own incremental sibling, calling
+  `onMatch` per line found rather than collecting all of them first -
+  appends each Recent line to the already-visible tab as it arrives, via a
+  `summaryDoc` that re-renders the combined page from whichever pieces are
+  known so far. `ScrollToBeginning()` is deliberately only called once,
+  right after Characteristics/Keys first appear - calling it again on
+  every later Recent-line update would yank the view back to the top out
+  from under anyone who scrolled down while it was still streaming in.
+* **A host already known unreachable (a red dot) shouldn't be reconnected
+  to just to open its Summary tab.** Reported live: clicking a red-dot host
+  still paid for a full, doomed `ansible-playbook`/`setup:` connection
+  attempt before falling back to the cache-check's own "no usable cache"
+  path. Fixed by threading the hosts list's own already-known `pingKnown`/
+  `pingOK` for that host into `BuildHostDetailPrimitive` (`false, false`
+  for the standalone `host` Verb, which has no ping subsystem at all) and
+  on into `FetchHostFacts`'s new `skipLiveGather` parameter
+  (`pingKnown && !pingOK`) - the cheap, connection-free cache-check
+  (`ansible-inventory --host`) still always runs first regardless (a
+  stale cached fact is still worth showing for a host that's down right
+  now), only the live gather itself is skipped, replaced by a plain note
+  explaining why. Live-verified against a genuinely unreachable host
+  (`192.0.2.254`, a `ConnectTimeout=2` TEST-NET-1 address): the Summary tab
+  now renders in well under a second instead of waiting out the SSH
+  timeout.
+
+## Second round of follow-up findings
+
+* **The skipped-live-gather note is now just "Host unavailable."**,
+  replacing the earlier full sentence - shorter reads better for what's
+  otherwise a one-line status, matching "Unreachable"/"Failed"'s own
+  terse, bold headings right above it.
+* **Missing blank line before "Recent" whenever Characteristics was one of
+  the three pre-rendered notes** (the skip-note above, or a live
+  Unreachable/Failed result) - `summaryDoc.render()`'s own blank-line
+  insertion between sections only works because `formatCharacteristics`'
+  normal field list already ends its own last line in `\n`; none of the
+  three pre-rendered strings did. Fixed by giving each of them their own
+  trailing `\n` too, matching what the normal case already had for free.
+* **Split mode had the same class of focus bug `livesession_mouse.go`'s
+  own `handleOutputViewMouse` already fixed once for the run drill-down.**
+  Reported live: once a tab was showing, ↑/↓ still moved the *list's* own
+  cursor, not the tab's own content - there was no way to scroll a tab at
+  all while split. Root cause: `layout()`'s own split-mode branch called
+  `app.SetFocus(list)`, unlike its full-screen "detail" branch right below
+  it, which already correctly focuses `detailTabs.Primitive()` - an
+  inconsistency between the two layouts, not a deliberate choice. Fixed by
+  making split mode focus `detailTabs.Primitive()` too, exactly matching
+  full-screen mode: ↑/↓/PgUp/PgDn now scroll the active tab's own content
+  in both layouts. Host-to-host navigation while split still works via
+  `n`/`N` (`handleKey` intercepts those regardless of where real focus
+  sits, same as it always has) and via a mouse click on the list pane
+  itself (`TreeList`'s own `MouseHandler` moves real focus back onto
+  `list` when clicked, reverting to `detailTabs` on the next host
+  selection). Live-verified via tmux: five consecutive `Down` presses
+  while viewing "Everything known" left the header reading the same host
+  throughout (previously it would have hopped four rows down the list);
+  `n`/`N` still hopped hosts correctly in between.
+
+## Cosmetic pass: green for keys/headlines, lightsteelblue for values
+
+All of this verb's own headings/labels/keys render green (`[green]`); the
+values next to them render `lightsteelblue`, current-weight (no bold/dim
+attribute at all) - `uikit.SectionLabel`'s own orange is untouched, still
+used by the drill-down's own Task/Output/Errors/Details sections, which
+have a real reason to stay color-coded (see its own doc comment) -
+`host.go` gets its own `hostSectionHeading` instead of calling it.
+`lightsteelblue` is one of tcell's many extended/X11 named colors (confirmed
+present in `github.com/rivo/tview`'s underlying color table), not a
+base-16 ANSI name - renders as a 256-color/RGB escape, not a plain
+`3x`/`9x` SGR code, confirmed live (`\x1b[38;5;117m` in the actual
+captured output, not a bare single-digit color code).
+
+**Fourth attempt at this cosmetic pass overall - three earlier iterations
+each got reverted after live feedback, each one covering the exact same
+seven call sites, never a different set:**
+1. Bold only, same color as the rest of the text throughout - "doesn't
+   look like I imagined."
+2. Dim (`tcell.AttrDim`/ANSI SGR 2) instead of bold - reverted for two
+   reasons at once: mosh doesn't render SGR 2 at all (a real
+   terminal-support gap, not a preference), and even outside mosh it
+   still didn't read the way it was pictured.
+3. Bright white + bold for keys/headlines, plain silver (dimmer,
+   unbolded) for values - a real, deliberate two-tone split, just not the
+   two tones actually wanted.
+
+Every iteration reused the identical structural split (a key/headline
+immediately followed by its value, always styled differently, never the
+same treatment for both) - only the specific `[fg:bg:flags]` tag content
+ever changed. The functions carrying this out were renamed once, early on
+(`boldXxx` → `dimXxx`), then settled on plain names with no style word
+baked in (`highlightRolePrefix`/`highlightYAMLKeys`/`highlightJSONKeys`),
+specifically so a *further* restyling - this one included - needs no
+rename at all, just new tag content. One substantive, durable finding
+from the second iteration still matters for any future one: a bare `-` as
+the *entire* flags field of a tview tag resets every attribute flag back
+to baseline in one go (`github.com/rivo/tview`'s own tag parser,
+`strings.go`) - which is what makes `[-]"`/`[-::-]"` closing tags safe and
+generic across any of these style swaps, needing no change themselves
+regardless of what the matching opening tag actually sets.
+
+* `hostSectionHeading` replaces `uikit.SectionLabel("orange", ...)` for
+  every section header host.go renders - Summary's own Characteristics/
+  Recent/Keys, each host_vars file's own path, each Play's own name. The
+  heading itself is `[green]`; the "=" underline stays unstyled.
+* `formatCharacteristics`/`formatHostKeyLines`/`formatRecentRunLines`
+  highlight each row's own label (`Host:`, `FQDN:`, ..., `Host key
+  (ed25519):`, and each Recent line's own `<time> <name>:` prefix)
+  `[green]`, then wrap the value itself in `[lightsteelblue]...[-]`.
+* **Plays tab**: `highlightRolePrefix` highlights a task line's own
+  leading "`<role> : `" prefix `[green]`, drops the rest of the line (the
+  task name) to `[lightsteelblue]` - confirmed empirically (a real
+  role-using playbook's own `--list-tasks` output) that ansible prefixes
+  a role-sourced task with its role's name and " : ", never present for a
+  task defined directly in the play (left entirely unstyled then, since
+  there's no key/value split to make). Splits on the first " : " only.
+* **host_vars tab**: `highlightYAMLKeys` highlights each line's own
+  "key:" portion `[green]` and the rest of the line `[lightsteelblue]`,
+  reusing `uikit.YamlKeyLine` (the drill-down's own Task-section regex)
+  rather than that helper's own `ColorizeYAML` wrapper (orange-plus-bold) -
+  same "good enough, not a real parser" caveat that regex's own doc
+  comment already states.
+* **Everything known tab**: `highlightJSONKeys` is `highlightYAMLKeys`'s
+  own sibling for this tab's actual shape - pretty-printed JSON, not
+  YAML, so a new `jsonKeyLine` regex matches a quoted `"key":` instead of
+  YAML's bare `key:`. Same line-based, not-a-real-parser approach.
+
+All four pure formatters (`highlightRolePrefix`/`highlightYAMLKeys`/
+`highlightJSONKeys`/`hostSectionHeading`) have unit tests, rewritten each
+time the styling changed; the whole pass was also live-verified via tmux
+every time (`tmux capture-pane -e`, checking the literal SGR/256-color
+codes rather than just eyeballing rendered color) against both a plain
+task and a real role-using playbook.
+
+## Fifth attempt: `lightsteelblue`, plus real coverage gaps found by using it
+
+`lightsteelblue` replaced `steelblue` for every value color above (a
+one-line rename, same tag mechanism, same seven-plus call sites) - but
+using the restyled pages for real (not just the original test fixtures)
+surfaced three genuine content-coverage gaps in `highlightYAMLKeys`/
+`highlightJSONKeys` themselves, not just more color-swapping:
+
+* **The heading underline now shares the heading's own color tag**
+  (`hostSectionHeading`) - one `[green]...[-]` span covering both the
+  label line and the `"="` line below it, rather than a colored heading
+  over a plain-default underline.
+* **A bare YAML list item had no key to color, so it stayed fully
+  unstyled** - `- alpha`/`- [a, b]` under a list key never matches
+  `uikit.YamlKeyLine` at all (no colon anywhere on the line); only a
+  list's own flow-style opening on its *owning key's* line (e.g.
+  `mylist: [`) was ever colored. Fixed with a second pattern,
+  `yamlListItemLine` (`^(\s*-\s+)(.+)$`), tried only after
+  `uikit.YamlKeyLine` has already failed to match - a mapping-shaped item
+  (`- key: value`) is already handled by that regex's own optional
+  leading-marker group and never reaches this one.
+* **A multi-line block scalar's own continuation lines had no key to
+  color either, so only the opener itself ever was** - a real,
+  motivating case: `somekey: !vault |` followed by an indented, multi-line
+  base64 blob (`ansible-vault encrypt_string`'s own real output shape) -
+  the `!vault |` opener is `uikit.YamlKeyLine`'s own `m[4]` and was
+  already colored, but every line after it is raw text with no key/list
+  shape at all. Fixed by tracking state across lines
+  (`blockScalarIndent`): once a key or list-item's own value matches
+  `yamlBlockScalarOpener` (a bare `|`/`>`, optionally chomp-marked and/or
+  tag-prefixed - `!vault` being the motivating tag, not the only one this
+  matches), every following line that's blank or indented further than
+  that opener is colored as its own continuation, until indentation drops
+  back down - at which point normal key/list-item matching resumes
+  exactly where it left off.
+* **A bare JSON array element had the identical gap, mirrored**: `"web",`
+  inside a `"tags": [...]` array never matches `jsonKeyLine` (no colon at
+  all), so only the array's own opening `[` (part of its owning key's
+  `m[4]`) was ever colored. Fixed the same way as the YAML list-item
+  case: a second pattern, `jsonValueLine`, tried only after `jsonKeyLine`
+  has failed, matching a bare quoted string/number/`true`/`false`/`null`
+  optionally followed by a trailing comma.
+
+**Groups tab was entirely uncolored until now** - a gap independent of
+the styling-iteration history above, since this tab was never touched by
+any earlier pass. `FetchHostGroups` now colors each line's own primary
+group name green and its `(direct)`/`(via <group>)` detail
+`lightsteelblue`, the same key/value split as everywhere else on this
+verb's pages - `"all"` (which carries no detail at all, see its own
+existing doc comment on why) is just the green group name alone.
+
+All of the above (list items, block scalars, array elements, the merged
+underline color, and the Groups tab) were live-verified via tmux against
+a real, purpose-built scratch `host_vars` file combining a plain scalar,
+a bare-scalar list, a mapping-shaped list, and a real
+`ansible-vault`-shaped multi-line block scalar in one file, plus a
+nested inventory group chain (`web` → `prod` → `all`) for the Groups tab -
+not just the unit tests' own smaller fixtures.
+
+claude --resume 052c0089-f402-41e9-94ec-dc001028b53b
