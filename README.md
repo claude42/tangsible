@@ -424,3 +424,7 @@ The `tangsible` binary/CLI is **Apache-2.0** licensed - see `LICENSE`.
 The bundled `callback/tangsible_jsonl.py` Ansible callback plugin is a
 **GPL-3.0-or-later** derivative of `ansible.posix.jsonl` - see
 `callback/LICENSE`.
+
+## Contact
+
+`tangsible@aw.net`
