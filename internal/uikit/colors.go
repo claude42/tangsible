@@ -111,6 +111,20 @@ var (
 // them are actually a play title or a key/heading).
 var StandardTextColor = "silver"
 
+// DialogBorderColor is every modal dialog's own border (the re-run form,
+// the search/filter dialogs, template's "Change host" dialog) - these
+// previously had no configurable color at all, just tview's own hardcoded
+// tview.Styles.BorderColor default (white), the same kind of gap
+// BackgroundColor used to leave for the whole TUI's base background
+// before it existed. Defaults to StandardTextColor's own default value
+// rather than tview's "white", so an unconfigured border reads as plain
+// chrome, not an emphasized element. Read directly via tcell.GetColor at
+// each dialog's own construction (Box.SetBorderColor takes a tcell.Color,
+// not a tag string), same "resolved once, at startup, before any dialog
+// exists" timing every other var here already relies on - just a plain
+// tcell.Color reader rather than a tag-string one.
+var DialogBorderColor = "silver"
+
 // Chrome text/backgrounds that can't be one tcell.Style the way
 // BarStyle/ReplayBarStyle/CheckBarStyle/diff.DiffChromeStyle are - these
 // are baked into plain tag strings instead, since a progress-sweep fill
@@ -350,6 +364,7 @@ func ApplyColorConfig(cfg config.ColorsConfig) {
 	TaskTitleColor = ResolveColorOverride("task_title", cfg.TaskTitle, TaskTitleColor)
 	PlayTitleColor = ResolveColorOverride("play_title", cfg.PlayTitle, PlayTitleColor)
 	StandardTextColor = ResolveColorOverride("standard_text", cfg.StandardText, StandardTextColor)
+	DialogBorderColor = ResolveColorOverride("dialog_border", cfg.DialogBorder, DialogBorderColor)
 
 	ProgressTextColor = ResolveColorOverride("progress_text", cfg.ProgressText, ProgressTextColor)
 	TabTextColor = ResolveColorOverride("tab_text", cfg.TabText, TabTextColor)

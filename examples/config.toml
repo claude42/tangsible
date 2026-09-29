@@ -59,6 +59,10 @@ play_title = "white"
 # per-host hostname+duration prefix
 standard_text = "silver"
 
+# Modal dialog borders: re-run form, search/filter dialogs, template's
+# "Change host" dialog
+dialog_border = "silver"
+
 # Top bar / tab bar
 progress_text = "white"
 tab_text = "white"

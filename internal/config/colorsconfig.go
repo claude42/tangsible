@@ -56,6 +56,7 @@ type ColorsConfig struct {
 	TaskTitle    *string `toml:"task_title"`
 	PlayTitle    *string `toml:"play_title"`
 	StandardText *string `toml:"standard_text"`
+	DialogBorder *string `toml:"dialog_border"`
 
 	ProgressText *string `toml:"progress_text"`
 	TabText      *string `toml:"tab_text"`
@@ -128,6 +129,7 @@ func mergeColors(project, global, system ColorsConfig) ColorsConfig {
 		TaskTitle:    firstNonNil(project.TaskTitle, global.TaskTitle, system.TaskTitle),
 		PlayTitle:    firstNonNil(project.PlayTitle, global.PlayTitle, system.PlayTitle),
 		StandardText: firstNonNil(project.StandardText, global.StandardText, system.StandardText),
+		DialogBorder: firstNonNil(project.DialogBorder, global.DialogBorder, system.DialogBorder),
 
 		ProgressText: firstNonNil(project.ProgressText, global.ProgressText, system.ProgressText),
 		TabText:      firstNonNil(project.TabText, global.TabText, system.TabText),
@@ -241,6 +243,7 @@ func resolveEffectiveColorsWithTheme(cfg SettingsConfig, theme ThemeFile) Colors
 		TaskTitle:    pick("task_title", cfg.Colors.TaskTitle),
 		PlayTitle:    pick("play_title", cfg.Colors.PlayTitle),
 		StandardText: pick("standard_text", cfg.Colors.StandardText),
+		DialogBorder: pick("dialog_border", cfg.Colors.DialogBorder),
 
 		ProgressText: pick("progress_text", cfg.Colors.ProgressText),
 		TabText:      pick("tab_text", cfg.Colors.TabText),

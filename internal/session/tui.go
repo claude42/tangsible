@@ -456,7 +456,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		AddItem(tview.NewBox(), 1, 0, false). // top margin
 		AddItem(searchHeadline, 0, 1, false).
 		AddItem(s.searchInput, 1, 0, true)
-	s.searchDialogFlex.SetBorder(true).SetTitle(" Search ")
+	s.searchDialogFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Search ")
 
 	// rerunDialog (Rerun.md) - a real tview.Form, unlike the two dialogs
 	// above: it's the first multi-field input this app needs, and Form
@@ -466,7 +466,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// short of what the tree needed; here Form's default behavior already
 	// matches).
 	s.rerunForm = tview.NewForm()
-	s.rerunForm.SetBorder(true).SetTitle(" Re-run (enter: run, esc: cancel) ")
+	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Re-run (enter: run, esc: cancel) ")
 
 	// s.rerunFields (livesession_rerundialog.go) owns the four input
 	// fields, three checkboxes, and the sync logic between them - see its
@@ -665,7 +665,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 							AddItem(filterCancelButton, 10, 0, false).
 							AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
 		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
-	s.filterFlex.SetBorder(true).SetTitle(" Filter ")
+	s.filterFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Filter ")
 
 	// s.splitDivider is a one-column-wide vertical rule between the two panes
 	// - a bare Box with no content, whose Draw() (like every tview

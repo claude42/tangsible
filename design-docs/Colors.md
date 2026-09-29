@@ -200,6 +200,7 @@ of them.
 | Task row title | silver | `uikit.TaskTitleColor` | Yes |
 | Play row title | white | `uikit.PlayTitleColor` | Yes |
 | Plain "just text" content: `host`/`hosts` list hostnames, revisit list timestamp/command-line, recap's per-host hostname+duration prefix | silver | `uikit.StandardTextColor` | Yes |
+| Modal dialog borders: re-run form, search/filter dialogs, template's "Change host" dialog | silver | `uikit.DialogBorderColor` | Yes |
 | Chrome bars: live session | white on navy | `uikit.BarStyle` | Yes |
 | Chrome bars: revisited session | white on purple | `uikit.ReplayBarStyle` | Yes |
 | Chrome bars: `tangsible diff` | white on fuchsia | `diff.DiffChromeStyle` | Yes |
@@ -263,7 +264,7 @@ is the surviving set only. Every one of these is also its own
 | `red` | `OutcomeFailedColor`, `AsyncErrorColor`, `DiffRemovedColor`, `SummaryFailedColor` |
 | `maroon` | `OutcomeUnreachableColor` |
 | `gray` | `NothingReportedColor`, `AnnotationColor` |
-| `silver` | `TaskTitleColor`, `StandardTextColor` |
+| `silver` | `TaskTitleColor`, `StandardTextColor`, `DialogBorderColor` |
 | `white` | `PlayTitleColor`, `ProgressTextColor`, `TabTextColor` |
 | `lightgray` | `SelectedRowBackgroundColor` |
 | `lightsteelblue` | `ValueHighlightColor` |

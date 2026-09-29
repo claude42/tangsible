@@ -63,21 +63,25 @@ func TestApplyColorConfig(t *testing.T) {
 	origBarStyle := BarStyle
 	origBackground := BackgroundColor
 	origPrimitiveBg := tview.Styles.PrimitiveBackgroundColor
+	origDialogBorder := DialogBorderColor
 	t.Cleanup(func() {
 		OutcomeOKColor = origOutcomeOK
 		ChromeLiveColor = origChromeLive
 		BarStyle = origBarStyle
 		BackgroundColor = origBackground
 		tview.Styles.PrimitiveBackgroundColor = origPrimitiveBg
+		DialogBorderColor = origDialogBorder
 	})
 
 	valid := "orange"
 	invalid := "not-a-real-color"
 	background := "silver"
+	dialogBorder := "aqua"
 	ApplyColorConfig(config.ColorsConfig{
-		OutcomeOK:  &valid,
-		ChromeLive: &invalid,
-		Background: &background,
+		OutcomeOK:    &valid,
+		ChromeLive:   &invalid,
+		Background:   &background,
+		DialogBorder: &dialogBorder,
 	})
 
 	if OutcomeOKColor != "orange" {
@@ -94,5 +98,8 @@ func TestApplyColorConfig(t *testing.T) {
 	}
 	if want := tcell.GetColor("silver"); tview.Styles.PrimitiveBackgroundColor != want {
 		t.Errorf("tview.Styles.PrimitiveBackgroundColor = %v, want %v (BackgroundColor must actually reach it)", tview.Styles.PrimitiveBackgroundColor, want)
+	}
+	if DialogBorderColor != "aqua" {
+		t.Errorf("DialogBorderColor = %q, want %q", DialogBorderColor, "aqua")
 	}
 }
