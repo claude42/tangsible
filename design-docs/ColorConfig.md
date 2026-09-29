@@ -249,3 +249,120 @@ looks the way it does.
   staying project-local. See design-docs/ConfigOptions.md and
   `internal/config.MergedSettingsConfig`. `[colors]` inherited this for
   free once it landed - no special-casing needed.
+
+## Addendum: dark/light mode and named themes (proposed, not built)
+
+Unlike everything above, this section is a concept for review, the same
+status the rest of this doc had before it was implemented - nothing
+below is built yet. Two related asks: some colors (`selected_row_text`,
+the chrome bars, ...) are tuned for one background brightness and read
+poorly against the other, and separately, a reusable *named* set of
+color choices (a "theme") that isn't tied to any one project's own
+`config.toml`.
+
+### Dark/light mode
+
+A new `[general] color_scheme = "dark" | "light"` key, defaulting to
+`"dark"` (today's hardcoded colors are already tuned that way - see
+`SelectedRowTextColor`'s own doc comment on being nudged for readability
+against light backgrounds, which in context means a light *foreground
+element*, i.e. the app already assumes a dark surrounding terminal).
+Deliberately no `"auto"` option - this app already rejected guessing a
+terminal's own capabilities once (`design-docs/Notifications.md`'s own
+reasoning for not auto-detecting OSC support), and a terminal's
+background color is, if anything, less reliably queryable than that.
+
+`[colors]` itself gains two optional sub-tables, `[colors.dark]` and
+`[colors.light]`, holding the same 34 keys - only the ones that actually
+need to differ by background, not all 34 duplicated in both. Precedence
+within `[colors]` becomes: `[colors.<scheme>]` (matching whichever
+`color_scheme` is active) → flat `[colors]` (scheme-independent) →
+hardcoded default. Still merged project → global → system per key, same
+mechanism as today, just one more tier to check per key before falling
+through to the next config tier.
+
+### Named themes
+
+A theme is a reusable, shareable set of color choices, referenced by
+name rather than pasted into every project's own `config.toml`:
+
+```toml
+[general]
+theme = "solarized"
+color_scheme = "dark"
+```
+
+**One file per theme**, not one shared `themes.toml` holding all of
+them - matching the convention most terminal/editor color-scheme
+ecosystems already use (Alacritty, iTerm2, Windows Terminal, kitty,
+tmux-themepack), so sharing one theme is "send one file" or "one PR
+adding one file," never an edit to something everyone else's theme also
+lives in. Each theme file is TOML, the exact same shape `[colors]`
+already has - flat keys plus optional `[dark]`/`[light]` sub-tables (not
+nested under a `[colors]` key this time, since the whole file already is
+one) - and goes through the identical "Key naming rule" as `[colors]`
+itself: one key per `uikit.*Color`/`diff.DiffChromeColor` var,
+`ResolveColorOverride`'s own validation, one bad key warns and falls
+back without invalidating the rest of the theme.
+
+**Location**: reusing this app's own existing two-tier precedent for a
+bundled-but-user-extensible asset - the callback plugin
+(`runner.ResolveCallbackPluginDir`, design-docs/OwnCallbackPlugin.md),
+checked in this order:
+
+1. `<prefix>/share/tangsible/themes/<name>.toml` - anything shipped with
+   the install (a distro package, `install.sh`'s own `CALLBACK_DIR`-style
+   layout).
+2. `$XDG_DATA_HOME/tangsible/themes/<name>.toml` (`internal/config.DataHome`)
+   - a user's own, writable regardless of how Tangsible itself was
+     installed.
+
+Deliberately `DataHome`, not `ConfigHome`: a theme is a shareable asset
+someone else might have authored, closer in kind to the callback plugin
+than to `config.toml`'s own per-user/per-project *preferences* - the
+same distinction `resolve.go` already draws between the two XDG
+directories for an unrelated reason.
+
+### Full precedence chain
+
+Putting both together, resolving one color key now has three tiers
+instead of two (the first two each additionally check the active
+`color_scheme` before falling through, per the precedence given for
+`[colors]` above):
+
+1. `config.toml`'s own `[colors.<scheme>]`/`[colors]`, cascaded
+   project → global → system (today's mechanism, unchanged) - the
+   per-project/per-user override, optional.
+2. The selected theme's own `[<scheme>]`/flat keys, if `general.theme`
+   is set - optional, and itself just one file, not cascaded across
+   multiple locations the way `config.toml` is (see Open questions).
+3. This app's own hardcoded default (`internal/uikit/colors.go` et al.)
+   - always available, what you get with no config and no theme at all.
+
+Nothing here has to be all-or-nothing: pick a theme and still override
+one key in your own `config.toml` without forking the theme file.
+
+### Open questions
+
+1. **Do theme files themselves need a project/global/system cascade**,
+   the way `config.toml` does - e.g. a `.tangsible/themes/` tier so a
+   project can ship its own theme alongside the two `DataHome`/`prefix`
+   tiers above? Proposing no for a first pass (a theme is meant to be
+   reusable *across* projects, which cuts against making it
+   project-scoped at all) but worth an explicit call rather than a
+   silent omission.
+2. **An unrecognized `general.theme` name** - warn to stderr and fall
+   back to no theme (same "swallow and fall back" convention
+   `ReadDefaultPlaybook`/`DefaultTreeExpanded` already use elsewhere), or
+   a harder failure? Getting a theme name wrong is arguably closer to a
+   typo'd color value (one bad thing, rest of the config still good)
+   than to a missing playbook (nothing to run at all) - leaning toward
+   the same warn-and-fall-back tolerance `ResolveColorOverride` already
+   has for one bad key, applied here to one bad theme reference instead.
+3. **Theme file metadata** - just the color keys as proposed above, or
+   also a display name/description/author field for a future `tangsible
+   themes list`-style command? Out of scope for the mechanism itself
+   either way; worth deciding once, not per-file, if it's wanted at all.
+4. **Hot-reload** stays out of scope for the same reason it already is
+   above - a theme/scheme change needs a restart, consistent with
+   everything else configurable in this app.
