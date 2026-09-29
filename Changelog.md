@@ -43,6 +43,8 @@
 - `host`/`hosts`: new "Recent" section on the Summary tab, listing the last
   few times any playbook or role run touched this host, with per-run outcome
   counts.
+- Support for customizing colors in config.toml as well as theme support and
+  dark / light mode.
 
 ### Changed
 
