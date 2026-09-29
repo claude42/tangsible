@@ -467,7 +467,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	renderedViews := make([]*tview.TextView, len(hosts))
 	for i := range renderedViews {
 		renderedViews[i] = tview.NewTextView().SetDynamicColors(true)
-		renderedViews[i].SetText("Rendering...")
+		renderedViews[i].SetText("[" + uikit.StandardTextColor + "]Rendering...[-]")
 	}
 	// renderFailed mirrors hosts by index (true once that host's own last
 	// render errored - a task failure or a render-level error alike) -
@@ -549,7 +549,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			sourceView.SetText("[" + uikit.AsyncErrorColor + "]" + tview.Escape(err.Error()) + "[-]")
 			return
 		}
-		sourceView.SetText(tview.Escape(string(data)))
+		sourceView.SetText("[" + uikit.StandardTextColor + "]" + tview.Escape(string(data)) + "[-]")
 		sourceView.ScrollToBeginning()
 	}
 	refreshSource()
@@ -590,7 +590,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		case result.Failed:
 			view.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
 		default:
-			view.SetText(tview.Escape(result.Content))
+			view.SetText("[" + uikit.StandardTextColor + "]" + tview.Escape(result.Content) + "[-]")
 		}
 		view.ScrollToBeginning()
 		if i < len(renderFailed) {
@@ -652,7 +652,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		}
 		rendering = true
 		host := hosts[i]
-		renderedViews[i].SetText("Rendering...")
+		renderedViews[i].SetText("[" + uikit.StandardTextColor + "]Rendering...[-]")
 		renderFailed[i] = false
 		updateTabColors()
 		go func() {
