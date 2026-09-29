@@ -563,22 +563,32 @@ func Main(build BuildInfo) {
 	// since tui.go's OnTaskAdded hook and TopBarText rendering both read
 	// it from whatever goroutine is running at the time (tview's event
 	// loop, same as everywhere else in this file that isn't itself
-	// mutating PlaybookState directly). Built synchronously here, same
-	// reasoning as sourceIndex just above, for "run"/"role"'s very first
-	// generation (pending != nil - the pre-flight gate already confirmed
-	// a real run is happening): this is a prototype, and getting the
-	// skeleton in place before any real task-start event can possibly
-	// arrive is worth more, for now, than shaving startup latency -
-	// unlike sourceIndex, this shells out to a second real
-	// ansible-playbook invocation, so the cost is closer to (very
-	// roughly) doubling ansible's own startup time than to a plain YAML
-	// parse. Left unset for "rerun" (pending == nil): nothing has run
+	// mutating PlaybookState directly), and it's now also written from a
+	// background goroutine below. Built in the background for "run"/
+	// "role"'s very first generation (pending != nil - the pre-flight
+	// gate already confirmed a real run is happening): this shells out to
+	// a second real ansible-playbook invocation (BuildProgressSkeleton),
+	// roughly doubling ansible's own startup time - building it
+	// synchronously here, before NewLiveTUI even exists, used to stall
+	// the TUI itself behind that second invocation while the real
+	// generation kept running unattended in the background, so the TUI's
+	// very first frame could already be several tasks behind (a real,
+	// reported symptom - "tangsible run just sits there for a few
+	// seconds, then opens with tasks already done"). progH is already
+	// nil-safe to read (rebuild's own TopBarText call, and every other
+	// Load() site) for exactly the "rerun" case just below, where nothing
+	// is stored here at all until the dialog is confirmed - so leaving it
+	// unset for a moment here too just means the top bar's fill starts at
+	// 0% and catches up once the probe finishes, rather than blocking
+	// anything. Left unset for "rerun" (pending == nil): nothing has run
 	// yet, and requestRerun below builds this exact same way once the
 	// dialog is actually confirmed, using whatever args the user ends up
 	// submitting.
 	var progH atomic.Pointer[runner.ProgressTracker]
 	if pending != nil {
-		progH.Store(runner.NewProgressTracker(runner.BuildProgressSkeleton(spawnPlaybook, originalArgs.Reassemble())))
+		go func() {
+			progH.Store(runner.NewProgressTracker(runner.BuildProgressSkeleton(spawnPlaybook, originalArgs.Reassemble())))
+		}()
 	}
 
 	// Read fresh here rather than threading through the "rerun" branch's
