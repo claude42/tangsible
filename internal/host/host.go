@@ -572,13 +572,14 @@ func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]
 // that helper's own deliberate color-coding (its own doc comment: Task/
 // Output/Errors/Details in the drill-down are colored so they're never
 // mistaken for an outcome color) - these pages have no outcome palette to
-// avoid colliding with. Green, grouped with every other "key" this
-// styling pass highlights (design-docs/HostVerb.md's own "Headlines and
-// keys" grouping); the "=" underline shares the same color tag as the
-// heading text above it, one single [green]...[-] span covering both
-// lines rather than two separately-colored pieces.
+// avoid colliding with. uikit.HeadingColor (green by default, same as
+// uikit.KeyHighlightColor, but its own independently overridable config
+// key - a heading isn't a key with no value); the "=" underline shares
+// the same color tag as the heading text above it, one single
+// [green]...[-] span covering both lines rather than two
+// separately-colored pieces.
 func hostSectionHeading(label string) string {
-	return fmt.Sprintf("[%s]%s\n%s[-]\n\n", uikit.KeyHighlightColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
+	return fmt.Sprintf("[%s]%s\n%s[-]\n\n", uikit.HeadingColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
 }
 
 // HostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab
@@ -1652,7 +1653,7 @@ func HostRowText(hostname string, selected bool, pingKnown, pingOK bool) string 
 	if selected {
 		return dot + fmt.Sprintf("[%s:%s:b]%s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(hostname))
 	}
-	return dot + "[" + uikit.PlayTitleColor + "]" + tview.Escape(hostname) + "[-]"
+	return dot + "[" + uikit.StandardTextColor + "]" + tview.Escape(hostname) + "[-]"
 }
 
 // RunHostsListTUI implements "tangsible hosts"'s own list-then-detail

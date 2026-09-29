@@ -18,6 +18,8 @@ import (
 	"testing"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 )
 
 func TestResolveColorOverride(t *testing.T) {
@@ -59,17 +61,23 @@ func TestApplyColorConfig(t *testing.T) {
 	origOutcomeOK := OutcomeOKColor
 	origChromeLive := ChromeLiveColor
 	origBarStyle := BarStyle
+	origBackground := BackgroundColor
+	origPrimitiveBg := tview.Styles.PrimitiveBackgroundColor
 	t.Cleanup(func() {
 		OutcomeOKColor = origOutcomeOK
 		ChromeLiveColor = origChromeLive
 		BarStyle = origBarStyle
+		BackgroundColor = origBackground
+		tview.Styles.PrimitiveBackgroundColor = origPrimitiveBg
 	})
 
 	valid := "orange"
 	invalid := "not-a-real-color"
+	background := "silver"
 	ApplyColorConfig(config.ColorsConfig{
 		OutcomeOK:  &valid,
 		ChromeLive: &invalid,
+		Background: &background,
 	})
 
 	if OutcomeOKColor != "orange" {
@@ -80,5 +88,11 @@ func TestApplyColorConfig(t *testing.T) {
 	}
 	if want := buildChromeStyle("white", ChromeLiveColor); BarStyle != want {
 		t.Errorf("BarStyle wasn't rebuilt from the (fallen-back) ChromeLiveColor")
+	}
+	if BackgroundColor != "silver" {
+		t.Errorf("BackgroundColor = %q, want %q", BackgroundColor, "silver")
+	}
+	if want := tcell.GetColor("silver"); tview.Styles.PrimitiveBackgroundColor != want {
+		t.Errorf("tview.Styles.PrimitiveBackgroundColor = %v, want %v (BackgroundColor must actually reach it)", tview.Styles.PrimitiveBackgroundColor, want)
 	}
 }

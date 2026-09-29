@@ -235,14 +235,20 @@ const (
 )
 
 // recapHeadingText is the plain "Summary" heading (design-docs/Recap.md)
-// shown right above the recap section - bold uikit.KeyHighlightColor,
-// the same green the drill-down/host-hosts tabs already use for their
-// own section headings, rather than introducing a new color with no
-// outcome to justify it.
+// shown right above the recap section - uikit.HeadingColor, the same
+// green host.go's own tab headings use, rather than introducing a new
+// color with no outcome to justify it. Its own config key (`heading`)
+// is separate from `key_highlight` even though both default to green -
+// a heading isn't a key with no value. Deliberately not bold: the
+// drill-down's own SectionLabel headings are bold-green, but this one
+// matches host.go's plain (non-bold) convention instead - a real
+// reported mismatch otherwise, since a bold ANSI color and its plain
+// form render as visibly different shades in most terminals (many treat
+// bold as "use the bright variant"), not just a font-weight difference.
 const recapHeadingText = "Summary"
 
 func recapHeadingRowText() string {
-	return "[" + uikit.KeyHighlightColor + "::b]" + recapHeadingText + "[-::-]"
+	return "[" + uikit.HeadingColor + "]" + recapHeadingText + "[-]"
 }
 
 // recapHeadingUnderlineRowText underlines recapHeadingText with a run of
@@ -252,7 +258,7 @@ func recapHeadingRowText() string {
 // translated to a plain tree row here since a tree row can't hold
 // SectionLabel's own embedded newlines the way a TextView can.
 func recapHeadingUnderlineRowText() string {
-	return "[" + uikit.KeyHighlightColor + "]" + strings.Repeat("=", len(recapHeadingText)) + "[-]"
+	return "[" + uikit.HeadingColor + "]" + strings.Repeat("=", len(recapHeadingText)) + "[-]"
 }
 
 // pluralS returns "" for n == 1, "s" otherwise - shared by every
@@ -516,7 +522,7 @@ func recapHostRowText(host string, s recapHostSummary, w recapColumnWidths, sele
 	seg := func(label string, width, n int) string {
 		return fmt.Sprintf("[%s]%s=%*d[-]", recapSummaryFieldColor(label, n), label, width, n)
 	}
-	return fmt.Sprintf("[%s::b]%s%s[-::-]%s%s  %s  %s  %s  %s  %s  %s", uikit.KeyHighlightColor,
+	return fmt.Sprintf("[%s]%s%s%s[-]%s  %s  %s  %s  %s  %s  %s", uikit.StandardTextColor,
 		tview.Escape(hostPadded), durText, sep,
 		seg("ok", w.OK, s.OK),
 		seg("skipped", w.Skipped, s.Skipped),

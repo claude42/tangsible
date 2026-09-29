@@ -283,7 +283,7 @@ func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, select
 	if selected {
 		return fmt.Sprintf("[%s:%s:b]%s - %s - %s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
 	}
-	return fmt.Sprintf("[%s]%s[-] - [%s]%s[-] - %s", uikit.PlayTitleColor, tview.Escape(ts), color, tview.Escape(padded), tview.Escape(cmd))
+	return fmt.Sprintf("[%s]%s[-] - [%s]%s[-] - [%s]%s[-]", uikit.StandardTextColor, tview.Escape(ts), color, tview.Escape(padded), uikit.StandardTextColor, tview.Escape(cmd))
 }
 
 // RunRevisitListTUI shows entries (already filtered/sorted newest-first by

@@ -52,7 +52,22 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 )
+
+// BackgroundColor is the whole TUI's own base background - every unstyled
+// cell, not one specific row/element the way every other var here is.
+// Defaults to "black", matching tview's own hardcoded
+// tview.Styles.PrimitiveBackgroundColor default (tcell.ColorBlack) - this
+// app never overrode that before this var existed, so the background was
+// always black regardless of General.ColorScheme. ApplyColorConfig below
+// is what actually makes an override reach the screen: setting this var
+// alone changes nothing by itself, since nothing reads BackgroundColor
+// directly the way TaskTitleColor etc. are read per-row - every
+// tview.Box (essentially every primitive in this app) reads
+// tview.Styles.PrimitiveBackgroundColor once, at construction, and
+// paints it across its own rect.
+var BackgroundColor = "black"
 
 // Outcome colors - see ColorTag, the single place that actually reads
 // these (playbook.Outcome -> tag name).
@@ -86,6 +101,15 @@ var (
 	TaskTitleColor = "silver" // a task row's own title text.
 	PlayTitleColor = "white"  // a play row's own title text.
 )
+
+// StandardTextColor is a shared, plain "just text" color, for content
+// that isn't itself an outcome/heading/title but was previously
+// borrowing one of those colors anyway (host.go's own host-list
+// hostnames, the revisit list's timestamp/command-line text, and the
+// recap's own per-host hostname+duration prefix - all originally
+// PlayTitleColor or KeyHighlightColor by coincidence, not because any of
+// them are actually a play title or a key/heading).
+var StandardTextColor = "silver"
 
 // Chrome text/backgrounds that can't be one tcell.Style the way
 // BarStyle/ReplayBarStyle/CheckBarStyle/diff.DiffChromeStyle are - these
@@ -193,11 +217,26 @@ var StatusBenignColor = "yellow"
 // KeyHighlightColor/ValueHighlightColor are the shared green-key/
 // lightsteelblue-value convention - one implementation
 // (HighlightYAMLKeys/HighlightJSONKeys/HighlightKeyValueLines), used by
-// both `host`/`hosts` and the run drill-down's own tabs.
+// both `host`/`hosts` and the run drill-down's own tabs for the "key"
+// half of an actual key:value pair (a highlighted YAML/JSON line, or a
+// synthesized "Label: value" line like Role:/Task:/Status:/Group:) -
+// deliberately distinct from HeadingColor below even though both
+// default to the same green, since a section heading isn't a key with
+// no value, and the two were found to want independently overridable
+// config keys.
 var (
 	KeyHighlightColor   = "green"
 	ValueHighlightColor = "lightsteelblue"
 )
+
+// HeadingColor is a plain section-heading color - `uikit.SectionLabel`'s
+// Output/Items headings, host.go's own hostSectionHeading, the recap's
+// "Summary" heading, and the error-output block's "Error output:"
+// heading. Kept as its own var, not folded into KeyHighlightColor, even
+// though both default to the same green: a heading has no accompanying
+// value the way a key does, and splitting them lets a config override
+// change one without the other.
+var HeadingColor = "green"
 
 // SummaryFailedColor is host/hosts' own Summary tab color for a
 // genuinely failed live result - kept separate from OutcomeFailedColor
@@ -228,10 +267,38 @@ func ResolveColorOverride(key string, override *string, fallback string) string 
 		return fallback
 	}
 	if tcell.GetColor(*override) == tcell.ColorDefault {
-		fmt.Fprintf(os.Stderr, "tangsible: invalid color %q for [colors] %s, using default %q\n", *override, key, fallback)
+		pendingColorWarnings = append(pendingColorWarnings, fmt.Sprintf("tangsible: invalid color %q for [colors] %s, using default %q", *override, key, fallback))
 		return fallback
 	}
 	return *override
+}
+
+// pendingColorWarnings collects ResolveColorOverride's own invalid-color
+// messages instead of printing them immediately - a real user report:
+// ApplyColorConfig runs before any TUI-showing Verb's own tview.
+// Application starts, so an immediate print sits on the terminal's
+// normal screen for well under a second before tview's alternate-screen
+// swap visually covers it, and isn't reliably restored on quit either
+// (terminal-dependent - some clear scrollback on entering the alternate
+// screen). PrintColorWarnings, called once a Verb's own TUI (if any) has
+// actually closed, is the fix - the same "collect while the alternate
+// screen might be up, print for real only once it's gone" reasoning
+// runner.StreamStderr/lastStderr already apply to a generation's own
+// stderr (design-docs/ErrorOutput.md), applied here to config-validation
+// warnings instead of ansible-playbook's own stderr.
+var pendingColorWarnings []string
+
+// PrintColorWarnings prints (to stderr) and clears every warning
+// ResolveColorOverride has collected since the last call - see
+// pendingColorWarnings' own doc comment for why this is deferred rather
+// than printed immediately. A no-op when nothing's pending (the common
+// case), so every caller can call this unconditionally right after its
+// own Verb function returns, TUI or not.
+func PrintColorWarnings() {
+	for _, w := range pendingColorWarnings {
+		fmt.Fprintln(os.Stderr, w)
+	}
+	pendingColorWarnings = nil
 }
 
 // buildChromeStyle builds a bold tcell.Style from fg/bg color-name
@@ -262,7 +329,15 @@ func buildChromeStyle(fg, bg string) tcell.Style {
 // diff owns its own ApplyColorConfig for exactly that one field, since
 // this package can't reach into another package's own vars, and main.go
 // calls both.
+//
+// BackgroundColor is the one field this function does something with
+// beyond "overwrite a var" - it additionally pushes the resolved value
+// into tview.Styles.PrimitiveBackgroundColor, the actual mechanism that
+// makes it reach the screen (see BackgroundColor's own doc comment).
 func ApplyColorConfig(cfg config.ColorsConfig) {
+	BackgroundColor = ResolveColorOverride("background", cfg.Background, BackgroundColor)
+	tview.Styles.PrimitiveBackgroundColor = tcell.GetColor(BackgroundColor)
+
 	OutcomeOKColor = ResolveColorOverride("outcome_ok", cfg.OutcomeOK, OutcomeOKColor)
 	OutcomeChangedColor = ResolveColorOverride("outcome_changed", cfg.OutcomeChanged, OutcomeChangedColor)
 	OutcomeSkippedColor = ResolveColorOverride("outcome_skipped", cfg.OutcomeSkipped, OutcomeSkippedColor)
@@ -274,6 +349,7 @@ func ApplyColorConfig(cfg config.ColorsConfig) {
 
 	TaskTitleColor = ResolveColorOverride("task_title", cfg.TaskTitle, TaskTitleColor)
 	PlayTitleColor = ResolveColorOverride("play_title", cfg.PlayTitle, PlayTitleColor)
+	StandardTextColor = ResolveColorOverride("standard_text", cfg.StandardText, StandardTextColor)
 
 	ProgressTextColor = ResolveColorOverride("progress_text", cfg.ProgressText, ProgressTextColor)
 	TabTextColor = ResolveColorOverride("tab_text", cfg.TabText, TabTextColor)
@@ -302,6 +378,7 @@ func ApplyColorConfig(cfg config.ColorsConfig) {
 
 	KeyHighlightColor = ResolveColorOverride("key_highlight", cfg.KeyHighlight, KeyHighlightColor)
 	ValueHighlightColor = ResolveColorOverride("value_highlight", cfg.ValueHighlight, ValueHighlightColor)
+	HeadingColor = ResolveColorOverride("heading", cfg.Heading, HeadingColor)
 
 	SummaryFailedColor = ResolveColorOverride("summary_failed", cfg.SummaryFailed, SummaryFailedColor)
 

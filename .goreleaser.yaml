@@ -20,6 +20,17 @@ before:
   hooks:
     - go mod tidy
     - go vet ./...
+    # Python's own bytecode cache (regenerated locally by anything that
+    # imports callback/tangsible_jsonl.py, e.g. an ansible-playbook run
+    # against it) - .gitignore'd, but archives.files' own callback/* glob
+    # below isn't git-aware, so a stray local cache would otherwise ship
+    # in the release tarball. A "^"-prefixed exclude-glob archive.files
+    # entry looks like the documented way to filter this instead, but
+    # doesn't actually work in this GoReleaser version (confirmed empirically
+    # - it silently matches nothing rather than excluding anything), so
+    # removing the source before archiving is the one thing actually
+    # verified to work.
+    - rm -rf callback/__pycache__
 
 builds:
   - id: tangsible
@@ -70,6 +81,13 @@ archives:
       # Apache LICENSE above.
       - src: callback/*
         dst: callback
+      # A full-defaults config.toml (design-docs/ConfigOptions.md) and an
+      # example theme (design-docs/ColorConfig.md's own addendum) - copy
+      # what you want from these into .tangsible/config.toml or a real
+      # theme file; Tangsible never reads this directory itself. Recurses
+      # into examples/themes/ same as callback/* above.
+      - src: examples/*
+        dst: examples
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"

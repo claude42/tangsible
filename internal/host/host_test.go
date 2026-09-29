@@ -336,7 +336,7 @@ func TestDiscoverHostVarsFiles(t *testing.T) {
 }
 
 func TestHostRowText(t *testing.T) {
-	if got, want := HostRowText("web1", false, false, false), "[gray]●[-]  [white]web1[-]"; got != want {
+	if got, want := HostRowText("web1", false, false, false), "[gray]●[-]  [silver]web1[-]"; got != want {
 		t.Errorf("HostRowText(selected=false) = %q, want %q", got, want)
 	}
 	if got, want := HostRowText("web1", true, false, false), "[gray]●[-]  ["+uikit.SelectedRowTextColor+":lightgray:b]web1[-:-:-]"; got != want {
@@ -349,7 +349,7 @@ func TestHostRowText(t *testing.T) {
 // user-authored text) doesn't get misread as a color tag.
 func TestHostRowTextEscapesBrackets(t *testing.T) {
 	got := HostRowText("host[1]", false, false, false)
-	want := "[gray]●[-]  [white]" + tview.Escape("host[1]") + "[-]"
+	want := "[gray]●[-]  [silver]" + tview.Escape("host[1]") + "[-]"
 	if got != want {
 		t.Errorf("HostRowText() = %q, want %q", got, want)
 	}
@@ -361,13 +361,13 @@ func TestHostRowTextEscapesBrackets(t *testing.T) {
 // and colored per pingOK once it has - green for a successful
 // ansible.builtin.ping, red otherwise.
 func TestHostRowTextPingDot(t *testing.T) {
-	if got, want := HostRowText("web1", false, false, true), "[gray]●[-]  [white]web1[-]"; got != want {
+	if got, want := HostRowText("web1", false, false, true), "[gray]●[-]  [silver]web1[-]"; got != want {
 		t.Errorf("HostRowText(pingKnown=false) = %q, want %q (gray while pending)", got, want)
 	}
-	if got, want := HostRowText("web1", false, true, true), "[green]●[-]  [white]web1[-]"; got != want {
+	if got, want := HostRowText("web1", false, true, true), "[green]●[-]  [silver]web1[-]"; got != want {
 		t.Errorf("HostRowText(pingKnown=true, pingOK=true) = %q, want %q", got, want)
 	}
-	if got, want := HostRowText("web1", false, true, false), "[red]●[-]  [white]web1[-]"; got != want {
+	if got, want := HostRowText("web1", false, true, false), "[red]●[-]  [silver]web1[-]"; got != want {
 		t.Errorf("HostRowText(pingKnown=true, pingOK=false) = %q, want %q", got, want)
 	}
 }

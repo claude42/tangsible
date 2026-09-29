@@ -1,0 +1,132 @@
+# Example Tangsible settings file, every key set to its documented
+# default - copy what you want into your own .tangsible/config.toml
+# (project-local) or $XDG_CONFIG_HOME/tangsible/config.toml (global);
+# Tangsible never reads this file directly. See design-docs/
+# ConfigOptions.md ([general]) and design-docs/ColorConfig.md ([colors])
+# for the full reference.
+#
+# Both tables cascade project (.tangsible/config.toml) -> global
+# ($XDG_CONFIG_HOME/tangsible/config.toml) -> system
+# (/etc/tangsible/config.toml) -> the hardcoded default shown here.
+
+[general]
+# default_playbook has no real default - left commented out. If unset
+# here (and in the global/system tiers), Tangsible falls back to
+# $TANGSIBLE_PLAYBOOK, then ./site.yml if that file exists.
+# default_playbook = "site.yml"
+
+default_tree_state = "collapsed"    # "collapsed" | "expanded"
+two_pane_layout = true
+color = true
+run_dialog = "default"              # "default" | "never" | "always"
+notify_playbook_finished = "off"    # "off" | "osc9" | "osc777" | "osc99" | "bell"
+notify_task_failed = "off"          # "off" | "osc9" | "osc777" | "osc99" | "bell"
+notify_task_failed_max = 5
+template_hosts_max = 10
+color_scheme = "dark"                # "dark" | "light" - see design-docs/ColorConfig.md's own addendum
+
+# theme has no real default - left commented out (no theme applied). Set
+# it to a theme file's own name (minus .toml), found under
+# <prefix>/share/tangsible/themes/ or $XDG_DATA_HOME/tangsible/themes/ -
+# see design-docs/ColorConfig.md's own addendum.
+# theme = "solarized"
+
+[colors]
+# The whole TUI's own base background (every unstyled cell) - unlike
+# every other key below, this one is pushed into tview's own global
+# Styles.PrimitiveBackgroundColor rather than read per-row. Without it
+# set anywhere, the background is always black, regardless of
+# color_scheme above.
+background = "black"
+
+# Outcome colors (uikit.ColorTag)
+outcome_ok = "green"
+outcome_changed = "yellow"
+outcome_skipped = "teal"
+outcome_failed = "red"
+outcome_unreachable = "maroon"
+
+# "Nothing to show yet" / supplementary annotation
+nothing_reported = "gray"
+annotation = "gray"
+
+# Row titles
+task_title = "silver"
+play_title = "white"
+
+# Plain "just text" content: host list hostnames (tangsible hosts), the
+# revisit list's timestamp/command-line text, and the recap's own
+# per-host hostname+duration prefix
+standard_text = "silver"
+
+# Top bar / tab bar
+progress_text = "white"
+tab_text = "white"
+
+# Chrome bars (background only - see design-docs/ColorConfig.md's own
+# "Known gaps" for why the shared white foreground isn't configurable)
+chrome_live = "navy"        # ordinary live/finished session
+chrome_revisit = "purple"   # tangsible revisit
+chrome_check = "olive"      # a --check (dry run) session
+diff_chrome = "fuchsia"     # tangsible diff
+
+# Selected row
+selected_row_text = "#1a1a1a"
+selected_row_background = "lightgray"
+
+# Special
+progress_fill = "#146414"
+warning = "hotpink"
+ignored = "orange"
+
+# Filter dialog
+selection = "aqua"
+
+# Async fetch/render error heading (host/hosts, template)
+async_error = "red"
+
+# Diff tab (within the drill-down)
+diff_added = "green"
+diff_removed = "red"
+diff_hunk = "teal"
+
+# `tangsible diff` verb
+diff_unmatched_task = "yellow"
+
+# Run-completion status line (benign-unreachable case only - success/
+# failure reuse outcome_ok/outcome_failed directly)
+status_benign = "yellow"
+
+# host/hosts + drill-down tabs: shared key/value highlighting
+key_highlight = "green"
+value_highlight = "lightsteelblue"
+
+# Section headings: host/hosts' own section headers, drill-down's Output/
+# Items headings, the recap's "Summary" heading, the error-output
+# heading - separate from key_highlight even though both default to
+# green, since a heading isn't a key with no value
+heading = "green"
+
+# host/hosts: Summary tab's own genuinely-Failed heading
+summary_failed = "red"
+
+# In-tab search
+search_match_foreground = "black"
+search_match_background = "yellow"
+search_current_match_foreground = "black"
+search_current_match_background = "orange"
+
+# [colors.dark]/[colors.light] (design-docs/ColorConfig.md's own
+# addendum) hold only the keys that actually need to differ by
+# general.color_scheme - commented out here since none of the defaults
+# above actually need a light-mode override yet; shown as an example of
+# the shape, not a recommendation. Note there's no built-in light
+# palette: setting general.color_scheme = "light" alone changes nothing
+# unless [colors.light] (or a theme's own [light] table) actually sets
+# something, background included:
+# [colors.dark]
+# selected_row_text = "#1a1a1a"
+#
+# [colors.light]
+# selected_row_text = "#f5f5f5"
+# background = "white"

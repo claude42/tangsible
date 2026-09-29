@@ -61,18 +61,35 @@ func Main(build BuildInfo) {
 		os.Exit(RunVersion(build))
 	}
 
-	// Color config (design-docs/ColorConfig.md) applies to every remaining
+	// Color config (design-docs/ColorConfig.md, including its own
+	// dark/light-mode-and-themes addendum) applies to every remaining
 	// Verb uniformly, including "vault" below (harmless there - it never
 	// constructs a TUI at all) - resolved once, here, before any of them
 	// gets a chance to render anything, the same "read once at startup"
-	// posture every other [general]/[colors] setting already has. Two
-	// packages, two calls: uikit.ApplyColorConfig covers every color var
-	// this package touches directly; diff.ApplyColorConfig covers its own
-	// one color var (DiffChromeColor/DiffChromeStyle) that internal/uikit
-	// can't reach into.
-	colorCfg := config.MergedSettingsConfig().Colors
+	// posture every other [general]/[colors] setting already has.
+	// ResolveEffectiveColors folds General.ColorScheme/Theme and
+	// [colors]'s own [dark]/[light] sub-tables into one already-resolved
+	// ColorsConfig; ApplyColorConfig itself needs no awareness of any of
+	// that; two packages, two calls: uikit.ApplyColorConfig covers every
+	// color var this package touches directly; diff.ApplyColorConfig
+	// covers its own one color var (DiffChromeColor/DiffChromeStyle)
+	// that internal/uikit can't reach into.
+	colorCfg := config.ResolveEffectiveColors(config.MergedSettingsConfig())
 	uikit.ApplyColorConfig(colorCfg)
 	diff.ApplyColorConfig(colorCfg)
+
+	// printStartupWarnings prints (and clears) whatever ResolveEffectiveColors/
+	// ApplyColorConfig collected above (a bad theme name/file, an invalid
+	// [colors] value) - deferred to right after each Verb's own function
+	// returns rather than printed immediately above, since an immediate
+	// print would sit on the terminal's normal screen for well under a
+	// second before a TUI-showing Verb's own alternate-screen swap
+	// visually covers it (uikit.PrintColorWarnings' own doc comment has
+	// the full story - a real user report).
+	printStartupWarnings := func() {
+		config.PrintPendingWarnings()
+		uikit.PrintColorWarnings()
+	}
 
 	// "template" (design-docs/Tangsible template.md), "host"/"hosts"
 	// (design-docs/HostVerb.md), "revisit" (design-docs/Revisit.md), and
@@ -87,19 +104,29 @@ func Main(build BuildInfo) {
 	// sharing this function's own run/rerun/role setup. "vault" never
 	// touches tview at all, unlike every other Verb here.
 	if v == config.VerbTemplate {
-		os.Exit(template.RunTemplateVerb(args))
+		code := template.RunTemplateVerb(args)
+		printStartupWarnings()
+		os.Exit(code)
 	}
 	if v == config.VerbHost {
-		os.Exit(host.RunHostVerb(args))
+		code := host.RunHostVerb(args)
+		printStartupWarnings()
+		os.Exit(code)
 	}
 	if v == config.VerbHosts {
-		os.Exit(host.RunHostsVerb(args))
+		code := host.RunHostsVerb(args)
+		printStartupWarnings()
+		os.Exit(code)
 	}
 	if v == config.VerbRevisit {
-		os.Exit(revisit.RunRevisitVerb(args, NewLiveTUI))
+		code := revisit.RunRevisitVerb(args, NewLiveTUI)
+		printStartupWarnings()
+		os.Exit(code)
 	}
 	if v == config.VerbVault {
-		os.Exit(vault.RunVaultVerb(args))
+		code := vault.RunVaultVerb(args)
+		printStartupWarnings()
+		os.Exit(code)
 	}
 
 	var procH runner.ProcHandle
@@ -640,6 +667,11 @@ func Main(build BuildInfo) {
 	runErr := uikit.RunWithTitleStack(app)
 	quitting.Store(true) // defensive: also stop the streamer if Run() ever
 	// returns for a reason other than our own Stop()
+
+	// Now that the TUI's own alternate screen has actually closed - see
+	// uikit.PrintColorWarnings' own doc comment for why this can't just
+	// print immediately back where ApplyColorConfig ran.
+	printStartupWarnings()
 
 	outcomesMu.Lock()
 	all := outcomes

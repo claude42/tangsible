@@ -33,7 +33,7 @@ import (
 
 func TestRecapHeadingRowText(t *testing.T) {
 	got := recapHeadingRowText()
-	want := "[green::b]Summary[-::-]"
+	want := "[green]Summary[-]"
 	if got != want {
 		t.Errorf("recapHeadingRowText() = %q, want %q", got, want)
 	}
@@ -191,7 +191,7 @@ func TestRecapHostRowTextUnselected(t *testing.T) {
 	// Every field present, right-padded to its own column width, colored
 	// by whether it's zero (gray) or not (its outcome color).
 	for _, want := range []string{
-		"[green::b]web1 [-::-]", // hostname padded out to w.Host=5
+		"[silver]web1  : [-]", // hostname padded out to w.Host=5, plus the " : " separator - also standard_text, not left to reset to the terminal default
 		"[green]ok=12[-]",       // non-zero -> outcome color
 		"[gray]skipped=0[-]",    // zero -> NothingReportedColor
 		"[gray]changed=0[-]",

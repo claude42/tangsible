@@ -1,0 +1,114 @@
+# Example theme file, now a worked dark/light pair rather than every
+# value left at the hardcoded default - see design-docs/ColorConfig.md's
+# own addendum for the full mechanism. To use it: copy it to
+# $XDG_DATA_HOME/tangsible/themes/<name>.toml (usually
+# ~/.local/share/tangsible/themes/<name>.toml), set `theme = "<name>"`
+# in [general] (.tangsible/config.toml), and set `color_scheme = "dark"`
+# or `"light"` there too.
+#
+# Unlike config.toml's own [colors] table, a theme file has no [colors]
+# wrapper - the whole file already is one.
+#
+# Flat keys below are scheme-independent - kept exactly at Tangsible's
+# own hardcoded default, on the theory that a color already reads fine
+# against either background doesn't need touching just because a theme
+# exists. Most of the 36 keys land here: every color that's already
+# paired with its own explicit background wherever it's actually drawn
+# (selected rows, chrome bars, the progress fill, the diff/search
+# highlights) never touches the base background at all, so flipping
+# [general] color_scheme can't break it either way.
+#
+# [dark]/[light] below hold only the keys that are genuinely at risk:
+# colors rendered as plain foreground text directly on the bare
+# background with no background of their own (a play/task row's title,
+# an inline outcome/warning/selection marker, ...). [dark]'s own values
+# are exactly today's hardcoded defaults; [light]'s are this draft's
+# actual suggestion - a same-hue-family color darkened enough to read on
+# white, not a different palette. background itself is the one key with
+# no sensible single default at all, so it's scheme-only, not flat.
+
+outcome_ok = "green"
+outcome_skipped = "teal"
+outcome_failed = "red"
+outcome_unreachable = "maroon"
+
+nothing_reported = "gray"
+annotation = "gray"
+
+progress_text = "white"
+tab_text = "white"
+
+chrome_live = "navy"
+chrome_revisit = "purple"
+chrome_check = "olive"
+diff_chrome = "fuchsia"
+
+selected_row_text = "#1a1a1a"
+selected_row_background = "lightgray"
+
+progress_fill = "#146414"
+
+diff_added = "green"
+diff_removed = "red"
+diff_hunk = "teal"
+
+async_error = "red"
+
+key_highlight = "green"
+heading = "green"
+
+summary_failed = "red"
+
+search_match_foreground = "black"
+search_match_background = "yellow"
+search_current_match_foreground = "black"
+search_current_match_background = "orange"
+
+[dark]
+background = "black"
+outcome_changed = "yellow"
+task_title = "silver"
+play_title = "white"
+standard_text = "silver"
+warning = "hotpink"
+ignored = "orange"
+selection = "aqua"
+diff_unmatched_task = "yellow"
+status_benign = "yellow"
+value_highlight = "lightsteelblue"
+
+[light]
+background = "white"
+# yellow is close to invisible on a white background - darkgoldenrod
+# keeps the same "gold" hue at a contrast that actually reads. Used for
+# all three keys that meant plain "yellow" in dark mode, same as dark
+# mode itself reuses one literal "yellow" for all three.
+outcome_changed = "darkgoldenrod"
+diff_unmatched_task = "darkgoldenrod"
+status_benign = "darkgoldenrod"
+# silver (light gray) was already a deliberately muted title color for a
+# dark background - dimgray is its equivalent on a light one: still
+# visibly subdued next to full-strength text, still legible.
+task_title = "dimgray"
+# white text on a white background would be invisible - reusing
+# selected_row_text's own near-black value keeps this the same shade
+# selected rows already use for dark text on a light background.
+play_title = "#1a1a1a"
+# silver has the exact same near-invisible problem on white that
+# task_title's own default does (they share the same default value) -
+# same dimgray fix.
+standard_text = "dimgray"
+# hotpink reads fine on black but washes out badly on white -
+# mediumvioletred is the same pink/magenta family, dark enough to hold
+# up.
+warning = "mediumvioletred"
+# orange has the same washed-out problem on white - saddlebrown is the
+# same warm hue, darkened.
+ignored = "saddlebrown"
+# aqua is nearly as bright as the background itself once it's white -
+# darkcyan is the same cyan family at a usable contrast.
+selection = "darkcyan"
+# lightsteelblue is a light, desaturated blue - already borderline on a
+# dark background, actively poor on a light one. steelblue is its own
+# more saturated, darker sibling, same hue.
+value_highlight = "steelblue"

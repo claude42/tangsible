@@ -61,9 +61,10 @@ reset, the gate already covers it" reasoning `exitCode` itself relies on.
 
 `internal/session/errorrows.go`'s `(*liveSession).errorOutputRows(width)`
 builds the actual rows: a blank divider, a plain heading ("Error
-output:", styled like the recap section's own "Summary" heading - bold
-white, not a failure color, so it's never mistaken for the stderr text
-itself), then the collected lines. Two things happen to the lines before
+output:", styled like the recap section's own "Summary" heading -
+`uikit.KeyHighlightColor` (green), not a failure color, so it's never
+mistaken for the stderr text itself - see design-docs/Colors.md), then
+the collected lines. Two things happen to the lines before
 they become rows:
 
 - `runner.FilterRedundantWarnings` - the same filter already applied to

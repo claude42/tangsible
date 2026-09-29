@@ -38,8 +38,10 @@ own row below.
 | `notify_task_failed` | string: `"off"` \| `"osc9"` \| `"osc777"` \| `"osc99"` \| `"bell"` | `"off"` | |
 | `notify_task_failed_max` | int | `5` | |
 | `template_hosts_max` | int | `10` | |
+| `color_scheme` | string: `"dark"` \| `"light"` | `"dark"` | See `[colors]` below |
+| `theme` | string (a theme name) | *(none — no theme)* | See `[colors]` below |
 
-All nine cascade project → global → system → documented default, as
+All eleven cascade project → global → system → documented default, as
 described above.
 
 **`default_playbook`** — the playbook path used when a verb that needs one
@@ -97,6 +99,11 @@ including the `all` keyword) can reach before it asks for confirmation
 rather than rendering against all of them silently (`Tangsible
 template.md`).
 
+**`color_scheme`/`theme`** — design-docs/ColorConfig.md's own addendum:
+which of `[colors]`'s own `[dark]`/`[light]` sub-tables applies, and an
+optional named theme file to load. See `[colors]` below rather than
+duplicating that doc's own reference here.
+
 ## Example
 
 ```toml
@@ -110,6 +117,8 @@ notify_playbook_finished = "off"
 notify_task_failed = "off"
 notify_task_failed_max = 5
 template_hosts_max = 10
+color_scheme = "dark"
+# theme = "solarized"
 ```
 
 Every key in the table is optional; an absent key always means "use the
@@ -118,11 +127,19 @@ documented default," never an error.
 ## `[colors]`
 
 `design-docs/ColorConfig.md` documents a separate `[colors]` table for
-overriding all 34 individual UI colors (outcome colors, chrome bars,
+overriding all 37 individual UI colors (outcome colors, chrome bars,
 section headings, and so on) — implemented, cascading project → global →
 system exactly like `[general]` above. Not repeated in this file's own
 table: `ColorConfig.md`'s own "Key naming rule" section is the reference
 for that table's key list (one key per `uikit.*Color`/`diff.DiffChromeColor`
 var, design-docs/Colors.md). `[general] color` above is unrelated to
 `[colors]` either way: it's a pre-existing on/off switch for one specific
-row's color usage, not one of its 34 keys.
+row's color usage, not one of its 37 keys.
+
+`ColorConfig.md`'s own addendum adds `[colors.dark]`/`[colors.light]`
+sub-tables (only the keys that need to differ by `color_scheme`) and
+named themes - one TOML file per theme, `general.theme`-selected, found
+under `<prefix>/share/tangsible/themes/` or
+`$XDG_DATA_HOME/tangsible/themes/`, same shape as `[colors]` itself.
+`ColorConfig.md`'s own "Full precedence chain" section is the reference
+for how `[colors]`, a theme, and the hardcoded defaults combine.

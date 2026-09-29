@@ -17,6 +17,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -422,7 +423,7 @@ func TestMergedSettingsConfig(t *testing.T) {
 
 		got := MergedSettingsConfig()
 		want := SettingsConfig{}
-		if got != want {
+		if !reflect.DeepEqual(got, want) {
 			t.Errorf("MergedSettingsConfig() = %+v, want the zero value", got)
 		}
 	})
@@ -486,6 +487,29 @@ func TestRunDialogPreference(t *testing.T) {
 			cfg.General.RunDialog = c.value
 			if got := RunDialogPreference(cfg); got != c.want {
 				t.Errorf("RunDialogPreference(%q) = %v, want %v", c.value, got, c.want)
+			}
+		})
+	}
+}
+
+func TestColorSchemePreference(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"unset - defaults to dark", "", "dark"},
+		{"dark", "dark", "dark"},
+		{"light", "light", "light"},
+		{"mixed case still matches", "LiGhT", "light"},
+		{"unrecognized value falls back to dark", "auto", "dark"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var cfg SettingsConfig
+			cfg.General.ColorScheme = c.value
+			if got := ColorSchemePreference(cfg); got != c.want {
+				t.Errorf("ColorSchemePreference(%q) = %q, want %q", c.value, got, c.want)
 			}
 		})
 	}

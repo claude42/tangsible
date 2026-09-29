@@ -436,8 +436,14 @@ var YamlKeyLine = regexp.MustCompile(`^(\s*(?:-\s+)?)([A-Za-z0-9_.-]+)(:)(\s.*|)
 // SectionLabel's own trailing blank line (after the "====" underline,
 // before any content) matches design-docs/drilldown.txt's spacing - every
 // section there has one blank line between its underline and its content.
+// Deliberately not bold: SGR bold combined with a standard 8-color ANSI
+// foreground renders as that color's *bright* variant on most terminals,
+// which made this heading visibly different from recap.go's and host.go's
+// plain (non-bold) headings even when using the identical named color -
+// see recapHeadingText's own doc comment (internal/session/recap.go) for
+// the fuller story of that bug.
 func SectionLabel(color, label string) string {
-	return fmt.Sprintf("[%s::b]%s[-::-]\n[%s]%s[-]\n\n", color, label, color, strings.Repeat("=", len([]rune(label))))
+	return fmt.Sprintf("[%s]%s[-]\n[%s]%s[-]\n\n", color, label, color, strings.Repeat("=", len([]rune(label))))
 }
 
 // TaskSourceLocation formats task.Path ("<absolute file>:<line>", see
@@ -1010,7 +1016,7 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 			}
 		}
 	}
-	writeTextSection(KeyHighlightColor, "Output", outputText, true)
+	writeTextSection(HeadingColor, "Output", outputText, true)
 
 	// Warnings: design-docs/Drilldown, Task List.md's general rule, not
 	// module-specific like everything else here - any result carrying a
@@ -1033,7 +1039,7 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// own bullet, so each item's reason sits next to the item it belongs
 	// to rather than requiring a trip to Details' full JSON to find it.
 	if items := LoopItemDetails(decoded); len(items) > 0 {
-		b.WriteString(SectionLabel(KeyHighlightColor, "Items"))
+		b.WriteString(SectionLabel(HeadingColor, "Items"))
 		for _, item := range items {
 			fmt.Fprintf(&b, "* [%s]%s[-]\n", ValueHighlightColor, tview.Escape(item.Label))
 			if item.Msg != "" {

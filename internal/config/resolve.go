@@ -122,6 +122,23 @@ type SettingsConfig struct {
 		// keyword) expands past this count. *int, nil-means-default-10, same
 		// shape as NotifyTaskFailedMax above and for the same reason.
 		TemplateHostsMax *int `toml:"template_hosts_max"`
+		// ColorScheme is design-docs/ColorConfig.md's own addendum -
+		// "dark" or "light", case-insensitive, governing which of
+		// ColorsConfig's own Dark/Light sub-tables (and a loaded
+		// theme's own [dark]/[light] sections) applies - see
+		// ColorSchemePreference. Deliberately no "auto": this app
+		// already rejected guessing a terminal's own capabilities once
+		// (NotifyPlaybookFinished's own doc comment, above), and a
+		// terminal's background color is, if anything, less reliably
+		// queryable than that. Defaults to "dark" - this app's existing
+		// hardcoded colors were always tuned for a dark surrounding
+		// terminal.
+		ColorScheme string `toml:"color_scheme"`
+		// Theme names a color theme file to load - design-docs/
+		// ColorConfig.md's own addendum, see ResolveThemePath/LoadTheme
+		// (theme.go). "" (the default) means no theme; ColorsConfig's
+		// own keys and the hardcoded defaults are all that apply.
+		Theme string `toml:"theme"`
 	} `toml:"general"`
 
 	// Colors is design-docs/ColorConfig.md's own `[colors]` table - see
@@ -269,6 +286,20 @@ func RunDialogPreference(cfg SettingsConfig) DialogPreference {
 	default:
 		return DialogPreferenceDefault
 	}
+}
+
+// ColorSchemePreference reads cfg.General.ColorScheme, case-insensitively -
+// "light" is the only value that means light; everything else, including
+// an unset or unrecognized value (a typo, "auto" - deliberately not
+// supported, see General.ColorScheme's own doc comment), falls back to
+// "dark", the same "swallow and fall back" convention
+// DefaultTreeExpanded/RunDialogPreference already use for their own
+// two/three-way string settings.
+func ColorSchemePreference(cfg SettingsConfig) string {
+	if strings.EqualFold(cfg.General.ColorScheme, "light") {
+		return "light"
+	}
+	return "dark"
 }
 
 // Verb identifies which top-level command Tangsible was invoked with -
@@ -483,6 +514,8 @@ func MergedSettingsConfig() SettingsConfig {
 	merged.General.NotifyTaskFailed = firstNonEmpty(project.General.NotifyTaskFailed, global.General.NotifyTaskFailed, system.General.NotifyTaskFailed)
 	merged.General.NotifyTaskFailedMax = firstNonNil(project.General.NotifyTaskFailedMax, global.General.NotifyTaskFailedMax, system.General.NotifyTaskFailedMax)
 	merged.General.TemplateHostsMax = firstNonNil(project.General.TemplateHostsMax, global.General.TemplateHostsMax, system.General.TemplateHostsMax)
+	merged.General.ColorScheme = firstNonEmpty(project.General.ColorScheme, global.General.ColorScheme, system.General.ColorScheme)
+	merged.General.Theme = firstNonEmpty(project.General.Theme, global.General.Theme, system.General.Theme)
 	merged.Colors = mergeColors(project.Colors, global.Colors, system.Colors)
 	return merged
 }

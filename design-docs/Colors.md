@@ -36,12 +36,16 @@ ColorConfig.md has the full mechanism). Merged so far:
   recap's own "zero-count de-emphasis" - the two meanings were already
   reading identically ("nothing to show here").
 - `uikit.RecapHeadingColor` removed outright; the recap's own "Summary"
-  heading, its per-host summary row headings, and the error-output
-  block's own "Error output:" heading now all use
-  `uikit.KeyHighlightColor` (green) instead of a dedicated white - the
-  same green every other section heading in this app (drill-down/
-  `host`/`hosts` tabs) already uses. This is a real, visible color
-  change (white → green for those three headings), not just a rename.
+  heading and the error-output block's own "Error output:" heading (its
+  per-host summary rows are a separate case, see `uikit.StandardTextColor`
+  below) started using `uikit.KeyHighlightColor` (green) instead of a
+  dedicated white - the same green every other section heading in this
+  app (drill-down/`host`/`hosts` tabs) already used at the time. This was
+  a real, visible color change (white → green for those two headings),
+  not just a rename. Since split again into its own `uikit.HeadingColor`
+  (still green by default) once it became clear "a key's own label" and
+  "a section heading" wanted independently overridable config keys - see
+  the Quick reference table below for the current state.
 - `uikit.AnnotationColor` (source location, fact-cache note,
   search-dialog hint) stays its own constant, deliberately not folded
   into `NothingReportedColor` even though the default value is identical
@@ -130,9 +134,10 @@ don't:
 
 `orange` (`uikit.IgnoredColor`), `lightgray` (`uikit.SelectedRowBackgroundColor`),
 `aqua` (`uikit.SelectionColor`), `lightsteelblue`
-(`uikit.ValueHighlightColor`), and `silver` (`uikit.TaskTitleColor`) are
-also non-base-16 named colors (extended/X11, resolved by RGB) - same
-non-remappable guarantee, just no hand-picked hex needed.
+(`uikit.ValueHighlightColor`), and `silver` (`uikit.TaskTitleColor`,
+`uikit.StandardTextColor`) are also non-base-16 named colors (extended/
+X11, resolved by RGB) - same non-remappable guarantee, just no
+hand-picked hex needed.
 
 ## Notes worth keeping
 
@@ -183,6 +188,7 @@ of them.
 
 | Semantic meaning | Color name | Source | ANSI (base-16)? |
 |---|---|---|---|
+| Whole-TUI base background (every unstyled cell) | black | `uikit.BackgroundColor`, pushed into `tview.Styles.PrimitiveBackgroundColor` (`ApplyColorConfig`) | Yes |
 | OK outcome | green | `uikit.OutcomeOKColor` (read by `ColorTag`) | Yes |
 | Changed outcome | yellow | `uikit.OutcomeChangedColor` | Yes |
 | Skipped outcome | teal | `uikit.OutcomeSkippedColor` | Yes |
@@ -193,6 +199,7 @@ of them.
 | Supplementary annotation (source location, fact-cache note, search-dialog hint) | gray | `uikit.AnnotationColor` | Yes |
 | Task row title | silver | `uikit.TaskTitleColor` | Yes |
 | Play row title | white | `uikit.PlayTitleColor` | Yes |
+| Plain "just text" content: `host`/`hosts` list hostnames, revisit list timestamp/command-line, recap's per-host hostname+duration prefix | silver | `uikit.StandardTextColor` | Yes |
 | Chrome bars: live session | white on navy | `uikit.BarStyle` | Yes |
 | Chrome bars: revisited session | white on purple | `uikit.ReplayBarStyle` | Yes |
 | Chrome bars: `tangsible diff` | white on fuchsia | `diff.DiffChromeStyle` | Yes |
@@ -220,16 +227,18 @@ of them.
 | Active tab | session chrome on white | fg `chromeColorName()`, bg `uikit.TabTextColor` (same constant as "Inactive tab", swapped - `TabbedPane.renderHeader`) | Yes |
 | Search bar / non-current match | black on yellow | `searchMatchForegroundColor`/`searchMatchBackgroundColor` (`internal/uikit/search.go`, unexported) | Yes (bg) |
 | Search: current match | black on orange | `searchCurrentMatchForegroundColor`/`searchCurrentMatchBackgroundColor` (`internal/uikit/search.go`, unexported) | No (bg) |
-| `host`/`hosts`: every tab's own keys/headings | green | `uikit.KeyHighlightColor` | Yes |
+| `host`/`hosts`: every tab's own "Label: value" keys | green | `uikit.KeyHighlightColor` | Yes |
 | `host`/`hosts`: every tab's own values | lightsteelblue | `uikit.ValueHighlightColor` | No |
+| `host`/`hosts`: every tab's own section headings | green | `uikit.HeadingColor` | Yes |
 | `host`/`hosts`: connectivity dot - pending | gray | `uikit.NothingReportedColor` (same constant as "Host hasn't reported...") | Yes |
 | `host`/`hosts`: connectivity dot - reachable | green | `uikit.OutcomeOKColor` (same constant as "OK outcome") | Yes |
 | `host`/`hosts`: connectivity dot - down | red | `uikit.OutcomeFailedColor` (same constant as "Failed outcome") | Yes |
 | `host`/`hosts`: Summary's live Unreachable heading | maroon | `uikit.OutcomeUnreachableColor` (same constant as "Unreachable outcome") | Yes |
 | `host`/`hosts`: Summary's live Failed heading | red | `uikit.SummaryFailedColor` | Yes |
 | `host`/`hosts`: Summary's "Host unavailable." skip note | maroon | `uikit.OutcomeUnreachableColor` (same constant as "Unreachable outcome") | Yes |
-| Drill-down: Task/Output/Task definition/Resolved/Details tabs' own keys/headings; recap's "Summary"/per-host headings; error-output heading | green | `uikit.KeyHighlightColor` (same constant as `host`/`hosts` - shared implementation) | Yes |
+| Drill-down: Task/Details tabs' own "Label: value" keys (Role/Task/Action/Host/Status, Output's own "Label: value" lines) | green | `uikit.KeyHighlightColor` (same constant as `host`/`hosts` - shared implementation) | Yes |
 | Drill-down: same tabs' own values (incl. Output's own "Label: value" lines, Items bullets) | lightsteelblue | `uikit.ValueHighlightColor` (same constant as `host`/`hosts`) | No |
+| Drill-down: Output/Items section headings; recap's own "Summary" heading; error-output heading; host.go's own section headings | green | `uikit.HeadingColor` (same constant as `host`/`hosts` - shared implementation) | Yes |
 | Chrome color's own plain tag-name equivalent: live/revisit/check | navy / purple / olive | `uikit.ChromeLiveColor` / `ChromeRevisitColor` / `ChromeCheckColor` | Yes |
 
 ## Remaining vars, grouped by value
@@ -247,13 +256,14 @@ is the surviving set only. Every one of these is also its own
 
 | Value | Constants sharing it |
 |---|---|
-| `green` | `OutcomeOKColor`, `DiffAddedColor`, `KeyHighlightColor` |
+| `black` | `BackgroundColor` |
+| `green` | `OutcomeOKColor`, `DiffAddedColor`, `KeyHighlightColor`, `HeadingColor` |
 | `yellow` | `OutcomeChangedColor`, `DiffUnmatchedTaskColor`, `StatusBenignColor` |
 | `teal` | `OutcomeSkippedColor`, `DiffHunkColor` |
 | `red` | `OutcomeFailedColor`, `AsyncErrorColor`, `DiffRemovedColor`, `SummaryFailedColor` |
 | `maroon` | `OutcomeUnreachableColor` |
 | `gray` | `NothingReportedColor`, `AnnotationColor` |
-| `silver` | `TaskTitleColor` |
+| `silver` | `TaskTitleColor`, `StandardTextColor` |
 | `white` | `PlayTitleColor`, `ProgressTextColor`, `TabTextColor` |
 | `lightgray` | `SelectedRowBackgroundColor` |
 | `lightsteelblue` | `ValueHighlightColor` |

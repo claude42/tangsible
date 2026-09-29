@@ -145,10 +145,10 @@ func TestRevisitRowTextStatusColor(t *testing.T) {
 		t.Errorf("RevisitRowText(exit 2) = %q, want a [red] \"Host failed\" label", failed)
 	}
 
-	// The timestamp itself is plain/uncolored - only the status label
-	// carries the color, per your own request.
-	if strings.Contains(failed, "[white]2026-08-23") == false {
-		t.Errorf("RevisitRowText(exit 2) = %q, want the timestamp wrapped in a plain [white] tag", failed)
+	// The timestamp itself carries uikit.StandardTextColor, not a status
+	// color - only the status label itself is colored by outcome.
+	if strings.Contains(failed, "[silver]2026-08-23") == false {
+		t.Errorf("RevisitRowText(exit 2) = %q, want the timestamp wrapped in a [silver] (StandardTextColor) tag", failed)
 	}
 
 	// labelWidth pads the label out so the trailing " - tangsible ..."

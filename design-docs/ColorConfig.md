@@ -6,8 +6,11 @@ Every color the TUI uses is a named Go var (design-docs/Colors.md) - one
 `uikit.*Color` var per distinct semantic meaning (`internal/uikit/colors.go`,
 the great majority of them), `diff.DiffChromeColor` (`internal/diff`, its
 own package's fourth chrome variant), and four unexported `search*Color`
-vars (`internal/uikit/search.go`). All 34 are overridable from
-`config.toml`'s `[colors]` table, cascading project → global → system
+vars (`internal/uikit/search.go`), plus `uikit.BackgroundColor` - the
+whole TUI's own base background, pushed into
+`tview.Styles.PrimitiveBackgroundColor` rather than read per-row like
+the other 36. All 37 are overridable from `config.toml`'s `[colors]`
+table, cascading project → global → system
 exactly like every `[general]` key (`internal/config.MergedSettingsConfig`
 - see design-docs/ConfigOptions.md), accepting either a name from tview's
 own recognized color set or a `#rrggbb` hex literal.
@@ -51,13 +54,14 @@ itself; whatever the user types is just handed onward.
 `diff.DiffChromeColor` → `diff_chrome`. No separate key list is kept
 here: design-docs/Colors.md's own Quick reference table (and its
 "Remaining constants, grouped by value" section) is the single source of
-truth for what each var means and what it's currently set to. The 34
+truth for what each var means and what it's currently set to. The 37
 keys the rule produces:
 
 ```
+background,
 outcome_ok, outcome_changed, outcome_skipped, outcome_failed, outcome_unreachable,
 nothing_reported, annotation,
-task_title, play_title,
+task_title, play_title, standard_text,
 progress_text, tab_text,
 chrome_live, chrome_revisit, chrome_check, diff_chrome,
 selected_row_text, selected_row_background,
@@ -66,11 +70,22 @@ selection,
 async_error,
 diff_added, diff_removed, diff_hunk, diff_unmatched_task,
 status_benign,
-key_highlight, value_highlight,
+key_highlight, value_highlight, heading,
 summary_failed,
 search_match_foreground, search_match_background,
 search_current_match_foreground, search_current_match_background
 ```
+
+`background` is different in kind from the other 36: every one of those
+is read per-row/per-element by whatever function renders that specific
+thing, but nothing reads `uikit.BackgroundColor` directly - it's the
+whole TUI's own base background (every unstyled cell), and the only key
+whose resolved value gets pushed into `tview.Styles.PrimitiveBackgroundColor`
+(`ApplyColorConfig`) rather than just sitting in a var for row-composition
+code to read. tview's own hardcoded default there is `tcell.ColorBlack`,
+never overridden by this app before this key existed - so the background
+was always black regardless of `color_scheme`, independent of every
+other color choice.
 
 One thing this mechanical rule does *not* cover, a deliberate, still-open
 gap: **the chrome bars' own shared foreground.** `BarStyle`/
@@ -121,9 +136,9 @@ returns one `SettingsConfig` with both `General` and `Colors` already
 merged, so a caller needing both (there's exactly one, `main.go`) reads
 config once, not twice.
 
-### Two resolution paths, matching how each color is actually consumed
+### Three resolution paths, matching how each color is actually consumed
 
-Most of the 34 colors above are only ever used as **inline tag
+Most of the 36 colors above are only ever used as **inline tag
 strings** (`fmt.Sprintf("[%s]...[-]", colorName)`) - for these, the
 configured string (or the hardcoded default, if unset) is substituted
 directly wherever the literal sat before this existed. No conversion
@@ -148,6 +163,16 @@ config is read - the two call sites use the identical formula, so
 there's no way for them to silently drift apart the way `SearchBarStyle`
 already had once.
 
+One key, `background`, takes a third path entirely: nothing in this app
+reads `uikit.BackgroundColor` per-row the way the other 36 are read -
+`ApplyColorConfig` instead pushes its resolved value straight into
+`tview.Styles.PrimitiveBackgroundColor` via `tcell.GetColor`, the one
+global tview setting every `tview.Box` (essentially every primitive)
+reads at construction and paints across its own rect as its own default
+background. Without this, `background` would just be a var nothing
+consulted - the same class of gap `SearchBarStyle` had before it was
+fixed, caught here before shipping rather than after.
+
 ### Where the resolved palette lives
 
 A package-level, write-once palette in `internal/uikit` (and one more
@@ -161,7 +186,7 @@ each one already referenced moved (first from a literal to a `const`,
 then from `const` to `var`).
 
 `uikit.ApplyColorConfig(cfg config.ColorsConfig)` overwrites every var
-this package owns (33 of the 34 keys) and rebuilds `BarStyle`/
+this package owns (36 of the 37 keys, including `background`) and rebuilds `BarStyle`/
 `ReplayBarStyle`/`CheckBarStyle`/`SearchBarStyle` from the resolved
 values. `diff.ApplyColorConfig(cfg config.ColorsConfig)` is `internal/diff`'s
 own one-field equivalent for `DiffChromeColor`/`DiffChromeStyle` - a
@@ -181,10 +206,26 @@ its own one field, rather than a second copy of this logic) - `nil`
 override means "absent everywhere in the cascade," returns `fallback`
 unchanged; a non-nil override that `tcell.GetColor` resolves to anything
 but `tcell.ColorDefault` is used as-is; anything else (a typo, an
-unrecognized name, a malformed hex string) warns once to stderr by key
-name and falls back to `fallback` - the same one-key-at-a-time tolerance
+unrecognized name, a malformed hex string) warns by key name and falls
+back to `fallback` - the same one-key-at-a-time tolerance
 `ReadTOMLFile`'s own parse-failure path already has elsewhere in this
 app: one bad value costs only that one key, never the whole config.
+
+**The warning doesn't print immediately** - a real user report: since
+`ApplyColorConfig` runs before any TUI-showing Verb constructs its own
+`tview.Application`, an immediate print sat on the terminal's normal
+screen for well under a second before tview's alternate-screen swap
+visually covered it, and wasn't reliably restored on quit either
+(terminal-dependent - some clear scrollback on entering the alternate
+screen), so the message was effectively never seen. `ResolveColorOverride`
+instead appends to `uikit.pendingColorWarnings`, and `session.Main` calls
+`uikit.PrintColorWarnings()` once, right after each Verb's own function
+returns (i.e. once its TUI, if any, has actually closed) but before that
+Verb's own `os.Exit` - the same "collect while the alternate screen might
+be up, print for real only once it's gone" reasoning `runner.
+StreamStderr`/`lastStderr` already apply to a generation's own stderr
+(design-docs/ErrorOutput.md), applied here to config-validation warnings
+instead.
 
 ## Known gaps
 
@@ -250,15 +291,13 @@ looks the way it does.
   `internal/config.MergedSettingsConfig`. `[colors]` inherited this for
   free once it landed - no special-casing needed.
 
-## Addendum: dark/light mode and named themes (proposed, not built)
+## Addendum: dark/light mode and named themes
 
-Unlike everything above, this section is a concept for review, the same
-status the rest of this doc had before it was implemented - nothing
-below is built yet. Two related asks: some colors (`selected_row_text`,
-the chrome bars, ...) are tuned for one background brightness and read
-poorly against the other, and separately, a reusable *named* set of
-color choices (a "theme") that isn't tied to any one project's own
-`config.toml`.
+**Implemented**, same status as the rest of this doc now. Two related
+asks: some colors (`selected_row_text`, the chrome bars, ...) are tuned
+for one background brightness and read poorly against the other, and
+separately, a reusable *named* set of color choices (a "theme") that
+isn't tied to any one project's own `config.toml`.
 
 ### Dark/light mode
 
@@ -273,13 +312,27 @@ reasoning for not auto-detecting OSC support), and a terminal's
 background color is, if anything, less reliably queryable than that.
 
 `[colors]` itself gains two optional sub-tables, `[colors.dark]` and
-`[colors.light]`, holding the same 34 keys - only the ones that actually
-need to differ by background, not all 34 duplicated in both. Precedence
-within `[colors]` becomes: `[colors.<scheme>]` (matching whichever
-`color_scheme` is active) → flat `[colors]` (scheme-independent) →
-hardcoded default. Still merged project → global → system per key, same
-mechanism as today, just one more tier to check per key before falling
-through to the next config tier.
+`[colors.light]` (`ColorsConfig.Dark`/`Light`, `internal/config/colorsconfig.go`
+- `map[string]string`, not 36 more `*string` fields each, so there's only
+one 36-name list to maintain), holding the same 36 keys - only the ones
+that actually need to differ by background, not all 36 duplicated in
+both. Precedence within `[colors]` becomes: `[colors.<scheme>]`
+(matching whichever `color_scheme` is active) → flat `[colors]`
+(scheme-independent) → hardcoded default. Still merged project → global
+→ system per key (`mergeColorMap`, the map analogue of `mergeColors`'
+own `firstNonNil` rule), same mechanism as today, just one more tier to
+check per key before falling through to the next config tier.
+
+`background` is one of the 37 keys this applies to like any other - it
+can be set flat, or split via `[colors.dark]`/`[colors.light]`, same as
+every other key. Worth being explicit about what this does and doesn't
+give you: setting `color_scheme = "light"` alone changes nothing about
+the background (or anything else) by itself - there's no built-in light
+palette shipped with this mechanism, only the *ability* to define one.
+An actual light-mode experience needs `[colors.light] background =
+"white"` (or similar) set explicitly, in `config.toml` or in a theme's
+own `[light]` table - the same as every other color choice this doc
+covers.
 
 ### Named themes
 
@@ -297,18 +350,26 @@ them - matching the convention most terminal/editor color-scheme
 ecosystems already use (Alacritty, iTerm2, Windows Terminal, kitty,
 tmux-themepack), so sharing one theme is "send one file" or "one PR
 adding one file," never an edit to something everyone else's theme also
-lives in. Each theme file is TOML, the exact same shape `[colors]`
-already has - flat keys plus optional `[dark]`/`[light]` sub-tables (not
-nested under a `[colors]` key this time, since the whole file already is
-one) - and goes through the identical "Key naming rule" as `[colors]`
-itself: one key per `uikit.*Color`/`diff.DiffChromeColor` var,
-`ResolveColorOverride`'s own validation, one bad key warns and falls
-back without invalidating the rest of the theme.
+lives in. Each theme file (`ThemeFile`, `internal/config/theme.go`) is
+TOML, the exact same shape `[colors]` already has - flat keys plus
+optional `[dark]`/`[light]` sub-tables (not nested under a `[colors]`
+key this time, since the whole file already is one) - decoded generically
+into three `map[string]string`s (`Flat`/`Dark`/`Light`) rather than
+`ColorsConfig`'s own named fields, purely to avoid a second 36-name list:
+a theme file is load-once, read-only, never round-tripped back to TOML
+the way `SettingsConfig`'s own fields conceptually could be. Goes
+through the identical "Key naming rule" as `[colors]` itself - one key
+per `uikit.*Color`/`diff.DiffChromeColor` var - and the identical
+per-key validation, `uikit.ResolveColorOverride`, at the exact same
+final step `[colors]`'s own values already went through
+(`ResolveEffectiveColors` below just picks *which* string wins per key;
+it's still `ApplyColorConfig` that validates it) - one bad key warns and
+falls back without invalidating the rest of the theme.
 
-**Location**: reusing this app's own existing two-tier precedent for a
-bundled-but-user-extensible asset - the callback plugin
-(`runner.ResolveCallbackPluginDir`, design-docs/OwnCallbackPlugin.md),
-checked in this order:
+**Location** (`ResolveThemePath`): reusing this app's own existing
+two-tier precedent for a bundled-but-user-extensible asset - the
+callback plugin (`runner.ResolveCallbackPluginDir`,
+design-docs/OwnCallbackPlugin.md), checked in this order:
 
 1. `<prefix>/share/tangsible/themes/<name>.toml` - anything shipped with
    the install (a distro package, `install.sh`'s own `CALLBACK_DIR`-style
@@ -321,14 +382,23 @@ Deliberately `DataHome`, not `ConfigHome`: a theme is a shareable asset
 someone else might have authored, closer in kind to the callback plugin
 than to `config.toml`'s own per-user/per-project *preferences* - the
 same distinction `resolve.go` already draws between the two XDG
-directories for an unrelated reason.
+directories for an unrelated reason. `LoadTheme(name)` wraps this: `name
+== ""` (no theme configured) returns quietly; a set name that resolves
+to nothing at either tier, or a file that fails to parse as TOML, warns
+once to stderr and falls back to "no theme" - see Open questions #2,
+now decided.
 
 ### Full precedence chain
 
 Putting both together, resolving one color key now has three tiers
 instead of two (the first two each additionally check the active
 `color_scheme` before falling through, per the precedence given for
-`[colors]` above):
+`[colors]` above) - `ResolveEffectiveColors` (`internal/config/colorsconfig.go`)
+is where this is actually implemented, via a small `pick(key, flat)`
+closure applying exactly this order per key; everything downstream
+(`uikit.ApplyColorConfig`/`diff.ApplyColorConfig`) is unchanged, since a
+`ColorsConfig` with every field already resolved is exactly what those
+two already expected before this addendum existed:
 
 1. `config.toml`'s own `[colors.<scheme>]`/`[colors]`, cascaded
    project → global → system (today's mechanism, unchanged) - the
@@ -337,7 +407,9 @@ instead of two (the first two each additionally check the active
    is set - optional, and itself just one file, not cascaded across
    multiple locations the way `config.toml` is (see Open questions).
 3. This app's own hardcoded default (`internal/uikit/colors.go` et al.)
-   - always available, what you get with no config and no theme at all.
+   - always available, what you get with no config and no theme at all;
+   left as a still-nil field on `ResolveEffectiveColors`' own result,
+   `ApplyColorConfig`'s existing fallback handles it exactly as before.
 
 Nothing here has to be all-or-nothing: pick a theme and still override
 one key in your own `config.toml` without forking the theme file.
@@ -347,22 +419,23 @@ one key in your own `config.toml` without forking the theme file.
 1. **Do theme files themselves need a project/global/system cascade**,
    the way `config.toml` does - e.g. a `.tangsible/themes/` tier so a
    project can ship its own theme alongside the two `DataHome`/`prefix`
-   tiers above? Proposing no for a first pass (a theme is meant to be
-   reusable *across* projects, which cuts against making it
-   project-scoped at all) but worth an explicit call rather than a
-   silent omission.
-2. **An unrecognized `general.theme` name** - warn to stderr and fall
-   back to no theme (same "swallow and fall back" convention
-   `ReadDefaultPlaybook`/`DefaultTreeExpanded` already use elsewhere), or
-   a harder failure? Getting a theme name wrong is arguably closer to a
-   typo'd color value (one bad thing, rest of the config still good)
-   than to a missing playbook (nothing to run at all) - leaning toward
-   the same warn-and-fall-back tolerance `ResolveColorOverride` already
-   has for one bad key, applied here to one bad theme reference instead.
-3. **Theme file metadata** - just the color keys as proposed above, or
-   also a display name/description/author field for a future `tangsible
-   themes list`-style command? Out of scope for the mechanism itself
-   either way; worth deciding once, not per-file, if it's wanted at all.
+   tiers above? Not implemented - a theme is meant to be reusable
+   *across* projects, which cuts against making it project-scoped at
+   all - but worth an explicit call rather than a silent omission if
+   real demand shows up.
+2. ~~An unrecognized `general.theme` name~~ **Decided and implemented**:
+   `LoadTheme` warns once to stderr and falls back to no theme (the same
+   "swallow and fall back" convention `ReadDefaultPlaybook`/
+   `DefaultTreeExpanded` already use elsewhere) - a bad theme reference
+   costs only "no theme applied," the same tolerance a single bad color
+   value already gets from `ResolveColorOverride`, not a harder failure.
+   A theme file that resolves but fails to parse as TOML gets the
+   identical treatment.
+3. **Theme file metadata** - just the color keys as implemented above,
+   or also a display name/description/author field for a future
+   `tangsible themes list`-style command? Still out of scope for the
+   mechanism itself; worth deciding once, not per-file, if it's wanted
+   at all.
 4. **Hot-reload** stays out of scope for the same reason it already is
    above - a theme/scheme change needs a restart, consistent with
    everything else configurable in this app.
