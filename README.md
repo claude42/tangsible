@@ -91,13 +91,13 @@ changes might be necessary.
 Tangsible is designed around the development loop of finding something wrong,
 changing it and trying again.
 
-- **Re-run from the TUI** - rerun the whole playbook or start at a specific task
-  or limit tags and hosts in subsequent runs
+- **Re-run from the TUI** - rerun the whole playbook or start at a specific play, 
+  or limit tags or only failed hosts in subsequent runs
 - **Edit tags and hosts** before rerunning.
 - **`tangsible rerun`** - open the same rerun workflow directly from the command
   line, pre-filled from the previous invocation.
 - **Revisit** all results and outputs of previous runs and compare differences between two runs.
-- 
+
 ### Develop Ansible
 
 Tangsible provides a couple of shortcuts for common development tasks that
@@ -311,7 +311,7 @@ control, and more).
 
 | Key | Action |
 |---|---|
-| `Enter` / `Space` | Toggle a task's host rows, or open a host's result |
+| `Enter` | Toggle a task's host rows, or open a host's result |
 | `←`/`→` | Collapse / expand a task |
 | `C`/`E` | Collapse / expand all |
 | `n`/`N` | Jump to the next / previous task |
@@ -344,10 +344,6 @@ control, and more).
 
 Mouse navigation is supported as well.
 
-`tangsible hosts`/`tangsible host`'s own detail view and `tangsible diff`'s
-own drill-down aren't tabulated separately here, but support the same `/`
-in-tab search shown above.
-
 ## Configuration
 
 When no playbook is given on the command line, Tangsible resolves one
@@ -357,10 +353,12 @@ from, in order:
 2. `.tangsible/config.toml` in the current directory
 3. `$XDG_CONFIG_HOME/tangsible/config.toml` (default:
    `~/.config/tangsible/config.toml`)
-4. `./site.yml`, if present
+4. `/etc/tangsible/config.toml`, an admin-set system-wide default
+5. `./site.yml`, if present
 
-`.tangsible/config.toml` and the global `config.toml` share the same TOML
-format:
+The project, global and system `config.toml` files all share the same TOML
+format, and every `[general]` key cascades project → global → system (the
+more specific tier wins only when it actually sets that key):
 
 ```toml
 [general]
