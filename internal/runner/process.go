@@ -24,6 +24,7 @@ package runner
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -189,6 +190,10 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle) (cmd *ex
 		runID = ""
 	}
 
+	// ScanEvents takes ownership of eventR from here on and closes it once
+	// scanning ends (see its own doc comment) - no explicit eventR.Close()
+	// needed on this success path, unlike the two failure returns above
+	// (which never reach ScanEvents at all).
 	stdoutCh = ScanEvents(eventR, logFile)
 	lines := make(chan []string, 1)
 	go func() { lines <- StreamStderr(stderr) }()
@@ -271,13 +276,31 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 // live — printing directly to the terminal while the TUI's alternate
 // screen is active would corrupt the display. main prints them after
 // app.Run() returns and the real terminal is restored.
+//
+// Reads via bufio.Reader.ReadBytes rather than bufio.Scanner deliberately -
+// a Scanner has a hard per-token buffer cap (its own default is a mere
+// 64KiB), and this reads directly off the child's live stderr pipe, not an
+// already-fully-buffered byte slice: a single line past that cap would make
+// Scan() return false and this function return early while the child is
+// still writing, abandoning the read end of a pipe the child hasn't
+// finished with - the child then blocks on a full pipe forever, hanging
+// both processes. ReadBytes has no such cap (bounded only by memory, fine
+// at this app's own ~10-host target scale), so an oversized line just costs
+// one large allocation instead of a deadlock.
 func StreamStderr(r io.Reader) []string {
 	var lines []string
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+	reader := bufio.NewReader(r)
+	for {
+		raw, readErr := reader.ReadBytes('\n')
+		raw = bytes.TrimSuffix(raw, []byte("\n"))
+		raw = bytes.TrimSuffix(raw, []byte("\r"))
+		if len(raw) > 0 || readErr == nil {
+			lines = append(lines, string(raw))
+		}
+		if readErr != nil {
+			return lines
+		}
 	}
-	return lines
 }
 
 // FilterRedundantWarnings drops every line whose trimmed text starts with
@@ -340,6 +363,35 @@ type StreamItem struct {
 // feature has for its own I/O failures, never worth disrupting the live
 // event stream over. Closed once scanning ends, right alongside the
 // channel.
+//
+// Reads via bufio.Reader.ReadBytes rather than bufio.Scanner deliberately -
+// a real bug found by a code review, not a style choice: r here is always
+// either the live event pipe (a real ansible-playbook run) or a saved
+// run-log file (ReplayRunLog/revisit), and a Scanner enforces a hard
+// per-token buffer cap. A single event's JSON is deliberately retained
+// whole (host output, registered vars, ...) - a large stdout/facts result
+// can legitimately exceed even a generously raised cap - so hitting it mid-
+// run would make Scan() return false and this goroutine return early while
+// ansible-playbook is still writing to the pipe's other end: the pipe then
+// fills, the child blocks writing to it, and RunOneGeneration blocks
+// forever waiting for a channel close that already happened and a process
+// exit that can now never come. ReadBytes has no such cap (bounded only by
+// memory, fine at this app's own ~10-host target scale), so an oversized
+// event just costs one large allocation, never a hang.
+//
+// Takes ownership of r's lifetime the same way it already owns logFile's:
+// if r implements io.Closer, it's closed once scanning ends. Another real
+// bug the same review found: SpawnGeneration hands this the read end of
+// its own dedicated event pipe (eventR) and, before this, never closed it
+// on its own success path - only its two pre-Start failure returns did,
+// since those never reach ScanEvents at all - leaking one fd per
+// generation, and this app is explicitly built around repeated reruns
+// within one process. r not implementing io.Closer (e.g. a bare
+// strings.Reader, this file's own tests) is a harmless no-op. A caller
+// that already closes its own r itself (ReplayRunLog below, plus diff.go's
+// ReplayRun and revisit.go's resolveHadUnreachable, all opening a saved
+// run's .jsonl file) just ends up closing it twice, harmlessly - the
+// second Close's error return is already ignored everywhere it happens.
 func ScanEvents(r io.Reader, logFile *os.File) <-chan StreamItem {
 	ch := make(chan StreamItem, 64)
 	go func() {
@@ -347,28 +399,36 @@ func ScanEvents(r io.Reader, logFile *os.File) <-chan StreamItem {
 		if logFile != nil {
 			defer logFile.Close()
 		}
+		if closer, ok := r.(io.Closer); ok {
+			defer closer.Close()
+		}
 
-		scanner := bufio.NewScanner(r)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		reader := bufio.NewReader(r)
+		for {
+			raw, readErr := reader.ReadBytes('\n')
+			raw = bytes.TrimSuffix(raw, []byte("\n"))
+			raw = bytes.TrimSuffix(raw, []byte("\r"))
 
-		for scanner.Scan() {
-			raw := scanner.Bytes()
-			if logFile != nil {
-				logFile.Write(raw)
-				logFile.Write([]byte{'\n'})
+			if len(raw) > 0 || readErr == nil {
+				if logFile != nil {
+					logFile.Write(raw)
+					logFile.Write([]byte{'\n'})
+				}
+
+				line := strings.TrimSpace(string(raw))
+				if line != "" {
+					var ev pb.RawEvent
+					if err := json.Unmarshal([]byte(line), &ev); err != nil {
+						ch <- StreamItem{}
+					} else {
+						ch <- StreamItem{Ev: ev, IsEvent: true}
+					}
+				}
 			}
 
-			line := strings.TrimSpace(string(raw))
-			if line == "" {
-				continue
+			if readErr != nil {
+				return
 			}
-
-			var ev pb.RawEvent
-			if err := json.Unmarshal([]byte(line), &ev); err != nil {
-				ch <- StreamItem{}
-				continue
-			}
-			ch <- StreamItem{Ev: ev, IsEvent: true}
 		}
 	}()
 	return ch

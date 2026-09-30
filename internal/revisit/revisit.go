@@ -252,12 +252,33 @@ func resolveHadUnreachable(e RevisitEntry) *bool {
 	}
 	defer f.Close()
 
+	ch := runner.ScanEvents(f, nil)
 	found := false
-	for item := range runner.ScanEvents(f, nil) {
+	for item := range ch {
 		if item.IsEvent && item.Ev.Event == "v2_runner_on_unreachable" {
 			found = true
 			break // no need to scan the rest of a possibly-large run
 		}
+	}
+	if found {
+		// ScanEvents's own goroutine is still mid-scan, blocked the moment
+		// its buffered channel (cap 64) fills up with nobody left to
+		// receive - break above stopped this function from being that
+		// receiver. Draining the rest in the background (discarding it)
+		// unblocks that goroutine so it can actually reach EOF, close the
+		// channel, and close its own fd (its doc comment) instead of
+		// leaking both forever; this function itself doesn't need to wait
+		// for that, since found is already decided. The immediate
+		// deferred f.Close() above racing this goroutine's own read is
+		// fine: *os.File's Close/Read are safe to run concurrently from
+		// different goroutines (Go's poll.FD interrupts a pending Read
+		// rather than risking an fd-reuse hazard), so the drain just ends
+		// a little earlier, with a harmless read error, than it otherwise
+		// would.
+		go func() {
+			for range ch {
+			}
+		}()
 	}
 	return &found
 }
