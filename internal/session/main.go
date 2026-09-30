@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/diff"
@@ -709,6 +710,14 @@ func Main(build BuildInfo) {
 
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", runErr)
+		// A code review's own finding: the normal q/Ctrl-C path already
+		// signals the running child before ever getting here
+		// (livesession_input.go's handleCtrlC/handleGlobalQuit) - but
+		// app.Run() itself failing (a genuine tcell/terminal-level error,
+		// not a user asking to quit) skipped that entirely, orphaning
+		// whatever generation was still running with nothing left to
+		// observe or stop it. See interruptChildAndWait's own doc comment.
+		interruptChildAndWait(&procH, &processDone, interruptGraceDefault)
 		exitCleanly(1)
 	}
 	if len(all) == 0 {
@@ -739,3 +748,60 @@ func Main(build BuildInfo) {
 	// through to a normal return (implicit exit code 0) - neither is a
 	// failure of Tangsible or of the playbook itself.
 }
+
+// interruptChildAndWait is Main's own last resort against orphaning an
+// ansible-playbook child: called only from the runErr != nil branch above,
+// when the TUI itself failed for a genuine reason (not the normal q/Ctrl-C
+// quit, which already signals the child via the exact same os.Interrupt
+// call - livesession_input.go's handleCtrlC/handleGlobalQuit - well before
+// app.Run() ever returns). Without this, a tcell/terminal-level Run()
+// failure would leave whatever generation was in flight running
+// unmonitored, for a tool whose entire purpose is controlling and
+// observing that one process.
+//
+// Best-effort, same tolerance every other cleanup step in this package
+// already has: procH.Load() can be nil (no generation has ever spawned
+// yet - e.g. the "rerun" verb's own dialog was never confirmed), and the
+// grace period below can simply run out while the child is legitimately
+// still mid-task. Deliberately never escalates to SIGKILL after that -
+// nothing else in this codebase does either, so this doesn't invent a new
+// behavior beyond "ask it to stop, wait a bit."
+//
+// The wait is a bounded poll of processDone, not a direct cmd.Wait() -
+// Main only ever holds the *exec.Cmd for this session's very first
+// generation (pending.Cmd); every rerun since spawns its own, known only
+// inside runner.NewRequestRerun's own closure (requestRerun) and never
+// handed back here. processDone is the one signal already shared across
+// every generation regardless (RunOneGeneration sets it true right after
+// cmd.Wait() returns, alongside recording that generation's own outcome/
+// history), so polling it is the only option that works uniformly for
+// "the first generation" and "whichever rerun happens to be current."
+//
+// grace is a parameter (Main's own call site always passes
+// interruptGraceDefault) purely so main_test.go can exercise the
+// bounded-wait path itself without a real multi-second test.
+func interruptChildAndWait(procH *runner.ProcHandle, processDone *atomic.Bool, grace time.Duration) {
+	if processDone.Load() {
+		return
+	}
+	p := procH.Load()
+	if p == nil {
+		return
+	}
+	_ = p.Signal(os.Interrupt) // best-effort; child may race-exit on its own
+
+	deadline := time.Now().Add(grace)
+	for !processDone.Load() && time.Now().Before(deadline) {
+		time.Sleep(interruptPollInterval)
+	}
+}
+
+// interruptGraceDefault/interruptPollInterval back interruptChildAndWait's
+// real call site - pulled out as named constants (rather than literals
+// inline there) purely so main_test.go can reference the poll interval
+// directly instead of guessing at a sleep granularity that happens to
+// match.
+const (
+	interruptGraceDefault = 5 * time.Second
+	interruptPollInterval = 50 * time.Millisecond
+)
