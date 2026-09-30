@@ -61,6 +61,73 @@ func TestAppendCapped(t *testing.T) {
 	}
 }
 
+// TestWriteStatePrivatePermissions covers a real code-review finding:
+// .tangsible/ and state.toml used to be created world/group-readable
+// (0o755/default-0o666-minus-umask), despite state.toml's own invocation
+// history being able to carry arbitrary passthrough args (an --extra-vars
+// value, say) - see EnsureParentDir/WriteState's own doc comments. Runs as
+// part of AppendInvocation, the same path every real invocation of every
+// verb goes through.
+func TestWriteStatePrivatePermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".tangsible", "state.toml")
+
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+		t.Fatalf("appendInvocation(): %v", err)
+	}
+
+	tangsibleDir := filepath.Join(dir, ".tangsible")
+	info, err := os.Stat(tangsibleDir)
+	if err != nil {
+		t.Fatalf("stat %s: %v", tangsibleDir, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf(".tangsible/ perm = %o, want 700", perm)
+	}
+
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("state.toml perm = %o, want 600", perm)
+	}
+}
+
+// TestWriteStateSelfHealsLooseExistingPermissions covers WriteState's own
+// explicit os.Chmod: state.toml is rewritten wholesale on every invocation
+// (stateConfig's own doc comment), so a file left world/group-readable by
+// a build predating this fix - or state.toml is a full rewrite - gets
+// tightened back up the very next time anything is recorded, with no
+// migration step needed.
+func TestWriteStateSelfHealsLooseExistingPermissions(t *testing.T) {
+	dir := t.TempDir()
+	tangsibleDir := filepath.Join(dir, ".tangsible")
+	path := filepath.Join(tangsibleDir, "state.toml")
+
+	if err := os.MkdirAll(tangsibleDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("[general]\n"), 0o644); err != nil {
+		t.Fatalf("seeding a loose-permission state.toml: %v", err)
+	}
+
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+		t.Fatalf("appendInvocation(): %v", err)
+	}
+
+	if info, err := os.Stat(tangsibleDir); err != nil {
+		t.Fatalf("stat %s: %v", tangsibleDir, err)
+	} else if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf(".tangsible/ perm after self-heal = %o, want 700", perm)
+	}
+	if info, err := os.Stat(path); err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	} else if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("state.toml perm after self-heal = %o, want 600", perm)
+	}
+}
+
 func TestAppendInvocationAndLastInvocation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 

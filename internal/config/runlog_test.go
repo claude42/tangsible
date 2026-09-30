@@ -97,6 +97,50 @@ func TestCreateRunLogWriteReadDelete(t *testing.T) {
 	}
 }
 
+// TestRunLogFilesArePrivate covers a real code-review finding: a saved
+// generation's .jsonl carries the complete raw Ansible result payload
+// (module args, registered vars, command output, diffs, ...) verbatim -
+// see CreateRunLog/WriteRunStderr's own doc comments - and both files used
+// to be created world-readable (os.Create's default mode, and an explicit
+// 0o644, respectively).
+func TestRunLogFilesArePrivate(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	runID := "20260823T150000.000000000Z"
+
+	f := CreateRunLog(statePath, runID)
+	if f == nil {
+		t.Fatal("createRunLog() = nil, want a real file")
+	}
+	f.Close()
+	WriteRunStderr(statePath, runID, []string{"a line"})
+
+	jsonlPath, stderrPath := RunLogPaths(statePath, runID)
+
+	info, err := os.Stat(filepath.Dir(jsonlPath))
+	if err != nil {
+		t.Fatalf("stat runs/: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("runs/ perm = %o, want 700", perm)
+	}
+
+	info, err = os.Stat(jsonlPath)
+	if err != nil {
+		t.Fatalf("stat %s: %v", jsonlPath, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("jsonl perm = %o, want 600", perm)
+	}
+
+	info, err = os.Stat(stderrPath)
+	if err != nil {
+		t.Fatalf("stat %s: %v", stderrPath, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("stderr perm = %o, want 600", perm)
+	}
+}
+
 // TestRunLogEmptyRunIDIsANoOp covers spawnGeneration's own convention: an
 // empty runID means createRunLog never actually opened anything (e.g. the
 // runs/ directory couldn't be created), so writeRunStderr/deleteRunLog must

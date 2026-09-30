@@ -125,6 +125,21 @@ type StateConfig struct {
 // explicitly (stat first, check !IsDir) rather than left to MkdirAll's own
 // text, so the message can say the one thing MkdirAll's own error can't:
 // that this is a known upgrade artifact and the fix is to delete it.
+//
+// 0o700, not 0o755: .tangsible/ (and its runs/ subdirectory - CreateRunLog/
+// WriteRunStderr call this too, via their own jsonlPath/stderrPath) holds
+// private application state, not shareable content - state.toml's own
+// invocation history can carry arbitrary passthrough args (an --extra-vars
+// value, say), and runs/*.jsonl holds each generation's complete raw
+// Ansible result payload (module args, registered vars, command output,
+// ...), neither of which ansible's own no_log necessarily scrubs before it
+// ever reaches this app. A real gap a code review caught: nothing here
+// stops another local user from just reading it. The explicit os.Chmod
+// below self-heals a directory created by an older build before this
+// existed (or under a looser umask) the same best-effort way
+// PruneMissingRunLogs already self-heals a stale manifest - MkdirAll's own
+// mode only ever applies to a directory it actually creates, never one
+// that's already there.
 func EnsureParentDir(path string) error {
 	dir := filepath.Dir(path)
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
@@ -133,7 +148,11 @@ func EnsureParentDir(path string) error {
 			dir, dir,
 		)
 	}
-	return os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	_ = os.Chmod(dir, 0o700)
+	return nil
 }
 
 // WriteState writes cfg to path (state.toml) as TOML, overwriting whatever
@@ -143,15 +162,23 @@ func EnsureParentDir(path string) error {
 // state.toml is entirely app-owned (see stateConfig's own doc comment):
 // there is no user-authored content left in this file for a rewrite to
 // lose.
+//
+// Opened at 0o600, not os.Create's own 0o666 (umask-adjusted) - state.toml
+// can carry arbitrary passthrough args in its invocation history (see
+// EnsureParentDir's own note on why .tangsible/ itself is private), and
+// this is rewritten wholesale on every single invocation of every verb, so
+// the explicit os.Chmod below reliably self-heals a file created world/
+// group-readable by a build predating this fix, not just new ones.
 func WriteState(path string, cfg StateConfig) error {
 	if err := EnsureParentDir(path); err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	_ = os.Chmod(path, 0o600)
 	return toml.NewEncoder(f).Encode(cfg)
 }
 

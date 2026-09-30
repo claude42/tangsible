@@ -62,12 +62,21 @@ func RunLogPaths(statePath, runID string) (jsonlPath, stderrPath string) {
 // always "this generation just isn't revisitable," never anything that
 // should interrupt the run itself, same tolerance appendInvocation already
 // has for its own failures.
+//
+// Opened at 0o600, not os.Create's own 0o666 (umask-adjusted) - this file
+// holds a generation's complete raw Ansible result payload (module args,
+// registered vars, command output, diffs, ...), which ansible's own
+// no_log doesn't necessarily scrub before it ever reaches this app (see
+// EnsureParentDir's own note). No separate self-heal chmod needed here
+// unlike WriteState's - runID (NewRunID) is nanosecond-unique per
+// generation, so this always creates a brand new file, never reopens an
+// older one that might predate this fix.
 func CreateRunLog(statePath, runID string) *os.File {
 	jsonlPath, _ := RunLogPaths(statePath, runID)
 	if err := EnsureParentDir(jsonlPath); err != nil {
 		return nil
 	}
-	f, err := os.Create(jsonlPath)
+	f, err := os.OpenFile(jsonlPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil
 	}
@@ -81,6 +90,11 @@ func CreateRunLog(statePath, runID string) *os.File {
 // stderr to live either). Best-effort, same reasoning as createRunLog - a
 // failure here doesn't invalidate the jsonl side, so it isn't gated on this
 // succeeding.
+//
+// 0o600, not the previous, explicitly-wrong 0o644 - collected stderr can
+// contain the same kind of sensitive task output CreateRunLog's own note
+// describes for the sibling .jsonl, and there's no principled reason for
+// the two files to have different exposure.
 func WriteRunStderr(statePath, runID string, lines []string) {
 	if runID == "" {
 		return
@@ -89,7 +103,7 @@ func WriteRunStderr(statePath, runID string, lines []string) {
 	if err := EnsureParentDir(stderrPath); err != nil {
 		return
 	}
-	_ = os.WriteFile(stderrPath, []byte(strings.Join(lines, "\n")), 0o644)
+	_ = os.WriteFile(stderrPath, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
 // ReadRunStderr reads back a generation's saved stderr (WriteRunStderr's
