@@ -7,10 +7,16 @@ immediately implemented.
   * strategy plugin is deprecated
   * use hostvars[inventory_hostname] gives us at least something
   * Use virtual terminal to run ansible-playbook - to support things like
-    --step, the debuger or ansible.builtin.pause
+    --step, --pause, the debuger or ansible.builtin.pause
 
+* Let the normal plugin run alongside to produce the standard
+  ansible-playbook output
 
+* Jump to first / next fail
 
+* Big busy spinner for lazy loading tabs
+
+* Show log from stdout callback plugin
 
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
@@ -37,8 +43,6 @@ immediately implemented.
 * Double coding (instead of just colors)
 
 * Sign checksums, let install.sh verify
-
-* Interactive --step, --pause, debugger
 
 * Variable resolution explorer - show expansion of a variable on every host
 
@@ -81,3 +85,4 @@ immediately implemented.
 
 * Knoten im Tree öffnen, der auf letzter Zeile ist --> sollte runter
   scrollen, damit Inhalt sichtbar ist
+
