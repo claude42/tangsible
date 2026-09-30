@@ -128,6 +128,28 @@ func TestWriteStateSelfHealsLooseExistingPermissions(t *testing.T) {
 	}
 }
 
+// TestWriteStateLeavesNoTempFileBehind covers the temp-file-plus-rename
+// swap WriteState now uses instead of truncate-then-write-in-place (its
+// own doc comment) - a successful write's scratch ".tmp-*" file must
+// never be left sitting next to the real state.toml once AppendInvocation
+// returns.
+func TestWriteStateLeavesNoTempFileBehind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	if err := AppendInvocation(path, "site.yml", "", "-l somehost"); err != nil {
+		t.Fatalf("appendInvocation(): %v", err)
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("reading .tangsible/: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != "state.toml" {
+			t.Errorf(".tangsible/ contains unexpected leftover entry %q, want only state.toml", e.Name())
+		}
+	}
+}
+
 func TestAppendInvocationAndLastInvocation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
 

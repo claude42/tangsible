@@ -163,23 +163,63 @@ func EnsureParentDir(path string) error {
 // there is no user-authored content left in this file for a rewrite to
 // lose.
 //
-// Opened at 0o600, not os.Create's own 0o666 (umask-adjusted) - state.toml
-// can carry arbitrary passthrough args in its invocation history (see
-// EnsureParentDir's own note on why .tangsible/ itself is private), and
-// this is rewritten wholesale on every single invocation of every verb, so
-// the explicit os.Chmod below reliably self-heals a file created world/
-// group-readable by a build predating this fix, not just new ones.
+// Written at 0o600 (the explicit tmp.Chmod below - os.CreateTemp's own
+// default already happens to be 0o600, but not documented as an API
+// guarantee to rely on silently) - state.toml can carry arbitrary
+// passthrough args in its invocation history (see EnsureParentDir's own
+// note on why .tangsible/ itself is private). Every write is a brand new
+// file swapped in by rename (below), which is what makes this
+// self-healing for free: a state.toml left world/group-readable by a
+// build predating this fix gets replaced outright by a private one the
+// very next time anything is recorded, with no separate chmod-in-place
+// step needed.
+//
+// Written via a temp-file-plus-rename, not truncate-then-write-in-place -
+// a real gap a code review caught: writing straight into path means a
+// process kill/crash/full-disk failure partway through can leave
+// state.toml truncated or half-written, and this file is what ties every
+// saved run-log file (runlog.go) to the invocation history that
+// references it (AppendInvocation's own doc comment goes into the
+// consequence of that further). os.CreateTemp in the *same* directory as
+// path (never a system temp dir, which risks landing on a different
+// filesystem - os.Rename across filesystems fails outright) plus
+// os.Rename is the standard way to get "either the old file or the new
+// one exists, never a half-written mix" - a rename is a single directory-
+// entry update, atomic on every filesystem this app cares about. tmp.Sync()
+// before closing flushes the new content itself to disk ahead of that
+// rename - deliberately not extended to fsync-ing the directory entry too,
+// which for a tiny, frequently-rewritten, non-critical state file (a
+// missed history append is, worst case, one rerun's own pre-fill data)
+// would be more durability than this ever needs.
 func WriteState(path string, cfg StateConfig) error {
 	if err := EnsureParentDir(path); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_ = os.Chmod(path, 0o600)
-	return toml.NewEncoder(f).Encode(cfg)
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // no-op once the rename below succeeds
+
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := toml.NewEncoder(tmp).Encode(cfg); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // ReadState reads path (state.toml) via readTOMLFile (resolve.go). Shared
@@ -210,20 +250,30 @@ func ReadState(path string) StateConfig {
 // start) rather than threaded in from the caller - every call site wants
 // "now," so there's nothing a parameter would add. ExitCode/RunID start
 // unset; see finalizeInvocation for when those are filled in.
+//
+// Deletes any evicted entries' saved run-log files only *after* WriteState
+// has actually succeeded - another real gap the same review caught: doing
+// it before (the original order) meant a WriteState failure left the
+// still-unwritten old state.toml referencing RunIDs whose files had
+// already been deleted out from under it, a dangling reference revisit
+// would then have to discover and self-heal around (PruneMissingRunLogs)
+// rather than never creating in the first place. The reverse ordering's
+// only failure mode - WriteState succeeds but a later DeleteRunLog call
+// doesn't run at all (process killed in between) - just leaves an orphan
+// file on disk, never a reference to nothing; harmless, and no worse than
+// DeleteRunLog's own already-documented best-effort tolerance for a
+// mid-delete failure.
 func AppendInvocation(path, playbook, role, argsString string) error {
 	cfg := ReadState(path)
 
 	next := InvocationRecord{Args: argsString, Time: time.Now().UTC().Format(time.RFC3339)}
 
 	found := false
+	var evicted []InvocationRecord
 	for i := range cfg.History {
 		h := &cfg.History[i]
 		if (playbook != "" && h.Playbook == playbook) || (role != "" && h.Role == role) {
-			var evicted []InvocationRecord
 			h.Invocations, evicted = AppendCapped(h.Invocations, next, MaxHistoryPerPlaybook)
-			for _, e := range evicted {
-				DeleteRunLog(path, e.RunID)
-			}
 			found = true
 			break
 		}
@@ -241,7 +291,13 @@ func AppendInvocation(path, playbook, role, argsString string) error {
 		cfg.General.Last = role
 	}
 
-	return WriteState(path, cfg)
+	if err := WriteState(path, cfg); err != nil {
+		return err
+	}
+	for _, e := range evicted {
+		DeleteRunLog(path, e.RunID)
+	}
+	return nil
 }
 
 // FinalizeInvocation fills in the two fields appendInvocation's own call
