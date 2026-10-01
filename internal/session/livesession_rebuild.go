@@ -324,6 +324,19 @@ func (s *liveSession) rebuild() {
 		}
 	}
 
+	if s.viewingStdout {
+		// The raw-output view (livesession_stdout.go): new lines first,
+		// then the top bar, whose text reports what was just appended or
+		// held back. Padded to full width before the fill, same as
+		// s.outputTopBar just above.
+		s.syncStdoutView()
+		full := s.stdoutTopBarPlainText()
+		if gap := totalWidth - len([]rune(full)); gap > 0 {
+			full += strings.Repeat(" ", gap)
+		}
+		s.stdoutTopBar.SetText(uikit.ProgressFillLine(full, progressPos, progressTotal, frozen, s.chromeColorName()))
+	}
+
 	// width is derived from totalWidth/s.splitMode (both already decided
 	// just above, from s.pages' own rect - always accurate regardless of
 	// which page is frontmost), not s.list.GetInnerRect() directly - a

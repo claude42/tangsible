@@ -28,6 +28,7 @@
 - ansible-playbook stderr output is now shown inline, right below the
   "Playbook failed" line
 - System-wide installs via install.sh --prefix &lt;dir&gt;
+- `o` shows ansible-playbook's own console output, live while it runs
 - Support system-wide config file /etc/tangsible/config.toml
 - `template` now accepts more than one hostname, group names or "all". Each
   host gets its own tab, colored red if its own last render errored.
@@ -56,6 +57,7 @@
 
 ### Fixed
 
+- `--list-tasks`/`--list-hosts`/`--syntax-check` printed nothing.
 - Re-run dialog: opening the output drill-down for a failed host and then
   closing it before pressing `r` could leave the dialog's own text fields
   silently unable to accept keyboard input (typing, Tab) - mouse

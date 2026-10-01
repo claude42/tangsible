@@ -537,6 +537,8 @@ func (s *liveSession) submitRerun() {
 		s.outputBottomBar.SetTextStyle(s.liveChromeStyle)
 		s.splitHeader.SetTextStyle(s.liveChromeStyle)
 		s.bottomBar.SetTextStyle(s.liveChromeStyle)
+		s.stdoutTopBar.SetTextStyle(s.liveChromeStyle)
+		s.stdoutBottomBar.SetTextStyle(s.liveChromeStyle)
 		s.splitDivider.SetBackgroundColor(s.liveChromeBg)
 		s.outputTabs.SetHeaderStyle(s.liveChromeStyle, s.liveChromeColorName)
 		// Style alone isn't enough for s.bottomBar: unlike s.topBar/

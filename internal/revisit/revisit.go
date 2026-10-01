@@ -56,7 +56,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -541,6 +541,14 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	if saved := config.ReadRunStderr(config.TangsibleStatePath, e.RunID); saved != nil {
 		lastStderr.Store(&saved)
 	}
+	// outLog (the 'o' raw-output view) is seeded the same way from the
+	// entry's saved <RunID>.stdout - left nil (no 'o' view at all) for a
+	// run saved before that file existed. Swapped for a live one by a
+	// rerun from within this session, same as lastStderr.
+	var outLog atomic.Pointer[runner.OutputLog]
+	if saved, ok := config.ReadRunOutput(config.TangsibleStatePath, e.RunID); ok {
+		outLog.Store(runner.NewOutputLogFromLines(saved))
+	}
 	processDone.Store(true)
 	exitCode.Store(int32(e.ExitCode))
 
@@ -576,7 +584,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		outcomes = append(outcomes, o)
 		outcomesMu.Unlock()
 	}
-	requestRerun := runner.NewRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &progH, apply, recordOutcome, sourceIndex)
+	requestRerun := runner.NewRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &outLog, &progH, apply, recordOutcome, sourceIndex)
 
 	revisitReturn := func() {
 		quitting.Store(true) // before Stop() - same race note as main.go's
@@ -584,7 +592,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		app.Stop()
 	}
 
-	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode, &lastStderr,
+	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog,
 		sourceIndex, knownTags, knownPlayNames, knownGroups, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
 		// initialPlay is always "" here, unlike Tags/SkipTags/Hosts just
 		// after it - --start-at-play is never recorded into invArgs (see

@@ -54,6 +54,54 @@ func RunLogPaths(statePath, runID string) (jsonlPath, stderrPath string) {
 	return filepath.Join(dir, runID+".jsonl"), filepath.Join(dir, runID+".stderr")
 }
 
+// RunOutputPath is where a generation's merged stdout+stderr - the user's
+// own stdout callback's output, design-docs/OwnCallbackPlugin.md's Phase 2
+// raw-output view - is saved for the given runID, sibling to RunLogPaths'
+// own two files. Kept separate from RunLogPaths rather than widening its
+// return values, since most of RunLogPaths' callers only ever want the
+// .jsonl.
+func RunOutputPath(statePath, runID string) string {
+	return filepath.Join(RunsDir(statePath), runID+".stdout")
+}
+
+// CreateRunOutput opens <runID>.stdout for writing - same best-effort,
+// nil-on-failure, 0o600 contract as CreateRunLog, and for the same reasons
+// (it holds the same task output, just rendered by a stdout callback).
+func CreateRunOutput(statePath, runID string) *os.File {
+	if runID == "" {
+		return nil
+	}
+	path := RunOutputPath(statePath, runID)
+	if err := EnsureParentDir(path); err != nil {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// ReadRunOutput reads back CreateRunOutput's own file as lines. ok is
+// false when there's nothing saved at all (runID empty, or the file
+// missing - e.g. a run saved before this file existed), as opposed to a
+// saved-but-empty output, so a caller can tell "no output view for this
+// run" apart from "the run printed nothing".
+func ReadRunOutput(statePath, runID string) (lines []string, ok bool) {
+	if runID == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(RunOutputPath(statePath, runID))
+	if err != nil {
+		return nil, false
+	}
+	text := strings.TrimSuffix(string(data), "\n")
+	if text == "" {
+		return nil, true
+	}
+	return strings.Split(text, "\n"), true
+}
+
 // CreateRunLog creates statePath's runsDir (if needed) and opens
 // <runID>.jsonl for writing - the file spawnGeneration passes to
 // scanEvents so it can tee each raw stdout line as the generation runs.
@@ -131,7 +179,7 @@ func ReadRunStderr(statePath, runID string) []string {
 	return strings.Split(string(data), "\n")
 }
 
-// DeleteRunLog removes a generation's saved .jsonl/.stderr files, if any -
+// DeleteRunLog removes a generation's saved .jsonl/.stderr/.stdout files, if any -
 // called by appendInvocation when the invocationRecord referencing them is
 // evicted from history (the maxHistoryPerPlaybook cap). A no-op if runID is
 // empty (nothing was ever saved for that entry). Best-effort: errors
@@ -145,4 +193,5 @@ func DeleteRunLog(statePath, runID string) {
 	jsonlPath, stderrPath := RunLogPaths(statePath, runID)
 	_ = os.Remove(jsonlPath)
 	_ = os.Remove(stderrPath)
+	_ = os.Remove(RunOutputPath(statePath, runID))
 }

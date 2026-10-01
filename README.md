@@ -81,6 +81,8 @@ changes might be necessary.
   visible.
 - **Drill-down** - inspect a host/task result with the task source, output,
   stderr, --diff output and full JSON result in one place.
+- **Console output** - see ansible-playbook's familiar output from your own
+  stdout callback, live while it runs.
 - **Filtering and search** - show only Changed or Failed results, or search task
   names, source and output.
 - **Keyboard and mouse navigation** - use the keyboard or mouse throughout the
@@ -319,6 +321,7 @@ control, and more).
 | `f`| Filter: All / Changed / Failed |
 | `/` | Search filter (task name, source, output) |
 | `r` | Open the re-run dialog (once the run has finished) |
+| `o` | Show ansible-playbook's console output (`F` follows, `Esc` returns) |
 | `q`/`Ctrl-C` | Interrupt the run, or quit once it's finished |
 
 **Drill-down view**

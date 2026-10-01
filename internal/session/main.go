@@ -617,6 +617,14 @@ func Main(build BuildInfo) {
 	// own read of it, once processDone is observed true, safe with no
 	// separate lock.
 	var lastStderr atomic.Pointer[[]string]
+	// outLog is the current generation's raw console output (runner.
+	// OutputLog, the 'o' view) - swapped for a fresh one by every rerun
+	// (NewRequestRerun), so the view only ever shows the current
+	// generation. Stays nil until something has actually spawned.
+	var outLog atomic.Pointer[runner.OutputLog]
+	if pending != nil {
+		outLog.Store(pending.OutLog)
+	}
 	if pending == nil {
 		// "rerun": no generation is in flight yet, or ever has been - true
 		// is what's accurate here, and what NewLiveTUI's
@@ -653,10 +661,10 @@ func Main(build BuildInfo) {
 	// "revisit" (design-docs/Revisit.md's Phase 3); this session's own
 	// playbook/roleDisplayName/state/procH/processDone/exitCode/progH/
 	// apply/recordOutcome are just what it closes over here.
-	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan runner.StreamItem, stderrLines <-chan []string, runID string, peeked ...runner.StreamItem) {
-		runner.RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, &exitCode, &processDone, &lastStderr, recordOutcome, peeked...)
+	runGeneration := func(cmd *exec.Cmd, stdoutCh <-chan runner.StreamItem, stderrLines <-chan []string, outLog *runner.OutputLog, runID string, peeked ...runner.StreamItem) {
+		runner.RunOneGeneration(cmd, stdoutCh, stderrLines, outLog, runID, playbook, roleDisplayName, apply, &exitCode, &processDone, &lastStderr, recordOutcome, peeked...)
 	}
-	requestRerun := runner.NewRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &progH, apply, recordOutcome, sourceIndex)
+	requestRerun := runner.NewRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &outLog, &progH, apply, recordOutcome, sourceIndex)
 
 	// displayName is what the TUI's top bar shows - normally the resolved
 	// playbook's own filename, but a role session's playbook local holds
@@ -669,10 +677,10 @@ func Main(build BuildInfo) {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
 
 	if pending != nil {
-		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.RunID, pending.First)
+		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.OutLog, pending.RunID, pending.First)
 	}
 
 	runErr := uikit.RunWithTitleStack(app)

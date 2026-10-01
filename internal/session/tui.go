@@ -167,7 +167,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (*tview.Application, func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (*tview.Application, func(playbook.RawEvent)) {
 	// s (*liveSession, livesession.go) holds every piece of state this
 	// function's closures share - see its own doc comment for the full
 	// rationale (design-docs/Restructuring.md's own postponed "Phase 3").
@@ -187,6 +187,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.quitting = quitting
 	s.exitCode = exitCode
 	s.lastStderr = lastStderr
+	s.outLog = outLog
 	s.sourceIndex = sourceIndex
 	s.twoPaneLayout = twoPaneLayout
 	s.requestRerun = requestRerun
@@ -390,6 +391,21 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// while composing a query - built once here and reused for the whole
 	// session, same as s.searchInput above.
 	s.search = newTabSearchPanel(s.app, s.outputTabs, s.outputBottomBar, s.list, s.outputBottomBarNormalStyle)
+
+	// The raw-output view ('o', livesession_stdout.go) - its own page,
+	// own bars, and its own search panel over its one TextView.
+	s.stdoutView = tview.NewTextView().SetDynamicColors(true) // wraps, like a terminal
+	s.stdoutTopBar = tview.NewTextView().SetDynamicColors(true)
+	s.stdoutTopBar.SetTextStyle(s.chromeStyle)
+	s.stdoutBottomBar = tview.NewTextView().SetText(stdoutHintBarText)
+	s.stdoutBottomBar.SetTextStyle(s.chromeStyle)
+	s.stdoutSearch = newTextSearchPanel(s.app, func() (*tview.TextView, bool) { return s.stdoutView, true },
+		stdoutHintBarText, "esc/o/q: back", s.stdoutBottomBar, s.stdoutView, s.outputBottomBarNormalStyle)
+	stdoutFlex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(s.stdoutTopBar, 1, 0, false).
+		AddItem(s.stdoutView, 0, 1, true).
+		AddItem(s.stdoutSearch.footer, 1, 0, false)
 
 	outputFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -744,6 +760,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.pages.AddPage("main", s.flex, true, true)
 	s.pages.AddPage("output", outputFlex, true, false)
 	s.pages.AddPage("split", s.splitFlex, true, false)
+	s.pages.AddPage("stdout", stdoutFlex, true, false)
 	s.pages.AddPage("filter", uikit.CenteredModal(s.filterFlex, 46, 11), true, false)
 	s.pages.AddPage("search", uikit.CenteredModal(s.searchDialogFlex, 46, 11), true, false)
 	// Sized for the max case (all three checkboxes present: 7 form items,
@@ -762,6 +779,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// time (what the pre-refactor code did here, safely, by accident) -
 	// this fixes it up now that a real one exists.
 	s.search.app = s.app
+	s.stdoutSearch.app = s.app
 
 	// Terminal color-capability probe, design-docs/Morehosts.md:
 	// Application.Screen() isn't available until after Run() starts, but

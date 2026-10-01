@@ -36,6 +36,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/term"
+
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
@@ -95,6 +97,7 @@ type PendingGeneration struct {
 	StderrLines <-chan []string
 	First       StreamItem
 	RunID       string
+	OutLog      *OutputLog
 }
 
 // GenerationOutcome is one ansible-playbook invocation's result. main
@@ -128,11 +131,13 @@ type GenerationOutcome struct {
 // anything to save it to, so a caller never records a RunID (via
 // FinalizeInvocation) that no file backs.
 //
-// stdout, if non-nil, receives the child's real stdout (the user's own
-// stdout callback's output); nil keeps today's default of discarding it
-// (exec redirects a nil cmd.Stdout to /dev/null). Only StartFirstGeneration
-// passes one, for its pre-flight gate (see gateStdout).
-func SpawnGeneration(playbook string, args []string, procH *ProcHandle, stdout io.Writer) (cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-chan []string, runID string, err error) {
+// outLog collects the child's real stdout (the user's own stdout
+// callback's output) merged with its stderr - the raw-output view's data
+// (OutputLog's own doc comment) - and is saved as <runID>.stdout once
+// runID is known. extraStdout, if non-nil, additionally receives stdout
+// alone: only StartFirstGeneration passes one, for its pre-flight gate
+// (see gateStdout).
+func SpawnGeneration(playbook string, args []string, procH *ProcHandle, outLog *OutputLog, extraStdout io.Writer) (cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-chan []string, runID string, err error) {
 	// --diff is always appended to the actual subprocess argv (never to
 	// args itself, which is also what's reassembled into .tangsible's
 	// history/rerun args) so the drill-down view's Diff tab
@@ -158,16 +163,19 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle, stdout i
 	// first slot after the child's own stdin/stdout/stderr), named to the
 	// plugin via TANGSIBLE_EVENT_FD. This frees stdout for the user's own
 	// stdout callback (left at ansible-playbook's default unless the user
-	// configured one) - discarded unless the caller asked for it via
-	// stdout, since surfacing it in the live TUI is Phase 2.
-	cmd.Stdout = stdout
+	// configured one), collected into outLog.
+	if extraStdout != nil {
+		cmd.Stdout = io.MultiWriter(outLog.Stdout(), extraStdout)
+	} else {
+		cmd.Stdout = outLog.Stdout()
+	}
 	eventR, eventW, err := os.Pipe()
 	if err != nil {
 		return nil, nil, nil, "", fmt.Errorf("failed to create event pipe: %w", err)
 	}
 	cmd.ExtraFiles = []*os.File{eventW}
 
-	cmd.Env = append(append(os.Environ(), pluginEnv...), "TANGSIBLE_EVENT_FD=3")
+	cmd.Env = append(append(append(os.Environ(), pluginEnv...), forceColorEnv()...), "TANGSIBLE_EVENT_FD=3")
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -200,9 +208,13 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle, stdout i
 	// scanning ends (see its own doc comment) - no explicit eventR.Close()
 	// needed on this success path, unlike the two failure returns above
 	// (which never reach ScanEvents at all).
+	outLog.AttachFile(config.CreateRunOutput(config.TangsibleStatePath, runID))
 	stdoutCh = ScanEvents(eventR, logFile)
 	lines := make(chan []string, 1)
-	go func() { lines <- StreamStderr(stderr) }()
+	// The tee lands every raw stderr line in outLog before StreamStderr
+	// itself returns, so "stderrLines delivered" also means "outLog has
+	// all of stderr" (RunOneGeneration relies on this before Finish).
+	go func() { lines <- StreamStderr(io.TeeReader(stderr, outLog.Stderr())) }()
 
 	return cmd, stdoutCh, lines, runID, nil
 }
@@ -233,7 +245,8 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 	}
 
 	childStdout := &gateStdout{}
-	cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(playbook, rest, procH, childStdout)
+	outLog := NewOutputLog()
+	cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(playbook, rest, procH, outLog, childStdout)
 	if err != nil {
 		cleanup()
 		fmt.Fprintln(os.Stderr, err)
@@ -261,6 +274,7 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 		cleanup()
 		childStderr := <-stderrLines
 		waitErr := cmd.Wait()
+		outLog.Finish()
 		config.WriteRunStderr(config.TangsibleStatePath, runID, childStderr)
 		if histRole != "" {
 			_ = config.FinalizeInvocation(config.TangsibleStatePath, "", histRole, ExitCodeOf(waitErr), runID)
@@ -276,6 +290,11 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 		// and pipes exactly as a plain ansible-playbook run's would.
 		// cmd.Wait() above has already finished copying it.
 		out, truncated := childStdout.contents()
+		if !term.IsTerminal(int(os.Stdout.Fd())) {
+			// forceColorEnv colored it for the TUI's own sake; a pipe or
+			// file shouldn't get escape codes it never asked for.
+			out = []byte(StripANSI(string(out)))
+		}
 		os.Stdout.Write(out)
 		if truncated {
 			fmt.Fprintf(os.Stderr, "tangsible: ansible-playbook output truncated after %d bytes\n", gateStdoutMax)
@@ -290,7 +309,24 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 	// generation's stdout now, so stop retaining it (the child keeps
 	// writing, gateStdout keeps draining).
 	childStdout.discard()
-	return &PendingGeneration{Cmd: cmd, StdoutCh: stdoutCh, StderrLines: stderrLines, First: first, RunID: runID}, true
+	return &PendingGeneration{Cmd: cmd, StdoutCh: stdoutCh, StderrLines: stderrLines, First: first, RunID: runID, OutLog: outLog}, true
+}
+
+// forceColorEnv turns on ansible-playbook's colored output even though its
+// stdout is a pipe (ansible only colors a real terminal by default), so the
+// raw-output view (OutputLog) looks like a plain run would - unless the
+// user has asked for no color (NO_COLOR, which ansible-core itself also
+// honors as ANSIBLE_NOCOLOR, or ANSIBLE_NOCOLOR directly; FORCE_COLOR
+// would override either) or already set ANSIBLE_FORCE_COLOR themselves.
+// Everything that consumes stderr as data rather than display strips the
+// codes again (StreamStderr).
+func forceColorEnv() []string {
+	for _, name := range []string{"NO_COLOR", "ANSIBLE_NOCOLOR", "ANSIBLE_FORCE_COLOR"} {
+		if _, set := os.LookupEnv(name); set {
+			return nil
+		}
+	}
+	return []string{"ANSIBLE_FORCE_COLOR=1"}
 }
 
 // gateStdoutMax caps how much of the first generation's stdout gateStdout
@@ -341,8 +377,10 @@ func (g *gateStdout) contents() ([]byte, bool) {
 	return g.buf.Bytes(), g.truncated
 }
 
-// StreamStderr collects the child's stderr lines instead of printing them
-// live — printing directly to the terminal while the TUI's alternate
+// StreamStderr collects the child's stderr lines, ANSI color codes
+// stripped (see forceColorEnv - the colored originals only belong in the
+// raw-output view, never in the error-output rows, the .stderr file, or the
+// post-exit printout), instead of printing them live — printing directly to the terminal while the TUI's alternate
 // screen is active would corrupt the display. main prints them after
 // app.Run() returns and the real terminal is restored.
 //
@@ -364,7 +402,7 @@ func StreamStderr(r io.Reader) []string {
 		raw = bytes.TrimSuffix(raw, []byte("\n"))
 		raw = bytes.TrimSuffix(raw, []byte("\r"))
 		if len(raw) > 0 || readErr == nil {
-			lines = append(lines, string(raw))
+			lines = append(lines, StripANSI(string(raw)))
 		}
 		if readErr != nil {
 			return lines

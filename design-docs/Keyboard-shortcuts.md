@@ -69,7 +69,10 @@ necessarily bugs.
                      or interrupted) - a no-op while it's still running.
                      Not available while the command output view is shown.
 
-E/C/r/f// are all only reachable from the main tree - none of them have any
+* o                - open the raw-output view (see below) - available
+                     while the playbook is still running too
+
+E/C/r/f///o are all only reachable from the main tree - none of them have any
 effect while the command output view is frontmost (see that section below
 for what *is* available there).
 
@@ -154,6 +157,31 @@ tree auto-expands so that row is visible.
 * Click on a tab   - switch to it (same as Tab/Shift-Tab)
 * Click on the top/bottom info bars - no effect (same fix as the main
                      tree's own top/bottom bars, above)
+
+## Raw-output view
+
+Opened by `o` from the main tree: ansible-playbook's own console output for
+the current run (its stdout callback's output merged with stderr, in color),
+full screen. While the playbook is still running it follows new output as it
+arrives.
+
+* Cursor up / down, j / k, Page up / down, Space / b, Ctrl-F / Ctrl-B,
+  Home / End, Ctrl-A / Ctrl-E, < / >, G
+                   - scroll, same keys as the drill-down view. Any of them
+                     stops following (End/G included, same as in the tree)
+* F                - jump to the end and resume following - the only key
+                     that does
+* /                - search the output (see "In-tab search" below). Stops
+                     following; output arriving while a search is active is
+                     held back (the top bar counts it) and appears once the
+                     search is cleared
+* n / N            - next / previous match while a search is active
+* y                - copy the whole output (see "Copy to clipboard" below)
+* Escape           - clear an active search first; otherwise back to the tree
+* o / q            - back to the tree (q does NOT quit here)
+
+**Mouse**
+* Wheel / trackpad - scroll (stops following)
 
 ## In-tab search
 

@@ -57,6 +57,12 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if result, handled := s.handleFilterDialogKey(event); handled {
 		return result
 	}
+	if s.viewingStdout {
+		// Before handleGlobalQuit (q backs out here, like the drill-
+		// down's own q) and translateKeyAlias (navigation must also stop
+		// following) - handleStdoutViewKey handles both itself.
+		return s.handleStdoutViewKey(event)
+	}
 	if result, handled := s.handleOutputViewQuit(event); handled {
 		return result
 	}
@@ -94,6 +100,7 @@ func (s *liveSession) handleCtrlC(event *tcell.EventKey) (*tcell.EventKey, bool)
 	}
 	s.closeDialogs()          // harmless no-op if neither dialog is open
 	s.search.closeComposing() // ditto if the tab-search prompt isn't open
+	s.stdoutSearch.closeComposing()
 	if s.processDone.Load() {
 		s.quitting.Store(true) // before Stop() - see main.go's race note
 		s.app.Stop()
@@ -473,6 +480,11 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 			s.list.SetCurrentItem(s.list.GetItemCount() - 1)
 		}
 		s.jumpingToEnd = false
+		return nil
+	case event.Key() == tcell.KeyRune && event.Rune() == 'o':
+		// The raw-output view (livesession_stdout.go) - available while
+		// the run is still going too, unlike 'r'/'d'.
+		s.openStdoutView()
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'E':
 		s.expandAll()

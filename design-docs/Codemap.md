@@ -61,7 +61,7 @@ package reads.
 - **rerunresolve.go** - `RerunResolution`: what a bare `tangsible
   rerun` resolves to.
 - **runlog.go** - per-generation saved run data
-  (`.tangsible/runs/<id>.jsonl`/`.stderr`) backing "revisit".
+  (`.tangsible/runs/<id>.jsonl`/`.stderr`/`.stdout`) backing "revisit".
 
 ## internal/role
 
@@ -82,6 +82,9 @@ run/rerun/role session and by revisit's own rerun.
 
 - **process.go** - `ProcHandle`/`StreamItem`/`GenerationOutcome`,
   `SpawnGeneration`/`ScanEvents`/`StreamStderr`, exit-code handling.
+- **outputlog.go** - `OutputLog`: one generation's console output
+  (the user's stdout callback merged with stderr) for the `o` view,
+  plus `StripANSI`/`SplitANSI`.
 - **generation.go** - `RunOneGeneration`/`NewRequestRerun`: draining
   one generation to completion and starting a fresh one on request.
 - **progress.go** - `ProgressTracker`: the "Task x/y" top-bar progress
@@ -169,6 +172,9 @@ thin constructor/wiring shell.
   - **livesession_output.go** - the output drill-down: `renderOutputTabs`,
     `showOutputWithOrigin` (+ its three async resolve/docs/file fetch
     goroutines), `navigateOutputTask`/`navigateOutputHost`, `closeOutput`.
+  - **livesession_stdout.go** - the raw-output view (`o`):
+    `openStdoutView`/`syncStdoutView`/`handleStdoutViewKey`, following
+    and holding lines back during a search.
   - **livesession_filter.go** - the tree-level filter (`f`) and search
     (`/`) dialogs: `openFilterDialog`/`openSearchDialog`/`closeDialogs`/
     `applyFilter`.
