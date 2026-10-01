@@ -92,7 +92,7 @@ func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 		}
 		shownAnything = true
 
-		selected, ok, rerun := RunRevisitListTUI(entries, lastRunID, true)
+		selected, ok, rerun := RunRevisitListTUI(entries, lastRunID, true, false)
 		if !ok {
 			return 0
 		}
@@ -332,7 +332,12 @@ func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, select
 // tree view, just without the intervening Enter. "revisit" passes true;
 // "diff"'s own reuse of this list (RunDiffFlow) passes false - re-running
 // makes no sense when you're picking a run to compare against.
-func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun bool) (RevisitEntry, bool, bool) {
+//
+// nested marks the list as one more screen opened from inside another view
+// ("diff"'s picker, opened from the tree) rather than the program's first
+// screen ("revisit"): Esc then goes back too, same as q. At the top level
+// Esc does nothing, so a reflexive Esc can't end the program.
+func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun, nested bool) (RevisitEntry, bool, bool) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -344,6 +349,9 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun b
 	footerHelp := " enter: open  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 	if allowRerun {
 		footerHelp = " enter: open  r: re-run  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	}
+	if nested {
+		footerHelp = " enter: open  esc/q: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 	}
 	footer := tview.NewTextView().SetDynamicColors(true).SetText(footerHelp)
 	footer.SetTextStyle(uikit.BarStyle)
@@ -415,7 +423,8 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun b
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch {
-		case event.Key() == tcell.KeyCtrlC, event.Key() == tcell.KeyRune && event.Rune() == 'q':
+		case event.Key() == tcell.KeyCtrlC, event.Key() == tcell.KeyRune && event.Rune() == 'q',
+			nested && event.Key() == tcell.KeyEscape:
 			app.Stop()
 			return nil
 		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'r':
