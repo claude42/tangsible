@@ -276,7 +276,7 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		}
 
 		go func() {
-			cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(spawnPlaybook, newArgs, procH)
+			cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(spawnPlaybook, newArgs, procH, nil)
 			if err != nil {
 				if cleanupTemp != nil {
 					cleanupTemp()
