@@ -702,3 +702,37 @@ Not now - only as part of the Phase 1 change, post-launch:
   file with its own GPL `LICENSE`.
 
 claude --resume acaac6e8-fb59-4827-ab31-f4c9ec791863
+
+# Phase 2: standard output
+
+We've discussed this previously. I have two ideas of how this could be
+presented towards the user.
+
+## Variant 1 (simpler)
+
+* tangsible collects all output from the stdout_plugin while the playbook is
+  running but does not display it during the run.
+* when the run has ended, the user will have the possibility to press a
+  keyboard shortcut to view the complete standard output
+* tangsible will display the output full screen (minus the top and bottom
+  status bar of course)
+* the user will have the possibility to navigate as usual, the search
+  function shall also be implemented as usual and "y" to copy the contents to
+  the clipboard shall work as well
+* ESC brings the user back to the tree view
+
+## Variant 2
+
+* tangsible collects all output from the stdout_plugin while the playbook
+* while the playbook is still running, the user has the possibility to switch
+  to the "stdout" mode
+* tangsible will display what's been outputted so far and will "follow" as
+  new lines are printed
+* tangsible will display the output full screen (minus the top and bottom
+  status bar of course)
+* the user will have the possibility to navigate as usual, the search
+  function shall also be implemented as usual and "y" to copy the contents to
+  the clipboard shall work as well
+* if the user has navigated and the playbook is still running, the "F"
+  shortcut will bring it back to "follow" mode
+* ESC brings the user back to the tree view
