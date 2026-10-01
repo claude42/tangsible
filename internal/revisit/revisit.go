@@ -92,7 +92,7 @@ func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 		}
 		shownAnything = true
 
-		selected, ok, rerun := RunRevisitListTUI(entries, lastRunID, true, false)
+		selected, ok, rerun := RunRevisitListTUI(entries, lastRunID, "tangsible revisit", true, false)
 		if !ok {
 			return 0
 		}
@@ -337,14 +337,17 @@ func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, select
 // ("diff"'s picker, opened from the tree) rather than the program's first
 // screen ("revisit"): Esc then goes back too, same as q. At the top level
 // Esc does nothing, so a reflexive Esc can't end the program.
-func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun, nested bool) (RevisitEntry, bool, bool) {
+//
+// purpose is the header's text after the run count - what picking a run
+// is for here.
+func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, allowRerun, nested bool) (RevisitEntry, bool, bool) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
 	list := uikit.NewTreeList()
 
 	header := tview.NewTextView().SetDynamicColors(true).
-		SetText(fmt.Sprintf(" %d previous run(s) - tangsible revisit ", len(entries)))
+		SetText(fmt.Sprintf(" %d previous run(s) - %s ", len(entries), purpose))
 	header.SetTextStyle(uikit.BarStyle)
 	footerHelp := " enter: open  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 	if allowRerun {
