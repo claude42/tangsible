@@ -56,9 +56,9 @@ type tabSearchPanel struct {
 	// active tab, or the raw-output view's one TextView (see
 	// newTextSearchPanel).
 	target    func() (*tview.TextView, bool)
-	hint      string          // bottomBar's normal text, restored by clear()
-	keysHint  string          // trailing key reminder on the "match N of M" status
-	bottomBar *tview.TextView // shared with liveSession (s.outputBottomBar)
+	hint      string            // bottomBar's normal text, restored by clear()
+	keysHint  string            // trailing key reminder on the "match N of M" status
+	bottomBar *tview.TextView   // shared with liveSession (s.outputBottomBar)
 	footer    *tview.Pages      // owned here; liveSession slots this into its own Flex layouts
 	input     *tview.InputField // owned here
 
