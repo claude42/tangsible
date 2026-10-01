@@ -90,7 +90,7 @@ const TaskIndent = "  "
 // branch), even though the tree pane itself stays visible and its bottomBar
 // keeps drawing - showing the normal hint text there would advertise keys
 // that currently do nothing.
-const MainBottomBarText = " n/N: next/prev task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  d: diff  o: output  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+const MainBottomBarText = " n/N: next/prev task  E/C: exp/coll all  F: follow  f: filter  r: re-run  d: diff  o: output  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
 
 const SplitBottomBarText = " Esc: close drill-down to use the tree "
 
