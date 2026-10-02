@@ -698,7 +698,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	hostFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(tview.NewBox(), 1, 0, false). // top margin
 		AddItem(hostInput, 1, 0, true)
-	hostFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Change host (enter: apply, esc: cancel) ")
+	hostFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Change host (enter: apply, esc: cancel) ")
 	pages.AddPage("host", uikit.CenteredModal(hostFlex, 50, 7), true, false)
 
 	hostDialogOpen := false

@@ -452,6 +452,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// own Cancel button to call), which wraps this TextView together with
 	// a real Cancel button below it.
 	s.filterDialog = tview.NewTextView().SetDynamicColors(true)
+	// Untagged text needs an explicit color - tview's default is white,
+	// invisible on a light [colors] background. Same for every dialog
+	// title and searchHeadline below.
+	s.filterDialog.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 
 	// searchDialog is a headline TextView plus a real tview.InputField for
 	// the search box - a TextView can display text but can't accept
@@ -462,6 +466,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// browse first, so there's no "menu mode" to be in before typing.
 	searchHeadline := tview.NewTextView().SetDynamicColors(true).
 		SetText(" [::b]Search[::-]\n\n [" + uikit.AnnotationColor + "]Enter to apply, Esc to cancel[-]")
+	searchHeadline.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.searchInput = tview.NewInputField().SetLabel("Search: ")
 	// Top/bottom margin Box items, same as s.filterFlex's own - a real
 	// tview.NewBox() rather than a bare nil, so its Draw() still fills its
@@ -472,7 +477,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		AddItem(tview.NewBox(), 1, 0, false). // top margin
 		AddItem(searchHeadline, 0, 1, false).
 		AddItem(s.searchInput, 1, 0, true)
-	s.searchDialogFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Search ")
+	s.searchDialogFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Search ")
 
 	// rerunDialog (Rerun.md) - a real tview.Form, unlike the two dialogs
 	// above: it's the first multi-field input this app needs, and Form
@@ -482,7 +487,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// short of what the tree needed; here Form's default behavior already
 	// matches).
 	s.rerunForm = tview.NewForm()
-	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Re-run (enter: run, esc: cancel, F1: help) ")
+	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Re-run (enter: run, esc: cancel, F1: help) ")
 
 	// s.rerunFields (livesession_rerundialog.go) owns the four input
 	// fields, three checkboxes, and the sync logic between them - see its
@@ -681,7 +686,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 							AddItem(filterCancelButton, 10, 0, false).
 							AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
 		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
-	s.filterFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Filter ")
+	s.filterFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Filter ")
 
 	// s.splitDivider is a one-column-wide vertical rule between the two panes
 	// - a bare Box with no content, whose Draw() (like every tview
