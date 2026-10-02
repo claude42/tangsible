@@ -504,7 +504,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// the same "long-lived TextViews, content arrives via SetText" shape
 	// host.go's detail view does, unlike tui.go/diff.go's own drill-downs.
 	searchBar := uikit.NewTabSearchBar(app, tabs,
-		" tab/shift-tab: switch tab  e: edit template (reprocesses every host)  h: change host  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ",
+		templateBar,
 		tabs.Primitive())
 
 	// lastActiveHostIndex is which host tab the 'h' dialog targets -
@@ -534,6 +534,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		AddItem(searchBar.Primitive(), 1, 0, false)
 
 	pages := tview.NewPages().AddPage("main", flex, true, true)
+	help := uikit.NewHelpOverlay(app, pages)
 
 	// refreshSource re-reads the template file itself into the Source
 	// tab - called both up front and every time 'e' returns from the
@@ -799,11 +800,17 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		// hostDialogOpen's own plain "return event" above, which is
 		// shallow enough - a direct sibling page of the root Pages - not
 		// to need it; searchBar's own prompt sits one Flex layer deeper).
+		if help.HandleKey(event) {
+			return nil
+		}
 		if searchBar.IsComposing() {
 			searchBar.HandleComposingKey(event)
 			return nil
 		}
 		switch {
+		case uikit.IsHelpKey(event):
+			help.Open(templateHelp, nil)
+			return nil
 		// Esc clears an active search first (design-docs/Search.md);
 		// otherwise deliberately still no KeyEscape case here (unlike
 		// Ctrl-C) - Esc used to quit identically to q/Ctrl-C, but that's
@@ -890,6 +897,9 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			// within the same physical mouse event with a nil event, once
 			// an earlier call in the same batch already returned nil.
 			return nil, action
+		}
+		if ev, act, handled := help.HandleMouse(event, action); handled {
+			return ev, act
 		}
 		if hostDialogOpen {
 			// hostFlex has its own bare tview.NewBox() top margin (see its

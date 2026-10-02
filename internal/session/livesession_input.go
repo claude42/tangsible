@@ -45,8 +45,8 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if result, handled := s.handleCtrlC(event); handled {
 		return result
 	}
-	if result, handled := s.handleHelpKey(event); handled {
-		return result
+	if s.help.HandleKey(event) { // design-docs/Help.md - owns the keyboard while open
+		return nil
 	}
 	if result, handled := s.handleSearchDialogKey(event); handled {
 		return result
@@ -195,6 +195,10 @@ func (s *liveSession) handleRerunDialogKey(event *tcell.EventKey) (*tcell.EventK
 		return nil, false
 	}
 	switch event.Key() {
+	case tcell.KeyF1:
+		// F1 only - '?' must stay typeable in the fields. Closing help
+		// hands focus back to whichever field had it.
+		s.help.Open(rerunHelp, nil)
 	case tcell.KeyEnter:
 		if _, button := s.rerunForm.GetFocusedItemIndex(); button >= 0 {
 			return event, true
@@ -438,8 +442,8 @@ func (s *liveSession) handleOutputViewKey(event *tcell.EventKey) *tcell.EventKey
 	case event.Key() == tcell.KeyRune && event.Rune() == '/':
 		s.search.open()
 		return nil
-	case event.Key() == tcell.KeyRune && event.Rune() == '?', event.Key() == tcell.KeyF1:
-		s.openHelp(outputHelp, nil) // design-docs/Help.md
+	case uikit.IsHelpKey(event):
+		s.help.Open(outputHelp, nil)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 		s.outputBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
@@ -487,8 +491,8 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 		}
 		s.jumpingToEnd = false
 		return nil
-	case event.Key() == tcell.KeyRune && event.Rune() == '?', event.Key() == tcell.KeyF1:
-		s.openHelp(treeHelp, s.treeHelpHidden) // design-docs/Help.md
+	case uikit.IsHelpKey(event):
+		s.help.Open(treeHelp, s.treeHelpHidden)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'o':
 		// The raw-output view (livesession_stdout.go) - available while

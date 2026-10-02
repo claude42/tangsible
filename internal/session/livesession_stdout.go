@@ -41,8 +41,6 @@ import (
 // be lost or shift every match. The top bar counts what's held; clearing the
 // search appends it all.
 
-const stdoutHintBarText = " F: follow  /: search  y: copy  esc/o/q: back  ↑/↓/j/k: scroll  space/b: page  CTRL-A/E: top/bottom "
-
 // stdoutLineText renders one raw OutputLog line as TextView content: plain
 // text tview-escaped (a literal "[" would otherwise be read as a tag), ANSI
 // color codes translated to tview tags - or dropped, if color isn't usable
@@ -81,7 +79,7 @@ func (s *liveSession) openStdoutView() {
 	s.viewingStdout = true
 	s.stdoutFollowing = true
 	s.stdoutBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
-	s.stdoutBottomBar.SetText(stdoutHintBarText)
+	s.stdoutBottomBar.SetText(stdoutBar)
 	s.syncStdoutView()
 	s.stdoutView.ScrollToEnd()
 	s.switchPage("stdout")
@@ -202,6 +200,9 @@ func (s *liveSession) handleStdoutViewKey(event *tcell.EventKey) *tcell.EventKey
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'N':
 		s.stdoutSearch.prev()
+		return nil
+	case uikit.IsHelpKey(event):
+		s.help.Open(stdoutHelp, nil)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 		s.stdoutBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())

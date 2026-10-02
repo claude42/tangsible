@@ -11,6 +11,15 @@ sections apply to them too. A short "Possible inconsistencies" section at
 the end collects things worth a second look while reviewing this list, not
 necessarily bugs.
 
+**Help, everywhere:** `?` or F1 opens a help dialog listing the current
+view's shortcuts, in every view of every verb (tree, drill-down, `o` view,
+revisit's run list / diff's picker, diff tree and drill-down, `hosts` list,
+host detail, template view). In the re-run dialog only F1 works, since `?`
+must stay typeable in its fields - there the help also explains the fields
+and checkboxes. Esc / `?` / F1 / `q` close it (`q` never quits from help);
+Ctrl-C closes it and then does what it always does. The dialogs' content
+lives in each package's `helptables.go`, next to that view's bottom bar.
+
 ## In the main tree view
 
 * Cursor up / down - move cursor up / down (stop autoscrolling if necessary)
@@ -185,6 +194,7 @@ arrives.
 * y                - copy the whole output (see "Copy to clipboard" below)
 * Escape           - clear an active search first; otherwise back to the tree
 * o / q            - back to the tree (q does NOT quit here)
+* ? / F1           - help for this view
 
 **Mouse**
 * Wheel / trackpad - scroll (stops following)
@@ -353,6 +363,9 @@ Limit hosts to - plus Cancel/Re-run buttons, right-aligned in that order
 * Esc              - while no autocomplete drop-down is currently showing:
                      cancel back out, no re-run started, nothing on screen
                      changes (regardless of what has focus)
+* F1               - help: what each field and checkbox does (not `?`,
+                     which is an ordinary typed character here); closing it
+                     puts focus back on the field you were in
 * Ctrl-C           - cancel back out *and* quit/interrupt the playbook,
                      same as Ctrl-C always does outside the dialog
 
@@ -420,6 +433,7 @@ template against one host. Two tabs - Rendered, Source.
                      these are never explicitly wired here; they work
                      because TextView natively supports them and nothing
                      intercepts them first)
+* ? / F1           - help for this view
 * Ctrl-A / Ctrl-E  - same as Home / End - unlike the vim bindings above,
                      `tview.TextView` does NOT handle these two natively,
                      so (like the main tree) they're explicitly translated

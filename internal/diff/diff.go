@@ -717,7 +717,7 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 	header := tview.NewTextView().SetDynamicColors(true).SetText(" tangsible diff ")
 	header.SetTextStyle(DiffChromeStyle)
 	footer := tview.NewTextView().SetDynamicColors(true).
-		SetText(" enter: expand/collapse task, open host  q/esc: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
+		SetText(diffTreeBar)
 	footer.SetTextStyle(DiffChromeStyle)
 
 	treeFlex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -733,8 +733,7 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 	// chrome (see uikit.TabbedPane.SetHeaderStyle's own doc comment).
 	outputHeader := tview.NewTextView().SetDynamicColors(true).SetText(" tangsible diff ")
 	outputHeader.SetTextStyle(DiffChromeStyle)
-	const outputHintText = " tab/shift-tab: switch tab  /: search tab  y: copy tab  q/esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	outputFooter := tview.NewTextView().SetDynamicColors(true).SetText(outputHintText)
+	outputFooter := tview.NewTextView().SetDynamicColors(true).SetText(diffOutputBar)
 	outputFooter.SetTextStyle(DiffChromeStyle)
 
 	// tabSearchInput/outputFooterPages/tabSearch* mirror tui.go's own
@@ -762,6 +761,7 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		AddPage("tree", treeFlex, true, true).
 		AddPage("output", outputFlex, true, false)
 	viewingOutput := false
+	help := uikit.NewHelpOverlay(app, pages)
 
 	var tabSearch *uikit.TextSearch
 	var tabSearchComposing bool
@@ -779,7 +779,7 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		// also what clears a transient 'y' clipboard-copy status message,
 		// which has no lifecycle of its own beyond being superseded here.
 		outputFooter.SetTextStyle(DiffChromeStyle)
-		outputFooter.SetText(outputHintText)
+		outputFooter.SetText(diffOutputBar)
 		outputFooterPages.SwitchToPage("hint")
 		if tabSearch == nil {
 			return
@@ -958,6 +958,9 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		// live in tui.go, see that file's own comment on this same
 		// pattern for the full story. Invoking the field's InputHandler
 		// directly sidesteps it here too.
+		if help.HandleKey(event) {
+			return nil
+		}
 		if tabSearchComposing {
 			if handler := tabSearchInput.InputHandler(); handler != nil {
 				handler(event, func(p tview.Primitive) { app.SetFocus(p) })
@@ -966,6 +969,9 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		}
 		if viewingOutput {
 			switch {
+			case uikit.IsHelpKey(event):
+				help.Open(diffOutputHelp, nil)
+				return nil
 			case event.Key() == tcell.KeyEscape && tabSearch != nil:
 				clearTabSearch()
 				return nil
@@ -1010,6 +1016,9 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 			return event
 		}
 		switch {
+		case uikit.IsHelpKey(event):
+			help.Open(diffTreeHelp, nil)
+			return nil
 		case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyRune && event.Rune() == 'q':
 			app.Stop()
 			return nil
@@ -1048,6 +1057,9 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 		if event == nil {
 			return nil, action
+		}
+		if ev, act, handled := help.HandleMouse(event, action); handled {
+			return ev, act
 		}
 		if tabSearchComposing {
 			if x, y := event.Position(); uikit.InRect(x, y, tabSearchInput) {

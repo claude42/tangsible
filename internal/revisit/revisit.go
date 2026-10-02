@@ -349,14 +349,8 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 	header := tview.NewTextView().SetDynamicColors(true).
 		SetText(fmt.Sprintf(" %d previous run(s) - %s ", len(entries), purpose))
 	header.SetTextStyle(uikit.BarStyle)
-	footerHelp := " enter: open  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	if allowRerun {
-		footerHelp = " enter: open  r: re-run  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	}
-	if nested {
-		footerHelp = " enter: open  esc/q: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	}
-	footer := tview.NewTextView().SetDynamicColors(true).SetText(footerHelp)
+	helpScreen, hide := runListHelp, runListHelpHidden(allowRerun, nested)
+	footer := tview.NewTextView().SetDynamicColors(true).SetText(runListBar(allowRerun, nested))
 	footer.SetTextStyle(uikit.BarStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -424,8 +418,17 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 	})
 	rebuildRows()
 
+	pages := tview.NewPages().AddPage("main", flex, true, true)
+	help := uikit.NewHelpOverlay(app, pages)
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if help.HandleKey(event) {
+			return nil
+		}
 		switch {
+		case uikit.IsHelpKey(event):
+			help.Open(helpScreen, hide)
+			return nil
 		case event.Key() == tcell.KeyCtrlC, event.Key() == tcell.KeyRune && event.Rune() == 'q',
 			nested && event.Key() == tcell.KeyEscape:
 			app.Stop()
@@ -452,7 +455,14 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 		return event
 	})
 
-	app.SetRoot(flex, true).SetFocus(list)
+	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if ev, act, handled := help.HandleMouse(event, action); handled {
+			return ev, act
+		}
+		return event, action
+	})
+
+	app.SetRoot(pages, true).SetFocus(list)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}

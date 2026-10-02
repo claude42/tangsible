@@ -397,10 +397,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.stdoutView = tview.NewTextView().SetDynamicColors(true) // wraps, like a terminal
 	s.stdoutTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.stdoutTopBar.SetTextStyle(s.chromeStyle)
-	s.stdoutBottomBar = tview.NewTextView().SetText(stdoutHintBarText)
+	s.stdoutBottomBar = tview.NewTextView().SetText(stdoutBar)
 	s.stdoutBottomBar.SetTextStyle(s.chromeStyle)
 	s.stdoutSearch = newTextSearchPanel(s.app, func() (*tview.TextView, bool) { return s.stdoutView, true },
-		stdoutHintBarText, "esc/o/q: back", s.stdoutBottomBar, s.stdoutView, s.outputBottomBarNormalStyle)
+		stdoutBar, "esc/o/q: back", s.stdoutBottomBar, s.stdoutView, s.outputBottomBarNormalStyle)
 	stdoutFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(s.stdoutTopBar, 1, 0, false).
@@ -482,7 +482,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// short of what the tree needed; here Form's default behavior already
 	// matches).
 	s.rerunForm = tview.NewForm()
-	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Re-run (enter: run, esc: cancel) ")
+	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Re-run (enter: run, esc: cancel, F1: help) ")
 
 	// s.rerunFields (livesession_rerundialog.go) owns the four input
 	// fields, three checkboxes, and the sync logic between them - see its
@@ -780,6 +780,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// this fixes it up now that a real one exists.
 	s.search.app = s.app
 	s.stdoutSearch.app = s.app
+	s.help = uikit.NewHelpOverlay(s.app, s.pages)
 
 	// Terminal color-capability probe, design-docs/Morehosts.md:
 	// Application.Screen() isn't available until after Run() starts, but

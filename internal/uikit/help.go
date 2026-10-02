@@ -151,3 +151,142 @@ func NewHelpDialog(h HelpScreen, screenWidth, screenHeight int, hide func(id str
 		SetTitle(title)
 	return view, CenteredModal(view, width, height)
 }
+
+// HelpOverlay is the help dialog's runtime half: shows a HelpScreen as an
+// overlay page on top of pages (so the view behind it keeps updating),
+// owns the keyboard and mouse while open, and hands focus back to
+// whatever had it on close. One per tview.Application; every screen of
+// that application opens it with its own HelpScreen.
+type HelpOverlay struct {
+	app         *tview.Application
+	pages       *tview.Pages
+	view        *tview.TextView
+	returnFocus tview.Primitive
+	open        bool
+}
+
+// helpPageName is the overlay's own page in pages - added last on every
+// Open, so it's always drawn on top.
+const helpPageName = "help"
+
+// NewHelpOverlay returns an overlay for app, drawn into pages (the app's
+// root, or at least a Pages covering the whole screen). app may be set
+// later via SetApp, for callers that build their pages before their app.
+func NewHelpOverlay(app *tview.Application, pages *tview.Pages) *HelpOverlay {
+	return &HelpOverlay{app: app, pages: pages}
+}
+
+// SetApp sets the application, for an overlay built before it existed.
+func (h *HelpOverlay) SetApp(app *tview.Application) { h.app = app }
+
+// IsOpen reports whether the dialog is showing.
+func (h *HelpOverlay) IsOpen() bool { return h.open }
+
+// Open shows screen, rebuilt for the terminal's current size (hide drops
+// entries that don't apply right now - may be nil). Reopening replaces it.
+func (h *HelpOverlay) Open(screen HelpScreen, hide func(id string) bool) {
+	_, _, width, height := h.pages.GetInnerRect()
+	view, modal := NewHelpDialog(screen, width, height, hide)
+	if !h.open {
+		h.returnFocus = h.app.GetFocus()
+	}
+	h.view = view
+	h.open = true
+	h.pages.AddPage(helpPageName, modal, true, true)
+	h.app.SetFocus(view)
+}
+
+// Close hides the dialog (a no-op if it isn't open) and gives focus back
+// to whatever had it when Open was called.
+func (h *HelpOverlay) Close() {
+	if !h.open {
+		return
+	}
+	h.open = false
+	h.pages.RemovePage(helpPageName)
+	if h.returnFocus != nil {
+		h.app.SetFocus(h.returnFocus)
+	}
+}
+
+// IsHelpKey reports whether event is one of the keys that open help: '?'
+// or F1. Only F1 where '?' must stay typeable (text fields).
+func IsHelpKey(event *tcell.EventKey) bool {
+	return event.Key() == tcell.KeyF1 || event.Key() == tcell.KeyRune && event.Rune() == '?'
+}
+
+// HandleKey is for the app's input capture, checked first: while open,
+// the dialog owns the keyboard. Esc, ?, F1 and q close it - q closes
+// rather than quits, as in every other read-only overlay in this app;
+// navigation keys and their usual aliases scroll it; everything else is
+// swallowed. handled is false when the dialog isn't open - and for Ctrl-C,
+// which closes the dialog but is left for the caller to handle as it
+// always does (interrupt/quit), whichever order the caller checks in.
+func (h *HelpOverlay) HandleKey(event *tcell.EventKey) (handled bool) {
+	if !h.open {
+		return false
+	}
+	if event.Key() == tcell.KeyCtrlC {
+		h.Close()
+		return false
+	}
+	if event.Key() == tcell.KeyEscape || IsHelpKey(event) || event.Key() == tcell.KeyRune && event.Rune() == 'q' {
+		h.Close()
+		return true
+	}
+	key := event.Key()
+	if key == tcell.KeyRune {
+		switch event.Rune() {
+		case 'j':
+			key = tcell.KeyDown
+		case 'k':
+			key = tcell.KeyUp
+		case ' ':
+			key = tcell.KeyPgDn
+		case 'b':
+			key = tcell.KeyPgUp
+		case 'G', '>':
+			key = tcell.KeyEnd
+		case '<', 'g':
+			key = tcell.KeyHome
+		}
+	}
+	switch key {
+	case tcell.KeyCtrlF:
+		key = tcell.KeyPgDn
+	case tcell.KeyCtrlB:
+		key = tcell.KeyPgUp
+	case tcell.KeyCtrlA:
+		key = tcell.KeyHome
+	case tcell.KeyCtrlE:
+		key = tcell.KeyEnd
+	}
+	switch key {
+	case tcell.KeyUp, tcell.KeyDown, tcell.KeyPgUp, tcell.KeyPgDn, tcell.KeyHome, tcell.KeyEnd:
+		// Called directly rather than returned for tview's focus-driven
+		// dispatch, which has proven unreliable for primitives nested in
+		// this app's Pages (see session's tabSearchPanel.handleComposingKey).
+		if handler := h.view.InputHandler(); handler != nil {
+			handler(tcell.NewEventKey(key, 0, tcell.ModNone), func(p tview.Primitive) { h.app.SetFocus(p) })
+		}
+	}
+	return true
+}
+
+// HandleMouse is for the app's mouse capture, checked first: while open,
+// the wheel scrolls the dialog and everything else - inside it or not - is
+// swallowed, so nothing behind it reacts and no click moves focus away.
+// handled is false when the dialog isn't open.
+func (h *HelpOverlay) HandleMouse(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction, bool) {
+	if !h.open {
+		return nil, action, false
+	}
+	if event == nil {
+		return nil, action, true
+	}
+	if x, y := event.Position(); InRect(x, y, h.view) &&
+		(action == tview.MouseScrollUp || action == tview.MouseScrollDown) {
+		return event, action, true
+	}
+	return nil, action, true
+}

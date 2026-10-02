@@ -316,8 +316,7 @@ type liveSession struct {
 	stdoutShownLog *runner.OutputLog
 	stdoutShown    int
 
-	// --- '?' help dialog (livesession_help.go) ---
-	helpOpen        bool
-	helpView        *tview.TextView
-	helpReturnFocus tview.Primitive // see closeHelp
+	// help is the '?'/F1 help dialog (design-docs/Help.md), opened with
+	// whichever screen's table (helptables.go) is frontmost.
+	help *uikit.HelpOverlay
 }

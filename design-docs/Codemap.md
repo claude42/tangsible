@@ -30,7 +30,8 @@ subprocesses.
   custom per-row coloring `tview.List` couldn't do).
 - **help.go** - `HelpScreen`/`HelpSection`/`HelpEntry`: a screen's
   shortcut table, rendered as the `?` help dialog
-  (`HelpText`/`NewHelpDialog`).
+  (`HelpText`/`NewHelpDialog`); `HelpOverlay`, the dialog's runtime
+  (open/close, key/mouse handling, focus restore) every app shares.
 - **tabs.go** - `TabbedPane`, the shared tab-bar widget (drill-down
   view, template page).
 - **tui_style.go** - palette/style constants (colors, indents,
@@ -176,11 +177,10 @@ thin constructor/wiring shell.
     `showOutputWithOrigin` (+ its three async resolve/docs/file fetch
     goroutines), `navigateOutputTask`/`navigateOutputHost`, `closeOutput`.
   - **helptables.go** - the live session's shortcut tables
-    (`treeHelp`, `outputHelp`) and, next to each, its bottom bar string
-    (`treeBar`, `outputBar`) -
-    the place to edit a binding's help text and bar hint.
-  - **livesession_help.go** - the `?`/F1 help dialog's open/close and
-    key/mouse handling.
+    (tree, drill-down, `o` view, re-run dialog) and, next to each, its
+    bottom bar string - the place to edit a binding's help text and bar
+    hint. Every other verb package has its own `helptables.go` the same
+    way (revisit, diff, host, template).
   - **livesession_stdout.go** - the raw-output view (`o`):
     `openStdoutView`/`syncStdoutView`/`handleStdoutViewKey`, following
     and holding lines back during a search.

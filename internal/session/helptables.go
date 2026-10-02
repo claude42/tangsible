@@ -117,3 +117,59 @@ var outputHelp = uikit.HelpScreen{
 		}},
 	},
 }
+
+// stdoutBar is the raw-output view's ('o') bottom bar.
+const stdoutBar = " ?: help  F: follow  /: search  y: copy  esc: back "
+
+var stdoutHelp = uikit.HelpScreen{
+	Title: "console output",
+	Sections: []uikit.HelpSection{
+		{Title: "Following", Entries: []uikit.HelpEntry{
+			{Keys: "F", Desc: "Jump to the end and follow new output while the run is live - the only key that resumes following"},
+		}},
+		{Title: "Scrolling (stops following)", Entries: []uikit.HelpEntry{
+			{Keys: "↑ / ↓, j / k", Desc: "Scroll a line"},
+			{Keys: "PgUp / PgDn", Desc: "Scroll a page - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E, < / > and G. End doesn't resume following"},
+		}},
+		{Title: "Search and copy", Entries: []uikit.HelpEntry{
+			{Keys: "/", Desc: "Search the output. Output arriving meanwhile is held back (the top bar counts it) and appears once the search is cleared"},
+			{Keys: "n / N", Desc: "Next / previous match"},
+			{Keys: "y", Desc: "Copy the whole output to the clipboard"},
+		}},
+		{Title: "General", Entries: []uikit.HelpEntry{
+			{Keys: "? / F1", Desc: "This help"},
+			{Keys: "Esc / o / q", Desc: "Back to the tree. Esc clears an active search first"},
+			{Keys: "Ctrl-C", Desc: "Interrupt the run while it's going; quit once it has finished"},
+		}},
+		{Title: "Mouse", Entries: []uikit.HelpEntry{
+			{Keys: "Wheel", Desc: "Scroll (stops following)"},
+		}},
+	},
+}
+
+// The re-run dialog has no bottom bar of its own - its title carries the
+// key hints. Help opens with F1 only: '?' must stay typeable in its fields.
+var rerunHelp = uikit.HelpScreen{
+	Title: "re-run",
+	Sections: []uikit.HelpSection{
+		{Title: "Fields - all optional", Entries: []uikit.HelpEntry{
+			{Keys: "Start with play", Desc: "Skip every play before this one (a top-level play's name; offers completions). Runs a temporary copy of the playbook with the earlier plays removed"},
+			{Keys: "Limit tags to", Desc: "--tags: comma-separated tags (offers completions)"},
+			{Keys: "Skip tags", Desc: "--skip-tags: comma-separated tags (offers completions)"},
+			{Keys: "Limit hosts to", Desc: "--limit: comma-separated hosts or groups (offers completions)"},
+		}},
+		{Title: "Checkboxes - shown only when they apply to the last run", Entries: []uikit.HelpEntry{
+			{Keys: "Resume where failed", Desc: "Start with the earliest play that had a failure, and only on the hosts that failed (checks \"Only failed\" too)"},
+			{Keys: "Only failed", Desc: "Limit hosts to the ones that failed in the last run"},
+			{Keys: "Only unreachable", Desc: "Limit hosts to the ones that were unreachable in the last run - combines with \"Only failed\""},
+		}},
+		{Title: "Keys", Entries: []uikit.HelpEntry{
+			{Keys: "Enter", Desc: "Run (or pick the highlighted completion)"},
+			{Keys: "Tab / Shift-Tab", Desc: "Next / previous field"},
+			{Keys: "Space", Desc: "Toggle the focused checkbox"},
+			{Keys: "Esc", Desc: "Cancel (or close the completion list)"},
+			{Keys: "F1", Desc: "This help"},
+		}},
+	},
+}

@@ -59,3 +59,14 @@ be visible while while the context sensitive help dialog is open.
   same dialog. Bar: `?: help  tab: next tab  ←/→: host  n/N: task
   /: search  y: copy  esc: back` (77 columns). Closing help returns focus
   to whatever had it, so the drill-down's keys keep working afterwards.
+- Every other location (2026-10-02): `o` view, re-run dialog (F1 only -
+  `?` is typeable there; its help explains the fields and checkboxes), the
+  run list (revisit and diff's picker, context-dependent entries), diff
+  tree (with a legend for its underline/strikethrough markers) and diff
+  drill-down, `hosts` list (legend for the ping dots), host detail
+  (standalone vs. from the list, full-screen vs. side by side), template
+  view. The dialog runtime moved into `uikit.HelpOverlay`, shared by all
+  apps; each package keeps its tables and bars in its own
+  `helptables.go`. Not covered: the filter and search dialogs (a menu and a
+  single text field - self-explanatory) and the template view's one-field
+  change-host dialog.

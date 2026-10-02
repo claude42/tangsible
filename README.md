@@ -345,9 +345,11 @@ control, and more).
 | `e` | Edit template file |
 | `h` | Change host |
 | `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
+| `?`/`F1` | Help: all of this view's shortcuts |
 | `q`/`Ctrl-C` | Quit |
 
-Mouse navigation is supported as well.
+Mouse navigation is supported as well. Every view has `?`/`F1` help listing
+its shortcuts (F1 only in the re-run dialog).
 
 ## Configuration
 
