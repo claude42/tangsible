@@ -71,6 +71,10 @@ necessarily bugs.
 
 * o                - open the raw-output view (see below) - available
                      while the playbook is still running too
+* ? / F1           - open the help dialog: every shortcut of this view, as
+                     an overlay the tree keeps updating behind. Scroll it
+                     with the usual navigation keys; Esc / ? / F1 / q close
+                     it (q doesn't quit here)
 
 E/C/r/f///o are all only reachable from the main tree - none of them have any
 effect while the command output view is frontmost (see that section below

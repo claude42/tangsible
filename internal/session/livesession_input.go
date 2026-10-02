@@ -45,6 +45,9 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if result, handled := s.handleCtrlC(event); handled {
 		return result
 	}
+	if result, handled := s.handleHelpKey(event); handled {
+		return result
+	}
 	if result, handled := s.handleSearchDialogKey(event); handled {
 		return result
 	}
@@ -480,6 +483,9 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 			s.list.SetCurrentItem(s.list.GetItemCount() - 1)
 		}
 		s.jumpingToEnd = false
+		return nil
+	case event.Key() == tcell.KeyRune && event.Rune() == '?', event.Key() == tcell.KeyF1:
+		s.openHelp() // design-docs/Help.md - tree view only, for now
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'o':
 		// The raw-output view (livesession_stdout.go) - available while

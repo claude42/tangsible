@@ -30,7 +30,6 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
-	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -82,10 +81,11 @@ func TestOutputBottomBarNormalStyle(t *testing.T) {
 func TestCurrentMainBottomBarText(t *testing.T) {
 	noop := func(startAtPlay, tags, skipTags, hosts string) {}
 
-	t.Run("plain live session matches the shared hint text verbatim", func(t *testing.T) {
+	t.Run("plain live session shows treeHelp's bar labels in BarPos order", func(t *testing.T) {
 		s := &liveSession{requestRerun: noop}
-		if got := s.currentMainBottomBarText(); got != uikit.MainBottomBarText {
-			t.Errorf("currentMainBottomBarText() = %q, want %q", got, uikit.MainBottomBarText)
+		want := " ?: help  f: filter  /: search  o: output  r: re-run  q: quit "
+		if got := s.currentMainBottomBarText(); got != want {
+			t.Errorf("currentMainBottomBarText() = %q, want %q", got, want)
 		}
 	})
 
@@ -96,7 +96,7 @@ func TestCurrentMainBottomBarText(t *testing.T) {
 			t.Errorf("currentMainBottomBarText() = %q, must not advertise r: re-run when requestRerun is nil", got)
 		}
 		// Nothing else about the hint text should be disturbed.
-		if !strings.Contains(got, "d: diff") || !strings.Contains(got, "q: quit") {
+		if !strings.Contains(got, "o: output") || !strings.Contains(got, "q: quit") {
 			t.Errorf("currentMainBottomBarText() = %q, want the rest of the hint text intact", got)
 		}
 	})

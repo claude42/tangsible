@@ -119,9 +119,11 @@ func (s *liveSession) revealExpandedTask(t *playbook.TaskNode) {
 	}
 }
 
-// currentMainBottomBarText appends the revisit-only "Esc: back to list"
-// hint onto MainBottomBarText for as long as s.revisitActive stays true,
-// and - independently, regardless of s.revisitActive, since s.checkMode
+// currentMainBottomBarText is the tree's bottom bar: treeHelp's own bar
+// labels (helptables.go - minus "r: re-run" when nothing can rerun, plus
+// the revisit-only "Esc: back to the list" for as long as s.revisitActive
+// stays true, both via treeHelpHidden), and - independently, regardless of
+// s.revisitActive, since s.checkMode
 // never goes false once true - a "CHECK MODE" note whenever this
 // session's generation was invoked with --check: chrome color alone
 // doesn't reach a NO_COLOR/monochrome terminal, so an explicit place to
@@ -135,19 +137,9 @@ func (s *liveSession) revealExpandedTask(t *playbook.TaskNode) {
 // rebuild's own split-mode toggle), and each of those call sites should
 // see s.revisitActive's current value, not a snapshot from construction.
 func (s *liveSession) currentMainBottomBarText() string {
-	text := uikit.MainBottomBarText
-	if s.requestRerun == nil {
-		// Matches SetInputCapture's own 'r' guard below: nothing to
-		// advertise a key that's a guaranteed no-op right now (a Phase 2
-		// revisit session, per design-docs/Revisit.md, before
-		// rerun-from-revisit exists).
-		text = strings.Replace(text, "r: re-run  ", "", 1)
-	}
+	text := treeHelp.BarText(s.treeHelpHidden)
 	if s.checkMode {
 		text += " [CHECK MODE - dry run] "
-	}
-	if s.revisitActive {
-		text += " Esc: back to the list "
 	}
 	return text
 }

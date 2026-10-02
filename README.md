@@ -322,6 +322,7 @@ control, and more).
 | `/` | Search filter (task name, source, output) |
 | `r` | Open the re-run dialog (once the run has finished) |
 | `o` | Show ansible-playbook's console output (`F` follows, `Esc` returns) |
+| `?`/`F1` | Help: all of the tree view's shortcuts |
 | `q`/`Ctrl-C` | Interrupt the run, or quit once it's finished |
 
 **Drill-down view**

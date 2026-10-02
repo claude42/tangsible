@@ -315,4 +315,8 @@ type liveSession struct {
 	// lines from, and how many - syncStdoutView's "what's new" bookmark.
 	stdoutShownLog *runner.OutputLog
 	stdoutShown    int
+
+	// --- '?' help dialog (livesession_help.go) ---
+	helpOpen bool
+	helpView *tview.TextView
 }
