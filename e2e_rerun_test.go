@@ -237,7 +237,7 @@ func TestE2E_RerunDialog_TabCyclingLandsInCorrectField(t *testing.T) {
 	s.waitFor("Playbook completed successfully", 15*time.Second)
 
 	s.send("r")
-	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 
 	// The dialog opens with focus on the Play field (design-docs/
 	// StartWithPlay.md's own first-in-tab-order field). outcomes.yml's
@@ -309,7 +309,7 @@ func TestE2E_RerunDialog_StartWithPlaySkipsEarlierPlays(t *testing.T) {
 	s.waitFor("Playbook completed successfully", 15*time.Second)
 
 	s.send("r")
-	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 	s.send("second play") // dialog opens focused on Play - StartWithPlay.md
 	s.waitForFieldValue("Start with play:", "second play", 3*time.Second)
 	s.send("Enter")
@@ -405,7 +405,7 @@ func TestE2E_RerunDialog_ResumeWhereFailedCascadesToHostLimitedRerun(t *testing.
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
-	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 	s.send("Tab")   // Play -> Resume where failed
 	s.send("Space") // check it
 
@@ -450,7 +450,7 @@ func TestE2E_RerunDialog_UncheckingResumeClearsPlayAndOnlyFailed(t *testing.T) {
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
-	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 	s.send("Tab")   // Play -> Resume where failed
 	s.send("Space") // check it
 	s.waitForFieldValue("Start with play:", "main play", 3*time.Second)
@@ -489,7 +489,7 @@ func TestE2E_RerunDialog_OnlyFailedAndOnlyUnreachableUnionIntoHosts(t *testing.T
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
-	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 	// Play -> Resume -> Tags -> Skip tags -> Hosts -> Only failed.
 	s.send("Tab", "Tab", "Tab", "Tab", "Tab")
 	s.send("Space") // check Only failed
@@ -523,7 +523,7 @@ func TestE2E_RerunDialog_EditingHostsFieldUnchecksBothOnlyCheckboxes(t *testing.
 	s.waitFor("Playbook completed - one or more hosts were unreachable", 20*time.Second)
 
 	s.send("r")
-	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 	// Play -> Resume -> Tags -> Skip tags -> Hosts -> Only failed ->
 	// Only unreachable.
 	s.send("Tab", "Tab", "Tab", "Tab", "Tab")
@@ -597,7 +597,7 @@ func TestE2E_RerunDialog_ClearedFieldStaysCleared(t *testing.T) {
 	}
 
 	s.send("r")
-	s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 	got = s.capture()
 	hostsLine := lineContaining(got, "Limit hosts to:")
 	if strings.Contains(hostsLine, "host1") {
@@ -629,7 +629,7 @@ func TestE2E_CLIRerun_ShowsDialogBeforeRunning(t *testing.T) {
 
 	s := startTmuxSession(t)
 	s.send(fmt.Sprintf("cd %s && %s %s rerun", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
-	got := s.waitFor("Re-run (enter: run, esc: cancel)", 5*time.Second)
+	got := s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
 
 	if strings.Contains(got, "Playbook completed successfully") {
 		t.Errorf("status row rendered before any generation ever ran - everStarted gating regression:\n%s", got)
