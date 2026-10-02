@@ -467,7 +467,8 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	renderedViews := make([]*tview.TextView, len(hosts))
 	for i := range renderedViews {
 		renderedViews[i] = tview.NewTextView().SetDynamicColors(true)
-		renderedViews[i].SetText("[" + uikit.StandardTextColor + "]Rendering...[-]")
+		renderedViews[i].SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+		renderedViews[i].SetText("Rendering...")
 	}
 	// renderFailed mirrors hosts by index (true once that host's own last
 	// render errored - a task failure or a render-level error alike) -
@@ -477,6 +478,12 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// task everywhere else in the app.
 	renderFailed := make([]bool, len(hosts))
 	sourceView := tview.NewTextView().SetDynamicColors(true)
+	// Plain text (rendered output, the source, "Rendering...", an error's
+	// message) is untagged and takes this view-wide color - one mechanism
+	// for every path, the same as the host tabs, rather than wrapping each
+	// string in its own [standard_text] tag (one path once forgot to,
+	// rendering in tview's default white instead).
+	sourceView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 
 	tabs := uikit.NewTabbedPane()
 	// rebuildTabs re-derives the tab list from hosts/renderedViews - called
@@ -550,7 +557,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			sourceView.SetText("[" + uikit.AsyncErrorColor + "]" + tview.Escape(err.Error()) + "[-]")
 			return
 		}
-		sourceView.SetText("[" + uikit.StandardTextColor + "]" + tview.Escape(string(data)) + "[-]")
+		sourceView.SetText(tview.Escape(string(data)))
 		sourceView.ScrollToBeginning()
 	}
 	refreshSource()
@@ -591,7 +598,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		case result.Failed:
 			view.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
 		default:
-			view.SetText("[" + uikit.StandardTextColor + "]" + tview.Escape(result.Content) + "[-]")
+			view.SetText(tview.Escape(result.Content))
 		}
 		view.ScrollToBeginning()
 		if i < len(renderFailed) {
@@ -653,7 +660,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		}
 		rendering = true
 		host := hosts[i]
-		renderedViews[i].SetText("[" + uikit.StandardTextColor + "]Rendering...[-]")
+		renderedViews[i].SetText("Rendering...")
 		renderFailed[i] = false
 		updateTabColors()
 		go func() {
