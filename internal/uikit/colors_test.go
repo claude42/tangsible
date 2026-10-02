@@ -15,6 +15,7 @@
 package uikit
 
 import (
+	"strings"
 	"testing"
 
 	"code.aw.net/claude/tangsible/internal/config"
@@ -40,6 +41,22 @@ func TestResolveColorOverride(t *testing.T) {
 	if got := ResolveColorOverride("outcome_ok", &hex, "green"); got != hex {
 		t.Errorf("ResolveColorOverride(%q) = %q, want %q (valid #rrggbb hex)", hex, got, hex)
 	}
+
+	// "default" (the terminal's own color) is valid for the base pair only.
+	def := TerminalDefaultColor
+	for _, key := range []string{"background", "standard_text"} {
+		if got := ResolveColorOverride(key, &def, "silver"); got != def {
+			t.Errorf("ResolveColorOverride(%s, %q) = %q, want %q", key, def, got, def)
+		}
+	}
+	pendingColorWarnings = nil // drop anything earlier calls queued
+	if got := ResolveColorOverride("outcome_ok", &def, "green"); got != "green" {
+		t.Errorf("ResolveColorOverride(outcome_ok, %q) = %q, want the fallback %q", def, got, "green")
+	}
+	if w := pendingColorWarnings; len(w) != 1 || !strings.Contains(w[0], "only allowed for background and standard_text") {
+		t.Errorf("warnings for outcome_ok = default: %q, want one explaining where default is allowed", w)
+	}
+	pendingColorWarnings = nil
 }
 
 // TestApplyColorConfig covers a valid override actually landing, an

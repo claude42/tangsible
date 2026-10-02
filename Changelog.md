@@ -29,6 +29,8 @@
   "Playbook failed" line
 - System-wide installs via install.sh --prefix &lt;dir&gt;
 - `o` shows ansible-playbook's own console output, live while it runs
+- `[colors]` `background`/`standard_text` accept `"default"`: the
+  terminal's own background/text color
 - `?`/F1 opens a help dialog listing the current view's shortcuts, in every
   view (F1 only in the re-run dialog, where it also explains the fields)
 - Support system-wide config file /etc/tangsible/config.toml

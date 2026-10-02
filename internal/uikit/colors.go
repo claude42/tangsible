@@ -269,6 +269,22 @@ var HeadingColor = "green"
 // "Merged so far" list.
 var SummaryFailedColor = "red"
 
+// TerminalDefaultColor is the config value meaning "the terminal's own
+// default color" (tcell.ColorDefault: nothing is sent, so the terminal's
+// configured default foreground/background shows) - for using the
+// terminal's own colors as Tangsible's base pair. Works both via
+// tcell.GetColor and as a tview tag ("[default]"), the two ways colors
+// are consumed here.
+const TerminalDefaultColor = "default"
+
+// terminalDefaultKeys are the only keys TerminalDefaultColor is valid
+// for: the base pair, plain text on the plain background. Every other key
+// is either an accent meant to differ from plain text, or drawn as a
+// background somewhere (selected-row blocks, the active tab, chrome,
+// search highlights), where "the terminal's default" would make the
+// highlight vanish.
+var terminalDefaultKeys = map[string]bool{"background": true, "standard_text": true}
+
 // ResolveColorOverride validates override against tcell.GetColor (the
 // same resolution tcell.Style construction below already needs, and a
 // reasonable proxy for "will tview's own tag parser accept this too" -
@@ -284,8 +300,20 @@ var SummaryFailedColor = "red"
 // packages agree on exactly what counts as a valid override and warn
 // identically, rather than diff.go hand-rolling a second copy of this
 // logic for one field.
+//
+// "default" - the terminal's own default color, tcell.ColorDefault - is
+// accepted only for the keys in terminalDefaultKeys. It has to be checked
+// by name: tcell.GetColor returns that same ColorDefault for an unknown
+// name, which is what the validity check below relies on.
 func ResolveColorOverride(key string, override *string, fallback string) string {
 	if override == nil {
+		return fallback
+	}
+	if *override == TerminalDefaultColor {
+		if terminalDefaultKeys[key] {
+			return *override
+		}
+		pendingColorWarnings = append(pendingColorWarnings, fmt.Sprintf("tangsible: %q for [colors] %s is only allowed for background and standard_text, using default %q", TerminalDefaultColor, key, fallback))
 		return fallback
 	}
 	if tcell.GetColor(*override) == tcell.ColorDefault {

@@ -224,6 +224,28 @@ back to `fallback` - the same one-key-at-a-time tolerance
 `ReadTOMLFile`'s own parse-failure path already has elsewhere in this
 app: one bad value costs only that one key, never the whole config.
 
+**`"default"` - the terminal's own color (2026-10-02).** `background`
+and `standard_text` additionally accept `"default"`
+(`uikit.TerminalDefaultColor`), i.e. `tcell.ColorDefault`: nothing is
+sent, so the terminal's own configured background/foreground shows - an
+exact match whatever the terminal's real colors are, unlike `"white"`/
+`"black"`, which are ANSI palette slots a terminal theme can redefine
+(`"white"` is commonly a light grey there, visibly off against a pure
+white terminal background). Checked by name before the validity check
+above, since `tcell.GetColor` returns that same `ColorDefault` for an
+unknown name. It works through both consumption paths: `tcell.GetColor`
+and as a tview tag (`"[default]"`, confirmed to render in the terminal's
+default foreground). Only those two keys, deliberately - they're the
+base pair (plain text on the plain background); every other key is an
+accent meant to differ from plain text, or drawn as a background
+somewhere (selected-row blocks, the active tab, chrome, search
+highlights), where "the terminal's default" would make the highlight
+vanish. Any other key set to `"default"` gets its own warning saying so.
+Opt-in for now - the built-in defaults stay `black`/`silver`, since the
+other built-in colors assume a dark background; with `background =
+"default"`, `general.color_scheme` still has to be set to match the
+terminal, as it's what picks `[colors.dark]`/`[colors.light]`.
+
 **The warning doesn't print immediately** - a real user report: since
 `ApplyColorConfig` runs before any TUI-showing Verb constructs its own
 `tview.Application`, an immediate print sat on the terminal's normal

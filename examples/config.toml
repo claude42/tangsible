@@ -36,7 +36,10 @@ color_scheme = "dark"                # "dark" | "light" - see design-docs/ColorC
 # every other key below, this one is pushed into tview's own global
 # Styles.PrimitiveBackgroundColor rather than read per-row. Without it
 # set anywhere, the background is always black, regardless of
-# color_scheme above.
+# color_scheme above. "default" uses the terminal's own background
+# (allowed only here and for standard_text) - an exact match, unlike
+# "white"/"black", which a terminal theme can redefine. Then still set
+# color_scheme to match your terminal.
 background = "black"
 
 # Outcome colors (uikit.ColorTag)
@@ -58,7 +61,8 @@ play_title = "white"
 # and view contents (drill-down, diff, host tabs, the `o` console output
 # view), untagged tree rows (error output, the recap's summary sentence),
 # host list hostnames, the revisit list's text, and every dialog's title,
-# labels and plain text (the `?` help dialog's descriptions included)
+# labels and plain text (the `?` help dialog's descriptions included).
+# "default" uses the terminal's own foreground, see background above.
 standard_text = "silver"
 
 # Modal dialog borders: re-run form, search/filter dialogs, template's
