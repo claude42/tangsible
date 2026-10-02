@@ -41,8 +41,24 @@ func MinutesSeconds(d time.Duration) (mm, ss int) {
 	return int(d / time.Minute), int(d/time.Second) % 60
 }
 
-// TopBarText renders the top bar: a Playbook:/Role: label (isRole picks
-// which), the currently active filter (see Filters.md's "title bar shows
+// TopBarLabel is the top bar's first field name: "Playbook" or "Role",
+// and under --check "Check" or "Check role" instead - design-docs/
+// CheckMode.md's textual mode indicator, there for terminals where the
+// olive chrome color alone doesn't come through (NO_COLOR, monochrome).
+func TopBarLabel(isRole, checkMode bool) string {
+	switch {
+	case checkMode && isRole:
+		return "Check role"
+	case checkMode:
+		return "Check"
+	case isRole:
+		return "Role"
+	}
+	return "Playbook"
+}
+
+// TopBarText renders the top bar: label (TopBarLabel's "Playbook"/"Role"/
+// "Check"/"Check role"), the currently active filter (see Filters.md's "title bar shows
 // the currently selected filter" requirement; shown unconditionally,
 // including "All", rather than only when a filter is actually narrowing
 // anything), every host seen so far (state.AllHosts, same set taskLabel
@@ -69,9 +85,9 @@ func MinutesSeconds(d time.Duration) (mm, ss int) {
 // mode uses its own, separately-composed composeSplitHeaderLine instead
 // of this one (see its own doc comment for why a shared tree-only
 // composer isn't reused there).
-func TopBarText(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, bgColorName string, showElapsed bool) string {
+func TopBarText(playbookName, label string, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, bgColorName string, showElapsed bool) string {
 	return ProgressFillLine(
-		ComposeTopBarLine(playbookName, isRole, hosts, elapsed, frozen, filter, progressPos, progressTotal, width, showElapsed),
+		ComposeTopBarLine(playbookName, label, hosts, elapsed, frozen, filter, progressPos, progressTotal, width, showElapsed),
 		progressPos, progressTotal, frozen, bgColorName)
 }
 
@@ -114,11 +130,7 @@ func progressPercentPrefix(progressPos, progressTotal int, frozen bool) string {
 // progressPrefix to show (never the case for a revisit session in
 // practice, since replay never builds a progress skeleton either, but
 // this function doesn't assume that - the two are independent knobs).
-func ComposeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
-	label := "Playbook"
-	if isRole {
-		label = "Role"
-	}
+func ComposeTopBarLine(playbookName, label string, hosts []string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	mm, ss := MinutesSeconds(elapsed)
 	progressPrefix := progressPercentPrefix(progressPos, progressTotal, frozen)
 	var right string
@@ -159,7 +171,7 @@ func ComposeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 // composition against one width, computed once, can't disagree with
 // itself.
 //
-// Layout, left to right: Playbook:/Role:, Filter:, "Hosts: " followed by
+// Layout, left to right: label (TopBarLabel), Filter:, "Hosts: " followed by
 // hostAndTask (the drill-down's own currently-shown "<host>   <task
 // title>", three spaces between the two - matching every other field
 // separator on this line - there's exactly one relevant host/task
@@ -168,11 +180,7 @@ func ComposeTopBarLine(playbookName string, isRole bool, hosts []string, elapsed
 // side - the progress percentage (temporarily reinstated, see
 // progressPercentPrefix's own doc comment) and the heartbeat (spinner +
 // elapsed, or just elapsed once frozen).
-func ComposeSplitHeaderLine(playbookName string, isRole bool, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
-	label := "Playbook"
-	if isRole {
-		label = "Role"
-	}
+func ComposeSplitHeaderLine(playbookName, label string, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
 	mm, ss := MinutesSeconds(elapsed)
 	progressPrefix := progressPercentPrefix(progressPos, progressTotal, frozen)
 	var right string

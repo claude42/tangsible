@@ -122,14 +122,9 @@ func (s *liveSession) revealExpandedTask(t *playbook.TaskNode) {
 // currentMainBottomBarText is the tree's bottom bar: treeBar
 // (helptables.go) minus "r: re-run" when nothing can rerun, plus the
 // revisit-only "Esc: back to the list" for as long as s.revisitActive
-// stays true, and - independently, regardless of
-// s.revisitActive, since s.checkMode
-// never goes false once true - a "CHECK MODE" note whenever this
-// session's generation was invoked with --check: chrome color alone
-// doesn't reach a NO_COLOR/monochrome terminal, so an explicit place to
-// put a textual mode indicator was already established as the pattern
-// for something color-driven chrome can't carry on its own. Reads both
-// flags fresh on every call rather than being decided once, same
+// stays true. (--check's textual indicator lives in the top bar instead -
+// topBarLabel.) Reads both flags fresh on every call rather than being
+// decided once, same
 // reasoning s.chromeStyle/s.chromeBg above don't need (those are only
 // ever applied at construction, with submitRerun resetting the actual
 // widgets directly afterward) - s.bottomBar's text, unlike its style, is
@@ -143,14 +138,15 @@ func (s *liveSession) currentMainBottomBarText() string {
 		// key that's a guaranteed no-op right now.
 		text = strings.Replace(text, "r: re-run  ", "", 1)
 	}
-	if s.checkMode {
-		text += " [CHECK MODE - dry run] "
-	}
 	if s.revisitActive {
 		text += " Esc: back to the list "
 	}
 	return text
 }
+
+// topBarLabel is the top/split bars' first field name - see
+// uikit.TopBarLabel.
+func (s *liveSession) topBarLabel() string { return uikit.TopBarLabel(s.isRole, s.checkMode) }
 
 // chromeColorName is s.chromeBg's own tag-name equivalent - "navy"/
 // "olive"/"purple" - for the progress-fill lines (TopBarText/
@@ -308,7 +304,7 @@ func (s *liveSession) rebuild() {
 				hostAndTask = s.outputHost + "   " + s.outputTask.Name
 			}
 			s.splitHeader.SetText(uikit.ProgressFillLine(
-				uikit.ComposeSplitHeaderLine(s.playbookName, s.isRole, hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.showElapsed()),
+				uikit.ComposeSplitHeaderLine(s.playbookName, s.topBarLabel(), hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.showElapsed()),
 				progressPos, progressTotal, frozen, s.chromeColorName()))
 		} else {
 			// Padded to the full terminal width before the fill is
@@ -375,7 +371,7 @@ func (s *liveSession) rebuild() {
 		// mode, where s.splitHeader (above) shows this same information
 		// instead - s.topBar itself sits unused, off-page, for the
 		// duration of a split session.
-		s.topBar.SetText(uikit.TopBarText(s.playbookName, s.isRole, s.state.AllHosts, elapsed, frozen, s.currentFilter, progressPos, progressTotal, width, s.chromeColorName(), s.showElapsed()))
+		s.topBar.SetText(uikit.TopBarText(s.playbookName, s.topBarLabel(), s.state.AllHosts, elapsed, frozen, s.currentFilter, progressPos, progressTotal, width, s.chromeColorName(), s.showElapsed()))
 	}
 
 	// One-time, right on the running-to-frozen transition: for a

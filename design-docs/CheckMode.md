@@ -36,11 +36,15 @@ generation in it runs with too - live, rerun, and a revisited historical
 run alike (revisit.go threads the replayed run's own recorded args
 through the same way).
 
-Also appends a plain-text `[CHECK MODE - dry run]` note to the main tree's
-bottom bar (`currentMainBottomBarText`) regardless of color support -
-chrome color alone doesn't reach a `NO_COLOR`/monochrome terminal, the
-same concern design-docs/Morehosts.md already raised for the collapsed
-host-row summary.
+Also labels the top bar's first field `Check:` instead of `Playbook:`
+(`Check role:` instead of `Role:` - `uikit.TopBarLabel`) regardless of
+color support - chrome color alone doesn't reach a `NO_COLOR`/monochrome
+terminal, the same concern design-docs/Morehosts.md already raised for the
+collapsed host-row summary. (This used to be a `[CHECK MODE - dry run]`
+note appended to the bottom bar, moved 2026-10-02: once the bottom bar was
+trimmed for the help dialog, the note no longer fit on an 80-column
+terminal - and a mode belongs with the top bar's description of the run,
+not with the key hints.)
 
 Deliberately out of scope: no attempt to detect or flag the "task would
 have run for real but got silently skipped because its module has no

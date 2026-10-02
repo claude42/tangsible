@@ -100,11 +100,13 @@ func TestCurrentMainBottomBarText(t *testing.T) {
 		}
 	})
 
-	t.Run("check mode appends its own note", func(t *testing.T) {
+	t.Run("check mode leaves the bottom bar alone - it's in the top bar's label", func(t *testing.T) {
 		s := &liveSession{requestRerun: noop, checkMode: true}
-		got := s.currentMainBottomBarText()
-		if !strings.Contains(got, "[CHECK MODE - dry run]") {
-			t.Errorf("currentMainBottomBarText() = %q, want a CHECK MODE note", got)
+		if got := s.currentMainBottomBarText(); got != treeBar {
+			t.Errorf("currentMainBottomBarText() = %q, want %q", got, treeBar)
+		}
+		if got := s.topBarLabel(); got != "Check" {
+			t.Errorf("topBarLabel() = %q, want %q", got, "Check")
 		}
 	})
 
@@ -116,14 +118,14 @@ func TestCurrentMainBottomBarText(t *testing.T) {
 		}
 	})
 
-	t.Run("check mode and revisit combine, and revisit doesn't need requestRerun", func(t *testing.T) {
+	t.Run("revisit doesn't need requestRerun", func(t *testing.T) {
 		s := &liveSession{requestRerun: nil, checkMode: true, revisitActive: true}
 		got := s.currentMainBottomBarText()
 		if strings.Contains(got, "r: re-run") {
 			t.Errorf("currentMainBottomBarText() = %q, must not advertise r: re-run", got)
 		}
-		if !strings.Contains(got, "[CHECK MODE - dry run]") || !strings.Contains(got, "Esc: back to the list") {
-			t.Errorf("currentMainBottomBarText() = %q, want both the check-mode note and the revisit hint", got)
+		if !strings.Contains(got, "Esc: back to the list") {
+			t.Errorf("currentMainBottomBarText() = %q, want the revisit hint", got)
 		}
 	})
 }

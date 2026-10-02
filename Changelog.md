@@ -51,6 +51,8 @@
 ### Changed
 
 - The tree view's bottom bar now shows just the essential shortcuts.
+- `--check` runs are marked by a `Check:` label in the top bar instead of a
+  note in the bottom bar.
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely
   nothing to show, instead of an empty tab.
 - Ignored failures (`ignore_errors: true`) now render in the same orange

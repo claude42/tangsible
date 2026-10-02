@@ -342,7 +342,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// Moved up here (was previously declared after rebuild/hooks) - s.rebuild()
 	// now updates it on every call, so it must exist first.
 	s.topBar = tview.NewTextView().SetDynamicColors(true).
-		SetText(uikit.TopBarText(s.playbookName, s.isRole, s.state.AllHosts, 0, false, s.currentFilter, 0, 0, 20, s.chromeColorName(), s.showElapsed()))
+		SetText(uikit.TopBarText(s.playbookName, s.topBarLabel(), s.state.AllHosts, 0, false, s.currentFilter, 0, 0, 20, s.chromeColorName(), s.showElapsed()))
 	s.topBar.SetTextStyle(s.chromeStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
