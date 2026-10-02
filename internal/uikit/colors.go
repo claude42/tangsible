@@ -108,11 +108,18 @@ var (
 // hostnames, the revisit list's timestamp/command-line text, and the
 // recap's own per-host hostname+duration prefix - all originally
 // PlayTitleColor or KeyHighlightColor by coincidence, not because any of
-// them are actually a play title or a key/heading).
+// them are actually a play title or a key/heading). Also the default for
+// every piece of text that would otherwise fall back to tview's own
+// white: the body of every tab/view (drill-down, diff drill-down, host
+// tabs, the 'o' console-output view), untagged tree rows (TreeList - the
+// error-output lines, the recap's summary sentence), and every dialog's
+// title, field/checkbox labels and plain text, the help dialog's
+// descriptions included.
 var StandardTextColor = "silver"
 
 // DialogBorderColor is every modal dialog's own border (the re-run form,
-// the search/filter dialogs, template's "Change host" dialog) - these
+// the search/filter dialogs, template's "Change host" dialog, the '?'
+// help dialog) - these
 // previously had no configurable color at all, just tview's own hardcoded
 // tview.Styles.BorderColor default (white), the same kind of gap
 // BackgroundColor used to leave for the whole TUI's base background
@@ -169,7 +176,8 @@ var SelectedRowTextColor = "#1a1a1a"
 
 // SelectedRowBackgroundColor is the light background every selected
 // row's SelectedRowTextColor text sits on, across the tree, recap,
-// host/hosts, diff, and revisit views.
+// host/hosts, diff, and revisit views - and the highlighted entry of a
+// field's completion drop-down (StyleAutocomplete).
 var SelectedRowBackgroundColor = "lightgray"
 
 // ProgressFillColor is topBarText's own "headline as a progress bar"
@@ -233,8 +241,8 @@ var StatusBenignColor = "yellow"
 // (HighlightYAMLKeys/HighlightJSONKeys/HighlightKeyValueLines), used by
 // both `host`/`hosts` and the run drill-down's own tabs for the "key"
 // half of an actual key:value pair (a highlighted YAML/JSON line, or a
-// synthesized "Label: value" line like Role:/Task:/Status:/Group:) -
-// deliberately distinct from HeadingColor below even though both
+// synthesized "Label: value" line like Role:/Task:/Status:/Group:), and
+// for the key column of the '?' help dialog - deliberately distinct from HeadingColor below even though both
 // default to the same green, since a section heading isn't a key with
 // no value, and the two were found to want independently overridable
 // config keys.
@@ -245,8 +253,8 @@ var (
 
 // HeadingColor is a plain section-heading color - `uikit.SectionLabel`'s
 // Output/Items headings, host.go's own hostSectionHeading, the recap's
-// "Summary" heading, and the error-output block's "Error output:"
-// heading. Kept as its own var, not folded into KeyHighlightColor, even
+// "Summary" heading, the error-output block's "Error output:" heading,
+// and the '?' help dialog's section titles. Kept as its own var, not folded into KeyHighlightColor, even
 // though both default to the same green: a heading has no accompanying
 // value the way a key does, and splitting them lets a config override
 // change one without the other.

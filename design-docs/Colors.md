@@ -199,8 +199,8 @@ of them.
 | Supplementary annotation (source location, fact-cache note, search-dialog hint) | gray | `uikit.AnnotationColor` | Yes |
 | Task row title | silver | `uikit.TaskTitleColor` | Yes |
 | Play row title | white | `uikit.PlayTitleColor` | Yes |
-| Plain "just text" content: `host`/`hosts` list hostnames, revisit list timestamp/command-line, recap's per-host hostname+duration prefix | silver | `uikit.StandardTextColor` | Yes |
-| Modal dialog borders: re-run form, search/filter dialogs, template's "Change host" dialog | silver | `uikit.DialogBorderColor` | Yes |
+| Plain "just text" content: `host`/`hosts` list hostnames, revisit list timestamp/command-line, recap's per-host hostname+duration prefix; plus every text that would otherwise be tview's white - tab/view bodies (drill-down, diff, host tabs, the `o` view), untagged tree rows (error output, recap summary sentence), dialog titles/labels/plain text, help dialog descriptions | silver | `uikit.StandardTextColor` | Yes |
+| Modal dialog borders: re-run form, search/filter dialogs, template's "Change host" dialog, `?` help dialog | silver | `uikit.DialogBorderColor` | Yes |
 | Chrome bars: live session | white on navy | `uikit.BarStyle` | Yes |
 | Chrome bars: revisited session | white on purple | `uikit.ReplayBarStyle` | Yes |
 | Chrome bars: `tangsible diff` | white on fuchsia | `diff.DiffChromeStyle` | Yes |
@@ -208,7 +208,7 @@ of them.
 | Progress-sweep text (top bar) | white | `uikit.ProgressTextColor` | Yes |
 | Inactive tab | white on session chrome | fg `uikit.TabTextColor`, bg `chromeColorName()` (`TabbedPane.renderHeader`) | Yes |
 | Selected-row text (app-wide) | near-black (`#1a1a1a`) | `uikit.SelectedRowTextColor` | No |
-| Selected-row background, label portion | lightgray | `uikit.SelectedRowBackgroundColor` | No |
+| Selected-row background, label portion; completion drop-down's highlighted entry | lightgray | `uikit.SelectedRowBackgroundColor` | No |
 | Progress-sweep fill background | ProgressFillColor (`#146414`) | `uikit.ProgressFillColor` | No |
 | Warning glyph/section; recap "warnings" category | WarningColor = hotpink | `uikit.WarningColor` | No |
 | Ignored failure (tree rows, recap, drill-down Task tab Status line) | IgnoredColor = orange | `uikit.IgnoredColor` | No |
@@ -228,7 +228,7 @@ of them.
 | Active tab | session chrome on white | fg `chromeColorName()`, bg `uikit.TabTextColor` (same constant as "Inactive tab", swapped - `TabbedPane.renderHeader`) | Yes |
 | Search bar / non-current match | black on yellow | `searchMatchForegroundColor`/`searchMatchBackgroundColor` (`internal/uikit/search.go`, unexported) | Yes (bg) |
 | Search: current match | black on orange | `searchCurrentMatchForegroundColor`/`searchCurrentMatchBackgroundColor` (`internal/uikit/search.go`, unexported) | No (bg) |
-| `host`/`hosts`: every tab's own "Label: value" keys | green | `uikit.KeyHighlightColor` | Yes |
+| `host`/`hosts`: every tab's own "Label: value" keys; `?` help dialog's key column | green | `uikit.KeyHighlightColor` | Yes |
 | `host`/`hosts`: every tab's own values | lightsteelblue | `uikit.ValueHighlightColor` | No |
 | `host`/`hosts`: every tab's own section headings | green | `uikit.HeadingColor` | Yes |
 | `host`/`hosts`: connectivity dot - pending | gray | `uikit.NothingReportedColor` (same constant as "Host hasn't reported...") | Yes |
@@ -239,7 +239,7 @@ of them.
 | `host`/`hosts`: Summary's "Host unavailable." skip note | maroon | `uikit.OutcomeUnreachableColor` (same constant as "Unreachable outcome") | Yes |
 | Drill-down: Task/Details tabs' own "Label: value" keys (Role/Task/Action/Host/Status, Output's own "Label: value" lines) | green | `uikit.KeyHighlightColor` (same constant as `host`/`hosts` - shared implementation) | Yes |
 | Drill-down: same tabs' own values (incl. Output's own "Label: value" lines, Items bullets) | lightsteelblue | `uikit.ValueHighlightColor` (same constant as `host`/`hosts`) | No |
-| Drill-down: Output/Items section headings; recap's own "Summary" heading; error-output heading; host.go's own section headings | green | `uikit.HeadingColor` (same constant as `host`/`hosts` - shared implementation) | Yes |
+| Drill-down: Output/Items section headings; recap's own "Summary" heading; error-output heading; host.go's own section headings; `?` help dialog's section titles | green | `uikit.HeadingColor` (same constant as `host`/`hosts` - shared implementation) | Yes |
 | Chrome color's own plain tag-name equivalent: live/revisit/check | navy / purple / olive | `uikit.ChromeLiveColor` / `ChromeRevisitColor` / `ChromeCheckColor` | Yes |
 
 ## Remaining vars, grouped by value

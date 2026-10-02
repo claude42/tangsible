@@ -54,13 +54,15 @@ annotation = "gray"
 task_title = "silver"
 play_title = "white"
 
-# Plain "just text" content: host list hostnames (tangsible hosts), the
-# revisit list's timestamp/command-line text, and the recap's own
-# per-host hostname+duration prefix
+# Plain "just text": all body text without a more specific color - tab
+# and view contents (drill-down, diff, host tabs, the `o` console output
+# view), untagged tree rows (error output, the recap's summary sentence),
+# host list hostnames, the revisit list's text, and every dialog's title,
+# labels and plain text (the `?` help dialog's descriptions included)
 standard_text = "silver"
 
 # Modal dialog borders: re-run form, search/filter dialogs, template's
-# "Change host" dialog
+# "Change host" dialog, the `?` help dialog
 dialog_border = "silver"
 
 # Top bar / tab bar
@@ -74,7 +76,7 @@ chrome_revisit = "purple"   # tangsible revisit
 chrome_check = "olive"      # a --check (dry run) session
 diff_chrome = "fuchsia"     # tangsible diff
 
-# Selected row
+# Selected row (also a completion drop-down's highlighted entry)
 selected_row_text = "#1a1a1a"
 selected_row_background = "lightgray"
 
@@ -101,13 +103,14 @@ diff_unmatched_task = "yellow"
 # failure reuse outcome_ok/outcome_failed directly)
 status_benign = "yellow"
 
-# host/hosts + drill-down tabs: shared key/value highlighting
+# host/hosts + drill-down tabs: shared key/value highlighting; key_highlight
+# is also the `?` help dialog's key column
 key_highlight = "green"
 value_highlight = "lightsteelblue"
 
 # Section headings: host/hosts' own section headers, drill-down's Output/
 # Items headings, the recap's "Summary" heading, the error-output
-# heading - separate from key_highlight even though both default to
+# heading, the `?` help dialog's section titles - separate from key_highlight even though both default to
 # green, since a heading isn't a key with no value
 heading = "green"
 

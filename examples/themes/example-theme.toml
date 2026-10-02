@@ -97,7 +97,9 @@ task_title = "dimgray"
 play_title = "#1a1a1a"
 # silver has the exact same near-invisible problem on white that
 # task_title's own default does (they share the same default value) -
-# same dimgray fix.
+# same dimgray fix. standard_text is the main body-text color (tab
+# contents, the console output view, dialog text), so this is what most
+# text on screen ends up in.
 standard_text = "dimgray"
 # dialog_border shares standard_text's own default and the same
 # near-invisible problem on white - same dimgray fix.
