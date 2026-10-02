@@ -1400,6 +1400,11 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	playsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	hostVarsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	everythingView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
+	// Untagged text ("Loading...", most content) needs an explicit color -
+	// tview's default is white, invisible on a light [colors] background.
+	for _, v := range []*tview.TextView{summaryView, groupsView, playsView, hostVarsView, everythingView} {
+		v.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	}
 
 	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs(

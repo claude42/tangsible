@@ -224,7 +224,10 @@ func (t *TreeList) Draw(screen tcell.Screen) {
 	}
 
 	for i := 0; i < height && t.itemOffset+i < len(t.rows); i++ {
-		tview.Print(screen, t.rows[t.itemOffset+i].text, x, y+i, width, tview.AlignLeft, tview.Styles.PrimaryTextColor)
+		// StandardTextColor, not tview's default white, for any untagged
+		// row text (error-output lines, the recap's summary sentence) -
+		// white is invisible on a light [colors] background.
+		tview.Print(screen, t.rows[t.itemOffset+i].text, x, y+i, width, tview.AlignLeft, tcell.GetColor(StandardTextColor))
 	}
 }
 

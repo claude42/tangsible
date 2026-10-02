@@ -677,6 +677,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// is wired below.
 	hostInput := tview.NewInputField().SetLabel("Host: ")
 	hostInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor)) // not tview's default yellow, hard to read on a light background
+	uikit.StyleAutocomplete(hostInput)
 	hostInput.SetAutocompleteFunc(func(text string) []string {
 		return uikit.MatchSingleValue(hostCandidates, text)
 	}).SetAutocompleteUseTags(false). // plain hostnames/group names, and

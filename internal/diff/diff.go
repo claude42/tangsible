@@ -836,6 +836,10 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		prims := make([]tview.Primitive, len(names))
 		for i, content := range contents {
 			tv := tview.NewTextView().SetDynamicColors(true)
+			// Untagged text (plain output, values, diff context lines) needs an
+			// explicit color - tview's default is white, invisible on a light
+			// [colors] background.
+			tv.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 			tv.SetText(content)
 			prims[i] = tv
 		}

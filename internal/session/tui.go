@@ -395,6 +395,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// The raw-output view ('o', livesession_stdout.go) - its own page,
 	// own bars, and its own search panel over its one TextView.
 	s.stdoutView = tview.NewTextView().SetDynamicColors(true) // wraps, like a terminal
+	// ansible's own uncolored lines (banners, and everything with color
+	// off) would otherwise be tview's default white.
+	s.stdoutView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.stdoutTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.stdoutTopBar.SetTextStyle(s.chromeStyle)
 	s.stdoutBottomBar = tview.NewTextView().SetText(stdoutBar)

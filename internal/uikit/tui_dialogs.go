@@ -17,6 +17,7 @@ package uikit
 import (
 	"fmt"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -33,6 +34,17 @@ func CenteredModal(p tview.Primitive, width, height int) tview.Primitive {
 			AddItem(p, height, 1, true).
 			AddItem(nil, 0, 1, false), width, 1, true).
 		AddItem(nil, 0, 1, false)
+}
+
+// StyleAutocomplete gives field's completion drop-down an explicit
+// highlighted-entry style - the tree cursor's own colors. tview's default
+// draws it as the background color on a white highlight: white on white
+// with a light [colors] background. The other entries keep tview's
+// default (background color on green), readable either way.
+func StyleAutocomplete(field *tview.InputField) *tview.InputField {
+	return field.SetAutocompleteStyles(tview.Styles.MoreContrastBackgroundColor,
+		tcell.StyleDefault.Background(tview.Styles.MoreContrastBackgroundColor).Foreground(tview.Styles.PrimitiveBackgroundColor),
+		tcell.StyleDefault.Background(tcell.GetColor(SelectedRowBackgroundColor)).Foreground(tcell.GetColor(SelectedRowTextColor)))
 }
 
 // InRect reports whether (x, y) falls within p's own last-drawn rect - the

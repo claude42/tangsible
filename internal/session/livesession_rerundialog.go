@@ -308,6 +308,7 @@ func (r *rerunFieldSync) matchPlay(text string) []string {
 // - unlike the other three - has only ever one value to begin with, so
 // there's no earlier token to preserve.
 func (r *rerunFieldSync) wireAutocomplete(field *tview.InputField, match func(string) []string, apply func(current, picked string) string) {
+	uikit.StyleAutocomplete(field)
 	field.SetAutocompleteFunc(match).
 		SetAutocompleteUseTags(false). // plain hostnames/tags/task names,
 		// and avoids a literal '[' in one being misread as a color tag -
