@@ -579,7 +579,7 @@ func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]
 // [green]...[-] span covering both lines rather than two
 // separately-colored pieces.
 func hostSectionHeading(label string) string {
-	return fmt.Sprintf("[%s]%s\n%s[-]\n\n", uikit.HeadingColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
+	return fmt.Sprintf("[%s::b]%s\n%s[-::-]\n\n", uikit.HeadingColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
 }
 
 // HostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab

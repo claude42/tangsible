@@ -529,12 +529,12 @@ func TestMergeFactsIntoEverythingKnown(t *testing.T) {
 }
 
 func TestHostSectionHeading(t *testing.T) {
-	if got, want := hostSectionHeading("Recent"), "[green]Recent\n======[-]\n\n"; got != want {
+	if got, want := hostSectionHeading("Recent"), "[green::b]Recent\n======[-::-]\n\n"; got != want {
 		t.Errorf("hostSectionHeading() = %q, want %q", got, want)
 	}
 	// A label containing a literal "[" (a host_vars file path could,
 	// however unlikely) must not be misread as a color tag.
-	if got, want := hostSectionHeading("a[b"), "[green]"+tview.Escape("a[b")+"\n"+strings.Repeat("=", 3)+"[-]\n\n"; got != want {
+	if got, want := hostSectionHeading("a[b"), "[green::b]"+tview.Escape("a[b")+"\n"+strings.Repeat("=", 3)+"[-::-]\n\n"; got != want {
 		t.Errorf("hostSectionHeading() = %q, want %q", got, want)
 	}
 }

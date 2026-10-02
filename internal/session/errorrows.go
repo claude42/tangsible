@@ -86,7 +86,7 @@ func (s *liveSession) errorOutputRows(width int) []uikit.Row {
 
 	rows := []uikit.Row{
 		{Text: "", ID: errorOutputDivider},
-		{Text: "[" + uikit.HeadingColor + "]" + errorOutputHeadingText + "[-]", ID: errorOutputHeading},
+		{Text: "[" + uikit.HeadingColor + "::b]" + errorOutputHeadingText + "[-::-]", ID: errorOutputHeading},
 	}
 	idx := 0
 	for _, l := range lines {

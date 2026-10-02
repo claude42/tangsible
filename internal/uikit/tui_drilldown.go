@@ -443,7 +443,7 @@ var YamlKeyLine = regexp.MustCompile(`^(\s*(?:-\s+)?)([A-Za-z0-9_.-]+)(:)(\s.*|)
 // see recapHeadingText's own doc comment (internal/session/recap.go) for
 // the fuller story of that bug.
 func SectionLabel(color, label string) string {
-	return fmt.Sprintf("[%s]%s[-]\n[%s]%s[-]\n\n", color, label, color, strings.Repeat("=", len([]rune(label))))
+	return fmt.Sprintf("[%s::b]%s[-::-]\n[%s::b]%s[-::-]\n\n", color, label, color, strings.Repeat("=", len([]rune(label))))
 }
 
 // TaskSourceLocation formats task.Path ("<absolute file>:<line>", see
