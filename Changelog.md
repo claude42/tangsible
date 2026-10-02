@@ -66,6 +66,8 @@
 
 - `--list-tasks`/`--list-hosts`/`--syntax-check` printed nothing.
 - Diff mode: Esc didn't close the list of runs to compare against.
+- `template`: quitting while a render was running could leave
+  `/tmp/tangsible-template-out-*` files behind.
 - Re-run dialog: opening the output drill-down for a failed host and then
   closing it before pressing `r` could leave the dialog's own text fields
   silently unable to accept keyboard input (typing, Tab) - mouse

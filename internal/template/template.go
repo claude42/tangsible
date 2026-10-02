@@ -23,6 +23,7 @@ package template
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +31,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
@@ -250,7 +254,9 @@ func WriteTemplateStub(templatePath, outputPath string) (stubPath string, err er
 	fmt.Fprintf(&b, "        src: %s\n", absTemplate)
 	fmt.Fprintf(&b, "        dest: %s\n", outputPath)
 
-	f, err := os.CreateTemp("", "tangsible-template-*.yml")
+	// Next to outputPath - RunTemplateVerb's private scratch directory, so
+	// removing that one directory cleans up both.
+	f, err := os.CreateTemp(filepath.Dir(outputPath), "stub-*.yml")
 	if err != nil {
 		return "", err
 	}
@@ -260,6 +266,10 @@ func WriteTemplateStub(templatePath, outputPath string) (stubPath string, err er
 	}
 	return f.Name(), nil
 }
+
+// renderStopGrace is how long a cancelled render gets to exit on SIGTERM
+// before exec.Cmd falls back to SIGKILL (see RenderTemplate).
+const renderStopGrace = 3 * time.Second
 
 // TemplateResult is one render's own outcome - either Content (the
 // rendered file, read back from disk) or, if the task itself failed,
@@ -283,13 +293,24 @@ type TemplateResult struct {
 // most commonly) is reported via templateResult.Failed instead, not err,
 // since that's the normal, expected outcome this whole tool exists to
 // surface.
-func RenderTemplate(stubPath, outputPath, hostname string, rest []string) (TemplateResult, error) {
+func RenderTemplate(ctx context.Context, stubPath, outputPath, hostname string, rest []string) (TemplateResult, error) {
 	pluginEnv, err := runner.CallbackPluginEnv()
 	if err != nil {
 		return TemplateResult{}, err
 	}
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
-	cmd := exec.Command("ansible-playbook", args...)
+	cmd := exec.CommandContext(ctx, "ansible-playbook", args...)
+	// Cancelling ctx (the template view closing mid-render) interrupts the
+	// render the way ansible-playbook itself expects: SIGTERM, which its
+	// TaskQueueManager forwards to its workers (each its own session
+	// leader via setsid, so a process-group kill wouldn't reach them),
+	// SIGKILL only if it hasn't exited after renderStopGrace. Not what
+	// keeps outputPath from leaking - ansible exits without waiting for its
+	// workers, so a module can still finish its write afterwards; see
+	// RunTemplateVerb's scratch directory for that. This just avoids
+	// leaving an orphaned run working against the target host.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = renderStopGrace
 	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -356,10 +377,26 @@ func PreferredEditor() string {
 	return "vi"
 }
 
+// removeScratchDir removes RunTemplateVerb's scratch directory, retrying
+// briefly: a write landing in it while it's being removed (a render still
+// finishing after quit) makes os.RemoveAll fail with the directory not
+// empty, and the next attempt removes that file too. Once the directory
+// itself is gone nothing can write there again. Best-effort - gives up
+// silently after a few tries, like every other scratch-file cleanup here.
+func removeScratchDir(dir string) {
+	for attempt := 0; attempt < 10; attempt++ {
+		if err := os.RemoveAll(dir); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // RunTemplateVerb is main.go's entry point for the "template" Verb.
 // Returns the process exit code rather than calling os.Exit itself, so
-// its own deferred cleanup (the stub playbook and the rendered-output
-// scratch file, per design-docs/Tangsible template.md's Cleanup section)
+// its own deferred cleanup (the scratch directory holding the stub
+// playbook and the rendered output, per design-docs/Tangsible
+// template.md's Cleanup section)
 // reliably runs on every path - os.Exit skips deferred functions, so
 // main.go calls os.Exit on the returned code only after this function has
 // already returned.
@@ -420,21 +457,29 @@ func RunTemplateVerb(args []string) int {
 	// reported" instead of doing anything useful.
 	hostCandidates := append([]string{}, allHosts...)
 
-	outFile, err := os.CreateTemp("", "tangsible-template-out-*")
+	// One private scratch directory holds both the rendered output and the
+	// stub playbook, removed as a whole at the end. A directory rather than
+	// two loose files is what makes the cleanup leak-proof: a render
+	// interrupted by quitting can still finish its template task after
+	// cleanup has run (ansible-playbook exits on SIGTERM without waiting
+	// for its workers - see RenderTemplate) - with a loose output file,
+	// that write recreated it (a real, reported leak:
+	// /tmp/tangsible-template-out-* left behind when quitting mid-render);
+	// with the directory gone, the template module fails instead
+	// ("Destination directory ... does not exist" - it never creates one).
+	scratchDir, err := os.MkdirTemp("", "tangsible-template-*")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't create a scratch output file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't create a scratch directory: %v\n", err)
 		return 1
 	}
-	outputPath := outFile.Name()
-	outFile.Close()
-	defer os.Remove(outputPath)
+	defer removeScratchDir(scratchDir)
+	outputPath := filepath.Join(scratchDir, "out")
 
 	stubPath, err := WriteTemplateStub(templatePath, outputPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook: %v\n", err)
 		return 1
 	}
-	defer os.Remove(stubPath)
 
 	RunTemplateTUI(templatePath, stubPath, outputPath, hosts, hostCandidates, rest)
 	return 0
@@ -620,6 +665,13 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// completed edit never fails to eventually reprocess), and simple
 	// (the pending intent doesn't need to remember which specific request
 	// caused it).
+	// renderCtx/renders let the view's shutdown (after app.Run, below)
+	// stop any render still in flight and wait for it, so nothing can write
+	// outputPath once RunTemplateVerb's deferred cleanup removes it - see
+	// RenderTemplate.
+	renderCtx, cancelRenders := context.WithCancel(context.Background())
+	var renders sync.WaitGroup
+
 	rendering := false
 	pendingRerenderAll := false
 	var renderAll func()
@@ -641,10 +693,15 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			renderFailed[i] = false
 		}
 		updateTabColors()
+		renders.Add(1)
 		go func() {
+			defer renders.Done()
 			snapshot := append([]string(nil), hosts...)
 			for i, h := range snapshot {
-				result, err := RenderTemplate(stubPath, outputPath, h, rest)
+				result, err := RenderTemplate(renderCtx, stubPath, outputPath, h, rest)
+				if renderCtx.Err() != nil {
+					return // the view has closed - nothing left to update
+				}
 				i, h, result, err := i, h, result, err
 				app.QueueUpdateDraw(func() {
 					applyRenderResult(i, h, result, err)
@@ -663,8 +720,13 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		renderedViews[i].SetText("Rendering...")
 		renderFailed[i] = false
 		updateTabColors()
+		renders.Add(1)
 		go func() {
-			result, err := RenderTemplate(stubPath, outputPath, host, rest)
+			defer renders.Done()
+			result, err := RenderTemplate(renderCtx, stubPath, outputPath, host, rest)
+			if renderCtx.Err() != nil {
+				return // the view has closed - nothing left to update
+			}
 			app.QueueUpdateDraw(func() {
 				applyRenderResult(i, host, result, err)
 				finishRendering()
@@ -964,4 +1026,6 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}
+	cancelRenders()
+	renders.Wait()
 }

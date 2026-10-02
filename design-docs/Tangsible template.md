@@ -180,3 +180,25 @@ Both the stub playbook and the rendered-output file are removed once
 tangsible exits - one stable pair of paths for the whole interactive
 session (edit/reprocess/host-switch cycles all reuse them), not
 regenerated fresh on every keypress or per host.
+
+**Both live in one private scratch directory** (`os.MkdirTemp`,
+`tangsible-template-*`), removed as a whole - since 2026-10-02, after a
+reported leak: quitting while a render was in flight sometimes left
+`/tmp/tangsible-template-out-*` behind. Reproduced by quitting at varying
+moments: it happened when the quit landed while the template task itself
+ran (~1.7-2.0 s into a local render). tangsible removed the file, exited,
+and the still-running `ansible-playbook` finished its task and wrote it
+again. Killing the render doesn't close this on its own: ansible's
+workers `setsid()` (so a process-group kill misses them), and on SIGTERM
+`ansible-playbook` forwards the signal to its workers and exits without
+waiting for them, so the module doing the final write can outlive
+everything tangsible can signal. Removing the *directory* does close it:
+the `template` module refuses to write into a missing directory
+("Destination directory ... does not exist" - confirmed, it never
+creates one), and `removeScratchDir` retries `os.RemoveAll` briefly in
+case a write lands mid-removal. On quit, an in-flight render is still
+interrupted (SIGTERM via `exec.CommandContext`'s `Cancel`, SIGKILL after
+`renderStopGrace`) and waited for - not for leak-proofing, just so no
+orphaned run keeps working against the target host. Not covered: tangsible
+itself being killed by a signal (closing the terminal, `kill`) skips the
+deferred cleanup entirely, as before.
