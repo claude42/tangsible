@@ -749,7 +749,9 @@ func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayo
 	var prefix string
 	switch {
 	case active:
-		prefix = tview.Escape(string(frame) + " ")
+		// task_title, same as the title it sits in front of - untagged it
+		// fell back to TreeList's own default (standard_text).
+		prefix = fmt.Sprintf("[%s]%s[-] ", TaskTitleColor, tview.Escape(string(frame)))
 	case TaskHasWarnings(task):
 		prefix = fmt.Sprintf("[%s]⚠[-] ", WarningColor)
 	default:
