@@ -468,6 +468,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		SetText(" [::b]Search[::-]\n\n [" + uikit.AnnotationColor + "]Enter to apply, Esc to cancel[-]")
 	searchHeadline.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.searchInput = tview.NewInputField().SetLabel("Search: ")
+	s.searchInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor)) // not tview's default yellow, hard to read on a light background
 	// Top/bottom margin Box items, same as s.filterFlex's own - a real
 	// tview.NewBox() rather than a bare nil, so its Draw() still fills its
 	// rect with the dialog's own background instead of letting whatever's
@@ -488,6 +489,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// matches).
 	s.rerunForm = tview.NewForm()
 	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Re-run (enter: run, esc: cancel, F1: help) ")
+	// Form re-applies this to every field and checkbox on each draw -
+	// standard_text rather than tview's default yellow, which is hard to
+	// read on a light background.
+	s.rerunForm.SetLabelColor(tcell.GetColor(uikit.StandardTextColor))
 
 	// s.rerunFields (livesession_rerundialog.go) owns the four input
 	// fields, three checkboxes, and the sync logic between them - see its
