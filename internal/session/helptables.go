@@ -16,18 +16,24 @@ package session
 
 import "code.aw.net/claude/tangsible/internal/uikit"
 
-// Shortcut tables for the live session's screens (design-docs/Help.md) -
-// the single place to edit when a binding changes: each table feeds both
-// the '?' help dialog and that screen's bottom bar (an entry's Bar label,
-// ordered by BarPos). Keep these in sync with the dispatchers in
-// livesession_input.go/livesession_mouse.go, and with
-// design-docs/Keyboard-shortcuts.md, which stays the long-form reference.
+// Shortcut descriptions for the live session's screens (design-docs/
+// Help.md) - the place to edit when a binding changes: each screen has its
+// '?' help table and, right next to it, its bottom bar. The bar is a
+// separate hand-written string (the essentials only); keep the two
+// consistent with each other, with the dispatchers in livesession_input.go/
+// livesession_mouse.go, and with design-docs/Keyboard-shortcuts.md, which
+// stays the long-form reference.
 
 // Entry IDs a session can hide depending on context (treeHelpHidden).
 const (
 	helpIDRerun   = "rerun"   // no requestRerun wired
 	helpIDRevisit = "revisit" // only in a revisit session
 )
+
+// treeBar is the tree view's bottom bar. currentMainBottomBarText drops
+// "r: re-run" when nothing can rerun and appends the revisit and check-mode
+// notes - the same contexts treeHelpHidden covers for the help dialog.
+const treeBar = " ?: help  f: filter  /: search  o: output  r: re-run  q: quit "
 
 var treeHelp = uikit.HelpScreen{
 	Title: "tree view",
@@ -45,18 +51,18 @@ var treeHelp = uikit.HelpScreen{
 			{Keys: "E / C", Desc: "Expand / collapse all. While running, new tasks start the same way"},
 		}},
 		{Title: "Filtering", Entries: []uikit.HelpEntry{
-			{Keys: "f", Desc: "Filter: all / interesting / changed / failed tasks", Bar: "f: filter", BarPos: 20},
-			{Keys: "/", Desc: "Show only tasks whose name, source or output contains a text", Bar: "/: search", BarPos: 30},
+			{Keys: "f", Desc: "Filter: all / interesting / changed / failed tasks"},
+			{Keys: "/", Desc: "Show only tasks whose name, source or output contains a text"},
 		}},
 		{Title: "More views", Entries: []uikit.HelpEntry{
-			{Keys: "o", Desc: "ansible-playbook's own console output, following it while the run is live", Bar: "o: output", BarPos: 40},
-			{Keys: "r", Desc: "Re-run, optionally with other tags/hosts or from a given play (once the run has finished)", Bar: "r: re-run", BarPos: 50, ID: helpIDRerun},
+			{Keys: "o", Desc: "ansible-playbook's own console output, following it while the run is live"},
+			{Keys: "r", Desc: "Re-run, optionally with other tags/hosts or from a given play (once the run has finished)", ID: helpIDRerun},
 			{Keys: "d", Desc: "Compare this run with a previous one (once the run has finished)"},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
-			{Keys: "? / F1", Desc: "This help", Bar: "?: help", BarPos: 10},
-			{Keys: "Esc", Desc: "Back to the list of previous runs", Bar: "Esc: back to the list", BarPos: 70, ID: helpIDRevisit},
-			{Keys: "q / Ctrl-C", Desc: "Interrupt the run while it's going; quit once it has finished", Bar: "q: quit", BarPos: 60},
+			{Keys: "? / F1", Desc: "This help"},
+			{Keys: "Esc", Desc: "Back to the list of previous runs", ID: helpIDRevisit},
+			{Keys: "q / Ctrl-C", Desc: "Interrupt the run while it's going; quit once it has finished"},
 		}},
 		{Title: "Mouse", Entries: []uikit.HelpEntry{
 			{Keys: "Wheel", Desc: "Scroll (stops following)"},

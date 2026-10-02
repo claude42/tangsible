@@ -36,14 +36,16 @@ be visible while while the context sensitive help dialog is open.
   template view). Esc, `?`, F1 and `q` close the dialog - `q` closes
   rather than quits, like the filter dialog. Ctrl-C closes it and then
   does what it always does (interrupt the run / quit).
-- Single source of truth: each screen's shortcuts are a table in Go
+- One place in the source: each screen's shortcuts are a table in Go
   (`uikit.HelpScreen`; the tree's is `treeHelp` in
-  `internal/session/helptables.go`). The help dialog renders the whole
-  table; the bottom bar is assembled from the entries that carry a
-  hand-written `Bar` label, ordered by `BarPos` - still written by hand,
-  but next to the binding's own help text. Entries that only apply in some
-  contexts (re-run, revisit's Esc) have an `ID` the screen can hide from
-  both. `Keyboard-shortcuts.md` stays a hand-written long-form reference.
+  `internal/session/helptables.go`), rendered by the help dialog. The
+  bottom bar is a separate, hand-written string defined right next to it
+  (`treeBar`) - a first version assembled the bar from per-entry labels,
+  which was harder to read than the one string; keeping the two side by
+  side keeps the risk of them drifting apart low. Entries that only apply
+  in some contexts (re-run, revisit's Esc) have an `ID` the screen can hide
+  from the help. `Keyboard-shortcuts.md` stays a hand-written long-form
+  reference.
 - One screen first: the tree. Drill-down, `o` view, rerun dialog (which
   should also explain its fields, not just keys), diff, revisit list,
   template and host views follow once this one is settled.

@@ -29,8 +29,8 @@ subprocesses.
   replacing `tview.List` (needed for unbounded mouse-wheel panning and
   custom per-row coloring `tview.List` couldn't do).
 - **help.go** - `HelpScreen`/`HelpSection`/`HelpEntry`: a screen's
-  shortcut table, rendered both as the `?` help dialog
-  (`HelpText`/`NewHelpDialog`) and as its bottom bar (`BarText`).
+  shortcut table, rendered as the `?` help dialog
+  (`HelpText`/`NewHelpDialog`).
 - **tabs.go** - `TabbedPane`, the shared tab-bar widget (drill-down
   view, template page).
 - **tui_style.go** - palette/style constants (colors, indents,
@@ -176,8 +176,8 @@ thin constructor/wiring shell.
     `showOutputWithOrigin` (+ its three async resolve/docs/file fetch
     goroutines), `navigateOutputTask`/`navigateOutputHost`, `closeOutput`.
   - **helptables.go** - the live session's shortcut tables
-    (`treeHelp`) - the one place to edit a binding's help text and
-    bottom-bar label.
+    (`treeHelp`) and, next to each, its bottom bar string (`treeBar`) -
+    the place to edit a binding's help text and bar hint.
   - **livesession_help.go** - the `?`/F1 help dialog's open/close and
     key/mouse handling.
   - **livesession_stdout.go** - the raw-output view (`o`):

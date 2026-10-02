@@ -16,7 +16,6 @@ package uikit
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -24,28 +23,17 @@ import (
 )
 
 // Context-sensitive help (design-docs/Help.md): each screen describes its
-// shortcuts once, as a HelpScreen, and both the '?' help dialog and that
-// screen's bottom bar are rendered from it - so the two can't drift apart
-// the way separately maintained hint strings did.
-//
-// The bottom bar is not derived automatically from the help text: an entry
-// only appears there if it carries a hand-written Bar label, at the
-// position BarPos gives it. Keeping that label on the same entry is the
-// point - removing or changing a binding's entry changes its bar label in
-// the same place.
+// shortcuts once, as a HelpScreen, rendered as the '?' help dialog. A
+// screen's bottom bar is a separate hand-written string, defined right
+// next to its HelpScreen so the two are reviewed together.
 
 // HelpEntry is one shortcut (or a group of equivalent ones).
 type HelpEntry struct {
 	Keys string // as shown in the help dialog, e.g. "n / N"
 	Desc string // full description for the help dialog
-	// Bar is this entry's bottom-bar label exactly as shown ("r: re-run"),
-	// "" to keep it out of the bar. BarPos orders the bar's labels
-	// (ascending) independently of the help dialog's own order.
-	Bar    string
-	BarPos int
 	// ID lets a screen leave an entry out depending on context (e.g. no
-	// "re-run" in a session that can't rerun) - see the hide parameter of
-	// HelpText/BarText. "" for entries that always apply.
+	// "re-run" in a session that can't rerun) - see HelpText's hide
+	// parameter. "" for entries that always apply.
 	ID string
 }
 
@@ -61,25 +49,6 @@ type HelpScreen struct {
 	Sections []HelpSection
 }
 
-// BarText assembles the bottom bar from every entry with a Bar label, in
-// BarPos order, skipping entries hide reports true for (hide may be nil).
-func (h HelpScreen) BarText(hide func(id string) bool) string {
-	var entries []HelpEntry
-	for _, sec := range h.Sections {
-		for _, e := range sec.Entries {
-			if e.Bar != "" && !(hide != nil && e.ID != "" && hide(e.ID)) {
-				entries = append(entries, e)
-			}
-		}
-	}
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].BarPos < entries[j].BarPos })
-	labels := make([]string, len(entries))
-	for i, e := range entries {
-		labels[i] = e.Bar
-	}
-	return " " + strings.Join(labels, "  ") + " "
-}
-
 // helpMaxKeyColumn caps the key column's width, so one unusually long key
 // list can't squeeze every description into a narrow strip; a longer key
 // text simply pushes its own description onto the next line.
@@ -89,7 +58,8 @@ const helpMaxKeyColumn = 22
 // titles, then a two-column key/description list with descriptions
 // word-wrapped to fit width (the dialog's inner width) and continuation
 // lines aligned under the description column. Entries hide reports true
-// for are left out, as is a section left with nothing to show.
+// for are left out (hide may be nil), as is a section left with nothing
+// to show.
 func HelpText(h HelpScreen, width int, hide func(id string) bool) string {
 	keyCol := 0
 	for _, sec := range h.Sections {

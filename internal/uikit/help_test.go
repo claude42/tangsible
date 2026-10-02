@@ -23,23 +23,13 @@ import (
 
 var testHelp = HelpScreen{Title: "test", Sections: []HelpSection{
 	{Title: "One", Entries: []HelpEntry{
-		{Keys: "a", Desc: "first", Bar: "a: first", BarPos: 20},
-		{Keys: "b / B", Desc: "second, with a description long enough to need wrapping", Bar: "b: second", BarPos: 10, ID: "b"},
+		{Keys: "a", Desc: "first"},
+		{Keys: "b / B", Desc: "second, with a description long enough to need wrapping"},
 	}},
 	{Title: "Two", Entries: []HelpEntry{
 		{Keys: "c", Desc: "only in help", ID: "c"},
 	}},
 }}
-
-func TestHelpBarText(t *testing.T) {
-	if got, want := testHelp.BarText(nil), " b: second  a: first "; got != want {
-		t.Errorf("BarText(nil) = %q, want %q (BarPos order, not table order)", got, want)
-	}
-	hideB := func(id string) bool { return id == "b" }
-	if got, want := testHelp.BarText(hideB), " a: first "; got != want {
-		t.Errorf("BarText(hide b) = %q, want %q", got, want)
-	}
-}
 
 func TestHelpText(t *testing.T) {
 	plain := func(s string) []string {

@@ -81,11 +81,10 @@ func TestOutputBottomBarNormalStyle(t *testing.T) {
 func TestCurrentMainBottomBarText(t *testing.T) {
 	noop := func(startAtPlay, tags, skipTags, hosts string) {}
 
-	t.Run("plain live session shows treeHelp's bar labels in BarPos order", func(t *testing.T) {
+	t.Run("plain live session shows treeBar verbatim", func(t *testing.T) {
 		s := &liveSession{requestRerun: noop}
-		want := " ?: help  f: filter  /: search  o: output  r: re-run  q: quit "
-		if got := s.currentMainBottomBarText(); got != want {
-			t.Errorf("currentMainBottomBarText() = %q, want %q", got, want)
+		if got := s.currentMainBottomBarText(); got != treeBar {
+			t.Errorf("currentMainBottomBarText() = %q, want %q", got, treeBar)
 		}
 	})
 
