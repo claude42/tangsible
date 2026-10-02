@@ -55,3 +55,7 @@ be visible while while the context sensitive help dialog is open.
   scroll hint in the title when it doesn't fit.
 - Bottom bar, first proposal: `?: help  f: filter  /: search  o: output
   r: re-run  q: quit` (62 columns).
+- Second screen (2026-10-02): the drill-down (`outputHelp`/`outputBar`),
+  same dialog. Bar: `?: help  tab: next tab  ←/→: host  n/N: task
+  /: search  y: copy  esc: back` (77 columns). Closing help returns focus
+  to whatever had it, so the drill-down's keys keep working afterwards.

@@ -21,27 +21,33 @@ import (
 )
 
 // The '?'/F1 help dialog (design-docs/Help.md) - an overlay page on top of
-// whatever's showing, like the filter dialog, so the tree keeps updating
-// behind it. Rebuilt on every open (AddPage replaces the previous "help"
+// whatever's showing, like the filter dialog, so the view behind it keeps
+// updating. Rebuilt on every open (AddPage replaces the previous "help"
 // page and puts it on top): its size follows the terminal's current size,
-// and its content follows the session's current context (treeHelpHidden).
+// and its content the screen it was opened from (screen, plus hide for
+// entries that don't apply in the current context - may be nil).
 
-func (s *liveSession) openHelp() {
+func (s *liveSession) openHelp(screen uikit.HelpScreen, hide func(id string) bool) {
 	_, _, width, height := s.pages.GetInnerRect()
-	view, modal := uikit.NewHelpDialog(treeHelp, width, height, s.treeHelpHidden)
+	view, modal := uikit.NewHelpDialog(screen, width, height, hide)
 	s.helpView = view
 	s.helpOpen = true
+	s.helpReturnFocus = s.app.GetFocus()
 	s.pages.AddPage("help", modal, true, true)
 	s.app.SetFocus(view)
 }
 
+// closeHelp hands focus back to whatever had it when help opened - the
+// tree, or the drill-down's active tab.
 func (s *liveSession) closeHelp() {
 	if !s.helpOpen {
 		return
 	}
 	s.helpOpen = false
 	s.pages.RemovePage("help")
-	s.app.SetFocus(s.list)
+	if s.helpReturnFocus != nil {
+		s.app.SetFocus(s.helpReturnFocus)
+	}
 }
 
 // handleHelpKey: while help is open it owns the keyboard (Ctrl-C excepted,

@@ -317,6 +317,7 @@ type liveSession struct {
 	stdoutShown    int
 
 	// --- '?' help dialog (livesession_help.go) ---
-	helpOpen bool
-	helpView *tview.TextView
+	helpOpen        bool
+	helpView        *tview.TextView
+	helpReturnFocus tview.Primitive // see closeHelp
 }

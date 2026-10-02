@@ -82,3 +82,38 @@ func (s *liveSession) treeHelpHidden(id string) bool {
 	}
 	return false
 }
+
+// outputBar is the drill-down's bottom bar. tabSearchPanel restores it
+// whenever a search or a 'y' copy status clears.
+const outputBar = " ?: help  tab: next tab  ←/→: host  n/N: task  /: search  y: copy  esc: back "
+
+var outputHelp = uikit.HelpScreen{
+	Title: "result view",
+	Sections: []uikit.HelpSection{
+		{Title: "Switching what's shown", Entries: []uikit.HelpEntry{
+			{Keys: "Tab / Shift-Tab", Desc: "Next / previous tab"},
+			{Keys: "→ / ←", Desc: "Same task, next / previous host"},
+			{Keys: "n / N", Desc: "Same host, next / previous task (skipping tasks the filter hides). While a search has matches: next / previous match instead"},
+		}},
+		{Title: "Scrolling", Entries: []uikit.HelpEntry{
+			{Keys: "↑ / ↓, j / k", Desc: "Scroll a line"},
+			{Keys: "PgUp / PgDn", Desc: "Scroll a page - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E, < / > and G"},
+		}},
+		{Title: "This tab", Entries: []uikit.HelpEntry{
+			{Keys: "/", Desc: "Search this tab's text"},
+			{Keys: "y", Desc: "Copy this tab's text to the clipboard"},
+			{Keys: "e", Desc: "Open the task's source file in $VISUAL / $EDITOR"},
+		}},
+		{Title: "General", Entries: []uikit.HelpEntry{
+			{Keys: "? / F1", Desc: "This help"},
+			{Keys: "Esc / Enter / q", Desc: "Back to the tree, cursor on this task and host. Esc clears an active search first"},
+			{Keys: "Ctrl-C", Desc: "Interrupt the run while it's going; quit once it has finished"},
+		}},
+		{Title: "Mouse", Entries: []uikit.HelpEntry{
+			{Keys: "Wheel", Desc: "Scroll"},
+			{Keys: "Click a tab", Desc: "Switch to it"},
+			{Keys: "Click a tree row", Desc: "Side-by-side layout only: expand / collapse a task, or show a host's result"},
+		}},
+	},
+}

@@ -139,6 +139,8 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
                      Search dialog further down this document (a
                      different feature, opened with `/` from the main
                      tree instead)
+* ? / F1           - open the help dialog for this view (same dialog as the
+                     main tree's, with this view's own shortcuts)
 * e                - open the file containing the currently displayed
                      task's own source in `$VISUAL`/`$EDITOR` (a foreground
                      subprocess, suspending the TUI - same mechanism as the

@@ -29,7 +29,8 @@
   "Playbook failed" line
 - System-wide installs via install.sh --prefix &lt;dir&gt;
 - `o` shows ansible-playbook's own console output, live while it runs
-- `?`/F1 in the tree view opens a help dialog listing all its shortcuts
+- `?`/F1 in the tree and drill-down views opens a help dialog listing all
+  of that view's shortcuts
 - Support system-wide config file /etc/tangsible/config.toml
 - `template` now accepts more than one hostname, group names or "all". Each
   host gets its own tab, colored red if its own last render errored.
@@ -50,7 +51,8 @@
 
 ### Changed
 
-- The tree view's bottom bar now shows just the essential shortcuts.
+- The tree and drill-down views' bottom bars now show just the essential
+  shortcuts.
 - `--check` runs are marked by a `Check:` label in the top bar instead of a
   note in the bottom bar.
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely

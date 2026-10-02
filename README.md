@@ -334,6 +334,7 @@ control, and more).
 | `n`/`N` | Next / previous task (same host) |
 | `←`/`→` | Previous / next host (same task) |
 | `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
+| `?`/`F1` | Help: all of this view's shortcuts |
 | `Esc`/`Enter` | Close, back to the tree |
 
 **Template view**

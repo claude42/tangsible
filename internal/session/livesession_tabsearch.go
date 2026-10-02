@@ -22,12 +22,6 @@ import (
 	"github.com/rivo/tview"
 )
 
-// outputHintBarText is bottomBar's normal, non-search text - the drill-down
-// view's own shortcut reminder. A package-level const (was a local inside
-// NewLiveTUI) since newTabSearchPanel now needs it too, to restore this text
-// whenever a search clears.
-const outputHintBarText = " tab/shift-tab: switch tab  n/N: next/prev task  ←/→: prev/next host  /: search tab  y: copy tab  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-
 // tabSearchPanel is design-docs/Search.md's "find text in the active tab"
 // apparatus for the live drill-down specifically - increment 3 of the
 // NewLiveTUI refactor (see the plan this session worked from). It is
@@ -84,7 +78,7 @@ type tabSearchPanel struct {
 // in search mode" the same way no matter the session's live/revisit/check
 // chrome.
 func newTabSearchPanel(app *tview.Application, tabs *uikit.TabbedPane, bottomBar *tview.TextView, focus tview.Primitive, normalStyle func() tcell.Style) *tabSearchPanel {
-	p := newTextSearchPanel(app, tabs.ActiveTextView, outputHintBarText, "tab/shift-tab: switch tab", bottomBar, focus, normalStyle)
+	p := newTextSearchPanel(app, tabs.ActiveTextView, outputBar, "tab/shift-tab: switch tab", bottomBar, focus, normalStyle)
 
 	// Switching tabs makes an active search irrelevant - it only ever
 	// describes the tab that was active when it started, and highlights

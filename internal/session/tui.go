@@ -383,7 +383,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.outputTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.outputTopBar.SetTextStyle(s.chromeStyle)
 
-	s.outputBottomBar = tview.NewTextView().SetText(outputHintBarText)
+	s.outputBottomBar = tview.NewTextView().SetText(outputBar)
 	s.outputBottomBar.SetTextStyle(s.chromeStyle)
 
 	// s.search (design-docs/Search.md, livesession_tabsearch.go) owns the

@@ -438,6 +438,9 @@ func (s *liveSession) handleOutputViewKey(event *tcell.EventKey) *tcell.EventKey
 	case event.Key() == tcell.KeyRune && event.Rune() == '/':
 		s.search.open()
 		return nil
+	case event.Key() == tcell.KeyRune && event.Rune() == '?', event.Key() == tcell.KeyF1:
+		s.openHelp(outputHelp, nil) // design-docs/Help.md
+		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 		s.outputBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
 		s.outputBottomBar.SetText(uikit.CopyActiveTabStatus(s.outputTabs))
@@ -485,7 +488,7 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 		s.jumpingToEnd = false
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == '?', event.Key() == tcell.KeyF1:
-		s.openHelp() // design-docs/Help.md - tree view only, for now
+		s.openHelp(treeHelp, s.treeHelpHidden) // design-docs/Help.md
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'o':
 		// The raw-output view (livesession_stdout.go) - available while

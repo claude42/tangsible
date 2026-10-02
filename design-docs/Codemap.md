@@ -176,7 +176,8 @@ thin constructor/wiring shell.
     `showOutputWithOrigin` (+ its three async resolve/docs/file fetch
     goroutines), `navigateOutputTask`/`navigateOutputHost`, `closeOutput`.
   - **helptables.go** - the live session's shortcut tables
-    (`treeHelp`) and, next to each, its bottom bar string (`treeBar`) -
+    (`treeHelp`, `outputHelp`) and, next to each, its bottom bar string
+    (`treeBar`, `outputBar`) -
     the place to edit a binding's help text and bar hint.
   - **livesession_help.go** - the `?`/F1 help dialog's open/close and
     key/mouse handling.
