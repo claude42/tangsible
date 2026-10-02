@@ -29,9 +29,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -481,7 +483,34 @@ func RunTemplateVerb(args []string) int {
 		return 1
 	}
 
-	RunTemplateTUI(templatePath, stubPath, outputPath, hosts, hostCandidates, rest)
+	// SIGTERM (plain `kill`, logout, shutdown) and SIGHUP (the terminal
+	// closing) would otherwise end the process on the spot, skipping the
+	// deferred removeScratchDir. Caught only from here on - before the
+	// scratch directory exists there's nothing to clean up, and the
+	// default behavior (including Ctrl-C at ConfirmManyHosts' cooked-mode
+	// prompt above) stays untouched. A caught signal closes the TUI, which
+	// then shuts down the normal way (in-flight render interrupted and
+	// waited for), and the exit code says which signal it was, as if it
+	// had killed the process (128 + signal number).
+	stopped, stop := context.WithCancel(context.Background())
+	defer stop()
+	var caught atomic.Int32
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	go func() {
+		select {
+		case sig := <-sigs:
+			caught.Store(int32(sig.(syscall.Signal)))
+			stop()
+		case <-stopped.Done():
+		}
+	}()
+
+	RunTemplateTUI(stopped, templatePath, stubPath, outputPath, hosts, hostCandidates, rest)
+	if sig := caught.Load(); sig != 0 {
+		return 128 + int(sig)
+	}
 	return 0
 }
 
@@ -493,8 +522,10 @@ func RunTemplateVerb(args []string) int {
 // and a bottom keybinding-hint bar. No Pages("main")/tree underneath any
 // of this, since there's nothing here to navigate back to. hostCandidates
 // (every known literal hostname, no group names - see its own doc comment
-// at the call site) backs the 'h' dialog's own autocomplete.
-func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandidates, rest []string) {
+// at the call site) backs the 'h' dialog's own autocomplete. Cancelling
+// ctx (RunTemplateVerb's SIGTERM/SIGHUP handling) closes the view as if
+// the user had quit.
+func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath string, hosts, hostCandidates, rest []string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -669,7 +700,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// stop any render still in flight and wait for it, so nothing can write
 	// outputPath once RunTemplateVerb's deferred cleanup removes it - see
 	// RenderTemplate.
-	renderCtx, cancelRenders := context.WithCancel(context.Background())
+	renderCtx, cancelRenders := context.WithCancel(ctx)
 	var renders sync.WaitGroup
 
 	rendering := false
@@ -1023,9 +1054,24 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	})
 
 	app.SetRoot(pages, true).SetFocus(tabs.Primitive())
+	// ctx cancelled (a caught signal) closes the view. Queued rather than a
+	// direct app.Stop(): a signal arriving before Run has started would
+	// otherwise be lost, Stop being a no-op on an app that isn't running
+	// yet - a queued update runs as soon as Run does. runDone (not
+	// renderCtx, which ctx's cancellation also cancels) ends this goroutine
+	// once Run has returned on its own.
+	runDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			app.QueueUpdate(app.Stop)
+		case <-runDone:
+		}
+	}()
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}
+	close(runDone)
 	cancelRenders()
 	renders.Wait()
 }

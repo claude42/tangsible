@@ -199,6 +199,14 @@ creates one), and `removeScratchDir` retries `os.RemoveAll` briefly in
 case a write lands mid-removal. On quit, an in-flight render is still
 interrupted (SIGTERM via `exec.CommandContext`'s `Cancel`, SIGKILL after
 `renderStopGrace`) and waited for - not for leak-proofing, just so no
-orphaned run keeps working against the target host. Not covered: tangsible
-itself being killed by a signal (closing the terminal, `kill`) skips the
-deferred cleanup entirely, as before.
+orphaned run keeps working against the target host.
+
+**SIGTERM/SIGHUP** (`kill`, logout, the terminal closing) are caught once
+the scratch directory exists - same idea as the `vault` verb's own
+handling - and close the TUI as if the user had quit, so the normal
+shutdown (render interrupted and waited for, scratch directory removed)
+runs; the exit code is then 128 + the signal number. The stop is queued
+(`app.QueueUpdate(app.Stop)`), so a signal arriving just before the TUI
+starts isn't lost. Before the scratch directory exists the defaults are
+untouched (e.g. Ctrl-C at the many-hosts confirmation prompt). Still not
+covered: SIGKILL, which can't be caught.
