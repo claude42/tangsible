@@ -144,10 +144,15 @@ func NewHelpDialog(h HelpScreen, screenWidth, screenHeight int, hide func(id str
 		title = fmt.Sprintf(" Help: %s - ↑/↓ to scroll, esc to close ", h.Title)
 	}
 
+	// Descriptions and the title are untagged, so they need an explicit
+	// color: tview's own default is white, invisible on a light
+	// [colors] background.
 	view = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
+	view.SetTextColor(tcell.GetColor(StandardTextColor))
 	view.SetText(text)
 	view.SetBorder(true).SetBorderPadding(0, 0, 1, 1).
 		SetBorderColor(tcell.GetColor(DialogBorderColor)).
+		SetTitleColor(tcell.GetColor(StandardTextColor)).
 		SetTitle(title)
 	return view, CenteredModal(view, width, height)
 }
