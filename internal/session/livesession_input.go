@@ -350,31 +350,7 @@ func (s *liveSession) handleTreeRowSkip(event *tcell.EventKey) (*tcell.EventKey,
 // still does that, so nothing is actually lost, just no longer duplicated
 // onto this key.
 func (s *liveSession) translateKeyAlias(event *tcell.EventKey) (*tcell.EventKey, bool) {
-	switch {
-	case event.Key() == tcell.KeyRune && event.Rune() == 'j':
-		return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == 'k':
-		return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlF:
-		return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlB:
-		return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == ' ':
-		return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == 'b':
-		return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlA:
-		return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlE:
-		return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == 'G':
-		return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == '<':
-		return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == '>':
-		return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone), true
-	}
-	return nil, false
+	return uikit.TranslateNavAlias(event) // shared with every standalone verb
 }
 
 // handleOutputViewKey is everything handleKey falls through to once

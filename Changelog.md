@@ -66,6 +66,8 @@
 
 - `--list-tasks`/`--list-hosts`/`--syntax-check` printed nothing.
 - Diff mode: Esc didn't close the list of runs to compare against.
+- `host`/`hosts`, `template`, diff mode and the run list: Space/`b`,
+  `<`/`>`, `G` and Ctrl-F/Ctrl-B didn't work (only the main views had them).
 - `template`: quitting while a render was running could leave
   `/tmp/tangsible-template-out-*` files behind; its scratch files are now
   also cleaned up on SIGTERM/SIGHUP (e.g. closing the terminal).

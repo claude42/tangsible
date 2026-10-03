@@ -909,6 +909,9 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 			searchBar.HandleComposingKey(event)
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
 		case uikit.IsHelpKey(event):
 			help.Open(templateHelp, nil)
@@ -943,14 +946,6 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 		case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 			searchBar.ShowMessage(uikit.CopyActiveTabStatus(tabs))
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			// Not natively handled by tview.TextView (unlike Home/End,
-			// which it does handle directly) - translated the same way
-			// tui.go's own universal key aliases do, so the footer's
-			// "CTRL-A/E: top/bottom" claim is actually true here too.
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyTab:
 			// design-docs/Tabbed UI.md: Tab/Backtab are tview.TextView's
 			// own default "done key" set (they'd otherwise back out of

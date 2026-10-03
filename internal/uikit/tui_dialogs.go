@@ -92,3 +92,46 @@ func FilterDialogText(active FilterQuery) string {
 		mark(FilterAll), mark(FilterInteresting), mark(FilterChanged), mark(FilterFailed),
 	)
 }
+
+// TranslateNavAlias maps this app's navigation aliases onto the native
+// keys tview's TextView and TreeList already handle: j/k -> Down/Up,
+// Space/b and Ctrl-F/Ctrl-B -> PgDn/PgUp, Ctrl-A/Ctrl-E, </> and G ->
+// Home/End. ok is false for any other key. Returning the translated event
+// from an app's input capture makes tview forward it to the focused
+// primitive as if that key had been typed. Shared by every app (the live
+// session and every standalone verb), so the aliases work the same
+// everywhere - only call it once a text field (search prompt, dialog) can
+// no longer be the one receiving the key, since these are all ordinary
+// typed characters there.
+func TranslateNavAlias(event *tcell.EventKey) (*tcell.EventKey, bool) {
+	key := tcell.KeyNUL
+	switch event.Key() {
+	case tcell.KeyCtrlF:
+		key = tcell.KeyPgDn
+	case tcell.KeyCtrlB:
+		key = tcell.KeyPgUp
+	case tcell.KeyCtrlA:
+		key = tcell.KeyHome
+	case tcell.KeyCtrlE:
+		key = tcell.KeyEnd
+	case tcell.KeyRune:
+		switch event.Rune() {
+		case 'j':
+			key = tcell.KeyDown
+		case 'k':
+			key = tcell.KeyUp
+		case ' ':
+			key = tcell.KeyPgDn
+		case 'b':
+			key = tcell.KeyPgUp
+		case 'G', '>':
+			key = tcell.KeyEnd
+		case '<':
+			key = tcell.KeyHome
+		}
+	}
+	if key == tcell.KeyNUL {
+		return nil, false
+	}
+	return tcell.NewEventKey(key, 0, tcell.ModNone), true
+}

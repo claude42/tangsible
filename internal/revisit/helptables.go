@@ -58,8 +58,8 @@ var runListHelp = uikit.HelpScreen{
 	Sections: []uikit.HelpSection{
 		{Title: "Moving around", Entries: []uikit.HelpEntry{
 			{Keys: "↑ / ↓, j / k", Desc: "Move the cursor"},
-			{Keys: "PgUp / PgDn", Desc: "Page up / down"},
-			{Keys: "Home / End", Desc: "First / last run - also Ctrl-A / Ctrl-E"},
+			{Keys: "PgUp / PgDn", Desc: "Page up / down - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "First / last run - also Ctrl-A / Ctrl-E, < / > and G"},
 		}},
 		{Title: "Actions", Entries: []uikit.HelpEntry{
 			{Keys: "Enter", Desc: "Open the run as a tree, as it looked when it finished", ID: runListIDOpen},

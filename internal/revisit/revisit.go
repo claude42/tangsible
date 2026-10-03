@@ -425,6 +425,9 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 		if help.HandleKey(event) {
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
 		case uikit.IsHelpKey(event):
 			help.Open(helpScreen, hide)
@@ -443,14 +446,6 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 				app.Stop()
 			}
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyRune && event.Rune() == 'j':
-			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyRune && event.Rune() == 'k':
-			return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
 		}
 		return event
 	})

@@ -20,6 +20,12 @@ and checkboxes. Esc / `?` / F1 / `q` close it (`q` never quits from help);
 Ctrl-C closes it and then does what it always does. The dialogs' content
 lives in each package's `helptables.go`, next to that view's bottom bar.
 
+**Navigation aliases, everywhere:** j / k, Space / b, Ctrl-F / Ctrl-B,
+Ctrl-A / Ctrl-E, < / > and G mean the same in every view of every verb -
+one shared translation (`uikit.TranslateNavAlias`). Until 2026-10-03 only
+the live session had the full set; the standalone views (host/hosts,
+template, diff, the run list) each wired just a few of them by hand.
+
 ## In the main tree view
 
 * Cursor up / down - move cursor up / down (stop autoscrolling if necessary)

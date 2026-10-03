@@ -30,8 +30,8 @@ var hostsListHelp = uikit.HelpScreen{
 		}},
 		{Title: "Moving around", Entries: []uikit.HelpEntry{
 			{Keys: "↑ / ↓, j / k", Desc: "Move the cursor"},
-			{Keys: "PgUp / PgDn", Desc: "Page up / down"},
-			{Keys: "Home / End", Desc: "First / last host - also Ctrl-A / Ctrl-E"},
+			{Keys: "PgUp / PgDn", Desc: "Page up / down - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "First / last host - also Ctrl-A / Ctrl-E, < / > and G"},
 			{Keys: "Enter", Desc: "Show everything known about the host"},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
@@ -89,8 +89,8 @@ var hostDetailHelp = uikit.HelpScreen{
 		}},
 		{Title: "Scrolling", Entries: []uikit.HelpEntry{
 			{Keys: "↑ / ↓, j / k", Desc: "Scroll a line"},
-			{Keys: "PgUp / PgDn", Desc: "Scroll a page"},
-			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E"},
+			{Keys: "PgUp / PgDn", Desc: "Scroll a page - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E, < / > and G"},
 		}},
 		{Title: "This tab", Entries: []uikit.HelpEntry{
 			{Keys: "/", Desc: "Search this tab's text; n / N step through the matches"},

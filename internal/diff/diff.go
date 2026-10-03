@@ -971,6 +971,9 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 			}
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		if viewingOutput {
 			switch {
 			case uikit.IsHelpKey(event):
@@ -1012,10 +1015,6 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 				outputFooter.SetTextStyle(DiffChromeStyle)
 				outputFooter.SetText(uikit.CopyActiveTabStatus(outputTabs))
 				return nil
-			case event.Key() == tcell.KeyRune && event.Rune() == 'j':
-				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
-			case event.Key() == tcell.KeyRune && event.Rune() == 'k':
-				return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
 			}
 			return event
 		}
@@ -1026,14 +1025,6 @@ func RunDiffTreeTUI(alignments []PlayAlignment, newSourceIndex, oldSourceIndex s
 		case event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyRune && event.Rune() == 'q':
 			app.Stop()
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyRune && event.Rune() == 'j':
-			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyRune && event.Rune() == 'k':
-			return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
 		}
 		return event
 	})

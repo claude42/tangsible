@@ -1585,6 +1585,9 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 			searchBar.HandleComposingKey(event)
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
 		case uikit.IsHelpKey(event):
 			help.Open(hostDetailHelp, hostDetailHidden(false, false))
@@ -1595,10 +1598,6 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		case event.Rune() == 'q':
 			app.Stop()
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyTab:
 			tabs.Next()
 			return nil
@@ -1964,6 +1963,9 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 			detailSearch.HandleComposingKey(event)
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
 		case uikit.IsHelpKey(event) && viewingDetail:
 			help.Open(hostDetailHelp, hostDetailHidden(true, splitMode))
@@ -1975,10 +1977,6 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 			quitting.Store(true)
 			app.Stop()
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		}
 		// Detail-specific bindings apply whenever a detail view exists at
 		// all - both the full-screen "detail" page and the split-mode

@@ -35,8 +35,8 @@ var templateHelp = uikit.HelpScreen{
 		}},
 		{Title: "Scrolling", Entries: []uikit.HelpEntry{
 			{Keys: "↑ / ↓, j / k", Desc: "Scroll a line"},
-			{Keys: "PgUp / PgDn", Desc: "Scroll a page"},
-			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E"},
+			{Keys: "PgUp / PgDn", Desc: "Scroll a page - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E, < / > and G"},
 		}},
 		{Title: "This tab", Entries: []uikit.HelpEntry{
 			{Keys: "/", Desc: "Search this tab's text"},
