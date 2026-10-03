@@ -201,8 +201,8 @@ of them.
 | Play row title | white | `uikit.PlayTitleColor` | Yes |
 | Plain "just text" content: `host`/`hosts` list hostnames, revisit list timestamp/command-line, recap's per-host hostname+duration prefix; plus every text that would otherwise be tview's white - tab/view bodies (drill-down, diff, host tabs, the `o` view), untagged tree rows (error output, recap summary sentence), dialog titles/labels/plain text, help dialog descriptions | silver | `uikit.StandardTextColor` | Yes |
 | Modal dialog borders: re-run form, search/filter dialogs, template's "Change host" dialog, `?` help dialog | silver | `uikit.DialogBorderColor` | Yes |
-| Input controls' text: text fields, buttons, checkbox boxes (swapped with the background while a button/checkbox has focus) | white | `uikit.ControlTextColor` | Yes |
-| Input controls' background: text fields, buttons, checkbox boxes | blue | `uikit.ControlBackgroundColor` | Yes |
+| Input controls' text: text fields and their completion drop-downs, buttons, checkbox boxes (swapped with the background for a focused button/checkbox and a drop-down's highlighted entry) | white | `uikit.ControlTextColor` | Yes |
+| Input controls' background: text fields and their completion drop-downs, buttons, checkbox boxes | blue | `uikit.ControlBackgroundColor` | Yes |
 | Chrome bars: live session | white on navy | `uikit.BarStyle` | Yes |
 | Chrome bars: revisited session | white on purple | `uikit.ReplayBarStyle` | Yes |
 | Chrome bars: `tangsible diff` | white on fuchsia | `diff.DiffChromeStyle` | Yes |
@@ -210,7 +210,7 @@ of them.
 | Progress-sweep text (top bar) | white | `uikit.ProgressTextColor` | Yes |
 | Inactive tab | white on session chrome | fg `uikit.TabTextColor`, bg `chromeColorName()` (`TabbedPane.renderHeader`) | Yes |
 | Selected-row text (app-wide) | near-black (`#1a1a1a`) | `uikit.SelectedRowTextColor` | No |
-| Selected-row background, label portion; completion drop-down's highlighted entry | lightgray | `uikit.SelectedRowBackgroundColor` | No |
+| Selected-row background, label portion | lightgray | `uikit.SelectedRowBackgroundColor` | No |
 | Progress-sweep fill background | ProgressFillColor (`#146414`) | `uikit.ProgressFillColor` | No |
 | Warning glyph/section; recap "warnings" category | WarningColor = hotpink | `uikit.WarningColor` | No |
 | Ignored failure (tree rows, recap, drill-down Task tab Status line) | IgnoredColor = orange | `uikit.IgnoredColor` | No |

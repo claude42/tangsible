@@ -36,15 +36,15 @@ func CenteredModal(p tview.Primitive, width, height int) tview.Primitive {
 		AddItem(nil, 0, 1, false)
 }
 
-// StyleAutocomplete gives field's completion drop-down an explicit
-// highlighted-entry style - the tree cursor's own colors. tview's default
-// draws it as the background color on a white highlight: white on white
-// with a light [colors] background. The other entries keep tview's
-// default (background color on green), readable either way.
+// StyleAutocomplete gives field's completion drop-down the control
+// colors, matching the field it belongs to: entries look like the field
+// (control_text on control_background), the highlighted one swapped -
+// the same convention as a focused button or checkbox. Replaces tview's
+// own defaults (the background color on green, highlighted entry the
+// background color on white - white on white with a light [colors]
+// background).
 func StyleAutocomplete(field *tview.InputField) *tview.InputField {
-	return field.SetAutocompleteStyles(tview.Styles.MoreContrastBackgroundColor,
-		tcell.StyleDefault.Background(tview.Styles.MoreContrastBackgroundColor).Foreground(tview.Styles.PrimitiveBackgroundColor),
-		tcell.StyleDefault.Background(tcell.GetColor(SelectedRowBackgroundColor)).Foreground(tcell.GetColor(SelectedRowTextColor)))
+	return field.SetAutocompleteStyles(tcell.GetColor(ControlBackgroundColor), controlStyle(), controlFocusStyle())
 }
 
 // InRect reports whether (x, y) falls within p's own last-drawn rect - the

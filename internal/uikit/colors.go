@@ -133,10 +133,11 @@ var StandardTextColor = "silver"
 var DialogBorderColor = "silver"
 
 // ControlTextColor/ControlBackgroundColor are every input control's own
-// colors: text input fields, buttons and checkbox boxes (the re-run form,
-// the search/filter dialogs, template's "Change host" dialog) - applied
-// via StyleInputField/StyleButton/StyleForm. A focused button or checkbox
-// shows the two swapped, tview's own convention for "this one has focus".
+// colors: text input fields, their completion drop-downs, buttons and
+// checkbox boxes (the re-run form, the search/filter dialogs, template's
+// "Change host" dialog) - applied via StyleInputField/StyleButton/
+// StyleForm/StyleAutocomplete. A focused button or checkbox, and a
+// drop-down's highlighted entry, show the two swapped, tview's own convention for "this one has focus".
 // Default to exactly what tview itself used before these were
 // configurable (its Styles.PrimaryTextColor white on
 // Styles.ContrastBackgroundColor blue). Not used by the yellow in-tab
@@ -190,8 +191,7 @@ var SelectedRowTextColor = "#1a1a1a"
 
 // SelectedRowBackgroundColor is the light background every selected
 // row's SelectedRowTextColor text sits on, across the tree, recap,
-// host/hosts, diff, and revisit views - and the highlighted entry of a
-// field's completion drop-down (StyleAutocomplete).
+// host/hosts, diff, and revisit views.
 var SelectedRowBackgroundColor = "lightgray"
 
 // ProgressFillColor is topBarText's own "headline as a progress bar"

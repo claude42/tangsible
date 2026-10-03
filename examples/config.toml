@@ -69,9 +69,10 @@ standard_text = "silver"
 # "Change host" dialog, the `?` help dialog
 dialog_border = "silver"
 
-# Input controls: text fields, buttons and checkbox boxes (re-run form,
-# search/filter dialogs, template's "Change host" dialog). A focused
-# button or checkbox shows the two swapped. Not the yellow in-tab search
+# Input controls: text fields and their completion drop-downs, buttons
+# and checkbox boxes (re-run form, search/filter dialogs, template's
+# "Change host" dialog). A focused button or checkbox, and a drop-down's
+# highlighted entry, show the two swapped. Not the yellow in-tab search
 # prompt, which deliberately looks the same everywhere.
 control_text = "white"
 control_background = "blue"
@@ -87,7 +88,7 @@ chrome_revisit = "purple"   # tangsible revisit
 chrome_check = "olive"      # a --check (dry run) session
 diff_chrome = "fuchsia"     # tangsible diff
 
-# Selected row (also a completion drop-down's highlighted entry)
+# Selected row
 selected_row_text = "#1a1a1a"
 selected_row_background = "lightgray"
 
