@@ -471,6 +471,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		SetText(" [::b]Search[::-]\n\n [" + uikit.AnnotationColor + "]Enter to apply, Esc to cancel[-]")
 	searchHeadline.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.searchInput = tview.NewInputField().SetLabel("Search: ")
+	uikit.StyleInputField(s.searchInput)
 	s.searchInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor)) // not tview's default yellow, hard to read on a light background
 	// Top/bottom margin Box items, same as s.filterFlex's own - a real
 	// tview.NewBox() rather than a bare nil, so its Draw() still fills its
@@ -496,6 +497,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// standard_text rather than tview's default yellow, which is hard to
 	// read on a light background.
 	s.rerunForm.SetLabelColor(tcell.GetColor(uikit.StandardTextColor))
+	uikit.StyleForm(s.rerunForm) // fields, checkboxes and buttons: control_text/control_background
 
 	// s.rerunFields (livesession_rerundialog.go) owns the four input
 	// fields, three checkboxes, and the sync logic between them - see its
@@ -603,6 +605,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: s.searchInput.GetText()})
 	})
 	searchCancelButton := tview.NewButton("Cancel").SetSelectedFunc(s.closeDialogs)
+	uikit.StyleButton(searchApplyButton)
+	uikit.StyleButton(searchCancelButton)
 	// A real tview.NewBox(), not a bare nil, for every spacer item below -
 	// discovered live (reported as content from behind the dialog "showing
 	// through" wherever a blank line/gap sits): a nil Flex item reserves
@@ -681,6 +685,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// s.filterDialogOpen branch, unchanged) - the button is an added mouse
 	// affordance, not a replacement for those.
 	filterCancelButton := tview.NewButton("Cancel").SetSelectedFunc(s.closeDialogs)
+	uikit.StyleButton(filterCancelButton)
 	// A real tview.NewBox() for every spacer item, not a bare nil - see
 	// s.searchDialogFlex's own button row above for why (a nil Flex item
 	// draws nothing, so nothing ever repaints its cells over whatever the

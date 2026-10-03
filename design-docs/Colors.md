@@ -201,6 +201,8 @@ of them.
 | Play row title | white | `uikit.PlayTitleColor` | Yes |
 | Plain "just text" content: `host`/`hosts` list hostnames, revisit list timestamp/command-line, recap's per-host hostname+duration prefix; plus every text that would otherwise be tview's white - tab/view bodies (drill-down, diff, host tabs, the `o` view), untagged tree rows (error output, recap summary sentence), dialog titles/labels/plain text, help dialog descriptions | silver | `uikit.StandardTextColor` | Yes |
 | Modal dialog borders: re-run form, search/filter dialogs, template's "Change host" dialog, `?` help dialog | silver | `uikit.DialogBorderColor` | Yes |
+| Input controls' text: text fields, buttons, checkbox boxes (swapped with the background while a button/checkbox has focus) | white | `uikit.ControlTextColor` | Yes |
+| Input controls' background: text fields, buttons, checkbox boxes | blue | `uikit.ControlBackgroundColor` | Yes |
 | Chrome bars: live session | white on navy | `uikit.BarStyle` | Yes |
 | Chrome bars: revisited session | white on purple | `uikit.ReplayBarStyle` | Yes |
 | Chrome bars: `tangsible diff` | white on fuchsia | `diff.DiffChromeStyle` | Yes |
@@ -265,7 +267,8 @@ is the surviving set only. Every one of these is also its own
 | `maroon` | `OutcomeUnreachableColor` |
 | `gray` | `NothingReportedColor`, `AnnotationColor` |
 | `silver` | `TaskTitleColor`, `StandardTextColor`, `DialogBorderColor` |
-| `white` | `PlayTitleColor`, `ProgressTextColor`, `TabTextColor` |
+| `white` | `PlayTitleColor`, `ProgressTextColor`, `TabTextColor`, `ControlTextColor` |
+| `blue` | `ControlBackgroundColor` |
 | `lightgray` | `SelectedRowBackgroundColor` |
 | `lightsteelblue` | `ValueHighlightColor` |
 | `aqua` | `SelectionColor` |

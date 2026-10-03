@@ -135,3 +135,43 @@ func TranslateNavAlias(event *tcell.EventKey) (*tcell.EventKey, bool) {
 	}
 	return tcell.NewEventKey(key, 0, tcell.ModNone), true
 }
+
+// controlStyle/controlFocusStyle are the control_text/control_background
+// colors (ControlTextColor/ControlBackgroundColor) as tcell styles - plain,
+// and swapped for a focused button or checkbox.
+func controlStyle() tcell.Style {
+	return tcell.StyleDefault.Foreground(tcell.GetColor(ControlTextColor)).Background(tcell.GetColor(ControlBackgroundColor))
+}
+
+func controlFocusStyle() tcell.Style {
+	return tcell.StyleDefault.Foreground(tcell.GetColor(ControlBackgroundColor)).Background(tcell.GetColor(ControlTextColor))
+}
+
+// StyleInputField gives a standalone text input field (one not inside a
+// tview.Form - see StyleForm) the control colors instead of tview's
+// built-in white on blue.
+func StyleInputField(f *tview.InputField) *tview.InputField {
+	return f.SetFieldStyle(controlStyle())
+}
+
+// StyleButton gives a standalone button the control colors, swapped
+// while it has focus.
+func StyleButton(b *tview.Button) *tview.Button {
+	return b.SetStyle(controlStyle()).SetActivatedStyle(controlFocusStyle())
+}
+
+// StyleForm gives every field, checkbox and button of f the control
+// colors - Form re-applies its field colors to each item on every draw,
+// so this covers items added later too. A checkbox's focused look isn't
+// part of that; StyleCheckbox sets it per checkbox.
+func StyleForm(f *tview.Form) *tview.Form {
+	return f.SetFieldStyle(controlStyle()).
+		SetButtonStyle(controlStyle()).
+		SetButtonActivatedStyle(controlFocusStyle())
+}
+
+// StyleCheckbox sets a checkbox's focused look (the control colors,
+// swapped) - its unfocused look comes from StyleForm.
+func StyleCheckbox(c *tview.Checkbox) *tview.Checkbox {
+	return c.SetActivatedStyle(controlFocusStyle())
+}

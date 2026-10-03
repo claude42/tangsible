@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -55,5 +56,23 @@ func TestHelpText(t *testing.T) {
 	hideC := func(id string) bool { return id == "c" }
 	if got := HelpText(testHelp, 30, hideC); strings.Contains(got, "Two") {
 		t.Errorf("HelpText(hide c) still shows the emptied section: %q", got)
+	}
+}
+
+func TestControlStyling(t *testing.T) {
+	origText, origBg := ControlTextColor, ControlBackgroundColor
+	t.Cleanup(func() { ControlTextColor, ControlBackgroundColor = origText, origBg })
+	ControlTextColor, ControlBackgroundColor = "black", "#00aa00"
+	text, bg := tcell.GetColor("black"), tcell.GetColor("#00aa00")
+
+	if fg, gotBg, _ := controlStyle().Decompose(); fg != text || gotBg != bg {
+		t.Errorf("controlStyle() = %v on %v, want %v on %v", fg, gotBg, text, bg)
+	}
+	if fg, gotBg, _ := controlFocusStyle().Decompose(); fg != bg || gotBg != text {
+		t.Errorf("controlFocusStyle() = %v on %v, want the swap %v on %v", fg, gotBg, bg, text)
+	}
+	in := StyleInputField(tview.NewInputField())
+	if fg, gotBg, _ := in.GetFieldStyle().Decompose(); fg != text || gotBg != bg {
+		t.Errorf("StyleInputField: field %v on %v, want %v on %v", fg, gotBg, text, bg)
 	}
 }

@@ -69,6 +69,13 @@ standard_text = "silver"
 # "Change host" dialog, the `?` help dialog
 dialog_border = "silver"
 
+# Input controls: text fields, buttons and checkbox boxes (re-run form,
+# search/filter dialogs, template's "Change host" dialog). A focused
+# button or checkbox shows the two swapped. Not the yellow in-tab search
+# prompt, which deliberately looks the same everywhere.
+control_text = "white"
+control_background = "blue"
+
 # Top bar / tab bar
 progress_text = "white"
 tab_text = "white"

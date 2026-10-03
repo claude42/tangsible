@@ -166,6 +166,9 @@ func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTag
 	r.resumeCheckbox = tview.NewCheckbox().SetLabel("Resume where failed")
 	r.onlyFailedCheckbox = tview.NewCheckbox().SetLabel("Only failed")
 	r.onlyUnreachableCheckbox = tview.NewCheckbox().SetLabel("Only unreachable")
+	for _, c := range []*tview.Checkbox{r.resumeCheckbox, r.onlyFailedCheckbox, r.onlyUnreachableCheckbox} {
+		uikit.StyleCheckbox(c) // focused look; the rest comes from the form (uikit.StyleForm)
+	}
 
 	r.resumeCheckbox.SetChangedFunc(r.resumeCheckboxChanged)
 	r.onlyFailedCheckbox.SetChangedFunc(func(checked bool) {

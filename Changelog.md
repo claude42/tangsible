@@ -29,6 +29,8 @@
   "Playbook failed" line
 - System-wide installs via install.sh --prefix &lt;dir&gt;
 - `o` shows ansible-playbook's own console output, live while it runs
+- `[colors]` `control_text`/`control_background`: colors of text fields,
+  buttons and checkboxes (previously fixed white on blue)
 - `[colors]` `background`/`standard_text` accept `"default"`: the
   terminal's own background/text color
 - `?`/F1 opens a help dialog listing the current view's shortcuts, in every

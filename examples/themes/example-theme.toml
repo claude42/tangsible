@@ -12,7 +12,7 @@
 # Flat keys below are scheme-independent - kept exactly at Tangsible's
 # own hardcoded default, on the theory that a color already reads fine
 # against either background doesn't need touching just because a theme
-# exists. Most of the 37 keys land here: every color that's already
+# exists. Most of the 39 keys land here: every color that's already
 # paired with its own explicit background wherever it's actually drawn
 # (selected rows, chrome bars, the progress fill, the diff/search
 # highlights) never touches the base background at all, so flipping
@@ -45,6 +45,9 @@ diff_chrome = "fuchsia"
 
 selected_row_text = "#1a1a1a"
 selected_row_background = "lightgray"
+
+control_text = "white"
+control_background = "blue"
 
 progress_fill = "#146414"
 

@@ -776,6 +776,7 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 	// here); autocomplete against hostCandidates (literal hostnames only)
 	// is wired below.
 	hostInput := tview.NewInputField().SetLabel("Host: ")
+	uikit.StyleInputField(hostInput)
 	hostInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor)) // not tview's default yellow, hard to read on a light background
 	uikit.StyleAutocomplete(hostInput)
 	hostInput.SetAutocompleteFunc(func(text string) []string {
@@ -869,6 +870,8 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 		closeHostDialog()
 	})
 	hostCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeHostDialog)
+	uikit.StyleButton(hostApplyButton)
+	uikit.StyleButton(hostCancelButton)
 	// Cancel-left/Apply-right, right-aligned (a single flexible spacer on
 	// the left pushes both buttons flush against a small fixed right
 	// margin) - matches the main app's own rerun dialog buttons

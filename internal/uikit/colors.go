@@ -132,6 +132,20 @@ var StandardTextColor = "silver"
 // tcell.Color reader rather than a tag-string one.
 var DialogBorderColor = "silver"
 
+// ControlTextColor/ControlBackgroundColor are every input control's own
+// colors: text input fields, buttons and checkbox boxes (the re-run form,
+// the search/filter dialogs, template's "Change host" dialog) - applied
+// via StyleInputField/StyleButton/StyleForm. A focused button or checkbox
+// shows the two swapped, tview's own convention for "this one has focus".
+// Default to exactly what tview itself used before these were
+// configurable (its Styles.PrimaryTextColor white on
+// Styles.ContrastBackgroundColor blue). Not used by the yellow in-tab
+// search prompt, which deliberately looks the same everywhere.
+var (
+	ControlTextColor       = "white"
+	ControlBackgroundColor = "blue"
+)
+
 // Chrome text/backgrounds that can't be one tcell.Style the way
 // BarStyle/ReplayBarStyle/CheckBarStyle/diff.DiffChromeStyle are - these
 // are baked into plain tag strings instead, since a progress-sweep fill
@@ -401,6 +415,8 @@ func ApplyColorConfig(cfg config.ColorsConfig) {
 	PlayTitleColor = ResolveColorOverride("play_title", cfg.PlayTitle, PlayTitleColor)
 	StandardTextColor = ResolveColorOverride("standard_text", cfg.StandardText, StandardTextColor)
 	DialogBorderColor = ResolveColorOverride("dialog_border", cfg.DialogBorder, DialogBorderColor)
+	ControlTextColor = ResolveColorOverride("control_text", cfg.ControlText, ControlTextColor)
+	ControlBackgroundColor = ResolveColorOverride("control_background", cfg.ControlBackground, ControlBackgroundColor)
 
 	ProgressTextColor = ResolveColorOverride("progress_text", cfg.ProgressText, ProgressTextColor)
 	TabTextColor = ResolveColorOverride("tab_text", cfg.TabText, TabTextColor)
