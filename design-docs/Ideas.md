@@ -16,7 +16,18 @@ immediately implemented.
 
 * Big busy spinner for lazy loading tabs
 
-* Show log from stdout callback plugin
+* tangsible host
+  * show disk size / free space
+  * schon distribution release name
+  * # of cores
+  * Python version
+  * uptime
+  * q ends, doesn't go back to list
+
+* Key don't work in all tabs
+  * Space / b
+  * < / >
+  * G
 
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
