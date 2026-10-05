@@ -30,7 +30,7 @@
 - System-wide installs via install.sh --prefix &lt;dir&gt;
 - `o` shows ansible-playbook's own console output, live while it runs
 - `[colors]` `control_text`/`control_background`: colors of text fields,
-  buttons and checkboxes (previously fixed white on blue)
+  their completion drop-downs, buttons and checkboxes (previously fixed)
 - `[colors]` `background`/`standard_text` accept `"default"`: the
   terminal's own background/text color
 - `?`/F1 opens a help dialog listing the current view's shortcuts, in every
@@ -58,6 +58,8 @@
 - Bottom bars now show just the essential shortcuts, plus `?: help`.
 - `--check` runs are marked by a `Check:` label in the top bar instead of a
   note in the bottom bar.
+- Section headings are bold everywhere.
+- A running task's spinner uses `task_title` instead of `standard_text`.
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely
   nothing to show, instead of an empty tab.
 - Ignored failures (`ignore_errors: true`) now render in the same orange
@@ -67,6 +69,9 @@
 ### Fixed
 
 - `--list-tasks`/`--list-hosts`/`--syntax-check` printed nothing.
+- Some text ignored `[colors]` - dialog titles and labels, tab contents,
+  error lines - and was unreadable on a light background; it now uses
+  `standard_text`.
 - Diff mode: Esc didn't close the list of runs to compare against.
 - `host`/`hosts`, `template`, diff mode and the run list: Space/`b`,
   `<`/`>`, `G` and Ctrl-F/Ctrl-B didn't work (only the main views had them).
