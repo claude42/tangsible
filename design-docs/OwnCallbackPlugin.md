@@ -702,3 +702,73 @@ Not now - only as part of the Phase 1 change, post-launch:
   file with its own GPL `LICENSE`.
 
 claude --resume acaac6e8-fb59-4827-ab31-f4c9ec791863
+
+# Phase 2: standard output
+
+We've discussed this previously. I have two ideas of how this could be
+presented towards the user.
+
+## Variant 1 (simpler)
+
+* tangsible collects all output from the stdout_plugin while the playbook is
+  running but does not display it during the run.
+* when the run has ended, the user will have the possibility to press a
+  keyboard shortcut to view the complete standard output
+* tangsible will display the output full screen (minus the top and bottom
+  status bar of course)
+* the user will have the possibility to navigate as usual, the search
+  function shall also be implemented as usual and "y" to copy the contents to
+  the clipboard shall work as well
+* ESC brings the user back to the tree view
+
+## Variant 2
+
+* tangsible collects all output from the stdout_plugin while the playbook
+* while the playbook is still running, the user has the possibility to switch
+  to the "stdout" mode
+* tangsible will display what's been outputted so far and will "follow" as
+  new lines are printed
+* tangsible will display the output full screen (minus the top and bottom
+  status bar of course)
+* the user will have the possibility to navigate as usual, the search
+  function shall also be implemented as usual and "y" to copy the contents to
+  the clipboard shall work as well
+* if the user has navigated and the playbook is still running, the "F"
+  shortcut will bring it back to "follow" mode
+* ESC brings the user back to the tree view
+
+## Decisions and implementation (2026-10-01)
+
+**Variant 2, implemented** - the extra cost over variant 1 turned out to be
+small, since capture, the full-screen view, search and copy are shared by
+both. Decided:
+
+- Key `o`, tree view only, available while the run is still going.
+  Esc/`o`/`q` go back.
+- Current generation only - a rerun starts the view over.
+- Persisted as `.tangsible/runs/<runID>.stdout`, so `revisit` shows it too
+  (this resolves decision 8). Runs saved before this have no output view.
+- Not printed to the scrollback after quitting (too much for long runs).
+- stderr is merged in (arrival order across two pipes - close to, but not
+  byte-exact with, a real terminal), and color is forced on
+  (`ANSIBLE_FORCE_COLOR=1`, unless `NO_COLOR`/`ANSIBLE_NOCOLOR`/
+  `ANSIBLE_FORCE_COLOR` is set). stderr consumers other than this view
+  strip the color codes again.
+- Search: opening it stops following; output arriving while a search is
+  active is held back (counted in the top bar) and shown once it's
+  cleared.
+
+Found while building it:
+
+- **`COLUMNS` doesn't help with the banner width.** ansible-core sizes
+  banners only from an ioctl on fd 1 (`Display._set_column_width`), falling
+  back to 79 columns for a pipe; `$COLUMNS` is never read. Accepted - only
+  the `****` padding is affected. A pty for the child's stdout would fix it
+  (and would make forcing color unnecessary), at the cost of a pty
+  dependency and the child seeing a terminal on stdout.
+- **Buffering is a non-issue.** `Display` no longer flushes after each
+  write, but lines still arrived promptly over a plain pipe in a timing
+  spike (ansible-core 2.19), so no `PYTHONUNBUFFERED` is needed.
+- **`--list-tasks`/`--list-hosts`/`--syntax-check` had printed nothing**
+  since Phase 1 sent the child's stdout to `/dev/null`; fixed first, as a
+  separate commit.

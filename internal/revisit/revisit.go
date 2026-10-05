@@ -56,7 +56,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -92,7 +92,7 @@ func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 		}
 		shownAnything = true
 
-		selected, ok, rerun := RunRevisitListTUI(entries, lastRunID, true)
+		selected, ok, rerun := RunRevisitListTUI(entries, lastRunID, "tangsible revisit", true, false)
 		if !ok {
 			return 0
 		}
@@ -332,20 +332,25 @@ func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, select
 // tree view, just without the intervening Enter. "revisit" passes true;
 // "diff"'s own reuse of this list (RunDiffFlow) passes false - re-running
 // makes no sense when you're picking a run to compare against.
-func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun bool) (RevisitEntry, bool, bool) {
+//
+// nested marks the list as one more screen opened from inside another view
+// ("diff"'s picker, opened from the tree) rather than the program's first
+// screen ("revisit"): Esc then goes back too, same as q. At the top level
+// Esc does nothing, so a reflexive Esc can't end the program.
+//
+// purpose is the header's text after the run count - what picking a run
+// is for here.
+func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, allowRerun, nested bool) (RevisitEntry, bool, bool) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
 	list := uikit.NewTreeList()
 
 	header := tview.NewTextView().SetDynamicColors(true).
-		SetText(fmt.Sprintf(" %d previous run(s) - tangsible revisit ", len(entries)))
+		SetText(fmt.Sprintf(" %d previous run(s) - %s ", len(entries), purpose))
 	header.SetTextStyle(uikit.BarStyle)
-	footerHelp := " enter: open  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	if allowRerun {
-		footerHelp = " enter: open  r: re-run  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	}
-	footer := tview.NewTextView().SetDynamicColors(true).SetText(footerHelp)
+	helpScreen, hide := runListHelp, runListHelpHidden(allowRerun, nested)
+	footer := tview.NewTextView().SetDynamicColors(true).SetText(runListBar(allowRerun, nested))
 	footer.SetTextStyle(uikit.BarStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -413,9 +418,22 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun b
 	})
 	rebuildRows()
 
+	pages := tview.NewPages().AddPage("main", flex, true, true)
+	help := uikit.NewHelpOverlay(app, pages)
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if help.HandleKey(event) {
+			return nil
+		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
-		case event.Key() == tcell.KeyCtrlC, event.Key() == tcell.KeyRune && event.Rune() == 'q':
+		case uikit.IsHelpKey(event):
+			help.Open(helpScreen, hide)
+			return nil
+		case event.Key() == tcell.KeyCtrlC, event.Key() == tcell.KeyRune && event.Rune() == 'q',
+			nested && event.Key() == tcell.KeyEscape:
 			app.Stop()
 			return nil
 		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'r':
@@ -428,19 +446,18 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID string, allowRerun b
 				app.Stop()
 			}
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyRune && event.Rune() == 'j':
-			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyRune && event.Rune() == 'k':
-			return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
 		}
 		return event
 	})
 
-	app.SetRoot(flex, true).SetFocus(list)
+	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		if ev, act, handled := help.HandleMouse(event, action); handled {
+			return ev, act
+		}
+		return event, action
+	})
+
+	app.SetRoot(pages, true).SetFocus(list)
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}
@@ -541,6 +558,14 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	if saved := config.ReadRunStderr(config.TangsibleStatePath, e.RunID); saved != nil {
 		lastStderr.Store(&saved)
 	}
+	// outLog (the 'o' raw-output view) is seeded the same way from the
+	// entry's saved <RunID>.stdout - left nil (no 'o' view at all) for a
+	// run saved before that file existed. Swapped for a live one by a
+	// rerun from within this session, same as lastStderr.
+	var outLog atomic.Pointer[runner.OutputLog]
+	if saved, ok := config.ReadRunOutput(config.TangsibleStatePath, e.RunID); ok {
+		outLog.Store(runner.NewOutputLogFromLines(saved))
+	}
 	processDone.Store(true)
 	exitCode.Store(int32(e.ExitCode))
 
@@ -576,7 +601,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		outcomes = append(outcomes, o)
 		outcomesMu.Unlock()
 	}
-	requestRerun := runner.NewRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &progH, apply, recordOutcome, sourceIndex)
+	requestRerun := runner.NewRequestRerun(playbook, e.Role, invArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &outLog, &progH, apply, recordOutcome, sourceIndex)
 
 	revisitReturn := func() {
 		quitting.Store(true) // before Stop() - same race note as main.go's
@@ -584,7 +609,7 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		app.Stop()
 	}
 
-	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode, &lastStderr,
+	app, applyLive = newLiveTUI(state, displayName, e.Role != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog,
 		sourceIndex, knownTags, knownPlayNames, knownGroups, config.DefaultTreeExpanded(settings), config.TwoPaneLayoutEnabled(settings), config.ColorEnabledByUser(settings),
 		// initialPlay is always "" here, unlike Tags/SkipTags/Hosts just
 		// after it - --start-at-play is never recorded into invArgs (see

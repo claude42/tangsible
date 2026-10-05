@@ -77,7 +77,12 @@ type liveSession struct {
 	// the same "not every caller wires every optional thing" convention
 	// revisitReturn below already follows - a revisit session has no live
 	// generation to report on.
-	lastStderr    *atomic.Pointer[[]string]
+	lastStderr *atomic.Pointer[[]string]
+	// outLog is the current generation's raw console output (runner.
+	// OutputLog) - swapped for a fresh one on every rerun; nil-valued
+	// until anything has spawned, or for a revisited run saved before
+	// .stdout files existed. Backs the 'o' view (livesession_stdout.go).
+	outLog        *atomic.Pointer[runner.OutputLog]
 	sourceIndex   source.TaskSourceIndex
 	twoPaneLayout bool
 	requestRerun  func(startAtPlay, tags, skipTags, hosts string)
@@ -298,4 +303,20 @@ type liveSession struct {
 	// the rest of this struct (livesession_tabsearch.go), unlike
 	// everything else still listed above.
 	search *tabSearchPanel
+
+	// --- raw-output view ('o', livesession_stdout.go) ---
+	stdoutView      *tview.TextView
+	stdoutTopBar    *tview.TextView
+	stdoutBottomBar *tview.TextView
+	stdoutSearch    *tabSearchPanel
+	viewingStdout   bool
+	stdoutFollowing bool
+	// stdoutShownLog/stdoutShown: which log stdoutView currently holds
+	// lines from, and how many - syncStdoutView's "what's new" bookmark.
+	stdoutShownLog *runner.OutputLog
+	stdoutShown    int
+
+	// help is the '?'/F1 help dialog (design-docs/Help.md), opened with
+	// whichever screen's table (helptables.go) is frontmost.
+	help *uikit.HelpOverlay
 }

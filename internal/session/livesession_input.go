@@ -45,6 +45,9 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if result, handled := s.handleCtrlC(event); handled {
 		return result
 	}
+	if s.help.HandleKey(event) { // design-docs/Help.md - owns the keyboard while open
+		return nil
+	}
 	if result, handled := s.handleSearchDialogKey(event); handled {
 		return result
 	}
@@ -56,6 +59,12 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	}
 	if result, handled := s.handleFilterDialogKey(event); handled {
 		return result
+	}
+	if s.viewingStdout {
+		// Before handleGlobalQuit (q backs out here, like the drill-
+		// down's own q) and translateKeyAlias (navigation must also stop
+		// following) - handleStdoutViewKey handles both itself.
+		return s.handleStdoutViewKey(event)
 	}
 	if result, handled := s.handleOutputViewQuit(event); handled {
 		return result
@@ -94,6 +103,7 @@ func (s *liveSession) handleCtrlC(event *tcell.EventKey) (*tcell.EventKey, bool)
 	}
 	s.closeDialogs()          // harmless no-op if neither dialog is open
 	s.search.closeComposing() // ditto if the tab-search prompt isn't open
+	s.stdoutSearch.closeComposing()
 	if s.processDone.Load() {
 		s.quitting.Store(true) // before Stop() - see main.go's race note
 		s.app.Stop()
@@ -185,6 +195,10 @@ func (s *liveSession) handleRerunDialogKey(event *tcell.EventKey) (*tcell.EventK
 		return nil, false
 	}
 	switch event.Key() {
+	case tcell.KeyF1:
+		// F1 only - '?' must stay typeable in the fields. Closing help
+		// hands focus back to whichever field had it.
+		s.help.Open(rerunHelp, nil)
 	case tcell.KeyEnter:
 		if _, button := s.rerunForm.GetFocusedItemIndex(); button >= 0 {
 			return event, true
@@ -336,31 +350,7 @@ func (s *liveSession) handleTreeRowSkip(event *tcell.EventKey) (*tcell.EventKey,
 // still does that, so nothing is actually lost, just no longer duplicated
 // onto this key.
 func (s *liveSession) translateKeyAlias(event *tcell.EventKey) (*tcell.EventKey, bool) {
-	switch {
-	case event.Key() == tcell.KeyRune && event.Rune() == 'j':
-		return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == 'k':
-		return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlF:
-		return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlB:
-		return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == ' ':
-		return tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == 'b':
-		return tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlA:
-		return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyCtrlE:
-		return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == 'G':
-		return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == '<':
-		return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone), true
-	case event.Key() == tcell.KeyRune && event.Rune() == '>':
-		return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone), true
-	}
-	return nil, false
+	return uikit.TranslateNavAlias(event) // shared with every standalone verb
 }
 
 // handleOutputViewKey is everything handleKey falls through to once
@@ -428,6 +418,9 @@ func (s *liveSession) handleOutputViewKey(event *tcell.EventKey) *tcell.EventKey
 	case event.Key() == tcell.KeyRune && event.Rune() == '/':
 		s.search.open()
 		return nil
+	case uikit.IsHelpKey(event):
+		s.help.Open(outputHelp, nil)
+		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 		s.outputBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
 		s.outputBottomBar.SetText(uikit.CopyActiveTabStatus(s.outputTabs))
@@ -473,6 +466,14 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 			s.list.SetCurrentItem(s.list.GetItemCount() - 1)
 		}
 		s.jumpingToEnd = false
+		return nil
+	case uikit.IsHelpKey(event):
+		s.help.Open(treeHelp, s.treeHelpHidden)
+		return nil
+	case event.Key() == tcell.KeyRune && event.Rune() == 'o':
+		// The raw-output view (livesession_stdout.go) - available while
+		// the run is still going too, unlike 'r'/'d'.
+		s.openStdoutView()
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'E':
 		s.expandAll()

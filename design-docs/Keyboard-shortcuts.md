@@ -11,6 +11,21 @@ sections apply to them too. A short "Possible inconsistencies" section at
 the end collects things worth a second look while reviewing this list, not
 necessarily bugs.
 
+**Help, everywhere:** `?` or F1 opens a help dialog listing the current
+view's shortcuts, in every view of every verb (tree, drill-down, `o` view,
+revisit's run list / diff's picker, diff tree and drill-down, `hosts` list,
+host detail, template view). In the re-run dialog only F1 works, since `?`
+must stay typeable in its fields - there the help also explains the fields
+and checkboxes. Esc / `?` / F1 / `q` close it (`q` never quits from help);
+Ctrl-C closes it and then does what it always does. The dialogs' content
+lives in each package's `helptables.go`, next to that view's bottom bar.
+
+**Navigation aliases, everywhere:** j / k, Space / b, Ctrl-F / Ctrl-B,
+Ctrl-A / Ctrl-E, < / > and G mean the same in every view of every verb -
+one shared translation (`uikit.TranslateNavAlias`). Until 2026-10-03 only
+the live session had the full set; the standalone views (host/hosts,
+template, diff, the run list) each wired just a few of them by hand.
+
 ## In the main tree view
 
 * Cursor up / down - move cursor up / down (stop autoscrolling if necessary)
@@ -69,7 +84,14 @@ necessarily bugs.
                      or interrupted) - a no-op while it's still running.
                      Not available while the command output view is shown.
 
-E/C/r/f// are all only reachable from the main tree - none of them have any
+* o                - open the raw-output view (see below) - available
+                     while the playbook is still running too
+* ? / F1           - open the help dialog: every shortcut of this view, as
+                     an overlay the tree keeps updating behind. Scroll it
+                     with the usual navigation keys; Esc / ? / F1 / q close
+                     it (q doesn't quit here)
+
+E/C/r/f///o are all only reachable from the main tree - none of them have any
 effect while the command output view is frontmost (see that section below
 for what *is* available there).
 
@@ -132,6 +154,8 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
                      Search dialog further down this document (a
                      different feature, opened with `/` from the main
                      tree instead)
+* ? / F1           - open the help dialog for this view (same dialog as the
+                     main tree's, with this view's own shortcuts)
 * e                - open the file containing the currently displayed
                      task's own source in `$VISUAL`/`$EDITOR` (a foreground
                      subprocess, suspending the TUI - same mechanism as the
@@ -154,6 +178,32 @@ tree auto-expands so that row is visible.
 * Click on a tab   - switch to it (same as Tab/Shift-Tab)
 * Click on the top/bottom info bars - no effect (same fix as the main
                      tree's own top/bottom bars, above)
+
+## Raw-output view
+
+Opened by `o` from the main tree: ansible-playbook's own console output for
+the current run (its stdout callback's output merged with stderr, in color),
+full screen. While the playbook is still running it follows new output as it
+arrives.
+
+* Cursor up / down, j / k, Page up / down, Space / b, Ctrl-F / Ctrl-B,
+  Home / End, Ctrl-A / Ctrl-E, < / >, G
+                   - scroll, same keys as the drill-down view. Any of them
+                     stops following (End/G included, same as in the tree)
+* F                - jump to the end and resume following - the only key
+                     that does
+* /                - search the output (see "In-tab search" below). Stops
+                     following; output arriving while a search is active is
+                     held back (the top bar counts it) and appears once the
+                     search is cleared
+* n / N            - next / previous match while a search is active
+* y                - copy the whole output (see "Copy to clipboard" below)
+* Escape           - clear an active search first; otherwise back to the tree
+* o / q            - back to the tree (q does NOT quit here)
+* ? / F1           - help for this view
+
+**Mouse**
+* Wheel / trackpad - scroll (stops following)
 
 ## In-tab search
 
@@ -319,6 +369,9 @@ Limit hosts to - plus Cancel/Re-run buttons, right-aligned in that order
 * Esc              - while no autocomplete drop-down is currently showing:
                      cancel back out, no re-run started, nothing on screen
                      changes (regardless of what has focus)
+* F1               - help: what each field and checkbox does (not `?`,
+                     which is an ordinary typed character here); closing it
+                     puts focus back on the field you were in
 * Ctrl-C           - cancel back out *and* quit/interrupt the playbook,
                      same as Ctrl-C always does outside the dialog
 
@@ -386,6 +439,7 @@ template against one host. Two tabs - Rendered, Source.
                      these are never explicitly wired here; they work
                      because TextView natively supports them and nothing
                      intercepts them first)
+* ? / F1           - help for this view
 * Ctrl-A / Ctrl-E  - same as Home / End - unlike the vim bindings above,
                      `tview.TextView` does NOT handle these two natively,
                      so (like the main tree) they're explicitly translated

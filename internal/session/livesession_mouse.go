@@ -41,6 +41,9 @@ func (s *liveSession) handleMouse(event *tcell.EventMouse, action tview.MouseAct
 		// immediately rather than touch it.
 		return nil, action
 	}
+	if result, resultAction, handled := s.help.HandleMouse(event, action); handled {
+		return result, resultAction
+	}
 	if result, resultAction, handled := s.handleTabSearchComposingMouse(event, action); handled {
 		return result, resultAction
 	}
@@ -52,6 +55,9 @@ func (s *liveSession) handleMouse(event *tcell.EventMouse, action tview.MouseAct
 	}
 	if result, resultAction, handled := s.handleRerunDialogMouse(event, action); handled {
 		return result, resultAction
+	}
+	if s.viewingStdout {
+		return s.handleStdoutViewMouse(event, action)
 	}
 	if s.viewingOutput {
 		return s.handleOutputViewMouse(event, action)

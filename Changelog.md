@@ -28,6 +28,9 @@
 - ansible-playbook stderr output is now shown inline, right below the
   "Playbook failed" line
 - System-wide installs via install.sh --prefix &lt;dir&gt;
+- `o` shows ansible-playbook's own console output, live while it runs
+- `?`/F1 opens a help dialog listing the current view's shortcuts, in every
+  view (F1 only in the re-run dialog, where it also explains the fields)
 - Support system-wide config file /etc/tangsible/config.toml
 - `template` now accepts more than one hostname, group names or "all". Each
   host gets its own tab, colored red if its own last render errored.
@@ -48,6 +51,9 @@
 
 ### Changed
 
+- Bottom bars now show just the essential shortcuts, plus `?: help`.
+- `--check` runs are marked by a `Check:` label in the top bar instead of a
+  note in the bottom bar.
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely
   nothing to show, instead of an empty tab.
 - Ignored failures (`ignore_errors: true`) now render in the same orange
@@ -56,6 +62,13 @@
 
 ### Fixed
 
+- `--list-tasks`/`--list-hosts`/`--syntax-check` printed nothing.
+- Diff mode: Esc didn't close the list of runs to compare against.
+- `host`/`hosts`, `template`, diff mode and the run list: Space/`b`,
+  `<`/`>`, `G` and Ctrl-F/Ctrl-B didn't work (only the main views had them).
+- `template`: quitting while a render was running could leave
+  `/tmp/tangsible-template-out-*` files behind; its scratch files are now
+  also cleaned up on SIGTERM/SIGHUP (e.g. closing the terminal).
 - Re-run dialog: opening the output drill-down for a failed host and then
   closing it before pressing `r` could leave the dialog's own text fields
   silently unable to accept keyboard input (typing, Tab) - mouse

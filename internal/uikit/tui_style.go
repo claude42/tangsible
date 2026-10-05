@@ -82,16 +82,14 @@ var SpinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 // have anything genuine to show at the same instant.
 const TaskIndent = "  "
 
-// MainBottomBarText is the tree's own normal shortcut hint - bottomBar's
-// initial text, and what closeOutput restores it to. splitBottomBarText
-// replaces it for the duration of a two-pane drill-down session
+// SplitBottomBarText replaces the tree's own normal shortcut hint
+// (session's treeHelp table, design-docs/Help.md) for the duration of a
+// two-pane drill-down session
 // (design-docs/TwoPanedLayout.md): none of the tree's own shortcuts act on
 // it while a drill-down is open (see SetInputCapture's viewingOutput
 // branch), even though the tree pane itself stays visible and its bottomBar
 // keeps drawing - showing the normal hint text there would advertise keys
 // that currently do nothing.
-const MainBottomBarText = " n/N: next/prev task  E/C: exp/coll all  F: follow  A/f: filter  r: re-run  d: diff  q: quit  ←/→: expand/collapse  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-
 const SplitBottomBarText = " Esc: close drill-down to use the tree "
 
 const (

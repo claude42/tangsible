@@ -17,6 +17,7 @@ package uikit
 import (
 	"fmt"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -33,6 +34,17 @@ func CenteredModal(p tview.Primitive, width, height int) tview.Primitive {
 			AddItem(p, height, 1, true).
 			AddItem(nil, 0, 1, false), width, 1, true).
 		AddItem(nil, 0, 1, false)
+}
+
+// StyleAutocomplete gives field's completion drop-down the control
+// colors, matching the field it belongs to: entries look like the field
+// (control_text on control_background), the highlighted one swapped -
+// the same convention as a focused button or checkbox. Replaces tview's
+// own defaults (the background color on green, highlighted entry the
+// background color on white - white on white with a light [colors]
+// background).
+func StyleAutocomplete(field *tview.InputField) *tview.InputField {
+	return field.SetAutocompleteStyles(tcell.GetColor(ControlBackgroundColor), controlStyle(), controlFocusStyle())
 }
 
 // InRect reports whether (x, y) falls within p's own last-drawn rect - the
@@ -79,4 +91,87 @@ func FilterDialogText(active FilterQuery) string {
 			" %s F - Show only failed tasks",
 		mark(FilterAll), mark(FilterInteresting), mark(FilterChanged), mark(FilterFailed),
 	)
+}
+
+// TranslateNavAlias maps this app's navigation aliases onto the native
+// keys tview's TextView and TreeList already handle: j/k -> Down/Up,
+// Space/b and Ctrl-F/Ctrl-B -> PgDn/PgUp, Ctrl-A/Ctrl-E, </> and G ->
+// Home/End. ok is false for any other key. Returning the translated event
+// from an app's input capture makes tview forward it to the focused
+// primitive as if that key had been typed. Shared by every app (the live
+// session and every standalone verb), so the aliases work the same
+// everywhere - only call it once a text field (search prompt, dialog) can
+// no longer be the one receiving the key, since these are all ordinary
+// typed characters there.
+func TranslateNavAlias(event *tcell.EventKey) (*tcell.EventKey, bool) {
+	key := tcell.KeyNUL
+	switch event.Key() {
+	case tcell.KeyCtrlF:
+		key = tcell.KeyPgDn
+	case tcell.KeyCtrlB:
+		key = tcell.KeyPgUp
+	case tcell.KeyCtrlA:
+		key = tcell.KeyHome
+	case tcell.KeyCtrlE:
+		key = tcell.KeyEnd
+	case tcell.KeyRune:
+		switch event.Rune() {
+		case 'j':
+			key = tcell.KeyDown
+		case 'k':
+			key = tcell.KeyUp
+		case ' ':
+			key = tcell.KeyPgDn
+		case 'b':
+			key = tcell.KeyPgUp
+		case 'G', '>':
+			key = tcell.KeyEnd
+		case '<':
+			key = tcell.KeyHome
+		}
+	}
+	if key == tcell.KeyNUL {
+		return nil, false
+	}
+	return tcell.NewEventKey(key, 0, tcell.ModNone), true
+}
+
+// controlStyle/controlFocusStyle are the control_text/control_background
+// colors (ControlTextColor/ControlBackgroundColor) as tcell styles - plain,
+// and swapped for a focused button or checkbox.
+func controlStyle() tcell.Style {
+	return tcell.StyleDefault.Foreground(tcell.GetColor(ControlTextColor)).Background(tcell.GetColor(ControlBackgroundColor))
+}
+
+func controlFocusStyle() tcell.Style {
+	return tcell.StyleDefault.Foreground(tcell.GetColor(ControlBackgroundColor)).Background(tcell.GetColor(ControlTextColor))
+}
+
+// StyleInputField gives a standalone text input field (one not inside a
+// tview.Form - see StyleForm) the control colors instead of tview's
+// built-in white on blue.
+func StyleInputField(f *tview.InputField) *tview.InputField {
+	return f.SetFieldStyle(controlStyle())
+}
+
+// StyleButton gives a standalone button the control colors, swapped
+// while it has focus.
+func StyleButton(b *tview.Button) *tview.Button {
+	return b.SetStyle(controlStyle()).SetActivatedStyle(controlFocusStyle())
+}
+
+// StyleForm gives every field, checkbox and button of f the control
+// colors - Form re-applies its field colors to each item on every draw,
+// so this covers items added later too. A checkbox's focused look isn't
+// part of that; StyleCheckbox sets it per checkbox.
+func StyleForm(f *tview.Form) *tview.Form {
+	return f.SetFieldStyle(controlStyle()).
+		SetButtonStyle(controlStyle()).
+		SetButtonActivatedStyle(controlFocusStyle())
+}
+
+// StyleCheckbox sets a checkbox's focused look (the control colors,
+// swapped) - its unfocused look comes from StyleForm.
+func StyleCheckbox(c *tview.Checkbox) *tview.Checkbox {
+	return c.SetActivatedStyle(controlFocusStyle())
 }

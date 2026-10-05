@@ -180,3 +180,33 @@ Both the stub playbook and the rendered-output file are removed once
 tangsible exits - one stable pair of paths for the whole interactive
 session (edit/reprocess/host-switch cycles all reuse them), not
 regenerated fresh on every keypress or per host.
+
+**Both live in one private scratch directory** (`os.MkdirTemp`,
+`tangsible-template-*`), removed as a whole - since 2026-10-02, after a
+reported leak: quitting while a render was in flight sometimes left
+`/tmp/tangsible-template-out-*` behind. Reproduced by quitting at varying
+moments: it happened when the quit landed while the template task itself
+ran (~1.7-2.0 s into a local render). tangsible removed the file, exited,
+and the still-running `ansible-playbook` finished its task and wrote it
+again. Killing the render doesn't close this on its own: ansible's
+workers `setsid()` (so a process-group kill misses them), and on SIGTERM
+`ansible-playbook` forwards the signal to its workers and exits without
+waiting for them, so the module doing the final write can outlive
+everything tangsible can signal. Removing the *directory* does close it:
+the `template` module refuses to write into a missing directory
+("Destination directory ... does not exist" - confirmed, it never
+creates one), and `removeScratchDir` retries `os.RemoveAll` briefly in
+case a write lands mid-removal. On quit, an in-flight render is still
+interrupted (SIGTERM via `exec.CommandContext`'s `Cancel`, SIGKILL after
+`renderStopGrace`) and waited for - not for leak-proofing, just so no
+orphaned run keeps working against the target host.
+
+**SIGTERM/SIGHUP** (`kill`, logout, the terminal closing) are caught once
+the scratch directory exists - same idea as the `vault` verb's own
+handling - and close the TUI as if the user had quit, so the normal
+shutdown (render interrupted and waited for, scratch directory removed)
+runs; the exit code is then 128 + the signal number. The stop is queued
+(`app.QueueUpdate(app.Stop)`), so a signal arriving just before the TUI
+starts isn't lost. Before the scratch directory exists the defaults are
+untouched (e.g. Ctrl-C at the many-hosts confirmation prompt). Still not
+covered: SIGKILL, which can't be caught.

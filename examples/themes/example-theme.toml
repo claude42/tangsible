@@ -12,7 +12,7 @@
 # Flat keys below are scheme-independent - kept exactly at Tangsible's
 # own hardcoded default, on the theory that a color already reads fine
 # against either background doesn't need touching just because a theme
-# exists. Most of the 37 keys land here: every color that's already
+# exists. Most of the 39 keys land here: every color that's already
 # paired with its own explicit background wherever it's actually drawn
 # (selected rows, chrome bars, the progress fill, the diff/search
 # highlights) never touches the base background at all, so flipping
@@ -45,6 +45,9 @@ diff_chrome = "fuchsia"
 
 selected_row_text = "#1a1a1a"
 selected_row_background = "lightgray"
+
+control_text = "white"
+control_background = "blue"
 
 progress_fill = "#146414"
 
@@ -96,11 +99,15 @@ task_title = "dimgray"
 # selected rows already use for dark text on a light background.
 play_title = "#1a1a1a"
 # silver has the exact same near-invisible problem on white that
-# task_title's own default does (they share the same default value) -
-# same dimgray fix.
-standard_text = "dimgray"
+# task_title's own default does (they share the same default value). But
+# standard_text is the main body-text color (tab contents, the console
+# output view, dialog text) - most text on screen ends up in it - so it
+# gets play_title's full-strength near-black rather than task_title's
+# deliberately subdued dimgray.
+standard_text = "#1a1a1a"
 # dialog_border shares standard_text's own default and the same
-# near-invisible problem on white - same dimgray fix.
+# near-invisible problem on white - but a border is chrome, not text, so
+# the subdued dimgray fits it better than standard_text's near-black.
 dialog_border = "dimgray"
 # hotpink reads fine on black but washes out badly on white -
 # mediumvioletred is the same pink/magenta family, dark enough to hold

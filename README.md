@@ -81,6 +81,8 @@ changes might be necessary.
   visible.
 - **Drill-down** - inspect a host/task result with the task source, output,
   stderr, --diff output and full JSON result in one place.
+- **Console output** - see ansible-playbook's familiar output from your own
+  stdout callback, live while it runs.
 - **Filtering and search** - show only Changed or Failed results, or search task
   names, source and output.
 - **Keyboard and mouse navigation** - use the keyboard or mouse throughout the
@@ -319,6 +321,8 @@ control, and more).
 | `f`| Filter: All / Changed / Failed |
 | `/` | Search filter (task name, source, output) |
 | `r` | Open the re-run dialog (once the run has finished) |
+| `o` | Show ansible-playbook's console output (`F` follows, `Esc` returns) |
+| `?`/`F1` | Help: all of the tree view's shortcuts |
 | `q`/`Ctrl-C` | Interrupt the run, or quit once it's finished |
 
 **Drill-down view**
@@ -330,6 +334,7 @@ control, and more).
 | `n`/`N` | Next / previous task (same host) |
 | `←`/`→` | Previous / next host (same task) |
 | `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
+| `?`/`F1` | Help: all of this view's shortcuts |
 | `Esc`/`Enter` | Close, back to the tree |
 
 **Template view**
@@ -340,9 +345,11 @@ control, and more).
 | `e` | Edit template file |
 | `h` | Change host |
 | `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
+| `?`/`F1` | Help: all of this view's shortcuts |
 | `q`/`Ctrl-C` | Quit |
 
-Mouse navigation is supported as well.
+Mouse navigation is supported as well. Every view has `?`/`F1` help listing
+its shortcuts (F1 only in the re-run dialog).
 
 ## Configuration
 

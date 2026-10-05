@@ -53,7 +53,11 @@ import (
 // see StartRoleSession), so whichever was true for this generation's own
 // AppendInvocation call (in NewRequestRerun, or the caller's own first-
 // generation recording) is still true now.
-func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-chan []string, runID string, playbook, roleDisplayName string, apply func(StreamItem), exitCode *atomic.Int32, processDone *atomic.Bool, lastStderr *atomic.Pointer[[]string], recordOutcome func(GenerationOutcome), peeked ...StreamItem) {
+//
+// outLog (SpawnGeneration's own) is finished - trailing partial line
+// flushed, saved file closed - before processDone goes true, so the TUI's
+// final frozen frame sees every line.
+func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-chan []string, outLog *OutputLog, runID string, playbook, roleDisplayName string, apply func(StreamItem), exitCode *atomic.Int32, processDone *atomic.Bool, lastStderr *atomic.Pointer[[]string], recordOutcome func(GenerationOutcome), peeked ...StreamItem) {
 	for _, item := range peeked {
 		apply(item)
 	}
@@ -61,7 +65,8 @@ func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-c
 		apply(item)
 	}
 	childStderr := <-stderrLines // wait for stderr to fully drain before Wait()
-	waitErr := cmd.Wait()
+	waitErr := cmd.Wait()        // also waits for exec's own stdout copy into outLog
+	outLog.Finish()
 	code := ExitCodeOf(waitErr)
 	exitCode.Store(int32(code)) // before processDone below - tui.go's
 	// rebuild() only ever reads exitCode once it observes processDone
@@ -147,7 +152,7 @@ type InitialRerunDefaults struct {
 // on whatever goroutine calls the returned func (tview's event-loop
 // goroutine, same invariant state.Reset() above already relies on), never
 // concurrently with formatHostOutput's own reads of the same map.
-func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, tags, skipTags, hosts string) {
+func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, state *pb.PlaybookState, procH *ProcHandle, processDone *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLogH *atomic.Pointer[OutputLog], progH *atomic.Pointer[ProgressTracker], apply func(StreamItem), recordOutcome func(GenerationOutcome), sourceIndex source.TaskSourceIndex) func(startAtPlay, tags, skipTags, hosts string) {
 	return func(startAtPlay, tags, skipTags, hosts string) {
 		// Reset synchronously, on whatever goroutine calls this (tview's
 		// event-loop goroutine, from the re-run dialog's Enter handler) -
@@ -163,6 +168,12 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		state.Reset()
 		exitCode.Store(0)
 		processDone.Store(false)
+		// A fresh, empty log right away, not only once the spawn below
+		// happens: the raw-output view shows the current generation only,
+		// and should never keep showing the previous one's output while
+		// this one starts up.
+		outLog := NewOutputLog()
+		outLogH.Store(outLog)
 
 		newArgs := config.ParsedPassthroughArgs{Tags: tags, SkipTags: skipTags, Hosts: hosts, Rest: originalRest}.Reassemble()
 
@@ -276,7 +287,7 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		}
 
 		go func() {
-			cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(spawnPlaybook, newArgs, procH)
+			cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(spawnPlaybook, newArgs, procH, outLog, nil)
 			if err != nil {
 				if cleanupTemp != nil {
 					cleanupTemp()
@@ -284,7 +295,7 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 				fail(err)
 				return
 			}
-			RunOneGeneration(cmd, stdoutCh, stderrLines, runID, playbook, roleDisplayName, apply, exitCode, processDone, lastStderr, recordOutcome)
+			RunOneGeneration(cmd, stdoutCh, stderrLines, outLog, runID, playbook, roleDisplayName, apply, exitCode, processDone, lastStderr, recordOutcome)
 			if cleanupTemp != nil {
 				cleanupTemp()
 			}

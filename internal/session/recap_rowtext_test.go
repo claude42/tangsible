@@ -33,7 +33,7 @@ import (
 
 func TestRecapHeadingRowText(t *testing.T) {
 	got := recapHeadingRowText()
-	want := "[green]Summary[-]"
+	want := "[green::b]Summary[-::-]"
 	if got != want {
 		t.Errorf("recapHeadingRowText() = %q, want %q", got, want)
 	}
@@ -41,7 +41,7 @@ func TestRecapHeadingRowText(t *testing.T) {
 
 func TestRecapHeadingUnderlineRowText(t *testing.T) {
 	got := recapHeadingUnderlineRowText()
-	want := "[green]=======[-]" // len("Summary") == 7
+	want := "[green::b]=======[-::-]" // len("Summary") == 7
 	if got != want {
 		t.Errorf("recapHeadingUnderlineRowText() = %q, want %q", got, want)
 	}

@@ -167,7 +167,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (*tview.Application, func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (*tview.Application, func(playbook.RawEvent)) {
 	// s (*liveSession, livesession.go) holds every piece of state this
 	// function's closures share - see its own doc comment for the full
 	// rationale (design-docs/Restructuring.md's own postponed "Phase 3").
@@ -187,6 +187,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.quitting = quitting
 	s.exitCode = exitCode
 	s.lastStderr = lastStderr
+	s.outLog = outLog
 	s.sourceIndex = sourceIndex
 	s.twoPaneLayout = twoPaneLayout
 	s.requestRerun = requestRerun
@@ -341,7 +342,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// Moved up here (was previously declared after rebuild/hooks) - s.rebuild()
 	// now updates it on every call, so it must exist first.
 	s.topBar = tview.NewTextView().SetDynamicColors(true).
-		SetText(uikit.TopBarText(s.playbookName, s.isRole, s.state.AllHosts, 0, false, s.currentFilter, 0, 0, 20, s.chromeColorName(), s.showElapsed()))
+		SetText(uikit.TopBarText(s.playbookName, s.topBarLabel(), s.state.AllHosts, 0, false, s.currentFilter, 0, 0, 20, s.chromeColorName(), s.showElapsed()))
 	s.topBar.SetTextStyle(s.chromeStyle)
 
 	// The cursor row's actual look (black-on-light-gray title, black bold
@@ -382,7 +383,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.outputTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.outputTopBar.SetTextStyle(s.chromeStyle)
 
-	s.outputBottomBar = tview.NewTextView().SetText(outputHintBarText)
+	s.outputBottomBar = tview.NewTextView().SetText(outputBar)
 	s.outputBottomBar.SetTextStyle(s.chromeStyle)
 
 	// s.search (design-docs/Search.md, livesession_tabsearch.go) owns the
@@ -390,6 +391,24 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// while composing a query - built once here and reused for the whole
 	// session, same as s.searchInput above.
 	s.search = newTabSearchPanel(s.app, s.outputTabs, s.outputBottomBar, s.list, s.outputBottomBarNormalStyle)
+
+	// The raw-output view ('o', livesession_stdout.go) - its own page,
+	// own bars, and its own search panel over its one TextView.
+	s.stdoutView = tview.NewTextView().SetDynamicColors(true) // wraps, like a terminal
+	// ansible's own uncolored lines (banners, and everything with color
+	// off) would otherwise be tview's default white.
+	s.stdoutView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	s.stdoutTopBar = tview.NewTextView().SetDynamicColors(true)
+	s.stdoutTopBar.SetTextStyle(s.chromeStyle)
+	s.stdoutBottomBar = tview.NewTextView().SetText(stdoutBar)
+	s.stdoutBottomBar.SetTextStyle(s.chromeStyle)
+	s.stdoutSearch = newTextSearchPanel(s.app, func() (*tview.TextView, bool) { return s.stdoutView, true },
+		stdoutBar, "esc/o/q: back", s.stdoutBottomBar, s.stdoutView, s.outputBottomBarNormalStyle)
+	stdoutFlex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(s.stdoutTopBar, 1, 0, false).
+		AddItem(s.stdoutView, 0, 1, true).
+		AddItem(s.stdoutSearch.footer, 1, 0, false)
 
 	outputFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -436,6 +455,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// own Cancel button to call), which wraps this TextView together with
 	// a real Cancel button below it.
 	s.filterDialog = tview.NewTextView().SetDynamicColors(true)
+	// Untagged text needs an explicit color - tview's default is white,
+	// invisible on a light [colors] background. Same for every dialog
+	// title and searchHeadline below.
+	s.filterDialog.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 
 	// searchDialog is a headline TextView plus a real tview.InputField for
 	// the search box - a TextView can display text but can't accept
@@ -446,7 +469,10 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// browse first, so there's no "menu mode" to be in before typing.
 	searchHeadline := tview.NewTextView().SetDynamicColors(true).
 		SetText(" [::b]Search[::-]\n\n [" + uikit.AnnotationColor + "]Enter to apply, Esc to cancel[-]")
+	searchHeadline.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.searchInput = tview.NewInputField().SetLabel("Search: ")
+	uikit.StyleInputField(s.searchInput)
+	s.searchInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor)) // not tview's default yellow, hard to read on a light background
 	// Top/bottom margin Box items, same as s.filterFlex's own - a real
 	// tview.NewBox() rather than a bare nil, so its Draw() still fills its
 	// rect with the dialog's own background instead of letting whatever's
@@ -456,7 +482,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		AddItem(tview.NewBox(), 1, 0, false). // top margin
 		AddItem(searchHeadline, 0, 1, false).
 		AddItem(s.searchInput, 1, 0, true)
-	s.searchDialogFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Search ")
+	s.searchDialogFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Search ")
 
 	// rerunDialog (Rerun.md) - a real tview.Form, unlike the two dialogs
 	// above: it's the first multi-field input this app needs, and Form
@@ -466,7 +492,12 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// short of what the tree needed; here Form's default behavior already
 	// matches).
 	s.rerunForm = tview.NewForm()
-	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Re-run (enter: run, esc: cancel) ")
+	s.rerunForm.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Re-run (enter: run, esc: cancel, F1: help) ")
+	// Form re-applies this to every field and checkbox on each draw -
+	// standard_text rather than tview's default yellow, which is hard to
+	// read on a light background.
+	s.rerunForm.SetLabelColor(tcell.GetColor(uikit.StandardTextColor))
+	uikit.StyleForm(s.rerunForm) // fields, checkboxes and buttons: control_text/control_background
 
 	// s.rerunFields (livesession_rerundialog.go) owns the four input
 	// fields, three checkboxes, and the sync logic between them - see its
@@ -574,6 +605,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		s.applyFilter(uikit.FilterQuery{Mode: uikit.FilterSearch, Search: s.searchInput.GetText()})
 	})
 	searchCancelButton := tview.NewButton("Cancel").SetSelectedFunc(s.closeDialogs)
+	uikit.StyleButton(searchApplyButton)
+	uikit.StyleButton(searchCancelButton)
 	// A real tview.NewBox(), not a bare nil, for every spacer item below -
 	// discovered live (reported as content from behind the dialog "showing
 	// through" wherever a blank line/gap sits): a nil Flex item reserves
@@ -652,6 +685,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// s.filterDialogOpen branch, unchanged) - the button is an added mouse
 	// affordance, not a replacement for those.
 	filterCancelButton := tview.NewButton("Cancel").SetSelectedFunc(s.closeDialogs)
+	uikit.StyleButton(filterCancelButton)
 	// A real tview.NewBox() for every spacer item, not a bare nil - see
 	// s.searchDialogFlex's own button row above for why (a nil Flex item
 	// draws nothing, so nothing ever repaints its cells over whatever the
@@ -665,7 +699,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 							AddItem(filterCancelButton, 10, 0, false).
 							AddItem(tview.NewBox(), 1, 0, false), 1, 0, false).
 		AddItem(tview.NewBox(), 1, 0, false) // bottom margin
-	s.filterFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Filter ")
+	s.filterFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Filter ")
 
 	// s.splitDivider is a one-column-wide vertical rule between the two panes
 	// - a bare Box with no content, whose Draw() (like every tview
@@ -744,6 +778,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.pages.AddPage("main", s.flex, true, true)
 	s.pages.AddPage("output", outputFlex, true, false)
 	s.pages.AddPage("split", s.splitFlex, true, false)
+	s.pages.AddPage("stdout", stdoutFlex, true, false)
 	s.pages.AddPage("filter", uikit.CenteredModal(s.filterFlex, 46, 11), true, false)
 	s.pages.AddPage("search", uikit.CenteredModal(s.searchDialogFlex, 46, 11), true, false)
 	// Sized for the max case (all three checkboxes present: 7 form items,
@@ -762,6 +797,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// time (what the pre-refactor code did here, safely, by accident) -
 	// this fixes it up now that a real one exists.
 	s.search.app = s.app
+	s.stdoutSearch.app = s.app
+	s.help = uikit.NewHelpOverlay(s.app, s.pages)
 
 	// Terminal color-capability probe, design-docs/Morehosts.md:
 	// Application.Screen() isn't available until after Run() starts, but

@@ -108,11 +108,18 @@ var (
 // hostnames, the revisit list's timestamp/command-line text, and the
 // recap's own per-host hostname+duration prefix - all originally
 // PlayTitleColor or KeyHighlightColor by coincidence, not because any of
-// them are actually a play title or a key/heading).
+// them are actually a play title or a key/heading). Also the default for
+// every piece of text that would otherwise fall back to tview's own
+// white: the body of every tab/view (drill-down, diff drill-down, host
+// tabs, the 'o' console-output view), untagged tree rows (TreeList - the
+// error-output lines, the recap's summary sentence), and every dialog's
+// title, field/checkbox labels and plain text, the help dialog's
+// descriptions included.
 var StandardTextColor = "silver"
 
 // DialogBorderColor is every modal dialog's own border (the re-run form,
-// the search/filter dialogs, template's "Change host" dialog) - these
+// the search/filter dialogs, template's "Change host" dialog, the '?'
+// help dialog) - these
 // previously had no configurable color at all, just tview's own hardcoded
 // tview.Styles.BorderColor default (white), the same kind of gap
 // BackgroundColor used to leave for the whole TUI's base background
@@ -124,6 +131,21 @@ var StandardTextColor = "silver"
 // exists" timing every other var here already relies on - just a plain
 // tcell.Color reader rather than a tag-string one.
 var DialogBorderColor = "silver"
+
+// ControlTextColor/ControlBackgroundColor are every input control's own
+// colors: text input fields, their completion drop-downs, buttons and
+// checkbox boxes (the re-run form, the search/filter dialogs, template's
+// "Change host" dialog) - applied via StyleInputField/StyleButton/
+// StyleForm/StyleAutocomplete. A focused button or checkbox, and a
+// drop-down's highlighted entry, show the two swapped, tview's own convention for "this one has focus".
+// Default to exactly what tview itself used before these were
+// configurable (its Styles.PrimaryTextColor white on
+// Styles.ContrastBackgroundColor blue). Not used by the yellow in-tab
+// search prompt, which deliberately looks the same everywhere.
+var (
+	ControlTextColor       = "white"
+	ControlBackgroundColor = "blue"
+)
 
 // Chrome text/backgrounds that can't be one tcell.Style the way
 // BarStyle/ReplayBarStyle/CheckBarStyle/diff.DiffChromeStyle are - these
@@ -233,8 +255,8 @@ var StatusBenignColor = "yellow"
 // (HighlightYAMLKeys/HighlightJSONKeys/HighlightKeyValueLines), used by
 // both `host`/`hosts` and the run drill-down's own tabs for the "key"
 // half of an actual key:value pair (a highlighted YAML/JSON line, or a
-// synthesized "Label: value" line like Role:/Task:/Status:/Group:) -
-// deliberately distinct from HeadingColor below even though both
+// synthesized "Label: value" line like Role:/Task:/Status:/Group:), and
+// for the key column of the '?' help dialog - deliberately distinct from HeadingColor below even though both
 // default to the same green, since a section heading isn't a key with
 // no value, and the two were found to want independently overridable
 // config keys.
@@ -245,8 +267,8 @@ var (
 
 // HeadingColor is a plain section-heading color - `uikit.SectionLabel`'s
 // Output/Items headings, host.go's own hostSectionHeading, the recap's
-// "Summary" heading, and the error-output block's "Error output:"
-// heading. Kept as its own var, not folded into KeyHighlightColor, even
+// "Summary" heading, the error-output block's "Error output:" heading,
+// and the '?' help dialog's section titles. Kept as its own var, not folded into KeyHighlightColor, even
 // though both default to the same green: a heading has no accompanying
 // value the way a key does, and splitting them lets a config override
 // change one without the other.
@@ -260,6 +282,22 @@ var HeadingColor = "green"
 // as the tree's own Unreachable outcome - see design-docs/Colors.md's
 // "Merged so far" list.
 var SummaryFailedColor = "red"
+
+// TerminalDefaultColor is the config value meaning "the terminal's own
+// default color" (tcell.ColorDefault: nothing is sent, so the terminal's
+// configured default foreground/background shows) - for using the
+// terminal's own colors as Tangsible's base pair. Works both via
+// tcell.GetColor and as a tview tag ("[default]"), the two ways colors
+// are consumed here.
+const TerminalDefaultColor = "default"
+
+// terminalDefaultKeys are the only keys TerminalDefaultColor is valid
+// for: the base pair, plain text on the plain background. Every other key
+// is either an accent meant to differ from plain text, or drawn as a
+// background somewhere (selected-row blocks, the active tab, chrome,
+// search highlights), where "the terminal's default" would make the
+// highlight vanish.
+var terminalDefaultKeys = map[string]bool{"background": true, "standard_text": true}
 
 // ResolveColorOverride validates override against tcell.GetColor (the
 // same resolution tcell.Style construction below already needs, and a
@@ -276,8 +314,20 @@ var SummaryFailedColor = "red"
 // packages agree on exactly what counts as a valid override and warn
 // identically, rather than diff.go hand-rolling a second copy of this
 // logic for one field.
+//
+// "default" - the terminal's own default color, tcell.ColorDefault - is
+// accepted only for the keys in terminalDefaultKeys. It has to be checked
+// by name: tcell.GetColor returns that same ColorDefault for an unknown
+// name, which is what the validity check below relies on.
 func ResolveColorOverride(key string, override *string, fallback string) string {
 	if override == nil {
+		return fallback
+	}
+	if *override == TerminalDefaultColor {
+		if terminalDefaultKeys[key] {
+			return *override
+		}
+		pendingColorWarnings = append(pendingColorWarnings, fmt.Sprintf("tangsible: %q for [colors] %s is only allowed for background and standard_text, using default %q", TerminalDefaultColor, key, fallback))
 		return fallback
 	}
 	if tcell.GetColor(*override) == tcell.ColorDefault {
@@ -365,6 +415,8 @@ func ApplyColorConfig(cfg config.ColorsConfig) {
 	PlayTitleColor = ResolveColorOverride("play_title", cfg.PlayTitle, PlayTitleColor)
 	StandardTextColor = ResolveColorOverride("standard_text", cfg.StandardText, StandardTextColor)
 	DialogBorderColor = ResolveColorOverride("dialog_border", cfg.DialogBorder, DialogBorderColor)
+	ControlTextColor = ResolveColorOverride("control_text", cfg.ControlText, ControlTextColor)
+	ControlBackgroundColor = ResolveColorOverride("control_background", cfg.ControlBackground, ControlBackgroundColor)
 
 	ProgressTextColor = ResolveColorOverride("progress_text", cfg.ProgressText, ProgressTextColor)
 	TabTextColor = ResolveColorOverride("tab_text", cfg.TabText, TabTextColor)

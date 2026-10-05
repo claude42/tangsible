@@ -166,6 +166,9 @@ func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTag
 	r.resumeCheckbox = tview.NewCheckbox().SetLabel("Resume where failed")
 	r.onlyFailedCheckbox = tview.NewCheckbox().SetLabel("Only failed")
 	r.onlyUnreachableCheckbox = tview.NewCheckbox().SetLabel("Only unreachable")
+	for _, c := range []*tview.Checkbox{r.resumeCheckbox, r.onlyFailedCheckbox, r.onlyUnreachableCheckbox} {
+		uikit.StyleCheckbox(c) // focused look; the rest comes from the form (uikit.StyleForm)
+	}
 
 	r.resumeCheckbox.SetChangedFunc(r.resumeCheckboxChanged)
 	r.onlyFailedCheckbox.SetChangedFunc(func(checked bool) {
@@ -308,6 +311,7 @@ func (r *rerunFieldSync) matchPlay(text string) []string {
 // - unlike the other three - has only ever one value to begin with, so
 // there's no earlier token to preserve.
 func (r *rerunFieldSync) wireAutocomplete(field *tview.InputField, match func(string) []string, apply func(current, picked string) string) {
+	uikit.StyleAutocomplete(field)
 	field.SetAutocompleteFunc(match).
 		SetAutocompleteUseTags(false). // plain hostnames/tags/task names,
 		// and avoids a literal '[' in one being misread as a color tag -
@@ -537,6 +541,8 @@ func (s *liveSession) submitRerun() {
 		s.outputBottomBar.SetTextStyle(s.liveChromeStyle)
 		s.splitHeader.SetTextStyle(s.liveChromeStyle)
 		s.bottomBar.SetTextStyle(s.liveChromeStyle)
+		s.stdoutTopBar.SetTextStyle(s.liveChromeStyle)
+		s.stdoutBottomBar.SetTextStyle(s.liveChromeStyle)
 		s.splitDivider.SetBackgroundColor(s.liveChromeBg)
 		s.outputTabs.SetHeaderStyle(s.liveChromeStyle, s.liveChromeColorName)
 		// Style alone isn't enough for s.bottomBar: unlike s.topBar/

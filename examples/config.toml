@@ -36,7 +36,10 @@ color_scheme = "dark"                # "dark" | "light" - see design-docs/ColorC
 # every other key below, this one is pushed into tview's own global
 # Styles.PrimitiveBackgroundColor rather than read per-row. Without it
 # set anywhere, the background is always black, regardless of
-# color_scheme above.
+# color_scheme above. "default" uses the terminal's own background
+# (allowed only here and for standard_text) - an exact match, unlike
+# "white"/"black", which a terminal theme can redefine. Then still set
+# color_scheme to match your terminal.
 background = "black"
 
 # Outcome colors (uikit.ColorTag)
@@ -54,14 +57,25 @@ annotation = "gray"
 task_title = "silver"
 play_title = "white"
 
-# Plain "just text" content: host list hostnames (tangsible hosts), the
-# revisit list's timestamp/command-line text, and the recap's own
-# per-host hostname+duration prefix
+# Plain "just text": all body text without a more specific color - tab
+# and view contents (drill-down, diff, host tabs, the `o` console output
+# view), untagged tree rows (error output, the recap's summary sentence),
+# host list hostnames, the revisit list's text, and every dialog's title,
+# labels and plain text (the `?` help dialog's descriptions included).
+# "default" uses the terminal's own foreground, see background above.
 standard_text = "silver"
 
 # Modal dialog borders: re-run form, search/filter dialogs, template's
-# "Change host" dialog
+# "Change host" dialog, the `?` help dialog
 dialog_border = "silver"
+
+# Input controls: text fields and their completion drop-downs, buttons
+# and checkbox boxes (re-run form, search/filter dialogs, template's
+# "Change host" dialog). A focused button or checkbox, and a drop-down's
+# highlighted entry, show the two swapped. Not the yellow in-tab search
+# prompt, which deliberately looks the same everywhere.
+control_text = "white"
+control_background = "blue"
 
 # Top bar / tab bar
 progress_text = "white"
@@ -101,13 +115,14 @@ diff_unmatched_task = "yellow"
 # failure reuse outcome_ok/outcome_failed directly)
 status_benign = "yellow"
 
-# host/hosts + drill-down tabs: shared key/value highlighting
+# host/hosts + drill-down tabs: shared key/value highlighting; key_highlight
+# is also the `?` help dialog's key column
 key_highlight = "green"
 value_highlight = "lightsteelblue"
 
 # Section headings: host/hosts' own section headers, drill-down's Output/
 # Items headings, the recap's "Summary" heading, the error-output
-# heading - separate from key_highlight even though both default to
+# heading, the `?` help dialog's section titles - separate from key_highlight even though both default to
 # green, since a heading isn't a key with no value
 heading = "green"
 

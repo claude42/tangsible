@@ -579,7 +579,7 @@ func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]
 // [green]...[-] span covering both lines rather than two
 // separately-colored pieces.
 func hostSectionHeading(label string) string {
-	return fmt.Sprintf("[%s]%s\n%s[-]\n\n", uikit.HeadingColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
+	return fmt.Sprintf("[%s::b]%s\n%s[-::-]\n\n", uikit.HeadingColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
 }
 
 // HostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab
@@ -1400,6 +1400,11 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	playsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	hostVarsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	everythingView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
+	// Untagged text ("Loading...", most content) needs an explicit color -
+	// tview's default is white, invisible on a light [colors] background.
+	for _, v := range []*tview.TextView{summaryView, groupsView, playsView, hostVarsView, everythingView} {
+		v.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	}
 
 	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs(
@@ -1560,8 +1565,9 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
-	footerText := " tab/shift-tab: switch tab  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footerText, false, false)
+	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, hostDetailBar, false, false)
+	pages := tview.NewPages().AddPage("main", detail, true, true)
+	help := uikit.NewHelpOverlay(app, pages)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyCtrlC {
@@ -1572,21 +1578,26 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		// design-docs/Search.md, same reasoning as tui.go's identically-
 		// shaped branch: bypasses normal focus-driven dispatch, confirmed
 		// live to not reliably reach a primitive nested this deep.
+		if help.HandleKey(event) {
+			return nil
+		}
 		if searchBar.IsComposing() {
 			searchBar.HandleComposingKey(event)
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
+		case uikit.IsHelpKey(event):
+			help.Open(hostDetailHelp, hostDetailHidden(false, false))
+			return nil
 		case event.Key() == tcell.KeyEscape && searchBar.HasActive():
 			searchBar.Clear()
 			return nil
 		case event.Rune() == 'q':
 			app.Stop()
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyTab:
 			tabs.Next()
 			return nil
@@ -1613,6 +1624,9 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		if event == nil {
 			return nil, action
 		}
+		if ev, act, handled := help.HandleMouse(event, action); handled {
+			return ev, act
+		}
 		if x, y := event.Position(); uikit.InRect(x, y, header) || uikit.InRect(x, y, searchBar.Primitive()) {
 			return nil, action
 		}
@@ -1624,7 +1638,7 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		return event, action
 	})
 
-	app.SetRoot(detail, true).SetFocus(tabs.Primitive())
+	app.SetRoot(pages, true).SetFocus(tabs.Primitive())
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}
@@ -1698,7 +1712,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 		SetText(fmt.Sprintf(" %d hosts ", len(hosts)))
 	listHeader.SetTextStyle(uikit.BarStyle)
 	listFooter := tview.NewTextView().SetDynamicColors(true).
-		SetText(" enter: open host  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ")
+		SetText(hostsListBar)
 	listFooter.SetTextStyle(uikit.BarStyle)
 
 	listFlex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -1727,7 +1741,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 		quitting        atomic.Bool
 	)
 
-	detailFooterText := " tab/shift-tab: switch tab  n/N: next/prev host  /: search tab  y: copy tab  esc: back to list  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	detailFooterText := hostsDetailBar
 	// splitDetailFooterText drops "esc: back to list" - split mode has no
 	// separate list page to go back to, the list is already visible right
 	// alongside. A known, accepted simplification: this text is fixed at
@@ -1736,7 +1750,8 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 	// layout keeps that layout's own footer text even if a mid-session
 	// resize (layout, below) later switches which layout is actually
 	// showing it.
-	splitDetailFooterText := " tab/shift-tab: switch tab  n/N: next/prev host  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
+	splitDetailFooterText := hostsSplitDetailBar
+	help := uikit.NewHelpOverlay(app, pages)
 
 	var showDetail func(hostname string)
 	var layout func()
@@ -1941,19 +1956,27 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 		// design-docs/Search.md, same reasoning as tui.go's identically-
 		// shaped branch: bypasses normal focus-driven dispatch, confirmed
 		// live to not reliably reach a primitive nested this deep.
+		if help.HandleKey(event) {
+			return nil
+		}
 		if viewingDetail && detailSearch.IsComposing() {
 			detailSearch.HandleComposingKey(event)
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
+		case uikit.IsHelpKey(event) && viewingDetail:
+			help.Open(hostDetailHelp, hostDetailHidden(true, splitMode))
+			return nil
+		case uikit.IsHelpKey(event):
+			help.Open(hostsListHelp, nil)
+			return nil
 		case event.Rune() == 'q':
 			quitting.Store(true)
 			app.Stop()
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		}
 		// Detail-specific bindings apply whenever a detail view exists at
 		// all - both the full-screen "detail" page and the split-mode
@@ -2010,6 +2033,9 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 		if event == nil {
 			return nil, action
+		}
+		if ev, act, handled := help.HandleMouse(event, action); handled {
+			return ev, act
 		}
 		if !viewingDetail {
 			if x, y := event.Position(); uikit.InRect(x, y, listHeader) || uikit.InRect(x, y, listFooter) {

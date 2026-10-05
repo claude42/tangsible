@@ -23,13 +23,19 @@ package template
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
@@ -250,7 +256,9 @@ func WriteTemplateStub(templatePath, outputPath string) (stubPath string, err er
 	fmt.Fprintf(&b, "        src: %s\n", absTemplate)
 	fmt.Fprintf(&b, "        dest: %s\n", outputPath)
 
-	f, err := os.CreateTemp("", "tangsible-template-*.yml")
+	// Next to outputPath - RunTemplateVerb's private scratch directory, so
+	// removing that one directory cleans up both.
+	f, err := os.CreateTemp(filepath.Dir(outputPath), "stub-*.yml")
 	if err != nil {
 		return "", err
 	}
@@ -260,6 +268,10 @@ func WriteTemplateStub(templatePath, outputPath string) (stubPath string, err er
 	}
 	return f.Name(), nil
 }
+
+// renderStopGrace is how long a cancelled render gets to exit on SIGTERM
+// before exec.Cmd falls back to SIGKILL (see RenderTemplate).
+const renderStopGrace = 3 * time.Second
 
 // TemplateResult is one render's own outcome - either Content (the
 // rendered file, read back from disk) or, if the task itself failed,
@@ -283,13 +295,24 @@ type TemplateResult struct {
 // most commonly) is reported via templateResult.Failed instead, not err,
 // since that's the normal, expected outcome this whole tool exists to
 // surface.
-func RenderTemplate(stubPath, outputPath, hostname string, rest []string) (TemplateResult, error) {
+func RenderTemplate(ctx context.Context, stubPath, outputPath, hostname string, rest []string) (TemplateResult, error) {
 	pluginEnv, err := runner.CallbackPluginEnv()
 	if err != nil {
 		return TemplateResult{}, err
 	}
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
-	cmd := exec.Command("ansible-playbook", args...)
+	cmd := exec.CommandContext(ctx, "ansible-playbook", args...)
+	// Cancelling ctx (the template view closing mid-render) interrupts the
+	// render the way ansible-playbook itself expects: SIGTERM, which its
+	// TaskQueueManager forwards to its workers (each its own session
+	// leader via setsid, so a process-group kill wouldn't reach them),
+	// SIGKILL only if it hasn't exited after renderStopGrace. Not what
+	// keeps outputPath from leaking - ansible exits without waiting for its
+	// workers, so a module can still finish its write afterwards; see
+	// RunTemplateVerb's scratch directory for that. This just avoids
+	// leaving an orphaned run working against the target host.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = renderStopGrace
 	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -356,10 +379,26 @@ func PreferredEditor() string {
 	return "vi"
 }
 
+// removeScratchDir removes RunTemplateVerb's scratch directory, retrying
+// briefly: a write landing in it while it's being removed (a render still
+// finishing after quit) makes os.RemoveAll fail with the directory not
+// empty, and the next attempt removes that file too. Once the directory
+// itself is gone nothing can write there again. Best-effort - gives up
+// silently after a few tries, like every other scratch-file cleanup here.
+func removeScratchDir(dir string) {
+	for attempt := 0; attempt < 10; attempt++ {
+		if err := os.RemoveAll(dir); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // RunTemplateVerb is main.go's entry point for the "template" Verb.
 // Returns the process exit code rather than calling os.Exit itself, so
-// its own deferred cleanup (the stub playbook and the rendered-output
-// scratch file, per design-docs/Tangsible template.md's Cleanup section)
+// its own deferred cleanup (the scratch directory holding the stub
+// playbook and the rendered output, per design-docs/Tangsible
+// template.md's Cleanup section)
 // reliably runs on every path - os.Exit skips deferred functions, so
 // main.go calls os.Exit on the returned code only after this function has
 // already returned.
@@ -420,23 +459,58 @@ func RunTemplateVerb(args []string) int {
 	// reported" instead of doing anything useful.
 	hostCandidates := append([]string{}, allHosts...)
 
-	outFile, err := os.CreateTemp("", "tangsible-template-out-*")
+	// One private scratch directory holds both the rendered output and the
+	// stub playbook, removed as a whole at the end. A directory rather than
+	// two loose files is what makes the cleanup leak-proof: a render
+	// interrupted by quitting can still finish its template task after
+	// cleanup has run (ansible-playbook exits on SIGTERM without waiting
+	// for its workers - see RenderTemplate) - with a loose output file,
+	// that write recreated it (a real, reported leak:
+	// /tmp/tangsible-template-out-* left behind when quitting mid-render);
+	// with the directory gone, the template module fails instead
+	// ("Destination directory ... does not exist" - it never creates one).
+	scratchDir, err := os.MkdirTemp("", "tangsible-template-*")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't create a scratch output file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't create a scratch directory: %v\n", err)
 		return 1
 	}
-	outputPath := outFile.Name()
-	outFile.Close()
-	defer os.Remove(outputPath)
+	defer removeScratchDir(scratchDir)
+	outputPath := filepath.Join(scratchDir, "out")
 
 	stubPath, err := WriteTemplateStub(templatePath, outputPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook: %v\n", err)
 		return 1
 	}
-	defer os.Remove(stubPath)
 
-	RunTemplateTUI(templatePath, stubPath, outputPath, hosts, hostCandidates, rest)
+	// SIGTERM (plain `kill`, logout, shutdown) and SIGHUP (the terminal
+	// closing) would otherwise end the process on the spot, skipping the
+	// deferred removeScratchDir. Caught only from here on - before the
+	// scratch directory exists there's nothing to clean up, and the
+	// default behavior (including Ctrl-C at ConfirmManyHosts' cooked-mode
+	// prompt above) stays untouched. A caught signal closes the TUI, which
+	// then shuts down the normal way (in-flight render interrupted and
+	// waited for), and the exit code says which signal it was, as if it
+	// had killed the process (128 + signal number).
+	stopped, stop := context.WithCancel(context.Background())
+	defer stop()
+	var caught atomic.Int32
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	go func() {
+		select {
+		case sig := <-sigs:
+			caught.Store(int32(sig.(syscall.Signal)))
+			stop()
+		case <-stopped.Done():
+		}
+	}()
+
+	RunTemplateTUI(stopped, templatePath, stubPath, outputPath, hosts, hostCandidates, rest)
+	if sig := caught.Load(); sig != 0 {
+		return 128 + int(sig)
+	}
 	return 0
 }
 
@@ -448,8 +522,10 @@ func RunTemplateVerb(args []string) int {
 // and a bottom keybinding-hint bar. No Pages("main")/tree underneath any
 // of this, since there's nothing here to navigate back to. hostCandidates
 // (every known literal hostname, no group names - see its own doc comment
-// at the call site) backs the 'h' dialog's own autocomplete.
-func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandidates, rest []string) {
+// at the call site) backs the 'h' dialog's own autocomplete. Cancelling
+// ctx (RunTemplateVerb's SIGTERM/SIGHUP handling) closes the view as if
+// the user had quit.
+func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath string, hosts, hostCandidates, rest []string) {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
@@ -467,7 +543,8 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	renderedViews := make([]*tview.TextView, len(hosts))
 	for i := range renderedViews {
 		renderedViews[i] = tview.NewTextView().SetDynamicColors(true)
-		renderedViews[i].SetText("[" + uikit.StandardTextColor + "]Rendering...[-]")
+		renderedViews[i].SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+		renderedViews[i].SetText("Rendering...")
 	}
 	// renderFailed mirrors hosts by index (true once that host's own last
 	// render errored - a task failure or a render-level error alike) -
@@ -477,6 +554,12 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// task everywhere else in the app.
 	renderFailed := make([]bool, len(hosts))
 	sourceView := tview.NewTextView().SetDynamicColors(true)
+	// Plain text (rendered output, the source, "Rendering...", an error's
+	// message) is untagged and takes this view-wide color - one mechanism
+	// for every path, the same as the host tabs, rather than wrapping each
+	// string in its own [standard_text] tag (one path once forgot to,
+	// rendering in tview's default white instead).
+	sourceView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 
 	tabs := uikit.NewTabbedPane()
 	// rebuildTabs re-derives the tab list from hosts/renderedViews - called
@@ -504,7 +587,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// the same "long-lived TextViews, content arrives via SetText" shape
 	// host.go's detail view does, unlike tui.go/diff.go's own drill-downs.
 	searchBar := uikit.NewTabSearchBar(app, tabs,
-		" tab/shift-tab: switch tab  e: edit template (reprocesses every host)  h: change host  /: search tab  y: copy tab  q: quit  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom ",
+		templateBar,
 		tabs.Primitive())
 
 	// lastActiveHostIndex is which host tab the 'h' dialog targets -
@@ -534,6 +617,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		AddItem(searchBar.Primitive(), 1, 0, false)
 
 	pages := tview.NewPages().AddPage("main", flex, true, true)
+	help := uikit.NewHelpOverlay(app, pages)
 
 	// refreshSource re-reads the template file itself into the Source
 	// tab - called both up front and every time 'e' returns from the
@@ -549,7 +633,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			sourceView.SetText("[" + uikit.AsyncErrorColor + "]" + tview.Escape(err.Error()) + "[-]")
 			return
 		}
-		sourceView.SetText("[" + uikit.StandardTextColor + "]" + tview.Escape(string(data)) + "[-]")
+		sourceView.SetText(tview.Escape(string(data)))
 		sourceView.ScrollToBeginning()
 	}
 	refreshSource()
@@ -590,7 +674,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		case result.Failed:
 			view.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(result.ErrMsg))
 		default:
-			view.SetText("[" + uikit.StandardTextColor + "]" + tview.Escape(result.Content) + "[-]")
+			view.SetText(tview.Escape(result.Content))
 		}
 		view.ScrollToBeginning()
 		if i < len(renderFailed) {
@@ -612,6 +696,13 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// completed edit never fails to eventually reprocess), and simple
 	// (the pending intent doesn't need to remember which specific request
 	// caused it).
+	// renderCtx/renders let the view's shutdown (after app.Run, below)
+	// stop any render still in flight and wait for it, so nothing can write
+	// outputPath once RunTemplateVerb's deferred cleanup removes it - see
+	// RenderTemplate.
+	renderCtx, cancelRenders := context.WithCancel(ctx)
+	var renders sync.WaitGroup
+
 	rendering := false
 	pendingRerenderAll := false
 	var renderAll func()
@@ -633,10 +724,15 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			renderFailed[i] = false
 		}
 		updateTabColors()
+		renders.Add(1)
 		go func() {
+			defer renders.Done()
 			snapshot := append([]string(nil), hosts...)
 			for i, h := range snapshot {
-				result, err := RenderTemplate(stubPath, outputPath, h, rest)
+				result, err := RenderTemplate(renderCtx, stubPath, outputPath, h, rest)
+				if renderCtx.Err() != nil {
+					return // the view has closed - nothing left to update
+				}
 				i, h, result, err := i, h, result, err
 				app.QueueUpdateDraw(func() {
 					applyRenderResult(i, h, result, err)
@@ -652,11 +748,16 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		}
 		rendering = true
 		host := hosts[i]
-		renderedViews[i].SetText("[" + uikit.StandardTextColor + "]Rendering...[-]")
+		renderedViews[i].SetText("Rendering...")
 		renderFailed[i] = false
 		updateTabColors()
+		renders.Add(1)
 		go func() {
-			result, err := RenderTemplate(stubPath, outputPath, host, rest)
+			defer renders.Done()
+			result, err := RenderTemplate(renderCtx, stubPath, outputPath, host, rest)
+			if renderCtx.Err() != nil {
+				return // the view has closed - nothing left to update
+			}
 			app.QueueUpdateDraw(func() {
 				applyRenderResult(i, host, result, err)
 				finishRendering()
@@ -675,6 +776,9 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	// here); autocomplete against hostCandidates (literal hostnames only)
 	// is wired below.
 	hostInput := tview.NewInputField().SetLabel("Host: ")
+	uikit.StyleInputField(hostInput)
+	hostInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor)) // not tview's default yellow, hard to read on a light background
+	uikit.StyleAutocomplete(hostInput)
 	hostInput.SetAutocompleteFunc(func(text string) []string {
 		return uikit.MatchSingleValue(hostCandidates, text)
 	}).SetAutocompleteUseTags(false). // plain hostnames/group names, and
@@ -697,7 +801,7 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	hostFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(tview.NewBox(), 1, 0, false). // top margin
 		AddItem(hostInput, 1, 0, true)
-	hostFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitle(" Change host (enter: apply, esc: cancel) ")
+	hostFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Change host (enter: apply, esc: cancel) ")
 	pages.AddPage("host", uikit.CenteredModal(hostFlex, 50, 7), true, false)
 
 	hostDialogOpen := false
@@ -766,6 +870,8 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		closeHostDialog()
 	})
 	hostCancelButton := tview.NewButton("Cancel").SetSelectedFunc(closeHostDialog)
+	uikit.StyleButton(hostApplyButton)
+	uikit.StyleButton(hostCancelButton)
 	// Cancel-left/Apply-right, right-aligned (a single flexible spacer on
 	// the left pushes both buttons flush against a small fixed right
 	// margin) - matches the main app's own rerun dialog buttons
@@ -799,11 +905,20 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		// hostDialogOpen's own plain "return event" above, which is
 		// shallow enough - a direct sibling page of the root Pages - not
 		// to need it; searchBar's own prompt sits one Flex layer deeper).
+		if help.HandleKey(event) {
+			return nil
+		}
 		if searchBar.IsComposing() {
 			searchBar.HandleComposingKey(event)
 			return nil
 		}
+		if translated, ok := uikit.TranslateNavAlias(event); ok { // j/k, Space/b, Ctrl-F/B, Ctrl-A/E, </>, G
+			return translated
+		}
 		switch {
+		case uikit.IsHelpKey(event):
+			help.Open(templateHelp, nil)
+			return nil
 		// Esc clears an active search first (design-docs/Search.md);
 		// otherwise deliberately still no KeyEscape case here (unlike
 		// Ctrl-C) - Esc used to quit identically to q/Ctrl-C, but that's
@@ -834,14 +949,6 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 		case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 			searchBar.ShowMessage(uikit.CopyActiveTabStatus(tabs))
 			return nil
-		case event.Key() == tcell.KeyCtrlA:
-			// Not natively handled by tview.TextView (unlike Home/End,
-			// which it does handle directly) - translated the same way
-			// tui.go's own universal key aliases do, so the footer's
-			// "CTRL-A/E: top/bottom" claim is actually true here too.
-			return tcell.NewEventKey(tcell.KeyHome, 0, tcell.ModNone)
-		case event.Key() == tcell.KeyCtrlE:
-			return tcell.NewEventKey(tcell.KeyEnd, 0, tcell.ModNone)
 		case event.Key() == tcell.KeyTab:
 			// design-docs/Tabbed UI.md: Tab/Backtab are tview.TextView's
 			// own default "done key" set (they'd otherwise back out of
@@ -890,6 +997,9 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 			// within the same physical mouse event with a nil event, once
 			// an earlier call in the same batch already returned nil.
 			return nil, action
+		}
+		if ev, act, handled := help.HandleMouse(event, action); handled {
+			return ev, act
 		}
 		if hostDialogOpen {
 			// hostFlex has its own bare tview.NewBox() top margin (see its
@@ -942,7 +1052,24 @@ func RunTemplateTUI(templatePath, stubPath, outputPath string, hosts, hostCandid
 	})
 
 	app.SetRoot(pages, true).SetFocus(tabs.Primitive())
+	// ctx cancelled (a caught signal) closes the view. Queued rather than a
+	// direct app.Stop(): a signal arriving before Run has started would
+	// otherwise be lost, Stop being a no-op on an app that isn't running
+	// yet - a queued update runs as soon as Run does. runDone (not
+	// renderCtx, which ctx's cancellation also cancels) ends this goroutine
+	// once Run has returned on its own.
+	runDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			app.QueueUpdate(app.Stop)
+		case <-runDone:
+		}
+	}()
 	if err := app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "TUI error:", err)
 	}
+	close(runDone)
+	cancelRenders()
+	renders.Wait()
 }

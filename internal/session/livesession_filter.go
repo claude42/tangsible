@@ -59,6 +59,7 @@ func (s *liveSession) closeDialogs() {
 	s.pages.HidePage("filter")
 	s.pages.HidePage("search")
 	s.pages.HidePage("rerun")
+	s.help.Close()
 	s.app.SetFocus(s.list) // undo openSearchDialog's/openRerunDialog's
 	// SetFocus above, if either ran - harmless no-op if neither did
 	// (s.list already has focus in that case).

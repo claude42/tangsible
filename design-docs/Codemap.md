@@ -28,6 +28,10 @@ subprocesses.
 - **treelist.go** - `TreeList`, a hand-rolled `tview.Primitive`
   replacing `tview.List` (needed for unbounded mouse-wheel panning and
   custom per-row coloring `tview.List` couldn't do).
+- **help.go** - `HelpScreen`/`HelpSection`/`HelpEntry`: a screen's
+  shortcut table, rendered as the `?` help dialog
+  (`HelpText`/`NewHelpDialog`); `HelpOverlay`, the dialog's runtime
+  (open/close, key/mouse handling, focus restore) every app shares.
 - **tabs.go** - `TabbedPane`, the shared tab-bar widget (drill-down
   view, template page).
 - **tui_style.go** - palette/style constants (colors, indents,
@@ -61,7 +65,7 @@ package reads.
 - **rerunresolve.go** - `RerunResolution`: what a bare `tangsible
   rerun` resolves to.
 - **runlog.go** - per-generation saved run data
-  (`.tangsible/runs/<id>.jsonl`/`.stderr`) backing "revisit".
+  (`.tangsible/runs/<id>.jsonl`/`.stderr`/`.stdout`) backing "revisit".
 
 ## internal/role
 
@@ -82,6 +86,9 @@ run/rerun/role session and by revisit's own rerun.
 
 - **process.go** - `ProcHandle`/`StreamItem`/`GenerationOutcome`,
   `SpawnGeneration`/`ScanEvents`/`StreamStderr`, exit-code handling.
+- **outputlog.go** - `OutputLog`: one generation's console output
+  (the user's stdout callback merged with stderr) for the `o` view,
+  plus `StripANSI`/`SplitANSI`.
 - **generation.go** - `RunOneGeneration`/`NewRequestRerun`: draining
   one generation to completion and starting a fresh one on request.
 - **progress.go** - `ProgressTracker`: the "Task x/y" top-bar progress
@@ -169,6 +176,14 @@ thin constructor/wiring shell.
   - **livesession_output.go** - the output drill-down: `renderOutputTabs`,
     `showOutputWithOrigin` (+ its three async resolve/docs/file fetch
     goroutines), `navigateOutputTask`/`navigateOutputHost`, `closeOutput`.
+  - **helptables.go** - the live session's shortcut tables
+    (tree, drill-down, `o` view, re-run dialog) and, next to each, its
+    bottom bar string - the place to edit a binding's help text and bar
+    hint. Every other verb package has its own `helptables.go` the same
+    way (revisit, diff, host, template).
+  - **livesession_stdout.go** - the raw-output view (`o`):
+    `openStdoutView`/`syncStdoutView`/`handleStdoutViewKey`, following
+    and holding lines back during a search.
   - **livesession_filter.go** - the tree-level filter (`f`) and search
     (`/`) dialogs: `openFilterDialog`/`openSearchDialog`/`closeDialogs`/
     `applyFilter`.

@@ -248,7 +248,7 @@ const (
 const recapHeadingText = "Summary"
 
 func recapHeadingRowText() string {
-	return "[" + uikit.HeadingColor + "]" + recapHeadingText + "[-]"
+	return "[" + uikit.HeadingColor + "::b]" + recapHeadingText + "[-::-]"
 }
 
 // recapHeadingUnderlineRowText underlines recapHeadingText with a run of
@@ -258,7 +258,7 @@ func recapHeadingRowText() string {
 // translated to a plain tree row here since a tree row can't hold
 // SectionLabel's own embedded newlines the way a TextView can.
 func recapHeadingUnderlineRowText() string {
-	return "[" + uikit.HeadingColor + "]" + strings.Repeat("=", len(recapHeadingText)) + "[-]"
+	return "[" + uikit.HeadingColor + "::b]" + strings.Repeat("=", len(recapHeadingText)) + "[-::-]"
 }
 
 // pluralS returns "" for n == 1, "s" otherwise - shared by every

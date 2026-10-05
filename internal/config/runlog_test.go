@@ -88,12 +88,28 @@ func TestCreateRunLogWriteReadDelete(t *testing.T) {
 		t.Errorf("ReadRunStderr() = %v, want %v", got, want)
 	}
 
+	if _, ok := ReadRunOutput(statePath, runID); ok {
+		t.Error("ReadRunOutput() ok = true before any .stdout was written, want false")
+	}
+	out := CreateRunOutput(statePath, runID)
+	if out == nil {
+		t.Fatal("CreateRunOutput() = nil, want a real file")
+	}
+	out.WriteString("PLAY [all]\nok: [h1]\n")
+	out.Close()
+	if got, ok := ReadRunOutput(statePath, runID); !ok || !slices.Equal(got, []string{"PLAY [all]", "ok: [h1]"}) {
+		t.Errorf("ReadRunOutput() = %q, %v, want two lines, true", got, ok)
+	}
+
 	DeleteRunLog(statePath, runID)
 	if _, err := os.Stat(jsonlPath); !os.IsNotExist(err) {
 		t.Errorf("jsonl file still exists after deleteRunLog() (stat err=%v)", err)
 	}
 	if _, err := os.Stat(stderrPath); !os.IsNotExist(err) {
 		t.Errorf("stderr file still exists after deleteRunLog() (stat err=%v)", err)
+	}
+	if _, err := os.Stat(RunOutputPath(statePath, runID)); !os.IsNotExist(err) {
+		t.Errorf("stdout file still exists after deleteRunLog() (stat err=%v)", err)
 	}
 }
 

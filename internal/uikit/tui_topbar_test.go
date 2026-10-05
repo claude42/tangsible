@@ -48,7 +48,7 @@ func extractTopBarFill(t *testing.T, s string) (filled, unfilled string, hasFill
 
 func TestTopBarTextProgressFill(t *testing.T) {
 	call := func(pos, total int, frozen bool) string {
-		return TopBarText("site.yml", false, nil, 0, frozen, FilterQuery{}, pos, total, 100, "navy", true)
+		return TopBarText("site.yml", "Playbook", nil, 0, frozen, FilterQuery{}, pos, total, 100, "navy", true)
 	}
 
 	t.Run("no skeleton at all: plain, no fill color used", func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestTopBarTextProgressFill(t *testing.T) {
 	})
 
 	t.Run("external content shaped like a tag is escaped, not corrupted", func(t *testing.T) {
-		got := TopBarText("weird[name]", false, nil, 0, false, FilterQuery{}, 0, 0, 100, "navy", true)
+		got := TopBarText("weird[name]", "Playbook", nil, 0, false, FilterQuery{}, 0, 0, 100, "navy", true)
 		if strings.Contains(got, "weird[name]") {
 			t.Errorf("topBarText() = %q, contains an un-escaped tag-shaped bracket", got)
 		}
@@ -121,14 +121,14 @@ func TestTopBarTextProgressFill(t *testing.T) {
 	})
 
 	t.Run("showElapsed false drops the clock entirely - design-docs/Revisit.md", func(t *testing.T) {
-		got := TopBarText("site.yml", false, nil, 0, true, FilterQuery{}, 0, 0, 100, "navy", false)
+		got := TopBarText("site.yml", "Playbook", nil, 0, true, FilterQuery{}, 0, 0, 100, "navy", false)
 		if strings.Contains(got, "00:00") {
 			t.Errorf("topBarText(showElapsed=false) = %q, want no elapsed clock at all", got)
 		}
 	})
 
 	t.Run("showElapsed false still shows a real percentage prefix if there is one", func(t *testing.T) {
-		got := TopBarText("site.yml", false, nil, 0, true, FilterQuery{}, 3, 10, 100, "navy", false)
+		got := TopBarText("site.yml", "Playbook", nil, 0, true, FilterQuery{}, 3, 10, 100, "navy", false)
 		if !strings.Contains(got, "100%") {
 			t.Errorf("topBarText(showElapsed=false) = %q, want the percentage prefix kept (clamped to 100%%, frozen=true)", got)
 		}
@@ -138,9 +138,25 @@ func TestTopBarTextProgressFill(t *testing.T) {
 	})
 
 	t.Run("percentage prefix is not clamped while still running", func(t *testing.T) {
-		got := TopBarText("site.yml", false, nil, 0, false, FilterQuery{}, 3, 10, 100, "navy", true)
+		got := TopBarText("site.yml", "Playbook", nil, 0, false, FilterQuery{}, 3, 10, 100, "navy", true)
 		if !strings.Contains(got, "30%") {
 			t.Errorf("topBarText() = %q, want the honest, un-clamped '30%%' text while the run is still going", got)
 		}
 	})
+}
+
+func TestTopBarLabel(t *testing.T) {
+	for _, c := range []struct {
+		isRole, check bool
+		want          string
+	}{
+		{false, false, "Playbook"},
+		{true, false, "Role"},
+		{false, true, "Check"},
+		{true, true, "Check role"},
+	} {
+		if got := TopBarLabel(c.isRole, c.check); got != c.want {
+			t.Errorf("TopBarLabel(isRole=%v, check=%v) = %q, want %q", c.isRole, c.check, got, c.want)
+		}
+	}
 }

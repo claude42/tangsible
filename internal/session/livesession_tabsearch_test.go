@@ -34,7 +34,7 @@ func newTestTabSearchPanel(t *testing.T) (p *tabSearchPanel, tabs *uikit.TabbedP
 	tv.SetText(tview.Escape("one two three two one"))
 	tabs = uikit.NewTabbedPane()
 	tabs.SetTabs([]string{"Only"}, []tview.Primitive{tv})
-	bottomBar = tview.NewTextView().SetText(outputHintBarText)
+	bottomBar = tview.NewTextView().SetText(outputBar)
 	normalStyle := func() tcell.Style { return tcell.StyleDefault }
 	p = newTabSearchPanel(app, tabs, bottomBar, tabs.Primitive(), normalStyle)
 	return p, tabs, tv, bottomBar
@@ -84,7 +84,7 @@ func TestTabSearchPanelDone_EmptyQueryClears(t *testing.T) {
 	if p.active != nil {
 		t.Error("submitting an empty query should never activate a search")
 	}
-	if got := bottomBar.GetText(true); got != outputHintBarText {
+	if got := bottomBar.GetText(true); got != outputBar {
 		t.Errorf("bottomBar after empty submit = %q, want the hint text back", got)
 	}
 }
@@ -157,7 +157,7 @@ func TestTabSearchPanelNextPrevAndClear(t *testing.T) {
 	if p.active != nil {
 		t.Error("clear() should end the active search")
 	}
-	if got := bottomBar.GetText(true); got != outputHintBarText {
+	if got := bottomBar.GetText(true); got != outputBar {
 		t.Errorf("bottomBar after clear() = %q, want the original hint text back", got)
 	}
 	if got := tv.GetText(false); got == beforeClear {
@@ -186,7 +186,7 @@ func TestTabSearchPanelClearAlwaysResetsBottomBar(t *testing.T) {
 	bottomBar.SetText(" copied \"Only\" tab to clipboard (5 bytes) ")
 
 	p.clear()
-	if got := bottomBar.GetText(true); got != outputHintBarText {
+	if got := bottomBar.GetText(true); got != outputBar {
 		t.Errorf("bottomBar after clear() with no active search = %q, want the hint text back even though nothing was searching", got)
 	}
 }

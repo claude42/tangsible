@@ -22,12 +22,6 @@ import (
 	"github.com/rivo/tview"
 )
 
-// outputHintBarText is bottomBar's normal, non-search text - the drill-down
-// view's own shortcut reminder. A package-level const (was a local inside
-// NewLiveTUI) since newTabSearchPanel now needs it too, to restore this text
-// whenever a search clears.
-const outputHintBarText = " tab/shift-tab: switch tab  n/N: next/prev task  ←/→: prev/next host  /: search tab  y: copy tab  esc/enter: back  ↑/↓/j/k: navigate  CTRL-A/E: top/bottom "
-
 // tabSearchPanel is design-docs/Search.md's "find text in the active tab"
 // apparatus for the live drill-down specifically - increment 3 of the
 // NewLiveTUI refactor (see the plan this session worked from). It is
@@ -52,7 +46,12 @@ type tabSearchPanel struct {
 	app   *tview.Application
 	focus tview.Primitive // regains focus once composing closes - s.list
 
-	tabs      *uikit.TabbedPane // shared with liveSession; ActiveTextView + tab-change clearing
+	// target resolves the TextView a search runs against - the drill-down's
+	// active tab, or the raw-output view's one TextView (see
+	// newTextSearchPanel).
+	target    func() (*tview.TextView, bool)
+	hint      string            // bottomBar's normal text, restored by clear()
+	keysHint  string            // trailing key reminder on the "match N of M" status
 	bottomBar *tview.TextView   // shared with liveSession (s.outputBottomBar)
 	footer    *tview.Pages      // owned here; liveSession slots this into its own Flex layouts
 	input     *tview.InputField // owned here
@@ -79,7 +78,27 @@ type tabSearchPanel struct {
 // in search mode" the same way no matter the session's live/revisit/check
 // chrome.
 func newTabSearchPanel(app *tview.Application, tabs *uikit.TabbedPane, bottomBar *tview.TextView, focus tview.Primitive, normalStyle func() tcell.Style) *tabSearchPanel {
-	p := &tabSearchPanel{app: app, tabs: tabs, bottomBar: bottomBar, focus: focus, normalStyle: normalStyle}
+	p := newTextSearchPanel(app, tabs.ActiveTextView, outputBar, "tab/shift-tab: switch tab", bottomBar, focus, normalStyle)
+
+	// Switching tabs makes an active search irrelevant - it only ever
+	// describes the tab that was active when it started, and highlights
+	// would otherwise keep pointing at text the user has since navigated
+	// away from. TabbedPane.SetChangedFunc fires for every way the active
+	// tab can change (Tab/Backtab, and a mouse click on the tab bar too -
+	// a real gap live use once caught with no clearing at all), so this
+	// one registration covers all of them.
+	tabs.SetChangedFunc(p.clear)
+
+	return p
+}
+
+// newTextSearchPanel is newTabSearchPanel minus the tabs: target resolves
+// whichever TextView a search should run against, hint is bottomBar's
+// normal text (restored on clear), keysHint the key reminder appended to
+// the search status line. The raw-output view ('o', livesession_stdout.go)
+// uses this directly - one TextView, nothing to switch between.
+func newTextSearchPanel(app *tview.Application, target func() (*tview.TextView, bool), hint, keysHint string, bottomBar *tview.TextView, focus tview.Primitive, normalStyle func() tcell.Style) *tabSearchPanel {
+	p := &tabSearchPanel{app: app, target: target, hint: hint, keysHint: keysHint, bottomBar: bottomBar, focus: focus, normalStyle: normalStyle}
 
 	p.input = tview.NewInputField().SetLabel(" Search: ")
 	// SetLabelColor alone only sets the label's own foreground - confirmed
@@ -103,15 +122,6 @@ func newTabSearchPanel(app *tview.Application, tabs *uikit.TabbedPane, bottomBar
 	p.footer = tview.NewPages().
 		AddPage("hint", bottomBar, true, true).
 		AddPage("search", p.input, true, false)
-
-	// Switching tabs makes an active search irrelevant - it only ever
-	// describes the tab that was active when it started, and highlights
-	// would otherwise keep pointing at text the user has since navigated
-	// away from. TabbedPane.SetChangedFunc fires for every way the active
-	// tab can change (Tab/Backtab, and a mouse click on the tab bar too -
-	// a real gap live use once caught with no clearing at all), so this
-	// one registration covers all of them.
-	tabs.SetChangedFunc(p.clear)
 
 	return p
 }
@@ -158,7 +168,7 @@ func (p *tabSearchPanel) done(key tcell.Key) {
 	query := p.input.GetText()
 	if query == "" {
 		p.clear()
-	} else if tv, ok := p.tabs.ActiveTextView(); ok {
+	} else if tv, ok := p.target(); ok {
 		p.active = uikit.StartTextSearch(tv, query)
 		p.bottomBar.SetTextStyle(uikit.SearchBarStyle)
 		p.bottomBar.SetText(p.statusText())
@@ -182,7 +192,7 @@ func (p *tabSearchPanel) done(key tcell.Key) {
 // already supersede a real search.
 func (p *tabSearchPanel) clear() {
 	p.bottomBar.SetTextStyle(p.normalStyle())
-	p.bottomBar.SetText(outputHintBarText)
+	p.bottomBar.SetText(p.hint)
 	p.footer.SwitchToPage("hint")
 	if p.active == nil {
 		return
@@ -199,7 +209,7 @@ func (p *tabSearchPanel) statusText() string {
 	if p.active.HasMatches() {
 		status = fmt.Sprintf("match %d of %d", p.active.CurrentMatch(), p.active.MatchCount())
 	}
-	return fmt.Sprintf(" Search: %s - %s   n/N: next/prev match  Esc: clear  tab/shift-tab: switch tab ", p.active.Query(), status)
+	return fmt.Sprintf(" Search: %s - %s   n/N: next/prev match  Esc: clear  %s ", p.active.Query(), status, p.keysHint)
 }
 
 // hasMatches reports whether there's an active search with at least one
