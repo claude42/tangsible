@@ -81,8 +81,6 @@ changes might be necessary.
   visible.
 - **Drill-down** - inspect a host/task result with the task source, output,
   stderr, --diff output and full JSON result in one place.
-- **Console output** - see ansible-playbook's familiar output from your own
-  stdout callback, live while it runs.
 - **Filtering and search** - show only Changed or Failed results, or search task
   names, source and output.
 - **Keyboard and mouse navigation** - use the keyboard or mouse throughout the

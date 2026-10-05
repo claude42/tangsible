@@ -51,9 +51,6 @@
 
 ### Changed
 
-- Bottom bars now show just the essential shortcuts, plus `?: help`.
-- `--check` runs are marked by a `Check:` label in the top bar instead of a
-  note in the bottom bar.
 - Drill-down: the Resolved tab is now hidden entirely when there's genuinely
   nothing to show, instead of an empty tab.
 - Ignored failures (`ignore_errors: true`) now render in the same orange
@@ -62,10 +59,6 @@
 
 ### Fixed
 
-- `--list-tasks`/`--list-hosts`/`--syntax-check` printed nothing.
-- Diff mode: Esc didn't close the list of runs to compare against.
-- `host`/`hosts`, `template`, diff mode and the run list: Space/`b`,
-  `<`/`>`, `G` and Ctrl-F/Ctrl-B didn't work (only the main views had them).
 - `template`: quitting while a render was running could leave
   `/tmp/tangsible-template-out-*` files behind; its scratch files are now
   also cleaned up on SIGTERM/SIGHUP (e.g. closing the terminal).
