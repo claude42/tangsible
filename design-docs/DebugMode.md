@@ -84,6 +84,30 @@ design (2026-09-27)" below. This reopens local roles as in-scope: the
 roles genuinely outside the playbook's own directory tree, which is the
 narrower case the just-dropped `$ANSIBLE_ROLES_PATH` idea still covers.
 
+**2026-10-14: full interactive-debugger UX vision laid out, and the
+dual-channel architecture it depends on spiked live.** The user's actual
+vision goes well beyond the raw-terminal-handoff MVP proposed as a first
+cut: a dedicated `debug` entry point showing the whole task tree up front,
+breakpoints set directly on it, the usual debugger controls (Step, Step
+Into, Step Out, Run), the tree highlighting the current pause position
+live, and the ability to query (and ideally modify) variables - all on the
+*same* tree the live run already uses, no separate raw-terminal fallback.
+See "Full interactive-debugger vision and dual-channel spike (2026-10-14)"
+below for the full discussion and the two things spiked: concurrent use of
+the real jsonl event-fd pipe and the debugger's REPL at the same time (both
+channels coexist correctly, and a debug pause genuinely blocks the whole
+child process, so the event stream and the debugger naturally stay in
+lockstep for free), and a JSON-dump query trick that avoids parsing the
+debugger's native Python-repr output entirely. Decided out of scope for
+v1: Step Out (no clean notion of "where does this include end" under
+dynamic includes) and variable *modification* persisting beyond an
+immediate same-task redo (structurally unconfirmed, and not a stated v1
+requirement - viewing variables is). Decided in scope, accepted tradeoff:
+splicing `debugger: always` onto *every* task (not just chosen
+breakpoints), trading a per-task round-trip cost for getting Step/Run
+semantics and live breakpoint toggling for free, with no re-editing of the
+copy needed mid-run.
+
 ## Motivating gap
 
 The existing Resolved tab (`internal/session/resolved.go`) re-renders a
@@ -705,6 +729,162 @@ to robustly tell the two apart.
   "a 'paused' TUI state ... net new chrome" open item below.
 - Exact mechanism for forcing a quiet stdout callback during debug mode -
   sketched above, not spiked live.
+
+## Full interactive-debugger vision and dual-channel spike (2026-10-14)
+
+**Status: vision agreed, two foundational mechanics spiked live and
+confirmed; several items explicitly deferred past v1.** Follows directly
+from "Workflow design (2026-09-27)" above, but goes further: that section
+assumed breakpoints get spliced only onto chosen tasks, and left the live
+tree/debugger integration (its own "M3", harder tier) undesigned. This
+section replaces that assumption and tackles the integration question
+head-on, because it turns out to be required for v1, not an optional
+later enhancement.
+
+### The actual vision
+
+Laid out directly, not inferred: start with a `debug` entry point;
+Tangsible shows the whole task tree up front (every task that will be
+involved, before any execution); the user navigates that tree and sets
+breakpoints on it directly; the user then has the usual debugger controls
+- Step, Step Into, Step Out, Run (till breakpoint); when execution stops
+(single step or breakpoint hit), Tangsible highlights the current position
+*on that same tree*; the user can query (and ideally modify) variables,
+either by browsing a list of everything known or by typing a search
+string; and the existing drill-down still works as it already does. No
+separate raw-terminal fallback screen - one continuous tree throughout.
+
+This is explicitly **not** the M1 raw-terminal-handoff MVP proposed
+earlier: that approach would satisfy none of "the tree highlights the
+current position" or "query variables from the TUI," since it hands the
+whole terminal to the child process with no Tangsible-side visibility into
+where execution actually is. Building this vision means the stdout-
+ownership and REPL-integration problems flagged as "M3, harder, optional"
+in the earlier roadmap are actually required for a v1 that matches what
+was asked for - acknowledged and accepted.
+
+### Two refinements that make the controls and the data plane easier than feared
+
+**Step / Run can be the same mechanism, decided client-side, by splicing
+`debugger: always` onto every task rather than onto chosen breakpoints
+only.** This supersedes "Workflow design (2026-09-27)"'s assumption of
+splicing only at chosen tasks. Instead: splice the keyword onto every task
+in the shadow copy uniformly, and let "breakpoint" become a purely
+in-memory set Tangsible checks on each pause - if the paused task isn't in
+that set (and the user isn't single-stepping), auto-send `c` immediately
+without surfacing anything to the user (= Run); otherwise, actually
+present the pause (= Step / breakpoint hit). Consequences, both upsides:
+Step and Step Into fall out for free (the next paused task just *is* the
+next thing, whether a sibling task or the first task of an include -
+Ansible flattens includes into the same sequential stream regardless), and
+breakpoints become toggleable live mid-run with no re-splicing needed for
+any statically-compiled task. The accepted cost: every task now pays a
+synchronous debugger round-trip even while "running free" between
+breakpoints, not just the chosen ones - judged acceptable at this
+project's own ~10-host/interactive-dev-tool scale, not benchmarked.
+
+**The debugger's REPL doesn't need a Python-repr parser if the query
+itself emits JSON.** Rather than parsing `pprint.pformat`'s output (the
+earlier flagged fragility), have the query compute and `print()` its own
+JSON directly as a side effect: `print(json.dumps(expr, default=str)) or
+0` writes clean JSON to the real stdout stream with only a throwaway
+trailing line (the `pformat`'d result of the `or 0`) to discard. `default=
+str` also folds in the "non-JSON-serializable objects nested in results"
+mitigation the very first spike (`New finding #3` under "Live spike
+findings (2026-09-25)") already flagged as needed. Confirmed live (see
+below) - with one correction: `json` isn't pre-imported into the strategy
+module's globals the debugger evaluates against, so the query needs
+`__import__('json').dumps(...)`, not a bare `json.dumps(...)`.
+
+### Hard or open items, discussed and triaged
+
+1. **Step Out - deferred past v1, agreed.** Ansible flattens
+   includes/roles/blocks into a linear task sequence at the strategy level;
+   there's no real call stack. "Where does this include/block end" is
+   knowable statically for `import_tasks`/`roles:`/blocks, but not
+   reliably for a dynamically-resolved `include_tasks:` (especially one
+   inside a loop, which - per "Aggregation" in the main `CLAUDE.md` -
+   gets a fresh Task object per iteration per host). Treated as
+   best-effort-at-best, not pursued for v1.
+2. **Variable modification persisting beyond an immediate same-task redo -
+   structurally unconfirmed, deferred past v1 regardless.** What's
+   confirmed (`strategy/__init__.py:171-189`): `task_vars` in the
+   debugger's scope is the same dict object `_queue_task` reuses on
+   `redo`, so a mutation plus `redo` does affect the re-executed task.
+   Whether a mutation also reaches *later, not-yet-run* tasks depends on
+   whether anything in the debugger's exec scope reaches back into
+   `VariableManager`'s own persistent store, which hasn't been checked -
+   `self` (the strategy instance) isn't exposed to the eval/exec scope,
+   only `task`/`host`/`task_vars`/`play_context`/`result`. Not spiked
+   further this round since it isn't a stated v1 requirement - viewing
+   variables is the v1 bar, not modifying them.
+3. **Driving the debugger's REPL while keeping the live tree populated
+   from the jsonl event stream, concurrently - the central engineering
+   risk, now spiked (see below).**
+4. **Variable volume** - even a trivial two-task fixture has ~25 keys in
+   `task_vars`; a real playbook with gathered facts will have hundreds,
+   several deeply nested (`ansible_facts`). Needs a real searchable/
+   collapsible view (reusing this project's existing search/filter
+   machinery), not a flat dump. Acknowledged, not designed further this
+   round.
+5. **Per-host clarity while paused** - hosts pause one at a time (even
+   under `strategy: free`), but potentially back-to-back for the same
+   breakpoint. Acknowledged as real UI work; may not need to be fully
+   solved for v1.
+
+### Live spike: dual-channel architecture + JSON-query trick
+
+**What was spiked** (throwaway Python driver, not committed - scratchpad
+only, ansible-core 2.19.11): a 4-task, 2-host fixture
+(`testdata/multihost-inventory.ini`) with `debugger: always` spliced onto
+every task (simulating the uniform-splice approach above), run with the
+*real* bundled callback plugin (`callback/tangsible_jsonl.py`) wired up
+exactly as `SpawnGeneration` does it - `ANSIBLE_CALLBACK_PLUGINS`/
+`ANSIBLE_CALLBACKS_ENABLED` set, a pipe's write end passed to the child and
+named via `TANGSIBLE_EVENT_FD` - while *also* driving the debugger's own
+REPL over a pty standing in for the child's inherited stdin/stdout (plus
+`ANSIBLE_STDOUT_CALLBACK=minimal` to keep that stream's other noise down).
+Two independent reader loops: one draining the event-fd pipe and decoding
+each jsonl line, one driving the pty (detect the `[host] TASK: name
+(debug)>` prompt, send `c` or a query, read the response).
+
+**Confirmed: the two channels coexist correctly, and a pause genuinely
+blocks event delivery too - not just display.** Timestamped every jsonl
+event and every debug-prompt sighting across the whole run. Events for a
+task/host arrive at or just before that same task/host's own debug pause
+(matches the code: `send_callback` happens inside the original
+`_process_pending_results`, which runs before `debug_closure`'s own
+post-loop pause). More importantly: **no event for the next task appeared
+until every host's pause on the current task had been resumed** - the
+whole child process is truly frozen during a pause, confirmed with the
+real plugin and fd wiring active, not just inferred from reading source
+as the 2026-09-27 spikes did. Practical consequence: the live tree and the
+debugger are naturally kept in lockstep for free - there's no risk of the
+tree racing ahead of what the user is currently paused on, and no new
+synchronization mechanism is needed beyond "read both channels and the
+ordering falls out."
+
+**Confirmed: the JSON-query trick works, modulo the `__import__` fix
+above.** `print(__import__('json').dumps(task_vars.get('step_var'),
+default=str)) or 0` produced clean, directly parseable JSON as one line of
+the debugger's response (plus the pty's own local-echo of the sent command
+and the throwaway `0` line, both trivial to discard/ignore).
+
+**Incidentally reconfirmed the pre-task-snapshot limitation via this new,
+independent method.** At `task three`'s own pause - *after* that task had
+already reassigned the variable being queried - the JSON query still
+returned the value from *before* task three ran (set by an earlier task).
+Same finding as "Pivot spike (2026-09-27)"'s `task_vars` limitation,
+reconfirmed through the JSON-query path rather than raw `p`/`pformat`.
+
+**Net: the two things most likely to force a redesign both check out.**
+Live-tree-while-debugging and structured-data-without-repr-parsing are no
+longer open questions - the dual-channel architecture and the JSON-query
+trick are both ready to build on. What remains undesigned: the actual
+"paused" TUI chrome, the pre-run static tree (seeded from
+`BuildTaskSourceIndex`, not yet built), and the breakpoint-set data
+structure and its live toggling - none of which were blocked on this
+spike, but none of which are started either.
 
 ## Consuming the data
 
