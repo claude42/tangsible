@@ -77,6 +77,23 @@ package reads.
 - **source.go** - `BuildTaskSourceIndex`: finds a task's own YAML
   source text (the drill-down's TASK: section) by indexing every
   `.yml`/`.yaml` file under the playbook's directory tree.
+  `ListTaskLocations` walks the same tree for `TaskLocation` (file/line/
+  indent, not text) - debug mode's own splice-point data
+  (`design-docs/DebugMode.md`), not used by the drill-down itself.
+
+## internal/debugcopy
+
+Debug mode's shadow-copy primitive (`design-docs/DebugMode.md`'s M0 build
+step) - headless, no verb/TUI wiring yet.
+
+- **shadowcopy.go** - `BuildShadowCopy`: a disposable, hardlinked copy of
+  a playbook's whole directory tree under `.tangsible/debug/<RunID>/`, so
+  a breakpointed run never touches the user's own tracked files and cost
+  is independent of repo size.
+- **splice.go** - `SpliceDebuggerAlways`: inserts a `debugger: always`
+  sibling key into every `source.TaskLocation` found, unlinking each
+  hardlinked file before writing so the original is never mutated through
+  the shared inode.
 
 ## internal/runner
 

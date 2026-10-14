@@ -108,6 +108,27 @@ breakpoints), trading a per-task round-trip cost for getting Step/Run
 semantics and live breakpoint toggling for free, with no re-editing of the
 copy needed mid-run.
 
+**2026-10-14, later the same day: M0 (the shadow-copy primitive) is
+implemented.** Headless, no verb/TUI wiring - `internal/debugcopy`
+(`shadowcopy.go`'s `BuildShadowCopy`, `splice.go`'s
+`SpliceDebuggerAlways`), plus `internal/source`'s new `TaskLocation`/
+`ListTaskLocations` (reusing the existing YAML walk rather than
+duplicating it; `BuildTaskSourceIndex`'s own signature/behavior
+unchanged). Implements exactly the mechanics confirmed live across the
+spikes above: hardlink-based copy rooted under `.tangsible/debug/<RunID>/`,
+excluding `.tangsible`/`.git`; splice-by-unlink-then-write; bottom-to-top
+multi-location insertion per file so one insertion's line shift never
+invalidates another not-yet-processed location above it; block/rescue
+wrappers and flow-style tasks excluded from splice targets. 11 new unit
+tests (hardlink verification, exclusion, cleanup safety, indent
+correctness, multi-line folded-scalar safety, multi-task-per-file
+ordering, a round-trip re-index of the spliced copy to confirm it's still
+valid YAML) - all passing, `go vet`/`go test ./...` clean across the whole
+repo. Not yet built: any verb/flag entry point, the breakpoint picker UI,
+or the dual-channel driving logic itself (spiked standalone in Python, not
+yet ported to Go) - M0 is the primitive two later milestones build on, not
+a usable feature by itself.
+
 ## Motivating gap
 
 The existing Resolved tab (`internal/session/resolved.go`) re-renders a

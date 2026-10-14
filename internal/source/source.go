@@ -30,6 +30,83 @@ import (
 // re-serialized, so the user's own formatting/comments are preserved.
 type TaskSourceIndex map[string]string
 
+// TaskLocation identifies exactly where one task's own mapping begins and
+// ends in its source file, and the column its own sibling keys are
+// indented at - the structural facts debug mode's shadow-copy breakpoint
+// splicing needs (design-docs/DebugMode.md) to insert a new "debugger:
+// always" sibling key without disturbing anything else in the file.
+// Deliberately separate from TaskSourceIndex's own text-slice value: that
+// one is for display (the Task definition tab), this one is for editing.
+type TaskLocation struct {
+	Path string // absolute file path, matching TaskSourceIndex's own keys
+
+	// StartLine is 1-indexed, the line the task's own mapping starts on
+	// (same as TaskSourceIndex's "path:line" key for this same task).
+	StartLine int
+
+	// EndLine is 1-indexed and inclusive - the last line still considered
+	// part of this task, before whatever comes next (a sibling task, or
+	// the enclosing boundary). May include trailing blank lines; a
+	// splicer should trim those itself rather than assume this is the
+	// last non-blank line.
+	EndLine int
+
+	// IndentCols is the 0-indexed column (number of leading spaces) this
+	// task's own sibling keys are written at - e.g. 2 for "- name: foo"
+	// followed by "  command: bar". A new sibling key spliced in at this
+	// same indent is always a sibling of the task's own existing keys,
+	// regardless of where within the task's line range it's inserted.
+	IndentCols int
+}
+
+// ListTaskLocations walks the same playbook directory tree
+// BuildTaskSourceIndex does (every .yml/.yaml file reachable from the
+// playbook's own directory, including roles/** alongside it) and returns
+// the structural location of every real task found - deliberately
+// excluding a block:/rescue:/always: wrapper itself (recordLocation's own
+// doc comment: Ansible's task.path never points at a wrapper, and nothing
+// would ever need to pause there) and any flow-style task ("- {name: foo,
+// command: bar}"), which a line-based splice can't safely extend.
+func ListTaskLocations(playbookPath string) []TaskLocation {
+	var locations []TaskLocation
+
+	abs, err := filepath.Abs(playbookPath)
+	if err != nil {
+		return locations
+	}
+
+	root := filepath.Dir(abs)
+	files := []string{abs}
+
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if path == abs {
+			return nil
+		}
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".yml", ".yaml":
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	discardIndex := TaskSourceIndex{}
+	discardTags := map[string]bool{}
+	discardNames := map[string]bool{}
+	for _, f := range files {
+		indexFile(f, discardIndex, discardTags, discardNames, &locations)
+	}
+	return locations
+}
+
 // blockTaskListKeys/playTaskListKeys name the mapping keys whose value is
 // itself a task-list sequence, at the task level (nested inside a block:)
 // and the play level respectively - shared by walkMappingForTaskLists.
@@ -117,7 +194,7 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	})
 
 	for _, f := range files {
-		indexFile(f, index, tagSet, nameSet)
+		indexFile(f, index, tagSet, nameSet, nil)
 	}
 	return index, sortedSet(tagSet), sortedSet(nameSet)
 }
@@ -330,7 +407,7 @@ func sortedSet(set map[string]bool) []string {
 // top-level shape that isn't a sequence (e.g. a vars file, which is a
 // mapping) simply indexes nothing from this file - never propagated as an
 // error.
-func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bool) {
+func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bool, locations *[]TaskLocation) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -371,12 +448,12 @@ func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bo
 			}
 			collectTags(play, tagSet)
 			collectRoleTags(play, tagSet)
-			walkMappingForTaskLists(path, play, playTaskListKeys, lines, playEnd, index, tagSet, nameSet)
+			walkMappingForTaskLists(path, play, playTaskListKeys, lines, playEnd, index, tagSet, nameSet, locations)
 		}
 		return
 	}
 
-	indexTaskList(path, root, lines, totalLines+1, index, tagSet, nameSet)
+	indexTaskList(path, root, lines, totalLines+1, index, tagSet, nameSet, locations)
 }
 
 // collectTags reads mapping's own "tags:" value, if any - a scalar
@@ -460,7 +537,7 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 // mapping. This keeps every nested task list's span tightly bounded even
 // when interleaved with unrelated keys - e.g. a play's own "vars:" sitting
 // between "tasks:" and "handlers:", or "rescue:" following "block:".
-func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[string]bool, lines []string, limit int, index TaskSourceIndex, tagSet, nameSet map[string]bool) {
+func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[string]bool, lines []string, limit int, index TaskSourceIndex, tagSet, nameSet map[string]bool, locations *[]TaskLocation) {
 	if mapping.Kind != yaml.MappingNode {
 		return
 	}
@@ -474,7 +551,7 @@ func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[s
 		if k+2 < len(mapping.Content) {
 			nested = mapping.Content[k+2].Line
 		}
-		indexTaskList(path, val, lines, nested, index, tagSet, nameSet)
+		indexTaskList(path, val, lines, nested, index, tagSet, nameSet, locations)
 	}
 }
 
@@ -483,16 +560,17 @@ func walkMappingForTaskLists(path string, mapping *yaml.Node, taskListKeys map[s
 // each item. limit is this sequence's own end boundary, inherited from
 // whatever encloses it - used as the last item's fallback boundary; every
 // earlier item's boundary is simply the next item's own start line.
-func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index TaskSourceIndex, tagSet, nameSet map[string]bool) {
+func indexTaskList(path string, seq *yaml.Node, lines []string, limit int, index TaskSourceIndex, tagSet, nameSet map[string]bool, locations *[]TaskLocation) {
 	for i, item := range seq.Content {
 		itemEnd := limit
 		if i+1 < len(seq.Content) {
 			itemEnd = seq.Content[i+1].Line
 		}
 		recordNode(path, item, lines, itemEnd-1, index)
+		recordLocation(path, item, itemEnd-1, locations)
 		collectTags(item, tagSet)
 		collectTaskName(item, nameSet)
-		walkMappingForTaskLists(path, item, blockTaskListKeys, lines, itemEnd, index, tagSet, nameSet)
+		walkMappingForTaskLists(path, item, blockTaskListKeys, lines, itemEnd, index, tagSet, nameSet, locations)
 	}
 }
 
@@ -544,4 +622,33 @@ func recordNode(path string, item *yaml.Node, lines []string, endLine int, index
 		return
 	}
 	index[fmt.Sprintf("%s:%d", path, start)] = text
+}
+
+// recordLocation appends item's own TaskLocation to *locations, the
+// structural counterpart to recordNode's text extraction - nil-safe (a
+// no-op when the caller, like BuildTaskSourceIndex, doesn't need
+// locations at all). Skips a block:/rescue:/always: wrapper itself (same
+// "never a real task, nothing would ever pause there" reasoning
+// collectTaskName already applies) and a flow-style mapping ("- {name:
+// foo, command: bar}"), which a line-based splice can't safely extend.
+func recordLocation(path string, item *yaml.Node, endLine int, locations *[]TaskLocation) {
+	if locations == nil || item.Kind != yaml.MappingNode || len(item.Content) == 0 {
+		return
+	}
+	if item.Style&yaml.FlowStyle != 0 {
+		return
+	}
+	if mappingValue(item, "block") != nil {
+		return
+	}
+	start := item.Line
+	if endLine < start {
+		endLine = start
+	}
+	*locations = append(*locations, TaskLocation{
+		Path:       path,
+		StartLine:  start,
+		EndLine:    endLine,
+		IndentCols: item.Content[0].Column - 1,
+	})
 }
