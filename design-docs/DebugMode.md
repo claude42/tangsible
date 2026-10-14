@@ -129,6 +129,38 @@ or the dual-channel driving logic itself (spiked standalone in Python, not
 yet ported to Go) - M0 is the primitive two later milestones build on, not
 a usable feature by itself.
 
+**2026-10-14, later still: M1 (the live process driver) is implemented,
+and ports the dual-channel architecture from Python to Go successfully -
+with one assumption corrected along the way.** `internal/debugrun`'s
+`Session`/`Spawn` runs a real `ansible-playbook` invocation against an
+`internal/debugcopy` shadow copy, wiring the bundled callback plugin onto
+one pipe (`Events`, reusing `runner.ScanEvents` unmodified) while driving
+ansible-core's own built-in task debugger synchronously over a second,
+independent pipe pair (`Start`/`Continue`/`Query`).
+
+**Correction to the 2026-10-14 vision spike above: the REPL doesn't need a
+pty after all.** Every earlier spike (Python, both the solo debugger spike
+and the dual-channel one) drove the debugger over a pty, mostly out of
+habit. `Session` uses plain `os.Pipe()`s instead - matching this codebase's
+own `runner.SpawnGeneration`, needing no pty library, and avoiding the
+pty's own local-echo noise that the Python spikes had to filter back out
+of every response. Confirmed live via a real integration test
+(`session_test.go`'s `TestSession_LiveDualChannel`, skipped if
+`ansible-playbook` isn't on `PATH`, same pattern `internal/vaultcrypto`'s
+own real-binary tests already use): a 3-task, 2-host fixture, spliced via
+`debugcopy.SpliceDebuggerAlways`, driven through all 6 pauses (3 tasks x 2
+hosts, `--forks 1`), with a `Query` at one pause reconfirming the
+pre-task-snapshot limitation yet again - now through the Go driver itself,
+not just the Python spikes. `go vet`/`go test ./...` clean across the
+whole repo.
+
+Still not built: any verb/flag entry point, the breakpoint picker UI, the
+client-side policy that decides which pauses are real breakpoints versus
+silently auto-continued, or the "paused" TUI chrome - `Session` only
+exposes the raw primitive (every task pauses, `Continue` advances exactly
+one), matching the uniform-splice decision; the policy of auto-continuing
+past non-breakpoints is deliberately left to whatever calls this package.
+
 ## Motivating gap
 
 The existing Resolved tab (`internal/session/resolved.go`) re-renders a

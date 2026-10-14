@@ -95,6 +95,21 @@ step) - headless, no verb/TUI wiring yet.
   hardlinked file before writing so the original is never mutated through
   the shared inode.
 
+## internal/debugrun
+
+Debug mode's live process driver (`design-docs/DebugMode.md`'s M1 build
+step) - headless, no verb/TUI wiring yet; the two previous primitives
+(`internal/debugcopy`, `internal/source.ListTaskLocations`) feed it a
+spliced shadow copy to run.
+
+- **session.go** - `Session`/`Spawn`: runs one `ansible-playbook`
+  invocation against a shadow copy, with the bundled jsonl callback wired
+  on one pipe (`Events`, reusing `runner.ScanEvents` unchanged) and
+  ansible-core's own built-in task debugger driven synchronously over a
+  second pipe pair (`Start`/`Continue`/`Query`) - plain pipes, not a pty;
+  `Query` sidesteps parsing the debugger's native Python-repr output by
+  having the query itself print JSON.
+
 ## internal/runner
 
 The "how does one ansible-playbook generation actually run" mechanism -
