@@ -77,15 +77,28 @@ type Session struct {
 	replRFile *os.File
 }
 
-// Spawn starts ansible-playbook against copyDir/playbook, with the bundled
-// callback plugin wired for jsonl events (runner.CallbackPluginEnv, the
-// same mechanism runner.SpawnGeneration already uses) and a quiet stdout
-// callback forced so the REPL's prompt text is never ambiguous with
-// another callback's own output - design-docs/DebugMode.md's
-// stdout-ownership wrinkle. Colors are forced off (not forceColorEnv's
-// usual force-on): the prompt is matched by a plain-text regex, and ANSI
-// escapes in the middle of it would break that.
-func Spawn(copyDir, playbook string, args []string) (*Session, error) {
+// Spawn starts ansible-playbook against the already-spliced copy at
+// playbook (an absolute path, e.g. copyDir/relPlaybook - see debugverb.go's
+// own copyPlaybookPath), with the bundled callback plugin wired for jsonl
+// events (runner.CallbackPluginEnv, the same mechanism runner.
+// SpawnGeneration already uses) and a quiet stdout callback forced so the
+// REPL's prompt text is never ambiguous with another callback's own
+// output - design-docs/DebugMode.md's stdout-ownership wrinkle. Colors are
+// forced off (not forceColorEnv's usual force-on): the prompt is matched
+// by a plain-text regex, and ANSI escapes in the middle of it would break
+// that.
+//
+// Deliberately leaves cmd.Dir unset, inheriting the caller's own working
+// directory - the same as runner.SpawnGeneration's own plain run. An
+// earlier version set cmd.Dir to the shadow copy, which broke any relative
+// passthrough path (-i some/inventory, -e @some/vars.yml, ...): it then
+// resolved against the copy's own directory instead of where the user
+// actually typed it, silently matching no hosts at all instead of erroring
+// (design-docs/DebugMode.md's "relative inventory path vs. shadow-copy
+// cwd" finding). Passing playbook as an absolute path makes that
+// unnecessary: ansible-core itself always resolves role/include paths
+// relative to the playbook's own directory, never cwd.
+func Spawn(playbook string, args []string) (*Session, error) {
 	pluginEnv, err := runner.CallbackPluginEnv()
 	if err != nil {
 		return nil, err
@@ -93,7 +106,6 @@ func Spawn(copyDir, playbook string, args []string) (*Session, error) {
 
 	cmdArgs := append([]string{playbook}, args...)
 	cmd := exec.Command("ansible-playbook", cmdArgs...)
-	cmd.Dir = copyDir
 
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {

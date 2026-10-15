@@ -420,22 +420,39 @@ turn, "per-host clarity while paused" still open per above) and the
 selected row's real halfBlock per-host color transition, both exactly as
 the main tree's own `TaskLabel` already renders them, for free.
 
-**Incidental finding, not fixed, not caused by this change - confirmed
-live and worth flagging separately:** a relative path argument (e.g.
-`-i testdata/multihost-inventory.ini`) passed through to `ansible-
-playbook` resolves against the *shadow copy's* cwd, not the original
-invocation's - for a playbook whose own directory is what gets copied
-(the common case), a relative inventory path with a leading path segment
-matching that directory's own name silently resolves to a nonexistent
-nested path, Ansible falls back to its own default inventory, `hosts:
-all` matches nothing, and the run "finishes" instantly with no tasks ever
-run and no debugger pauses ever firing - looks exactly like a broken
-breakpoint/pause mechanism from the TUI's point of view, but isn't one.
-Confirmed reproducible against the pre-existing, already-committed M3
-code too (not introduced by today's change) by rebuilding the prior
-commit and reproducing it there first. Worked around in testing by
-passing an absolute `-i` path; not otherwise addressed here - out of
-scope for what was asked this round.
+**Incidental finding from the round above, fixed in a follow-up pass:** a
+relative path argument (e.g. `-i testdata/multihost-inventory.ini`)
+passed through to `ansible-playbook` resolved against the *shadow copy's*
+cwd, not the original invocation's - for a playbook whose own directory is
+what gets copied (the common case), a relative inventory path with a
+leading path segment matching that directory's own name silently resolved
+to a nonexistent nested path, Ansible fell back to its own default
+inventory, `hosts: all` matched nothing, and the run "finished" instantly
+with no tasks ever run and no debugger pauses ever firing - looked exactly
+like a broken breakpoint/pause mechanism from the TUI's point of view, but
+wasn't one. Confirmed reproducible against the pre-existing, already-
+committed M3 code too (not introduced by the rendering-parity change
+above) by rebuilding the prior commit and reproducing it there first.
+
+Root cause: `debugrun.Spawn` set `cmd.Dir` to the shadow copy so it could
+pass the playbook as a path relative to that copy - but that meant every
+*other* relative passthrough path resolved against the wrong directory
+too, unlike a plain `run` (`runner.SpawnGeneration` never sets `cmd.Dir` at
+all, so it inherits the real invocation cwd). Fixed by having
+`debugverb.RunDebugVerb` pass `Spawn` the copy-playbook's own *absolute*
+path (`copyPlaybookPath`, already computed there for the `--list-tasks`
+probe) instead of a copy-relative one, and dropping `cmd.Dir` entirely -
+ansible-core itself always resolves role/include paths against the
+playbook's own directory, never cwd, so an absolute playbook path needs no
+cwd help, while every other passthrough arg now resolves exactly like a
+plain run. Guarded by a new live (real `ansible-playbook`) test,
+`TestSession_RelativePassthroughPathResolvesAgainstCallersCwd`, which
+`os.Chdir`s into a directory holding nothing but a relative inventory file
+never placed under the shadow copy, so only correct cwd-resolution can
+make it pass. Confirmed live via tmux too, with the exact repro above
+(`-i testdata/multihost-inventory.ini`, relative, from the repo root):
+both hosts now show real outcomes instead of the run finishing instantly
+with none.
 
 Added `TestBuildRows_InsertsOneHeaderPerPlayChange`'s own navRows/pbState
 assertions and a new `TestRecordHost_SortedDedup`, alongside updating the

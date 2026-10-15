@@ -90,7 +90,7 @@ func TestSession_LiveDualChannel(t *testing.T) {
 	}
 
 	inventory := filepath.Join(repoRoot(t), "testdata", "multihost-inventory.ini")
-	sess, err := Spawn(copyDir, "playbook.yml", []string{"-i", inventory, "--forks", "1"})
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", inventory, "--forks", "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,5 +175,84 @@ func TestSession_LiveDualChannel(t *testing.T) {
 		if !sawTaskStart[want] {
 			t.Errorf("never observed a v2_playbook_on_task_start event for %q (events: %+v)", want, observedEvents)
 		}
+	}
+}
+
+// TestSession_RelativePassthroughPathResolvesAgainstCallersCwd guards
+// against Spawn regressing to setting cmd.Dir to the shadow copy (what it
+// did before design-docs/DebugMode.md's "relative inventory path vs.
+// shadow-copy cwd" fix): a relative -i must resolve against wherever the
+// caller's own process cwd is, exactly like runner.SpawnGeneration's own
+// plain run, never against the shadow copy's directory. It deliberately
+// chdirs so an inventory file that exists only relative to that directory
+// - never placed under the shadow copy itself - is the one thing that can
+// make this pass.
+func TestSession_RelativePassthroughPathResolvesAgainstCallersCwd(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	proj := t.TempDir()
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	playbook := `- hosts: all
+  gather_facts: false
+  tasks:
+    - name: only task
+      command: echo hi
+`
+	if err := os.WriteFile(playbookPath, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := source.ListTaskLocations(playbookPath)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 task location, got %d: %+v", len(locs), locs)
+	}
+
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	// A separate directory, never part of the shadow copy, holding the
+	// inventory under a plain relative name - resolving it at all proves
+	// resolution happened against this directory, not copyDir.
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "inventory.ini"), []byte("[all]\nhost1 ansible_connection=local\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", "inventory.ini", "--forks", "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	pause, eof, err := sess.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("session ended before any debug pause - the relative inventory path didn't resolve, so no host matched hosts: all")
+	}
+	if pause.Host != "host1" {
+		t.Errorf("pause host = %q, want host1", pause.Host)
 	}
 }

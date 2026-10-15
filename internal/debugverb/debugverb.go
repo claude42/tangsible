@@ -134,6 +134,6 @@ func RunDebugVerb(args []string) int {
 		return 1
 	}
 
-	runDebugTUI(copyDir, relPlaybook, rest, skeleton)
+	runDebugTUI(copyPlaybookPath, relPlaybook, rest, skeleton)
 	return 0
 }

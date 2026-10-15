@@ -66,7 +66,7 @@ func threeTaskTwoHostFixture(t *testing.T) (copyDir string) {
 func spawnFixture(t *testing.T, copyDir string) *Session {
 	t.Helper()
 	inventory := filepath.Join(repoRoot(t), "testdata", "multihost-inventory.ini")
-	sess, err := Spawn(copyDir, "playbook.yml", []string{"-i", inventory, "--forks", "1"})
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", inventory, "--forks", "1"})
 	if err != nil {
 		t.Fatal(err)
 	}

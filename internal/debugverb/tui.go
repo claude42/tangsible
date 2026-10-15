@@ -79,8 +79,8 @@ type debugApp struct {
 	pages    *tview.Pages
 	varsView *tview.TextView
 
-	copyDir, relPlaybook string
-	rest                 []string
+	copyPlaybookPath, relPlaybook string
+	rest                          []string
 
 	rows            []*debugRow
 	navRows         []uikit.Row             // parallel to rows; Selected nil on a header row, backs the Up/Down/j/k header-skip (uikit.NextInteractiveRow) - see handleRowSkip
@@ -105,14 +105,14 @@ type debugApp struct {
 // runDebugTUI builds and runs the debug verb's own TUI - blocks until the
 // user quits. skeleton is the pre-run task list (runner.
 // BuildProgressSkeleton, already probed against the spliced copy).
-func runDebugTUI(copyDir, relPlaybook string, rest []string, skeleton []runner.ProgressEntry) {
+func runDebugTUI(copyPlaybookPath, relPlaybook string, rest []string, skeleton []runner.ProgressEntry) {
 	d := &debugApp{
-		copyDir:       copyDir,
-		relPlaybook:   relPlaybook,
-		rest:          rest,
-		bps:           debugrun.NewBreakpointSet(),
-		tracker:       runner.NewProgressTracker(skeleton),
-		currentRowIdx: -1,
+		copyPlaybookPath: copyPlaybookPath,
+		relPlaybook:      relPlaybook,
+		rest:             rest,
+		bps:              debugrun.NewBreakpointSet(),
+		tracker:          runner.NewProgressTracker(skeleton),
+		currentRowIdx:    -1,
 	}
 	d.buildRows(skeleton)
 
@@ -389,7 +389,7 @@ func (d *debugApp) startOrContinue(mode debugrun.StepMode) {
 
 	if d.sess == nil {
 		go func() {
-			sess, err := debugrun.Spawn(d.copyDir, d.relPlaybook, d.rest)
+			sess, err := debugrun.Spawn(d.copyPlaybookPath, d.rest)
 			if err != nil {
 				d.app.QueueUpdateDraw(func() {
 					d.driving = false
