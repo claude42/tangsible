@@ -161,6 +161,61 @@ exposes the raw primitive (every task pauses, `Continue` advances exactly
 one), matching the uniform-splice decision; the policy of auto-continuing
 past non-breakpoints is deliberately left to whatever calls this package.
 
+**2026-10-15: M2 (the breakpoint policy) is implemented, still headless.**
+`internal/debugrun/breakpoints.go` adds exactly the piece flagged as
+missing above: `BreakpointSet` (a mutex-guarded set of armed task labels,
+`Pause.Task` verbatim - safe for live toggling from another goroutine
+while a session is blocked mid-run) and a `StepMode` (`RunTillBreakpoint`
+vs `StepOne`) consumed by two functions, `RunWithBreakpoints`/
+`ContinueWithBreakpoints`, that wrap `Session.Start`/`Continue` with the
+"Step / Run can be the same mechanism, decided client-side" policy from
+the 2026-10-14 vision section above: under `RunTillBreakpoint`, any pause
+whose task isn't armed is silently resumed past (`Session.Continue`) until
+an armed one or eof; under `StepOne` the very next pause is always
+surfaced, armed or not. An empty `BreakpointSet` under `RunTillBreakpoint`
+runs the whole session to completion in one call - incidentally the same
+outcome as answering `c` to ansible-playbook's own `--step` prompt (see
+that discussion below), but falling out of the same mechanism as every
+other mode rather than needing a separate flag that, unlike this, can't be
+re-armed later in the run.
+
+Confirmed live (`breakpoints_test.go`, same 3-task/2-host fixture and
+skip-if-`ansible-playbook`-missing pattern as `session_test.go`): an empty
+set runs to completion; arming `"TASK: task two"` surfaces exactly that
+task's pause for *each* host in turn (breakpoints are per task label, not
+per host - both hosts' pauses on the armed task surface, confirming the
+doc's own "per-host clarity while paused" open item is still real, just
+not solved here) and auto-continues through the unarmed task either side
+of it; `StepOne` surfaces all 6 pauses regardless of an empty set,
+matching driving `Session` with no policy layer at all. `go vet`/
+`go test ./...` clean across the whole repo.
+
+Still not built: any verb/flag entry point, the breakpoint picker UI, or
+the "paused" TUI chrome itself - M2 is the last headless primitive on the
+path to M3 (the actual TUI integration: entry point, pre-run static tree,
+live highlighting, variable view), which remains undesigned beyond the
+vision and open items already captured above.
+
+**2026-10-15: side discussion - could `ansible-playbook --step` do any of
+this instead of the uniform `debugger: always` splice?** Raised, spiked by
+reading source (not re-spiked live - no behavior claim here needed a
+live run to settle). `_take_step` (`ansible/plugins/strategy/__init__.py`,
+~lines 876-897) is a separate, pre-dispatch `display.prompt()` asking
+"(N)o/(y)es/(c)ontinue", confirmed wired into both `linear.py` and
+`free.py` (so it's not a strategy-specific limitation) - but answering
+`c` sets `self._step = False` **permanently**, checked at every call site
+with no code path that ever sets it back to `True`. That means `--step`
+can only express "step through literally everything from here" or "give
+up stepping for the rest of the run entirely" - never "run free past
+these tasks but still stop at a later one," which is the actual
+breakpoint use case `BreakpointSet` exists for. It also carries no
+variable-inspection capability of its own (a bare `y`/`n`/`c` prompt, no
+`cmd.Cmd` eval scope) - that still only comes from the `debugger:`
+keyword. Conclusion: not a viable alternative to the uniform splice for
+re-armable breakpoints, though its one-way "run to completion" shape is
+worth noting as something `BreakpointSet` already gives us for free (an
+empty set under `RunTillBreakpoint`), with no separate flag needed.
+
 ## Motivating gap
 
 The existing Resolved tab (`internal/session/resolved.go`) re-renders a

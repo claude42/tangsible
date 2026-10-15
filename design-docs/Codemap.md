@@ -109,6 +109,11 @@ spliced shadow copy to run.
   second pipe pair (`Start`/`Continue`/`Query`) - plain pipes, not a pty;
   `Query` sidesteps parsing the debugger's native Python-repr output by
   having the query itself print JSON.
+- **breakpoints.go** - M2: `BreakpointSet` (live-togglable, mutex-guarded
+  set of armed task labels) and `StepMode`, consumed by
+  `RunWithBreakpoints`/`ContinueWithBreakpoints` to decide, per `Pause`,
+  whether to surface it or auto-`Continue` past it - still headless, no
+  verb/TUI wiring.
 
 ## internal/runner
 
