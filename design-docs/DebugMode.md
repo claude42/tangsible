@@ -459,6 +459,31 @@ assertions and a new `TestRecordHost_SortedDedup`, alongside updating the
 existing tests for the new `debugRow` shape. `go vet`/`go test ./...`
 clean across the whole repo.
 
+**Second incidental finding, also fixed:** a debug session killed before
+its own cleanup ran (crash, `kill -9`, a tmux session torn down instead of
+quitting via `q`) leaves a stale `.tangsible/debug/<runID>/` shadow copy
+behind under the playbook's own directory - itself a full copy of the
+playbook's directory tree with `debugger: always` already spliced onto
+every task. `internal/source.ListTaskLocations`'s own directory walk
+didn't exclude `.tangsible` (only `.git`), unlike `debugcopy.
+BuildShadowCopy`'s own walk, which does - so a later `debug` invocation's
+locations included paths under that *old* copy, which the *new* shadow
+copy never receives (`.tangsible` is excluded when building it), and
+`SpliceDebuggerAlways` then failed outright with a plain "no such file or
+directory", with nothing in that error pointing back at the real, stale
+cause. Reproduced live via tmux: started a debug session, killed the tmux
+session instead of quitting, confirmed the leftover `.tangsible/debug/
+<timestamp>/` directory existed, then confirmed a second `debug`
+invocation failed with exactly that error. Fixed by adding the same
+`.tangsible` exclusion to both of `internal/source`'s own directory walks
+(`ListTaskLocations` and `BuildTaskSourceIndex` - the latter has the
+same latent gap for a plain `run`'s own File/Resolved-tab source index,
+even though it's not what surfaced the bug here). Guarded by a new test,
+`TestListTaskLocations_SkipsLeftoverTangsibleDir` (confirmed to fail
+without the fix, by temporarily reverting it and re-running), and
+reconfirmed live afterward: the same kill-tmux-then-restart repro now
+starts cleanly on the second invocation.
+
 ## Motivating gap
 
 The existing Resolved tab (`internal/session/resolved.go`) re-renders a

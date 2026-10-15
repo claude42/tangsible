@@ -67,6 +67,17 @@ type TaskLocation struct {
 // doc comment: Ansible's task.path never points at a wrapper, and nothing
 // would ever need to pause there) and any flow-style task ("- {name: foo,
 // command: bar}"), which a line-based splice can't safely extend.
+//
+// Skips ".tangsible" the same way debugcopy.BuildShadowCopy's own walk
+// does: a debug session killed before its cleanup ran (crash, kill -9,
+// tmux session torn down instead of quitting via "q") can leave a stale
+// ".tangsible/debug/<runID>/" shadow copy behind under the playbook's own
+// directory. Without this, a later debug invocation's locations would
+// include paths under that *old* copy, which the new shadow copy never
+// receives (BuildShadowCopy excludes ".tangsible" when building it) -
+// SpliceDebuggerAlways would then fail with a plain "no such file or
+// directory" trying to splice a location that doesn't exist in the new
+// copy, with nothing in the error pointing at the real, stale cause.
 func ListTaskLocations(playbookPath string) []TaskLocation {
 	var locations []TaskLocation
 
@@ -83,7 +94,7 @@ func ListTaskLocations(playbookPath string) []TaskLocation {
 			return nil
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			if d.Name() == ".git" || d.Name() == ".tangsible" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -157,6 +168,12 @@ var ReservedTagNames = []string{"always", "never", "tagged", "untagged", "all"}
 // (the rerun verb's very first dialog, before anything has run, would
 // otherwise have nothing to suggest from), and doesn't miss a task whose
 // own when: never let it execute in the run that happens to be on screen.
+//
+// Skips ".tangsible" the same way ListTaskLocations' own walk does (see
+// its doc comment) - a stale debug-mode shadow copy left under the
+// playbook's directory by an uncleanly-killed debug session shouldn't
+// leak its own already-spliced debugger: tasks/tags/names into a later
+// plain run's source index either.
 func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []string) {
 	index := TaskSourceIndex{}
 	tagSet := map[string]bool{}
@@ -178,7 +195,7 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 			return nil // unreadable entry - skip it, not fatal to the walk
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			if d.Name() == ".git" || d.Name() == ".tangsible" {
 				return filepath.SkipDir
 			}
 			return nil

@@ -108,3 +108,62 @@ func TestListTaskLocations(t *testing.T) {
 		t.Errorf("expected 2 nested block/rescue task locations, got %d (locs: %+v)", foundNested, locs)
 	}
 }
+
+// TestListTaskLocations_SkipsLeftoverTangsibleDir guards a real scenario,
+// not just a hypothetical one: a debug session killed before its own
+// cleanup runs (crash, kill -9, a tmux session torn down instead of
+// quitting via "q") leaves a stale ".tangsible/debug/<runID>/" shadow copy
+// behind under the playbook's own directory - itself a full copy of the
+// playbook's directory tree, debugger: already spliced onto every task.
+// A later debug invocation's own ListTaskLocations must not walk into it:
+// doing so produces locations pointing at files the *new* shadow copy
+// never receives (debugcopy.BuildShadowCopy excludes ".tangsible" when
+// building one), which previously made SpliceDebuggerAlways fail with a
+// plain "no such file or directory" for a reason nothing in that error
+// pointed back to.
+func TestListTaskLocations_SkipsLeftoverTangsibleDir(t *testing.T) {
+	dir := t.TempDir()
+	playbook := `- hosts: all
+  gather_facts: false
+  tasks:
+    - name: real task
+      command: echo hi
+`
+	path := filepath.Join(dir, "playbook.yml")
+	if err := os.WriteFile(path, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := filepath.Join(dir, ".tangsible", "debug", "stale-run")
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stalePlaybook := `- hosts: all
+  gather_facts: false
+  tasks:
+    - name: real task
+      command: echo hi
+      debugger: always
+`
+	if err := os.WriteFile(filepath.Join(stale, "playbook.yml"), []byte(stalePlaybook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := ListTaskLocations(path)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 location (the real playbook's own task only), got %d: %+v", len(locs), locs)
+	}
+	for _, l := range locs {
+		if strings.Contains(l.Path, ".tangsible") {
+			t.Errorf("location %+v points inside the leftover .tangsible dir, should have been skipped", l)
+		}
+	}
+
+	index, _, names := BuildTaskSourceIndex(path)
+	if len(index) != 1 {
+		t.Errorf("BuildTaskSourceIndex: expected 1 indexed source, got %d: %v", len(index), index)
+	}
+	if len(names) != 1 {
+		t.Errorf("BuildTaskSourceIndex: expected 1 task name, got %d: %v", len(names), names)
+	}
+}
