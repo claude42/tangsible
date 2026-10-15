@@ -114,6 +114,47 @@ spliced shadow copy to run.
   `RunWithBreakpoints`/`ContinueWithBreakpoints` to decide, per `Pause`,
   whether to surface it or auto-`Continue` past it - still headless, no
   verb/TUI wiring.
+- `Session.Signal` (session.go, M3) - forwards a signal to the child, for
+  `internal/debugverb`'s own Ctrl-C/q handling.
+
+## internal/debugverb
+
+The "debug" verb (`design-docs/DebugMode.md`'s M3 build step) - its own
+standalone TUI (own small struct/constructor), not `internal/session`'s
+`liveSession`/`NewLiveTUI`: that machinery's 30+ constructor parameters
+and cross-cutting dialogs (rerun, revisit, two-pane drill-down, filter/
+search, recap) don't apply to a debug session, so this is a separate,
+smaller construct instead, following the same "one package per standalone
+verb" pattern `internal/role`/`internal/template`/`internal/host` already
+use. Reuses, deliberately: the same jsonl event stream/decoding
+(`runner.ScanEvents`, `playbook.RawEvent`/`DecodeHostResult`), the same
+outcome/color vocabulary (`playbook.Outcome`, `uikit.ColorTag`), and the
+same `--list-tasks --list-hosts` skeleton/forward-matching machinery the
+live run's own progress indicator already uses (`runner.
+BuildProgressSkeleton`/`ProgressTracker`) - repurposed here to build the
+pre-run tree itself and to resolve which row a live event or debugger
+pause belongs to, despite task names repeating.
+
+- **debugverb.go** - `RunDebugVerb`: arg parsing (simpler than `run`'s -
+  no `--start-at-play`, no re-run dialog, no history recording), builds
+  the shadow copy + splice (`internal/debugcopy`), probes the spliced
+  copy for its task skeleton (`runner.BuildProgressSkeleton`), rejects
+  `--step` outright (would hang - a structurally different, unhandled
+  pause point), and hands off to the TUI.
+- **tui.go** - `debugApp`: the pre-run/live tree (breakpoint markers,
+  live per-host outcome coloring, current-pause highlighting), driving
+  `debugrun.Session`/`BreakpointSet` from a background goroutine per
+  keypress (`startOrContinue`/`openVars`), reporting back via
+  `app.QueueUpdateDraw` - the same "kick off eagerly, update via
+  QueueUpdateDraw once done" pattern `internal/host`'s own tab fetches
+  use, which keeps every mutation on tview's single event-loop goroutine
+  even though the actual session I/O happens elsewhere. `applyEvent`
+  resolves a live event's (play, task) against the skeleton via a
+  `runner.ProgressTracker`, the same name-collision-safe algorithm the
+  live run's own progress bar uses.
+- **helptables.go** - the debug view's help table and bottom bars; `t`
+  (not `b`) arms/disarms a breakpoint - confirmed live that `b` is
+  already `uikit.TranslateNavAlias`'s own Page-Up alias.
 
 ## internal/runner
 

@@ -13,10 +13,12 @@ design choices. `README.md` is the user-facing tour; `design-docs/Codemap.md`
 maps packages/files (verify against `grep`, it can drift);
 `design-docs/Keyboard-shortcuts.md` is the full key reference.
 
-One Go binary, ten verbs (`internal/config/resolve.go`'s `ParseVerb`): `run`,
-`rerun`, `role`, `revisit` share the live tree/TUI machinery
+One Go binary, eleven verbs (`internal/config/resolve.go`'s `ParseVerb`):
+`run`, `rerun`, `role`, `revisit` share the live tree/TUI machinery
 (`internal/session`); `template`, `host`/`hosts`/`inventory`, `vault`,
-`version` are standalone programs that never build the live tree. Requires
+`debug`, `version` are standalone programs that never build the live tree -
+`debug` (`internal/debugverb`, `design-docs/DebugMode.md`) has its own
+small TUI, not `internal/session`'s `liveSession`. Requires
 `ansible-playbook` and a real TTY. Root `main.go` just calls `session.Main`.
 
 ## Commands
@@ -55,10 +57,13 @@ dialogs, search, help, colors - nothing verb-specific) · `internal/config`
 progress/outcome of one `ansible-playbook` generation) · `internal/source`
 (task YAML source lookup) · `internal/session` (run/rerun/role orchestration +
 the live TUI) · one package per standalone verb (`role`, `template`, `host`,
-`revisit`, `diff`, `vault*`) · `internal/inventory`, `internal/ansibledoc`
-(small shared clients). Only `internal/session` (its `tui.go` and
-`livesession*.go`) and `internal/uikit` touch `tview`/`tcell` for the live
-session; `session/main.go` doesn't.
+`revisit`, `diff`, `vault*`, `debugverb`) · `internal/debugcopy`/
+`internal/debugrun` (debug mode's headless primitives: shadow-copy/splice,
+live process driver + breakpoint policy - `debugverb` is their only caller)
+· `internal/inventory`, `internal/ansibledoc` (small shared clients). Only
+`internal/session` (its `tui.go` and `livesession*.go`), `internal/uikit`,
+and `internal/debugverb` (its own separate, smaller TUI - see "What this
+is" above) touch `tview`/`tcell`; `session/main.go` doesn't.
 
 The live TUI is a `liveSession` struct (`livesession.go`) built by `NewLiveTUI`
 (`tui.go`), with methods split by concern across `livesession_*.go` (rebuild,
@@ -269,6 +274,13 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - **Vault** (`Vault.md`): native AES-CTR (`internal/vaultcrypto`); re-encrypts
   only changed keys and splices original bytes for unchanged ones (yaml.v3
   can't reproduce ansible-vault's indentation); never touches tview.
+- **Debug** (`DebugMode.md`): breakpoints + step on ansible-core's own
+  `debugger:` keyword, spliced onto every task in a disposable hardlink
+  shadow copy (`internal/debugcopy`); `internal/debugrun` drives it over a
+  second pipe pair alongside the normal jsonl event stream; `internal/
+  debugverb`'s own standalone TUI decides which pauses to surface
+  (`BreakpointSet`) and shows live per-host outcomes/the current pause on
+  a pre-run tree predicted the same way the progress indicator is.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):
@@ -282,9 +294,12 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 
 ## Scope (deliberate)
 
-- Interactive input *after* the TUI starts is unsupported (`--step` crashes,
-  a bare `pause:` is skipped); become/vault password prompts work because they
-  happen before the TUI.
+- Interactive input *after* the TUI starts is unsupported in `run`/`rerun`/
+  `role` (`--step` crashes, a bare `pause:` is skipped); become/vault
+  password prompts work because they happen before the TUI. `debug`
+  (`DebugMode.md`) is the dedicated way to drive ansible-core's own task
+  debugger instead - not available from inside the regular live tree, and
+  it rejects `--step` itself (a second, unhandled pause mechanism).
 - `strategy: free` is supported (`StrategyFree.md`); a globally configured
   `free` isn't seen by the progress probe.
 - No execution environments / ansible-runner; only a subset of

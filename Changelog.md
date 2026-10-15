@@ -6,6 +6,10 @@
 
 - New verb: `tangsible inventory` - shows an interactive tree view of the
   whole inventory simiilar to ansible-inventory --graph
+- New `debug` verb: set breakpoints on a playbook's own tasks, then run or
+  step through it and inspect variables at each pause, built on
+  ansible-core's own task debugger against a disposable shadow copy of the
+  playbook - the real files are never touched.
 
 ### Fixed
 

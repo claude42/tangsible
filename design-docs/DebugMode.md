@@ -216,6 +216,143 @@ re-armable breakpoints, though its one-way "run to completion" shape is
 worth noting as something `BreakpointSet` already gives us for free (an
 empty set under `RunTillBreakpoint`), with no separate flag needed.
 
+**2026-10-15: M3 (the "debug" verb and its own TUI) is implemented - a
+first slice, confirmed live via tmux, not the full end-state vision.**
+Before writing any TUI code, read `internal/session/tui.go`'s `NewLiveTUI`
+in full (941 lines, 30+ constructor parameters, cross-cutting rerun/
+revisit/two-pane/filter/search/recap machinery none of which applies to a
+debug session) and checked with the user whether M3 should graft onto
+that struct or build something separate - answer: **a separate, smaller
+construct**, matching every other standalone verb's own "one package per
+verb" pattern (`internal/role`/`internal/template`/`internal/host`), not
+`internal/session`'s own highest-invariant file. `internal/debugverb` is
+the result: `debugverb.go` (`RunDebugVerb` - arg parsing, shadow copy +
+splice, `--step` rejection - see below) and `tui.go` (`debugApp` - the
+tree, key handling, the background-goroutine-drives-Session/
+QueueUpdateDraw-reports-back pattern `internal/host`'s own tab fetches
+already use).
+
+**What's reused, per the user's own standing instruction ("certainly use
+the same mechanisms as with the live run, otherwise implementations will
+drift apart"):** the same jsonl event stream/decoding
+(`runner.ScanEvents`, `playbook.RawEvent`, `playbook.DecodeHostResult` -
+read `aggregate.go`'s own `Apply` first to confirm the exact event-name →
+`Outcome` mapping and copy it rather than guess), the same outcome/color
+vocabulary (`playbook.Outcome`, `uikit.ColorTag`), and - the one genuinely
+reusable piece that wasn't obvious up front - the live run's own progress-
+indicator machinery (`runner.BuildProgressSkeleton`/`ParseListTasksOutput`/
+`ProgressEntry`/`ProgressTracker`, `progress.go`). That machinery already
+solves two problems this verb also has: predicting a playbook's full task
+list ahead of time from a throwaway `--list-tasks --list-hosts` probe (the
+pre-run tree), and resolving a live event back to a specific position
+despite task names repeating across a real playbook (`ProgressTracker`'s
+own bounded forward-matching). Repurposed here for a different end (a
+position *index*, not a percentage) but the identical underlying problem,
+inheriting its own documented approximations too (a handler, or a
+dynamically-resolved `include_tasks:`, won't appear in the predicted tree
+even though it genuinely runs).
+
+**One confirmed subtlety, caught by reading `aggregate.go`'s
+`findOrCreateTask` first rather than assuming:** a task-start event's own
+`ev.Play` field is not reliable for "which play is this" - only a
+`v2_playbook_on_play_start` event's `ev.Play.Name` is (the real app tracks
+its own `currentPlay`/`pendingPlayName` across task-start events for
+exactly this reason). `debugApp.applyEvent` mirrors that: `currentPlayName`
+is updated only on play-start, carried forward across task-start events,
+and that's what's fed to `ProgressTracker.Advance`, not the task-start
+event's own (unreliable) `Play` field.
+
+**Pause-to-row correlation falls out for free from the confirmed dual-
+channel lockstep ordering (the 2026-10-14 spike above):** `Session.Pause`
+carries only `{Host, Task}`, no play name and no source location - but
+since a task's own jsonl event is confirmed to always arrive at-or-before
+that same task's own debug pause, `applyEvent`'s own `currentRowIdx` (set
+by the preceding task-start event) is already correct by the time the
+matching `Pause` arrives. No second tracker or event-to-pause
+synchronization was needed.
+
+**`--step` is rejected outright, not silently forwarded** (`debugverb.go`):
+confirmed by re-reading the 2026-10-15 `--step` discussion above that
+letting it through would mean `Session`'s own `readUntilPrompt` blocks
+forever on a prompt shape (`--step`'s own "(N)o/(y)es/(c)ontinue") it
+doesn't recognize at all - a hang, not a clean error. Caught during
+completions/man-page housekeeping, not while writing `internal/debugrun`
+itself - worth noting as a reminder that a "reasonable default" (forward
+every ansible-playbook flag through) needs re-checking against each new
+caller's own actual constraints, not just carried over by convention.
+
+**Two real bugs, both caught live in tmux, neither from reading the code
+alone:**
+1. `uikit.TreeList` has no built-in per-row highlight at all (confirmed
+   against `tui.go`'s own doc comment, then confirmed live: the very
+   first screen showed no cursor anywhere) - `NewLiveTUI`'s own
+   `rebuild()` re-renders the selected row with its own style variant
+   before every `AddItem` call instead, "the entire highlighting
+   mechanism"; `debugApp.rowText`/`rebuildList` now do the same, and
+   `d.list.SetChangedFunc` was missing entirely at first (without it,
+   moving the cursor updated `TreeList`'s own `currentItem` but nothing
+   ever re-rendered to reflect it).
+2. `'b'` (the first choice for "toggle breakpoint," debugger muscle
+   memory) silently collided with `uikit.TranslateNavAlias`'s own shared
+   Page-Up alias (`j`/`k`, Space/`b`, Ctrl-F/B, Ctrl-A/E, `<`/`>`/`G` -
+   reserved app-wide) - confirmed live (the key moved the cursor to the
+   top instead of arming anything). Renamed to `t`.
+3. Ctrl-C/q while genuinely *paused* (no `Start`/`Continue`/`Query` call
+   in flight) killed the child via SIGINT, but nothing was blocked
+   reading either of `Session`'s own pipes at that moment to notice -
+   the bar kept showing a stale "paused" prompt, and a bare q/Ctrl-C
+   alone could never actually quit until some other key happened to
+   issue a doomed `Continue`/`Query` first and discover the eof.
+   Confirmed live (`pgrep` found no `ansible-playbook` process left, yet
+   the TUI still showed "paused"). Fixed by also treating the event pipe
+   closing (`drainEvents`'s own `for range sess.Events` loop ending) as
+   an independent "the child is gone" signal - it closes once the
+   child's own fd 3 closes with the process, regardless of whether the
+   REPL side is being read.
+
+**Confirmed live, full flow, real `ansible-playbook`, tmux:** pre-run tree
+shown immediately; armed a breakpoint on one task, pressed Enter - ran
+straight through the earlier, unarmed task (auto-continuing silently,
+confirmed by its outcome dots already showing before the first pause ever
+appeared) and paused at the armed task for the first host; continued -
+paused again at the *same* armed task for the second host (breakpoints
+are per task label, not per host - the doc's own "per-host clarity while
+paused" open item is still real, unresolved, just directly visible now
+rather than theoretical); pressed `v` - real `task_vars` rendered as
+indented JSON; closed it, continued to completion - a `when:`-skipped and
+an `ignore_errors`-failed outcome both rendered with their own correct
+colors on the last task; stepped through from a fresh run one pause at a
+time regardless of breakpoints; confirmed the shadow copy directory is
+fully removed after a clean exit.
+
+Added 4 unit tests for the non-tview-dependent logic
+(`outcomeFor`/`taskLabel`/`buildRows`), per CLAUDE.md's "pure functions
+first" testing philosophy - everything else here needs tmux, consistent
+with the rest of `internal/session`. `go vet`/`go test ./...` clean across
+the whole repo. New verb wired into `config.ParseVerb`/`session/main.go`
+(an early standalone-verb branch, alongside template/host/vault - never
+touches the run/rerun/role switch at all) plus the full housekeeping pass
+CLAUDE.md's own convention calls for: `completions/` (bash/fish, including
+excluding `--step` specifically for `debug` while every other
+ansible-playbook flag is still offered), `man/tangsible-debug.1.scd` (new)
+plus `man/tangsible.1.scd`'s own VERBS/SEE ALSO lists, `README.md`
+(a new section, a shortcuts table, and a correction to the old blanket
+"neither will the ansible debugger" limitations line - still true for
+`run`/`rerun`/`role`, no longer true for Tangsible as a whole),
+`design-docs/Keyboard-shortcuts.md`, `design-docs/Codemap.md`, and
+`CLAUDE.md` itself (verb count, Packages, Features, Scope).
+
+Still not built, and explicitly out of scope for this slice: Step Out
+(unchanged - no real call stack to step out of), variable modification,
+a searchable/collapsible variable view (today: one flat `task_vars` dump -
+"variable volume" from the 2026-10-14 open items is still real, just not
+addressed), per-host clarity while paused beyond what's directly visible
+in the tree (see above), and TreeList's own selected-row re-render still
+doesn't special-case per-host dot colors the way the unselected render
+does (a uniform selected style, same simplification `PlayRowText`/
+`TaskLabel`'s own selected variants already make) - purely cosmetic, not a
+correctness gap.
+
 ## Motivating gap
 
 The existing Resolved tab (`internal/session/resolved.go`) re-renders a

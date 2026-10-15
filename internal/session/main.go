@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/diff"
 	"code.aw.net/claude/tangsible/internal/host"
 	"code.aw.net/claude/tangsible/internal/inventory"
@@ -44,7 +45,7 @@ import (
 func Main(build BuildInfo) {
 	v, args, ok := config.ParseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|inventory|vault|version> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|inventory|vault|debug|version> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
 	}
 
@@ -94,16 +95,18 @@ func Main(build BuildInfo) {
 
 	// "template" (design-docs/Tangsible template.md), "host"/"hosts"/
 	// "inventory" (design-docs/HostVerb.md), "revisit" (design-docs/
-	// Revisit.md), and "vault" (design-docs/Vault.md) are each standalone
-	// programs - they share none of run/rerun/role's own tree-building
-	// machinery below (procH, playbook resolution, the live jsonl
-	// pipeline, NewLiveTUI's own construction, ...), so they're split off
-	// here before any of that gets set up, rather than threaded through
-	// the switch below. "revisit" does still end up inside NewLiveTUI for
-	// its own detail view (unlike the others) - but only once per
-	// selected entry, each its own fresh call with a freshly replayed
-	// state, never sharing this function's own run/rerun/role setup.
-	// "vault" never touches tview at all, unlike every other Verb here.
+	// Revisit.md), "vault" (design-docs/Vault.md), and "debug" (design-
+	// docs/DebugMode.md) are each standalone programs - they share none of
+	// run/rerun/role's own tree-building machinery below (procH, playbook
+	// resolution, the live jsonl pipeline, NewLiveTUI's own construction,
+	// ...), so they're split off here before any of that gets set up,
+	// rather than threaded through the switch below. "revisit" does still
+	// end up inside NewLiveTUI for its own detail view (unlike the other
+	// four) - but only once per selected entry, each its own fresh call
+	// with a freshly replayed state, never sharing this function's own
+	// run/rerun/role setup. "vault" never touches tview at all, unlike
+	// every other Verb here; "debug" builds its own separate, smaller TUI
+	// (internal/debugverb) rather than NewLiveTUI's.
 	if v == config.VerbTemplate {
 		code := template.RunTemplateVerb(args)
 		printStartupWarnings()
@@ -131,6 +134,11 @@ func Main(build BuildInfo) {
 	}
 	if v == config.VerbVault {
 		code := vault.RunVaultVerb(args)
+		printStartupWarnings()
+		os.Exit(code)
+	}
+	if v == config.VerbDebug {
+		code := debugverb.RunDebugVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
 	}

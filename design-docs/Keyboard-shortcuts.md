@@ -499,6 +499,63 @@ InputField behavior); the Apply button does the same as Enter; the Cancel
 button closes with no change. A click outside the box does nothing.
 Neither button is Tab-reachable - see below.
 
+## The `debug` verb (standalone program, `internal/debugverb`)
+
+A completely separate program from `run`/`rerun`/`role` (own TUI
+construction, own key handling via `debugApp.handleKey`) - see
+design-docs/DebugMode.md for the full design. Shows every play/task up
+front in a flat tree (`uikit.TreeList`, no expand/collapse - there's no
+nested block/rescue structure in the predicted skeleton, unlike the main
+tree's own `TaskNode`-backed one), lets breakpoints be armed/disarmed on
+any task before or during a run, and drives ansible-core's own built-in
+task debugger underneath (`internal/debugrun`).
+
+* ↑ / ↓             - move the cursor (native `TreeList` navigation);
+                     `j`/`k`, Space/`b` (page down/up), Ctrl-F/Ctrl-B,
+                     Ctrl-A/Ctrl-E, `<`/`>`/`G` all work too via the same
+                     shared `uikit.TranslateNavAlias` every other view
+                     uses - **not** `b` for "breakpoint" (see below)
+* t                - arm/disarm a breakpoint on the selected task - a
+                     plain `t`, not `b`: `b` is already the shared
+                     Page-Up alias above, confirmed live that it never
+                     reaches this view's own key handling at all
+* Enter            - before a run starts, or while paused: run - resumes
+                     past every pause whose task isn't armed, surfacing
+                     only an armed one (or running to completion
+                     outright if nothing is armed at all)
+* s                - before a run starts, or while paused: step - stops
+                     at the very next pause unconditionally, armed or
+                     not (this is also "Step Into" from design-docs/
+                     DebugMode.md's own vision - they're the same thing
+                     here, since Ansible flattens includes/roles/blocks
+                     into one sequential pause stream)
+* v                - only while paused: show the paused task's own
+                     `task_vars` (the pre-task snapshot - this task's
+                     own effect on a variable isn't visible until the
+                     *next* task's own pause) as indented JSON, on its
+                     own page; Esc or `v` again returns to the tree
+* ? / F1           - help for this view
+* q / Ctrl-C       - while the child is running or paused: forward
+                     SIGINT to it (best-effort; doesn't quit yet - the
+                     same two-stage behavior the main tree's own
+                     `handleGlobalQuit`/`handleCtrlC` already have).
+                     Once finished (including right after that
+                     interrupt lands) or before any run has started:
+                     quit outright
+
+**Reading the tree**
+* A red `●` before a task's name - a breakpoint is armed on it
+* A colored `●` after a task's name, one per host that's reached it -
+  that host's own outcome (green/yellow/teal/red/maroon = ok/changed/
+  skipped/failed/unreachable, `uikit.ColorTag`'s own convention, shared
+  with the main tree)
+* `(paused: <host>)` after a task's name - the run is currently paused
+  there, for that host
+
+**Mouse** - wheel scrolling and clicking a row (same as the main tree)
+work via `TreeList`'s own built-in handling; no other mouse affordances
+are wired up for this first version.
+
 ## Possible inconsistencies
 
 Collected while compiling this list - flagged for review, not necessarily

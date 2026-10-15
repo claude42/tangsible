@@ -48,14 +48,15 @@ complete -c tangsible -n '__fish_is_nth_token 1' -a hosts -d 'List inventory hos
 complete -c tangsible -n '__fish_is_nth_token 1' -a inventory -d 'Browse the whole inventory as a tree'
 complete -c tangsible -n '__fish_is_nth_token 1' -a revisit -d 'Browse and reopen a previous run'
 complete -c tangsible -n '__fish_is_nth_token 1' -a vault -d 'Edit vault-encrypted variables in place'
+complete -c tangsible -n '__fish_is_nth_token 1' -a debug -d 'Set breakpoints and step through a playbook'
 complete -c tangsible -n '__fish_is_nth_token 1' -a version -d 'Print version and build info, then exit'
 
 # --- Verb-specific positionals ---
 
-# run/rerun/hosts/inventory/revisit: tangsible <playbook.yml> [ansible-playbook args...]
+# run/rerun/hosts/inventory/revisit/debug: tangsible <playbook.yml> [ansible-playbook args...]
 # revisit's own positional is optional too (falls back to the most
-# recently revisitable target), same shape as run/rerun/hosts/inventory.
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun hosts inventory revisit; and __fish_is_nth_token 2' \
+# recently revisitable target), same shape as run/rerun/hosts/inventory/debug.
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun hosts inventory revisit debug; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 
 # role: tangsible role <role_name> [ansible-playbook args...]
@@ -85,7 +86,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_t
 # straight through regardless of which one), from ansible-playbook's own
 # --help output.
 
-set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit'
+set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit debug'
 
 complete -c tangsible -n $__tangsible_has_verb -l help -d 'Show ansible-playbook help and exit'
 complete -c tangsible -n $__tangsible_has_verb -l version -d 'Show ansible-playbook version info and exit'
@@ -135,7 +136,11 @@ complete -k -c tangsible -n $__tangsible_has_verb -s M -l module-path -r -a '(__
 complete -c tangsible -n $__tangsible_has_verb -l syntax-check -d "Check syntax, don't execute"
 complete -c tangsible -n $__tangsible_has_verb -l list-tasks -d 'List tasks that would be executed'
 complete -c tangsible -n $__tangsible_has_verb -l list-tags -d 'List all available tags'
-complete -c tangsible -n $__tangsible_has_verb -l step -d 'Confirm each task before running it'
+# --step is excluded for debug specifically, unlike every other flag
+# above offered via $__tangsible_has_verb: debug rejects it outright
+# (RunDebugVerb) rather than let it hang - its own breakpoint mechanism,
+# not ansible-playbook's --step, is what pauses a debug run.
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role template host hosts revisit' -l step -d 'Confirm each task before running it'
 complete -c tangsible -n $__tangsible_has_verb -l start-at-task -x -d 'Start the playbook at this task name'
 
 # --- vault's own two flags (design-docs/Vault.md) ---

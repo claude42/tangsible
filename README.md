@@ -106,6 +106,7 @@ Tangsible provides a couple of shortcuts for common development tasks that
 normally require writing temporary playbooks.
 
 - **Run / test a role in isolation** with `tangsible role <role>`.
+- **Set breakpoints and step through a playbook**, inspecting variables at each pause, with `tangsible debug <playbook>`.
 - **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
 - **Easily edit individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
 - A **host-centric view** of all relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, groups, plays, host_vars
@@ -248,6 +249,24 @@ It runs the role against `hosts: all`, while normal Ansible options such as
 `-i` and `-l` can be used to select the actual target.
 
 
+## Debugging a playbook (breakpoints)
+
+```
+tangsible debug [playbook.yml] [ansible-playbook args...]
+```
+
+Shows every play and task up front, lets you set breakpoints directly on
+the tree, then run or step through the playbook - pausing at each armed
+breakpoint (or every task, while stepping) to inspect that task's own
+variables. Built on ansible-core's own task debugger (`debugger: always`),
+spliced onto a disposable copy of the playbook's directory - the real
+files on disk are never touched.
+
+Press `t` to arm/disarm a breakpoint on the selected task, `enter` to run
+to the next one (or to completion, with none set), `s` to step one task at
+a time regardless of breakpoints, and `v` to view the currently paused
+task's own variables.
+
 ## Debugging a Jinja2 template
 
 Debugging a template properly means rendering it through Ansible's own
@@ -345,6 +364,17 @@ control, and more).
 | `?`/`F1` | Help: all of this view's shortcuts |
 | `Esc`/`Enter` | Close, back to the tree |
 
+**Debug view**
+
+| Key | Action |
+|---|---|
+| `t` | Arm / disarm a breakpoint on the selected task |
+| `Enter` | Run - to the next armed breakpoint, or to completion with none set |
+| `s` | Step - stop at the very next task, armed or not |
+| `v` | View the currently paused task's own variables |
+| `?`/`F1` | Help: all of the debug view's shortcuts |
+| `q`/`Ctrl-C` | Interrupt the run, or quit once it's finished |
+
 **Template view**
 
 | Key | Action |
@@ -390,7 +420,7 @@ Tangsible is currently aimed at the common interactive use case rather than
 complete `ansible-playbook` feature parity.
 
 - **Execution environments** are so far not (yet) supported; neither is **ansible-runner**.
-- **Interactive input after the TUI starts is not supported**. For example, a bare pause: task does not wait for input. `--step` will not work, neither will the ansible debugger.
+- **Interactive input after the TUI starts is not supported** in `run`/`rerun`/`role`. For example, a bare pause: task does not wait for input, and `--step` will not work. (`tangsible debug` is the dedicated way to drive ansible-core's own task debugger - see "Debugging a playbook" above; it isn't available from inside the regular live tree.)
   
   Timed pauses work normally.
   `--ask-become-pass` and `--ask-vault-pass` work normally because Ansible

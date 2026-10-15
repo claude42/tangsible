@@ -47,6 +47,9 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 *tangsible-vault*(1)
 	Edit individually vault-encrypted variables in a file in place, without hand-running *ansible-vault encrypt_string* and pasting ciphertext back yourself.
 
+*tangsible-debug*(1)
+	Set breakpoints on a playbook's own tasks and step through a run, inspecting variables at each pause.
+
 *tangsible version*
 	Print version information about tangsible and all components it's using.
 
@@ -127,4 +130,4 @@ past this count.
 
 # SEE ALSO
 
-*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-revisit*(1), *tangsible-vault*(1)
+*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-revisit*(1), *tangsible-vault*(1), *tangsible-debug*(1)

@@ -22,7 +22,7 @@
 # chased further" heuristic tangsible's own source uses for similar
 # judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts inventory revisit vault version"
+_tangsible_verbs="run rerun role template host hosts inventory revisit vault debug version"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards
@@ -38,6 +38,11 @@ _tangsible_ap_flags="-h --help --version -v --verbose \
 -e --extra-vars --vault-id -J --ask-vault-password --ask-vault-pass \
 --vault-password-file --vault-pass-file -f --forks -M --module-path \
 --syntax-check --list-tasks --list-tags --step --start-at-task"
+
+# Same as $_tangsible_ap_flags, minus --step - debug rejects --step
+# outright (RunDebugVerb) rather than let it hang: its own breakpoint
+# mechanism, not ansible-playbook's --step, is what pauses a debug run.
+_tangsible_ap_flags_no_step=${_tangsible_ap_flags/--step/}
 
 # Flags whose value is a path on disk.
 _tangsible_ap_file_flags="-i --inventory --inventory-file \
@@ -82,6 +87,9 @@ _tangsible_flags_for_verb()
 		;;
 	template | host | hosts | inventory | revisit)
 		echo "$_tangsible_ap_flags"
+		;;
+	debug)
+		echo "$_tangsible_ap_flags_no_step"
 		;;
 	vault)
 		echo "$_tangsible_vault_flags"
@@ -203,10 +211,11 @@ _tangsible()
 	done
 
 	case "$verb" in
-	run | rerun | hosts | inventory | revisit)
+	run | rerun | hosts | inventory | revisit | debug)
 		# tangsible <playbook.yml> [ansible-playbook args...]
 		# revisit's own positional is optional too (falls back to the most
-		# recently revisitable target), same shape as run/rerun/hosts/inventory.
+		# recently revisitable target), same shape as run/rerun/hosts/
+		# inventory/debug.
 		if [ "$pos" -eq 0 ]; then
 			_tangsible_ymlfiles "$cur"
 		else

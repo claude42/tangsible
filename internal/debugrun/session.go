@@ -195,6 +195,18 @@ func (s *Session) Query(expr string) (json.RawMessage, error) {
 	return extractJSONLine(text)
 }
 
+// Signal forwards sig to the child process - used so a caller's own
+// Ctrl-C/q handling can abort a live debug session the same way
+// CLAUDE.md's own Ctrl-C/q invariant already works for a normal run
+// (internal/session's procH.Signal). A no-op if the child was never
+// successfully started.
+func (s *Session) Signal(sig os.Signal) error {
+	if s.cmd.Process == nil {
+		return nil
+	}
+	return s.cmd.Process.Signal(sig)
+}
+
 // Close ends the session: closing our end of the REPL pipe sends EOF on
 // the child's stdin, which the debugger's own do_EOF handler treats as
 // "quit" if the child is still paused; then waits for the process to
