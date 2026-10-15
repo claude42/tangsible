@@ -505,16 +505,27 @@ A completely separate program from `run`/`rerun`/`role` (own TUI
 construction, own key handling via `debugApp.handleKey`) - see
 design-docs/DebugMode.md for the full design. Shows every play/task up
 front in a flat tree (`uikit.TreeList`, no expand/collapse - there's no
-nested block/rescue structure in the predicted skeleton, unlike the main
-tree's own `TaskNode`-backed one), lets breakpoints be armed/disarmed on
-any task before or during a run, and drives ansible-core's own built-in
-task debugger underneath (`internal/debugrun`).
+nested block/rescue structure in the predicted skeleton), backed by real
+`playbook.TaskNode`/`PlayNode`/`PlaybookState` values (populated directly
+from the skeleton, not via `Apply`) specifically so rendering reuses
+`uikit.TaskLabel`/`PlayRowText`/`ComputeHostColumnLayout` - the exact
+functions the main tree calls, not a second, divergent rendering of the
+same row. Lets breakpoints be armed/disarmed on any task before or during
+a run, and drives ansible-core's own built-in task debugger underneath
+(`internal/debugrun`).
 
-* ↑ / ↓             - move the cursor (native `TreeList` navigation);
-                     `j`/`k`, Space/`b` (page down/up), Ctrl-F/Ctrl-B,
-                     Ctrl-A/Ctrl-E, `<`/`>`/`G` all work too via the same
-                     shared `uikit.TranslateNavAlias` every other view
-                     uses - **not** `b` for "breakpoint" (see below)
+* ↑ / ↓             - move the cursor, skipping over play-header rows
+                     entirely (`uikit.NextInteractiveRow`, same mechanism
+                     and same reasoning as the main tree's own
+                     `handleTreeRowSkip` - a play header isn't a cursor
+                     target there either); `j`/`k` get the identical
+                     treatment, checked before the alias translation
+                     below. Space/`b` (page down/up), Ctrl-F/Ctrl-B,
+                     Ctrl-A/Ctrl-E, `<`/`>`/`G` fall through to native
+                     `TreeList` jumps instead (can land on a header row,
+                     same as the main tree) via the same shared
+                     `uikit.TranslateNavAlias` every other view uses -
+                     **not** `b` for "breakpoint" (see below)
 * t                - arm/disarm a breakpoint on the selected task - a
                      plain `t`, not `b`: `b` is already the shared
                      Page-Up alias above, confirmed live that it never

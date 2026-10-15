@@ -48,7 +48,7 @@ var debugHelp = uikit.HelpScreen{
 		}},
 		{Title: "Reading the tree", Entries: []uikit.HelpEntry{
 			{Keys: "●  (red)", Desc: "A breakpoint is armed on this task"},
-			{Keys: "●  (green/yellow/teal/red/maroon)", Desc: "A host's own outcome for this task: ok/changed/skipped/failed/unreachable"},
+			{Keys: "hostname (green/yellow/teal/red/maroon)", Desc: "A host's own outcome for this task: ok/changed/skipped/failed/unreachable - same colors, and the same shrink-to-fit behavior, as the run/rerun tree"},
 			{Keys: "(paused: host)", Desc: "The task currently paused, and which host"},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{

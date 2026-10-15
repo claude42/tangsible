@@ -65,9 +65,36 @@ func TestBuildRows_InsertsOneHeaderPerPlayChange(t *testing.T) {
 		if row.isPlayHeader != wantHeader[i] {
 			t.Errorf("rows[%d].isPlayHeader = %v, want %v", i, row.isPlayHeader, wantHeader[i])
 		}
-		if row.name != wantName[i] {
-			t.Errorf("rows[%d].name = %q, want %q", i, row.name, wantName[i])
+		var gotName string
+		if row.isPlayHeader {
+			gotName = row.play.Name
+		} else {
+			gotName = row.task.Name
 		}
+		if gotName != wantName[i] {
+			t.Errorf("rows[%d] name = %q, want %q", i, gotName, wantName[i])
+		}
+	}
+
+	// navRows must mark exactly the header rows non-interactive - backs
+	// handleRowSkip's own uikit.NextInteractiveRow call.
+	if len(d.navRows) != len(d.rows) {
+		t.Fatalf("navRows length = %d, want %d", len(d.navRows), len(d.rows))
+	}
+	for i, interactive := range wantHeader {
+		gotInteractive := d.navRows[i].Selected != nil
+		if gotInteractive != !interactive {
+			t.Errorf("navRows[%d].Selected != nil = %v, want %v", i, gotInteractive, !interactive)
+		}
+	}
+
+	// pbState.Plays must mirror the same play/task structure, so
+	// uikit.ComputeHostColumnLayout measures against the real rows.
+	if len(d.pbState.Plays) != 2 {
+		t.Fatalf("pbState.Plays length = %d, want 2", len(d.pbState.Plays))
+	}
+	if len(d.pbState.Plays[0].Tasks) != 2 || len(d.pbState.Plays[1].Tasks) != 1 {
+		t.Errorf("pbState.Plays task counts = %d, %d, want 2, 1", len(d.pbState.Plays[0].Tasks), len(d.pbState.Plays[1].Tasks))
 	}
 
 	// rowForSkeleton must map each skeleton index to its own task row,
@@ -89,10 +116,27 @@ func TestBuildRows_TaskRowsStartWithEmptyOutcomes(t *testing.T) {
 	d.buildRows(skeleton)
 
 	taskRow := d.rows[d.rowForSkeleton[0]]
-	if taskRow.outcomes == nil {
-		t.Fatal("task row's outcomes map is nil, not an empty map - later code indexes it directly")
+	if taskRow.task.Hosts == nil {
+		t.Fatal("task row's Hosts map is nil, not an empty map - later code indexes it directly")
 	}
-	if len(taskRow.outcomes) != 0 {
-		t.Errorf("expected no outcomes yet, got %v", taskRow.outcomes)
+	if len(taskRow.task.Hosts) != 0 {
+		t.Errorf("expected no outcomes yet, got %v", taskRow.task.Hosts)
+	}
+}
+
+func TestRecordHost_SortedDedup(t *testing.T) {
+	d := &debugApp{}
+	d.recordHost("web2")
+	d.recordHost("web1")
+	d.recordHost("web2") // duplicate, must not append again
+
+	want := []string{"web1", "web2"}
+	if len(d.allHosts) != len(want) {
+		t.Fatalf("allHosts = %v, want %v", d.allHosts, want)
+	}
+	for i, h := range want {
+		if d.allHosts[i] != h {
+			t.Errorf("allHosts[%d] = %q, want %q", i, d.allHosts[i], h)
+		}
 	}
 }

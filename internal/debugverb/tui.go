@@ -19,7 +19,8 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
+	"sync/atomic"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/playbook"
@@ -29,17 +30,33 @@ import (
 	"github.com/rivo/tview"
 )
 
+// breakpointPrefixWidth is the fixed 2-column slot rowText reserves in
+// front of uikit.TaskLabel's own output for the breakpoint marker - a
+// concept the main live tree has no equivalent of, so it can't live
+// inside TaskLabel's own (shared, verb-agnostic) prefix slot. Subtracted
+// from avail before computing the host-column layout/calling TaskLabel,
+// so the two prefixes together still fit the real terminal width.
+const breakpointPrefixWidth = 2
+
 // debugRow is one row of the pre-run tree - either a play header or a
 // task, built once from the --list-tasks --list-hosts skeleton
-// (runner.ProgressEntry) and never reshaped afterward; only outcomes/
-// pausedHost mutate as the run progresses. A task row's own breakpoint
-// state is deliberately NOT stored here - see taskLabel/debugApp.bps
-// below - so there is exactly one source of truth for it (BreakpointSet),
-// never a second copy that could go stale.
+// (runner.ProgressEntry) and never reshaped afterward; only the backing
+// *playbook.TaskNode's own Hosts map (and pausedHost) mutate as the run
+// progresses. Backed by the real playbook.TaskNode/PlayNode structs - not
+// a locally-invented shape - specifically so rowText can call straight
+// into uikit.TaskLabel/PlayRowText/ComputeHostColumnLayout, the exact
+// functions the main live tree calls, instead of re-deriving a smaller,
+// divergent version of the same rendering (confirmed live to have
+// drifted: wrong task-line color, no busy indicator, hostnames shown as
+// bare dots, selected-row style bleeding into the prefix column - see
+// design-docs/DebugMode.md's follow-up entry). A task row's own
+// breakpoint state is deliberately NOT stored here - see taskLabel/
+// debugApp.bps below - so there is exactly one source of truth for it
+// (BreakpointSet), never a second copy that could go stale.
 type debugRow struct {
 	isPlayHeader bool
-	name         string                      // play name (header) or task name (task row)
-	outcomes     map[string]playbook.Outcome // task row only, host -> outcome
+	play         *playbook.PlayNode // header row only
+	task         *playbook.TaskNode // task row only
 }
 
 // taskLabel is a task row's own breakpoint-set key, matching the
@@ -66,12 +83,18 @@ type debugApp struct {
 	rest                 []string
 
 	rows            []*debugRow
-	rowForSkeleton  []int // skeleton index -> rows index
+	navRows         []uikit.Row             // parallel to rows; Selected nil on a header row, backs the Up/Down/j/k header-skip (uikit.NextInteractiveRow) - see handleRowSkip
+	pbState         *playbook.PlaybookState // Plays built once in buildRows (never reshaped), purely so uikit.ComputeHostColumnLayout can measure the shared host column the same way the main tree does
+	allHosts        []string                // run-wide, sorted, grows as hosts report - mirrors playbook.PlaybookState.AllHosts' own contract (recordHost)
+	rowForSkeleton  []int                   // skeleton index -> rows index
 	bps             *debugrun.BreakpointSet
 	tracker         *runner.ProgressTracker
 	currentPlayName string
 	currentRowIdx   int // -1 until the first task-start event arrives
 	pausedHost      string
+
+	startedAt time.Time   // drives rowText's own busy-spinner frame (uikit.SpinnerAt), same as liveSession's own startedAt
+	quitting  atomic.Bool // set just before app.Stop() - startHeartbeat's own guard against queueing into the 100-slot update queue after nothing drains it (CLAUDE.md)
 
 	sess     *debugrun.Session
 	driving  bool // a background Start/Continue/Query call is in flight
@@ -134,6 +157,9 @@ func runDebugTUI(copyDir, relPlaybook string, rest []string, skeleton []runner.P
 	d.app.SetRoot(d.pages, true)
 	d.app.SetInputCapture(d.handleKey)
 
+	d.startedAt = time.Now()
+	d.startHeartbeat()
+
 	if err := d.app.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
 	}
@@ -147,41 +173,114 @@ func runDebugTUI(copyDir, relPlaybook string, rest []string, skeleton []runner.P
 // of a play boundary beyond "this entry's own Play field differs from the
 // previous one" (runner.ProgressEntry's own doc comment: --list-tasks
 // already merges pre_tasks/roles/tasks/post_tasks into one ordered list
-// per play).
+// per play). Also builds d.pbState (a real playbook.PlaybookState, Plays
+// populated directly rather than via Apply - the skeleton's own shape is
+// static, only a TaskNode's own Hosts map mutates later) and d.navRows,
+// both purely so rowText/handleRowSkip can call the exact same
+// uikit helpers the main live tree does (ComputeHostColumnLayout,
+// NextInteractiveRow) rather than reimplementing their own versions.
 func (d *debugApp) buildRows(skeleton []runner.ProgressEntry) {
 	d.rowForSkeleton = make([]int, len(skeleton))
-	lastPlay := ""
+	d.pbState = &playbook.PlaybookState{}
+	var currentPlay *playbook.PlayNode
+	lastPlayName := ""
 	first := true
 	for i, e := range skeleton {
-		if first || e.Play != lastPlay {
-			d.rows = append(d.rows, &debugRow{isPlayHeader: true, name: e.Play})
-			lastPlay = e.Play
+		if first || e.Play != lastPlayName {
+			currentPlay = &playbook.PlayNode{Name: e.Play}
+			d.pbState.Plays = append(d.pbState.Plays, currentPlay)
+			d.rows = append(d.rows, &debugRow{isPlayHeader: true, play: currentPlay})
+			d.navRows = append(d.navRows, uikit.Row{}) // Selected stays nil: a header row is never a cursor target (NextInteractiveRow)
+			lastPlayName = e.Play
 			first = false
 		}
-		d.rows = append(d.rows, &debugRow{name: e.Task, outcomes: map[string]playbook.Outcome{}})
+		task := &playbook.TaskNode{Name: e.Task, Hosts: map[string]playbook.Outcome{}}
+		currentPlay.Tasks = append(currentPlay.Tasks, task)
+		d.rows = append(d.rows, &debugRow{task: task})
+		d.navRows = append(d.navRows, uikit.Row{Selected: func() {}}) // non-nil marks this row interactive; the func itself is never called - TreeList's own AddItem(text, nil) activation path is used instead, see rebuildList
 		d.rowForSkeleton[i] = len(d.rows) - 1
 	}
+}
+
+// recordHost inserts host into d.allHosts (kept sorted, deduplicated) the
+// first time it reports anything for any task - mirrors
+// playbook.PlaybookState.AllHosts' own "alphabetically-sorted, only ever
+// grows" contract (aggregate.go), which uikit.TaskLabel/
+// ComputeHostColumnLayout rely on for the shared host column every row
+// aligns to.
+func (d *debugApp) recordHost(host string) {
+	i := sort.SearchStrings(d.allHosts, host)
+	if i < len(d.allHosts) && d.allHosts[i] == host {
+		return
+	}
+	d.allHosts = append(d.allHosts, "")
+	copy(d.allHosts[i+1:], d.allHosts[i:])
+	d.allHosts[i] = host
+}
+
+// startHeartbeat drives rowText's own busy-indicator spinner animation
+// (uikit.SpinnerAt, fed through TaskLabel's frame parameter) and keeps the
+// host-column layout reacting live to terminal resizes - mirrors
+// internal/session's own startHeartbeat (livesession_heartbeat.go), same
+// uikit.SpinnerInterval cadence, simplified: this view has no elapsed
+// clock to freeze and no separate resize-only watcher, so one ticker just
+// keeps running for the app's whole lifetime (redrawing an unchanged
+// frozen screen every tick once finished is harmless) rather than
+// stopping once finished the way the main tree's own ticker does.
+func (d *debugApp) startHeartbeat() {
+	go func() {
+		ticker := time.NewTicker(uikit.SpinnerInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			if d.quitting.Load() {
+				return // mirrors liveSession.startHeartbeat's own guard -
+				// tview's update queue is a fixed 100-slot buffer nothing
+				// drains once app.Run() has returned.
+			}
+			d.app.QueueUpdateDraw(d.rebuildList)
+		}
+	}()
 }
 
 // rebuildList re-renders every row into d.list, preserving the current
 // selection - the same "Clear then re-AddItem every row" shape tui.go's
 // own rebuild() uses for the identical reason (TreeList has no per-row
-// update, only whole-row AddItem).
+// update, only whole-row AddItem). Also the sole place the host-column
+// layout and spinner frame are computed - both read fresh on every call
+// (not cached), the same "called from every heartbeat tick, not just once"
+// reasoning liveSession's own chromeColorName/showElapsed etc. document.
 func (d *debugApp) rebuildList() {
 	selIdx := d.list.GetCurrentItem()
 	if selIdx < 0 {
 		// -1 only before the very first populate (TreeList's own
 		// zero-value/post-Clear state) - AddItem below will default
-		// currentItem to 0 regardless, so render row 0 as selected to
+		// currentItem to 0 regardless, so render a row as selected to
 		// match rather than rendering no row as selected at all
 		// (confirmed live: left as -1, the very first screen showed no
-		// cursor highlight anywhere).
-		selIdx = 0
+		// cursor highlight anywhere). Lands on the first interactive row,
+		// skipping a leading play header, same as handleRowSkip does for
+		// every later move - confirmed live: defaulting to literal row 0
+		// put the very first screen's cursor on the play header, the
+		// exact bug handleRowSkip exists to prevent for ordinary
+		// navigation.
+		if first := uikit.NextInteractiveRow(d.navRows, -1, 1); first != -1 {
+			selIdx = first
+		} else {
+			selIdx = 0
+		}
 	}
+	_, _, avail, _ := d.list.GetInnerRect()
+	taskAvail := avail - breakpointPrefixWidth
+	if taskAvail < 0 {
+		taskAvail = 0
+	}
+	layout := uikit.ComputeHostColumnLayout(d.pbState, d.allHosts, taskAvail, false)
+	frame := uikit.SpinnerAt(time.Since(d.startedAt))
+
 	d.list.Clear()
 	for i := range d.rows {
 		ii := i
-		d.list.AddItem(d.rowText(ii, ii == selIdx), nil)
+		d.list.AddItem(d.rowText(ii, ii == selIdx, taskAvail, layout, frame), nil)
 	}
 	if selIdx >= 0 && selIdx < len(d.rows) {
 		d.list.RestoreCurrentItem(selIdx)
@@ -192,58 +291,50 @@ func (d *debugApp) rebuildList() {
 // per-row highlight at all (confirmed live - without this, there was no
 // visual cursor whatsoever) - tui.go's own rebuild() re-renders whichever
 // row is currently selected with a uniform selected-style variant before
-// ever calling AddItem, "the entire highlighting mechanism"; this mirrors
-// that, using the same SelectedRowTextColor/SelectedRowBackgroundColor
-// pair PlayRowText/TaskLabel already use, just applied to this package's
-// own simpler one-line-per-row text rather than per-segment.
-func (d *debugApp) rowText(idx int, selected bool) string {
+// ever calling AddItem, "the entire highlighting mechanism"; uikit.
+// TaskLabel/PlayRowText already implement exactly that (and everything
+// else a row needs: hostname-shrinking, the active-task spinner, the
+// right task-line color), so this calls straight into them rather than
+// re-deriving a smaller version - confirmed live to have drifted the
+// first time around (design-docs/DebugMode.md's follow-up entry): wrong
+// task-line color (StandardTextColor instead of TaskTitleColor), no busy
+// indicator at all, hostnames shown as bare dots instead of names, and
+// the selected-row background wrongly swallowing the prefix column along
+// with the title.
+//
+// The breakpoint marker (and, while paused, the "(paused: host)"
+// annotation) are debug mode's own concepts with no equivalent in
+// TaskLabel - composed here as their own segments, each in its own color
+// tag, outside whatever TaskLabel itself returns, so neither one ever
+// inherits the selected-row's gray background the way the old
+// reimplementation's prefix did (TaskLabel's own prefix slot - the
+// spinner/indent - already keeps itself out of that background; see its
+// own doc comment).
+func (d *debugApp) rowText(idx int, selected bool, avail int, layout uikit.HostColumnLayout, frame rune) string {
 	r := d.rows[idx]
 	if r.isPlayHeader {
-		if selected {
-			return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(r.name))
-		}
-		return fmt.Sprintf("[%s::b]%s[-::-]", uikit.PlayTitleColor, tview.Escape(r.name))
+		return uikit.PlayRowText(r.play, selected)
 	}
 
-	armed := d.bps.Has(taskLabel(r.name))
+	armed := d.bps.Has(taskLabel(r.task.Name))
+	active := idx == d.currentRowIdx && d.pausedHost == "" && !d.finished
 	paused := idx == d.currentRowIdx && d.pausedHost != ""
-	hosts := make([]string, 0, len(r.outcomes))
-	for h := range r.outcomes {
-		hosts = append(hosts, h)
-	}
-	sort.Strings(hosts)
 
-	if selected {
-		var p strings.Builder
-		if armed {
-			p.WriteString("● ")
-		} else {
-			p.WriteString("  ")
-		}
-		p.WriteString(r.name)
-		for range hosts {
-			p.WriteString(" ●")
-		}
-		if paused {
-			p.WriteString(" (paused: " + d.pausedHost + ")")
-		}
-		return fmt.Sprintf("[%s:%s:b]%s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(p.String()))
-	}
-
-	var b strings.Builder
+	var bp string
 	if armed {
-		b.WriteString("[" + uikit.ColorTag(playbook.OutcomeFailed) + "]●[-] ")
+		bp = "[" + uikit.ColorTag(playbook.OutcomeFailed) + "]●[-] "
 	} else {
-		b.WriteString("  ")
+		bp = "  "
 	}
-	b.WriteString("[" + uikit.StandardTextColor + "]" + tview.Escape(r.name) + "[-]")
-	for _, h := range hosts {
-		b.WriteString(" [" + uikit.ColorTag(r.outcomes[h]) + "]●[-]")
-	}
+
+	label := uikit.TaskLabel(r.task, d.allHosts, layout, avail, active, frame, selected, true)
+
+	var suffix string
 	if paused {
-		b.WriteString(" [" + uikit.AnnotationColor + "](paused: " + tview.Escape(d.pausedHost) + ")[-]")
+		suffix = " [" + uikit.AnnotationColor + "](paused: " + tview.Escape(d.pausedHost) + ")[-]"
 	}
-	return b.String()
+
+	return bp + label + suffix
 }
 
 func (d *debugApp) setBar(text string) {
@@ -273,7 +364,7 @@ func (d *debugApp) toggleBreakpoint() {
 	if idx < 0 || idx >= len(d.rows) || d.rows[idx].isPlayHeader {
 		return
 	}
-	label := taskLabel(d.rows[idx].name)
+	label := taskLabel(d.rows[idx].task.Name)
 	if d.bps.Has(label) {
 		d.bps.Clear(label)
 	} else {
@@ -418,9 +509,10 @@ func (d *debugApp) applyEvent(ev playbook.RawEvent) {
 		}
 	case "v2_runner_on_ok", "v2_runner_on_changed", "v2_runner_on_skipped", "v2_runner_on_failed", "v2_runner_on_unreachable":
 		if d.currentRowIdx >= 0 {
-			row := d.rows[d.currentRowIdx]
+			task := d.rows[d.currentRowIdx].task
 			for host, raw := range ev.Hosts {
-				row.outcomes[host] = outcomeFor(ev.Event, raw)
+				task.Hosts[host] = outcomeFor(ev.Event, raw)
+				d.recordHost(host)
 			}
 		}
 	}
@@ -487,6 +579,33 @@ func (d *debugApp) closeVars() {
 	d.app.SetFocus(d.list)
 }
 
+// handleRowSkip: Up/Down/j/k skip straight over play-header rows (which
+// aren't a cursor target at all, see buildRows' own navRows) instead of
+// landing on one and requiring a second keypress to move past it -
+// mirrors internal/session's own handleTreeRowSkip (livesession_input.go)
+// exactly, down to using the same uikit.NextInteractiveRow and calling
+// SetCurrentItem (not RestoreCurrentItem) so the real selection change
+// fires d.list's own SetChangedFunc. Checked before uikit.TranslateNavAlias
+// so j/k get this treatment instead of being translated to plain Down/Up
+// first and falling through to TreeList's native (header-row-unaware)
+// one-row-at-a-time handling - same ordering reasoning as
+// handleTreeRowSkip's own doc comment.
+func (d *debugApp) handleRowSkip(event *tcell.EventKey) bool {
+	var delta int
+	switch {
+	case event.Key() == tcell.KeyUp, event.Key() == tcell.KeyRune && event.Rune() == 'k':
+		delta = -1
+	case event.Key() == tcell.KeyDown, event.Key() == tcell.KeyRune && event.Rune() == 'j':
+		delta = 1
+	default:
+		return false
+	}
+	if next := uikit.NextInteractiveRow(d.navRows, d.list.GetCurrentItem(), delta); next != -1 {
+		d.list.SetCurrentItem(next)
+	}
+	return true
+}
+
 func (d *debugApp) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if d.help.HandleKey(event) {
 		return nil
@@ -498,6 +617,9 @@ func (d *debugApp) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		}
 		return event // let varsView handle its own scrolling
 	}
+	if d.handleRowSkip(event) {
+		return nil
+	}
 	if translated, ok := uikit.TranslateNavAlias(event); ok {
 		return translated
 	}
@@ -507,6 +629,7 @@ func (d *debugApp) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	case event.Key() == tcell.KeyCtrlC, event.Rune() == 'q':
 		if d.sess == nil || d.finished {
+			d.quitting.Store(true)
 			d.app.Stop()
 		} else {
 			_ = d.sess.Signal(os.Interrupt) // best-effort; child may race-exit

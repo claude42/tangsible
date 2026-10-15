@@ -346,12 +346,101 @@ Still not built, and explicitly out of scope for this slice: Step Out
 (unchanged - no real call stack to step out of), variable modification,
 a searchable/collapsible variable view (today: one flat `task_vars` dump -
 "variable volume" from the 2026-10-14 open items is still real, just not
-addressed), per-host clarity while paused beyond what's directly visible
-in the tree (see above), and TreeList's own selected-row re-render still
-doesn't special-case per-host dot colors the way the unselected render
-does (a uniform selected style, same simplification `PlayRowText`/
-`TaskLabel`'s own selected variants already make) - purely cosmetic, not a
-correctness gap.
+addressed), and per-host clarity while paused beyond what's directly
+visible in the tree (see above).
+
+**2026-10-15, later still: the user tried M3 live and flagged real
+rendering drift from the main tree** - confirmed, root-caused, and fixed.
+Reported: per-host status shown as bare dots rather than hostnames; the
+task-line color looked different from the run tree's; no busy/running
+indicator; the cursor could rest on a play-header row (impossible in the
+main tree); and a selected row's gray background wrongly covered the
+prefix column too. All five traced to one root cause: `debugverb/tui.go`
+re-derived its own smaller version of row rendering instead of calling
+`internal/uikit`'s existing, verb-agnostic rendering helpers
+(`TaskLabel`/`PlayRowText`/`HostColorTag`/`ComputeHostColumnLayout`/
+`NextInteractiveRow`) - the exact functions `internal/session`'s own
+`rebuild()` calls, put in `uikit` specifically so a standalone verb
+wouldn't have to reinvent this. Raised with the user as a real
+architectural choice (not something to silently redo unilaterally, the
+same "discuss before building" norm M3's own construct decision got):
+reuse just the rendering helpers (keeping `debugverb`'s own simpler
+event-tracking as is), or go further and back the tree with a real
+`playbook.PlaybookState` fed by its own `Apply`. User chose the narrower
+option - lower risk to a feature just confirmed working well live.
+
+**What changed:** `debugRow` now wraps real `*playbook.TaskNode`/
+`*playbook.PlayNode` values (populated directly from the skeleton in
+`buildRows`, not via `Apply` - the skeleton's own shape is static, only a
+`TaskNode`'s own `Hosts` map mutates later) plus a `*playbook.
+PlaybookState` (`d.pbState`) purely so `ComputeHostColumnLayout` can
+measure the shared host column the same way the main tree does, and a
+run-wide, sorted `d.allHosts` (grown via `recordHost`, mirroring
+`PlaybookState.AllHosts`' own "only ever grows" contract). `rowText` now
+calls `uikit.TaskLabel`/`PlayRowText` directly rather than composing its
+own strings - which, as a direct consequence of reusing real code, also
+fixed the color and selected-row-prefix issues for free, and surfaced the
+selected row's per-host halfBlock color transition (confirmed live) that
+the old bare-dot rendering never had at all. Debug mode's own two
+concepts with no TaskLabel equivalent - the breakpoint marker and the
+"(paused: host)" annotation - are composed as their own segments outside
+whatever `TaskLabel` returns (`breakpointPrefixWidth`), so neither
+inherits the selected-row background either. The busy indicator needed
+one new piece with no prior equivalent in this view: a permanent
+heartbeat ticker (`startHeartbeat`, mirroring `internal/session`'s own
+but simplified - no elapsed clock to freeze, so it never stops, which is
+harmless since redrawing a frozen finished screen every tick costs
+nothing visible) driving `uikit.SpinnerAt` the same way `rebuild()` does,
+guarded by a `quitting` atomic bool before every `QueueUpdateDraw` call -
+same CLAUDE.md invariant `internal/session`'s own heartbeat already
+documents (nothing drains the update queue once `app.Run()` returns).
+Cursor-skips-headers reuses `uikit.NextInteractiveRow` directly against a
+parallel `d.navRows` slice (`Selected` nil on a header row), intercepted
+in `handleKey` before `uikit.TranslateNavAlias` - the exact same
+ordering `internal/session`'s own `handleTreeRowSkip` uses and for the
+same reason (`j`/`k` must get this before being translated to plain
+Up/Down). The same fix had to extend to the very first frame too - no
+keypress has happened yet "before" the state the normal header-skip
+guards, so the first-populate branch (`rebuildList`'s own `selIdx < 0`
+case) was defaulting to literal row 0, which **is** a play header
+whenever a playbook's first play has any tasks at all - confirmed live
+(the very first screen opened with the cursor on the play header) and
+fixed the same way, via `NextInteractiveRow` from `-1`.
+
+Confirmed live via tmux (`outcomes.yml`, single host, all four rollup
+buckets): hostnames now render instead of dots, correctly colored; the
+busy spinner visibly animates on the currently-executing task before its
+own debug pause; the cursor cannot land on, or be moved onto, the play
+header; a selected row's prefix (breakpoint marker, or the busy spinner)
+stays outside the gray background, only the title-through-hosts span
+does. Also confirmed against a genuine two-host run
+(`multihost-inventory.ini`): per-task-label breakpoint semantics (a
+breakpoint on a task still surfaces that task's pause for *each* host in
+turn, "per-host clarity while paused" still open per above) and the
+selected row's real halfBlock per-host color transition, both exactly as
+the main tree's own `TaskLabel` already renders them, for free.
+
+**Incidental finding, not fixed, not caused by this change - confirmed
+live and worth flagging separately:** a relative path argument (e.g.
+`-i testdata/multihost-inventory.ini`) passed through to `ansible-
+playbook` resolves against the *shadow copy's* cwd, not the original
+invocation's - for a playbook whose own directory is what gets copied
+(the common case), a relative inventory path with a leading path segment
+matching that directory's own name silently resolves to a nonexistent
+nested path, Ansible falls back to its own default inventory, `hosts:
+all` matches nothing, and the run "finishes" instantly with no tasks ever
+run and no debugger pauses ever firing - looks exactly like a broken
+breakpoint/pause mechanism from the TUI's point of view, but isn't one.
+Confirmed reproducible against the pre-existing, already-committed M3
+code too (not introduced by today's change) by rebuilding the prior
+commit and reproducing it there first. Worked around in testing by
+passing an absolute `-i` path; not otherwise addressed here - out of
+scope for what was asked this round.
+
+Added `TestBuildRows_InsertsOneHeaderPerPlayChange`'s own navRows/pbState
+assertions and a new `TestRecordHost_SortedDedup`, alongside updating the
+existing tests for the new `debugRow` shape. `go vet`/`go test ./...`
+clean across the whole repo.
 
 ## Motivating gap
 

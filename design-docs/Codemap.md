@@ -128,12 +128,21 @@ smaller construct instead, following the same "one package per standalone
 verb" pattern `internal/role`/`internal/template`/`internal/host` already
 use. Reuses, deliberately: the same jsonl event stream/decoding
 (`runner.ScanEvents`, `playbook.RawEvent`/`DecodeHostResult`), the same
-outcome/color vocabulary (`playbook.Outcome`, `uikit.ColorTag`), and the
-same `--list-tasks --list-hosts` skeleton/forward-matching machinery the
-live run's own progress indicator already uses (`runner.
+outcome/color vocabulary (`playbook.Outcome`, `uikit.ColorTag`), the same
+`--list-tasks --list-hosts` skeleton/forward-matching machinery the live
+run's own progress indicator already uses (`runner.
 BuildProgressSkeleton`/`ProgressTracker`) - repurposed here to build the
 pre-run tree itself and to resolve which row a live event or debugger
-pause belongs to, despite task names repeating.
+pause belongs to, despite task names repeating - and, since a first pass
+at this view's own row rendering was found (live, by the user) to have
+drifted from the main tree's (wrong colors, dots instead of hostnames, no
+busy indicator, cursor could rest on a play header), the exact row-
+rendering functions the main tree calls too: `uikit.TaskLabel`/
+`PlayRowText`/`ComputeHostColumnLayout`/`NextInteractiveRow`. Each
+`debugRow` wraps a real `*playbook.TaskNode`/`*playbook.PlayNode`
+(populated directly from the skeleton, not via `PlaybookState.Apply`)
+purely so these can be called unmodified - see `DebugMode.md`'s
+2026-10-15 follow-up entry.
 
 - **debugverb.go** - `RunDebugVerb`: arg parsing (simpler than `run`'s -
   no `--start-at-play`, no re-run dialog, no history recording), builds
@@ -151,7 +160,11 @@ pause belongs to, despite task names repeating.
   even though the actual session I/O happens elsewhere. `applyEvent`
   resolves a live event's (play, task) against the skeleton via a
   `runner.ProgressTracker`, the same name-collision-safe algorithm the
-  live run's own progress bar uses.
+  live run's own progress bar uses. `startHeartbeat` is a permanent
+  `uikit.SpinnerInterval` ticker driving the busy-indicator's animation
+  and live terminal-resize reactivity, mirroring `internal/session`'s own
+  heartbeat (simplified: never stops, guarded by a `quitting` atomic
+  bool).
 - **helptables.go** - the debug view's help table and bottom bars; `t`
   (not `b`) arms/disarms a breakpoint - confirmed live that `b` is
   already `uikit.TranslateNavAlias`'s own Page-Up alias.
