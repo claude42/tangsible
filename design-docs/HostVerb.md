@@ -51,6 +51,26 @@ view itself renders immediately with a per-tab loading placeholder; each
 goroutine populates its own tab via `app.QueueUpdateDraw` once its own
 fetch/subprocess call finishes, so switching tabs never has to wait.
 
+`hosts`/`inventory` (not the standalone `host` Verb, which only ever
+shows one host once) keep a `HostDetailCache` for the whole session,
+keyed by hostname: once a tab's fetch finishes, its rendered text is
+stored there, and the next time that host's detail view is built - a
+`Left`/`Right`/`n`/`N` hop, a click, or closing and reopening it with
+`Esc`/Enter - each tab renders straight from the cache, instantly, no
+placeholder, no new `ansible-playbook` invocation. Reported live:
+"Gathering facts..." (and "Loading...") reappearing on *every* revisit
+to a host already fully loaded moments earlier, not just the first -
+there was no session-level caching here at all before this, only
+Ansible's own, optional `fact_caching` (see the Summary tab's own
+section below), which still pays for a fresh connection/process on every
+visit even when it makes the underlying gather itself fast. A tab whose
+fetch fails is deliberately never cached - a transient failure
+(a flaky connection, say) shouldn't stick for the rest of the session;
+the next visit retries it fresh. Never invalidated once cached, matching
+the live run drill-down's own `resolveCache`/`docsCache` (survive a
+close/reopen within one generation) - quitting and reopening the whole
+verb is the way to force a genuinely fresh read.
+
 Every tab is now syntax-highlighted rather than plain text: a "key"
 (a field label, a YAML/JSON key, a role name prefix, a group name) is
 green; the "value" next to it is `lightsteelblue`. See "Coloring" below
@@ -164,26 +184,35 @@ otherwise. Every row's ping fires concurrently the instant the list
 renders and updates independently the moment its own result lands - no
 batching, no "wait for all to finish" gate.
 
-On a wide enough terminal (`uikit.SplitMinTotalWidth`, the same
-threshold the run drill-down's own two-pane layout uses), the list and
-the detail view show side by side instead of full-screen, auto-selecting
-whatever the list cursor already sits on with no `Enter` needed. Moving
-the list cursor (arrows, `n`/`N`) immediately retargets and refetches the
-detail pane for the newly-selected host - genuine live-sync, not just a
-preview. Narrowing the terminal mid-session falls back to full-screen
-detail for whatever host was last showing (`Esc` from there returns to
-the plain list); widening back re-enters split mode showing whatever the
-list cursor currently sits on. A dedicated resize-watcher goroutine
-drives this, mirroring `tui.go`'s own `startResizeWatcher` - this view
-has no other ticker to piggyback a periodic re-layout on.
+Two-pane behavior here is unified with the run drill-down's own
+(design-docs/TwoPanedLayout.md) and with `tangsible inventory`'s
+(below): no split pane exists at all until a host is actually opened -
+`Enter`, or a click - no matter how wide the terminal is; opening one on
+a wide enough terminal (`uikit.SplitMinTotalWidth`, the same threshold
+the run drill-down uses) shows the list and the detail view side by
+side instead of full-screen. `Esc` and `q` both close the detail view
+again, split or full-screen alike, back to the plain list - matching the
+run drill-down's own `handleOutputViewQuit`, `q` closes unconditionally
+even with an active search, the same precedence `handleOutputViewQuit`
+has over `Esc`'s own "clear the search first" nuance there. Only `Ctrl-C`
+still quits the whole program while a detail view is open; `q` only quits
+outright at the plain list/tree level, same as the run drill-down's own
+tree. Narrowing the terminal
+mid-session falls back to full-screen detail for whatever host was last
+showing; widening back re-enters split mode. A dedicated resize-watcher
+goroutine drives this, mirroring `tui.go`'s own `startResizeWatcher` -
+this view has no other ticker to piggyback a periodic re-layout on.
 
-Keyboard focus in split mode sits on the active tab's own content
-(`detailTabs.Primitive()`), matching full-screen mode exactly - `↑`/`↓`/
-PgUp/PgDn scroll the tab, not the host list. Host-to-host navigation
-while split works via `n`/`N` (intercepted centrally regardless of where
-real focus sits) and via a mouse click on the list pane itself (which
+Keyboard focus, once a host is open, sits on the active tab's own
+content (`detailTabs.Primitive()`) whether split or full-screen - `↑`/
+`↓`/PgUp/PgDn scroll the tab, not the host list. `←`/`→` hop to the
+previous/next host in the list (a plain alias for `n`/`N`, which already
+did this before `←`/`→` did too - this view has only one dimension to
+hop along, unlike the run drill-down's own `←`/`→` = host, `n`/`N` =
+task split) - intercepted centrally regardless of where real focus sits,
+same as `n`/`N` always was. A mouse click on the list pane itself still
 moves real focus back onto the list for as long as you keep navigating
-there, reverting to the detail pane on the next host selection).
+there, reverting to the detail pane on the next host selection.
 
 Known, accepted simplifications, not chased further: the split-mode
 detail footer keeps saying "esc: back to list" if a resize later drops
@@ -316,3 +345,121 @@ flag or color the matching opening tag actually set.
   wired by the caller, not by that function itself.
 
 claude --resume 052c0089-f402-41e9-94ec-dc001028b53b
+
+# New ideas
+
+This chapter describes some new ideas on top of the currently implemented
+functionality of tangsible hosts and tangsible host.
+
+## tangsible inventory
+
+```
+tangsible inventory [<playbook>] [-i ...] [-e ...]
+```
+
+Brings up a tree view similar to `ansible-inventory --graph`: groups as
+nodes, hosts as leaves. A host that's a direct member of more than one
+group appears once under each of those groups (matching real `--graph`
+output, which renders the group DAG as a tree by duplication) - but it's
+pinged only once; the ping-dot result is shared across every duplicate
+row of that host, never refetched per occurrence.
+
+Initial expand state reuses `general.default_tree_state` (the same
+`"collapsed"`/`"expanded"` key the live run tree already reads), not a
+new config key of its own.
+
+Navigation reuses `tangsible run`'s own tree keymap wherever the mapping
+is actually meaningful: Enter/Right/Left expand/collapse a group node
+(matching the run tree's task-row behavior) or open a host leaf's detail
+view (matching a host-row's Enter there); `E`/`C` expand/collapse
+everything; Home/End/`G`/Ctrl-A/Ctrl-E jump to first/last row. `n`/`N`
+and `y` have no sensible equivalent here (no "task" to hop between, no
+single tab's content to copy) and are left out entirely. `/` (in-tab
+search) could make sense but is deliberately left out of this first
+iteration too.
+
+Group nodes render like the run tree's play rows (white/bold) - no
+green/lightsteelblue key-value split, since a group node is just a name
+with nothing to split into key and value, and no collapsed/expanded
+chevron either (the run tree has none, so this view doesn't invent one).
+A group's name is followed by its own unique host count in parentheses -
+every host anywhere beneath it, direct or via nested groups, counted
+once no matter how many branches repeat it; a group with no hosts at all
+anywhere beneath it renders in `nothing_reported` instead of the usual
+white/bold, the same "nothing to act on here" signal that color already
+carries elsewhere. Host leaves render exactly like `tangsible hosts`' own
+list rows: a ping dot leading the hostname (gray in flight, green
+reachable, red unreachable), fired concurrently once per unique host the
+instant the tree renders.
+
+Enter on a host leaf opens the exact same five-tab detail view
+`tangsible hosts` opens on Enter, including that view's own two-pane
+split layout on a wide enough terminal (tree pane + detail pane side by
+side) - not a separate, simpler picker. No split pane exists at all
+until a host is actually opened this way, matching `hosts`' own and the
+run drill-down's own identical rule (design-docs/TwoPanedLayout.md).
+Esc from that detail view returns to the tree, split or full-screen
+alike, cursor back on the host leaf that opened it (matching `hosts`'
+own Esc-to-list behavior).
+
+`<playbook>` is optional for the same reason it's optional for `host`/
+`hosts`: the detail view's Plays tab needs one to probe against. For now
+this behaves exactly like `host`/`hosts` with no playbook given - no
+special-casing for `inventory` specifically. Worth revisiting later
+whether a missing playbook should instead just hide the Plays tab
+outright (for all three verbs, not just this one).
+
+**Implemented** (`internal/host/inventory.go`). A few decisions beyond
+the Q&A above, made while building it:
+
+- `ansible-inventory --list`'s own universal `all` group is never
+  rendered as its own row - `all`'s children become the tree's own
+  (possibly several) top-level rows directly, matching "the tree shall
+  initially only show the top-level groups" literally and the same
+  reasoning the Groups tab already applies to `all` (a line with nothing
+  informative to say).
+- `Left` goes one step further than the run tree's own Left ever needed
+  to: on an *already-collapsed* group, it climbs to that group's own
+  parent and collapses it, moving the cursor there - the run tree never
+  needed this (a task row has no parent of its own to climb to), but a
+  tree that's actually deep benefits from it. `E`/`C` get the equivalent
+  cursor-safety the live tree's own `collapseAll` already has - the
+  cursor snaps to its own top-level ancestor first, so collapsing
+  everything never strands it on a row about to disappear.
+- Split-mode keyboard focus: an earlier version of this kept focus on the
+  tree while split, the opposite of `hosts`' own choice, reasoning that
+  the tree's own hierarchical navigation was the primary interaction and
+  had to keep working via the keyboard. Revisited and reversed once
+  `hosts`/`inventory`/the run drill-down's own two-pane behavior were
+  unified to all work the same way (design-docs/TwoPanedLayout.md): no
+  split pane exists at all until a host is actually opened, and once one
+  is, focus moves to the open detail view's own tabs - `↑`/`↓`/PgUp/PgDn
+  scroll its content, `Esc` closes it (split or full-screen alike, no
+  longer full-screen-only), and `←`/`→` hop to the previous/next host
+  *occurrence* in the tree's own full depth-first order (`allHostNodesInOrder`,
+  see below), force-expanding whichever ancestor groups are collapsed
+  along the way (`expandAncestors`) so the destination always lands on a
+  visible row.
+  Tree-level `Right`/`Left`/`E`/`C` (expand/collapse) only apply while no
+  detail view is open at all - once one is, they're superseded by the
+  detail view's own keymap, the same way the run drill-down has no
+  expand/collapse-all concept while its own output view is open either.
+  A mouse click on the tree pane still moves real focus back onto it for
+  as long as you keep navigating there, reverting to the detail view's
+  tabs on the next host selection.
+- `n`/`N`/`←`/`→` inside the opened detail view all hop through
+  `allHostNodesInOrder`'s own full depth-first tree order - "the host
+  that would come next/previous vertically if the tree were completely
+  expanded," literally, walking real tree *occurrences* rather than a
+  deduplicated/alphabetical hostname list. An earlier version hopped
+  through `inventory.FlattenInventoryHosts`' own flat, deduplicated order
+  instead (the same list `hosts` hops through), landing on a repeated
+  host's first occurrence by name - reported live as the tree "jump[ing]
+  randomly around" once a host's several occurrences were spread across
+  different branches, since advancing by *name* can skip straight past
+  whichever occurrence actually sits next to the current one on screen.
+  `←`/`→` are a plain alias for `n`/`N` here (this tree has only one
+  dimension to hop along, unlike the run drill-down's own `←`/`→` = host,
+  `n`/`N` = task split) - kept as an addition, not a replacement, since
+  `n`/`N` already worked this way before `←`/`→` did too.
+

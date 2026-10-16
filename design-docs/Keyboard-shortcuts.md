@@ -3,7 +3,8 @@
 Covers both `tangsible run`/`rerun`/`role` (the live tree UI, `tui.go`) and
 `tangsible template` (the standalone template-debugging UI, `template.go`)
 - two separate programs with their own key/mouse handling, noted separately
-below. `tangsible hosts`/`tangsible host` (`host.go`) and the diff view
+below. `tangsible hosts`/`tangsible host`/`tangsible inventory` (`host.go`,
+`inventory.go`) and the diff view
 (`diff.go`, opened with the `d` hotkey below - not a CLI verb of its own)
 aren't otherwise covered by this document, but share the same in-tab
 search and copy-to-clipboard features described below, so those two
@@ -14,7 +15,7 @@ necessarily bugs.
 **Help, everywhere:** `?` or F1 opens a help dialog listing the current
 view's shortcuts, in every view of every verb (tree, drill-down, `o` view,
 revisit's run list / diff's picker, diff tree and drill-down, `hosts` list,
-host detail, template view). In the re-run dialog only F1 works, since `?`
+host detail, `inventory` tree, template view). In the re-run dialog only F1 works, since `?`
 must stay typeable in its fields - there the help also explains the fields
 and checkboxes. Esc / `?` / F1 / `q` close it (`q` never quits from help);
 Ctrl-C closes it and then does what it always does. The dialogs' content

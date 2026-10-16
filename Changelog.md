@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- New verb: `tangsible inventory` - shows an interactive tree view of the
+  whole inventory simiilar to ansible-inventory --graph
+
+### Fixed
+
+- `hosts`/`inventory`: two-pane mode now behaves like `run`'s own drill-down
+  view
+- `hosts`/`inventory`: revisiting a host already opened this session now
+  renders all five tabs instantly from cache instead of re-fetching the
+  content every time.
+
 ## [0.2.0] - 2026-10-08
 
 ### Added

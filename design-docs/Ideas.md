@@ -29,6 +29,9 @@ immediately implemented.
   * < / >
   * G
 
+* Different tangsible vault approach
+  * show vars in tui, edit with enter
+
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
 

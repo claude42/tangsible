@@ -107,6 +107,7 @@ normally require writing temporary playbooks.
 - **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
 - **Easily edit individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
 - A **host-centric view** of all relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, groups, plays, host_vars
+- A **tree view of the whole inventory** with `tangsible inventory` &ndash; groups as collapsible nodes, hosts as leaves, similar to `ansible-inventory --graph`
 
 ## Requirements
 
@@ -300,6 +301,13 @@ Browse through all hosts with
 ```
 tangsible hosts
 ```
+
+Or browse the whole inventory as a tree (groups as collapsible nodes, hosts
+as leaves, similar to `ansible-inventory --graph`) with
+```
+tangsible inventory [playbook.yml] [ansible-playbook args...]
+```
+Opening a host from the tree shows the exact same detail view as `tangsible hosts`.
 
 ## Keyboard shortcuts
 

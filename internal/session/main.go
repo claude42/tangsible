@@ -44,7 +44,7 @@ import (
 func Main(build BuildInfo) {
 	v, args, ok := config.ParseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|vault|version> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|inventory|vault|version> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 		os.Exit(2)
 	}
 
@@ -92,18 +92,18 @@ func Main(build BuildInfo) {
 		uikit.PrintColorWarnings()
 	}
 
-	// "template" (design-docs/Tangsible template.md), "host"/"hosts"
-	// (design-docs/HostVerb.md), "revisit" (design-docs/Revisit.md), and
-	// "vault" (design-docs/Vault.md) are each standalone programs - they
-	// share none of run/rerun/role's own tree-building machinery below
-	// (procH, playbook resolution, the live jsonl pipeline, NewLiveTUI's
-	// own construction, ...), so they're split off here before any of
-	// that gets set up, rather than threaded through the switch below.
-	// "revisit" does still end up inside NewLiveTUI for its own detail
-	// view (unlike the other three) - but only once per selected entry,
-	// each its own fresh call with a freshly replayed state, never
-	// sharing this function's own run/rerun/role setup. "vault" never
-	// touches tview at all, unlike every other Verb here.
+	// "template" (design-docs/Tangsible template.md), "host"/"hosts"/
+	// "inventory" (design-docs/HostVerb.md), "revisit" (design-docs/
+	// Revisit.md), and "vault" (design-docs/Vault.md) are each standalone
+	// programs - they share none of run/rerun/role's own tree-building
+	// machinery below (procH, playbook resolution, the live jsonl
+	// pipeline, NewLiveTUI's own construction, ...), so they're split off
+	// here before any of that gets set up, rather than threaded through
+	// the switch below. "revisit" does still end up inside NewLiveTUI for
+	// its own detail view (unlike the others) - but only once per
+	// selected entry, each its own fresh call with a freshly replayed
+	// state, never sharing this function's own run/rerun/role setup.
+	// "vault" never touches tview at all, unlike every other Verb here.
 	if v == config.VerbTemplate {
 		code := template.RunTemplateVerb(args)
 		printStartupWarnings()
@@ -116,6 +116,11 @@ func Main(build BuildInfo) {
 	}
 	if v == config.VerbHosts {
 		code := host.RunHostsVerb(args)
+		printStartupWarnings()
+		os.Exit(code)
+	}
+	if v == config.VerbInventory {
+		code := host.RunInventoryVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
 	}

@@ -13,10 +13,10 @@ design choices. `README.md` is the user-facing tour; `design-docs/Codemap.md`
 maps packages/files (verify against `grep`, it can drift);
 `design-docs/Keyboard-shortcuts.md` is the full key reference.
 
-One Go binary, nine verbs (`internal/config/resolve.go`'s `ParseVerb`): `run`,
+One Go binary, ten verbs (`internal/config/resolve.go`'s `ParseVerb`): `run`,
 `rerun`, `role`, `revisit` share the live tree/TUI machinery
-(`internal/session`); `template`, `host`/`hosts`, `vault`, `version` are
-standalone programs that never build the live tree. Requires
+(`internal/session`); `template`, `host`/`hosts`/`inventory`, `vault`,
+`version` are standalone programs that never build the live tree. Requires
 `ansible-playbook` and a real TTY. Root `main.go` just calls `session.Main`.
 
 ## Commands
@@ -248,10 +248,17 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   interrupted render then fails instead of leaking); `hosts: all` + `--limit`
   per render, `delegate_to: localhost`; renders are serialized; role-owned
   templates get the role's vars via `vars_files`, never `roles:`.
-- **Host/hosts** (`HostVerb.md`): five tabs fetched concurrently; the
+- **Host/hosts/inventory** (`HostVerb.md`): five tabs fetched concurrently; the
   Summary tab uses an explicit `setup:` task (an implicit gather is silently
   skipped with a warm fact cache) with a fact-cache fast path
-  (`FetchHostFacts`).
+  (`FetchHostFacts`). `hosts`/`inventory` also keep their own session-level
+  `HostDetailCache`, keyed by hostname - revisiting a host already opened
+  this session (`Left`/`Right`/`n`/`N`, a click, Esc-and-reopen) renders all
+  five tabs instantly from it instead of re-fetching, errors never cached.
+  `inventory` is a collapsible group/host tree (`ansible-inventory
+  --graph`-shaped) in front of the same detail view; a host that's a direct
+  member of several groups gets one node per occurrence but one shared,
+  deduplicated ping (and detail cache entry).
 - **Autocomplete** (`Autocomplete.md`): `uikit.FilteredMatch`/
   `MatchSingleValue`; tview's callback sees only the full text, so only the
   last comma-separated token completes. Enter/Esc go to an open drop-down

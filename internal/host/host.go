@@ -1360,6 +1360,58 @@ func TabIndexByName(names []string, name string) int {
 	return 0
 }
 
+// HostDetailCache holds each host's own five already-rendered tab texts,
+// once each has finished fetching, for the remainder of one hosts/
+// inventory session - so revisiting a host already seen this session
+// (Left/Right/n/N hop, a click, or re-opening after Esc) renders
+// instantly instead of re-running all five fetches - including a brand
+// new `ansible-playbook` invocation for Summary - from scratch every
+// single time. Reported live: "Gathering facts..." reappearing on every
+// single revisit, even for a host already fully loaded moments earlier
+// (design-docs/HostVerb.md).
+//
+// Keyed by hostname only, never invalidated within a session - matches
+// the live run drill-down's own resolveCache/docsCache, which likewise
+// survive a close/reopen within one generation; quitting and reopening
+// the whole verb is the way to force a genuinely fresh read. Only ever
+// read or written from BuildHostDetailPrimitive itself (always called on
+// the main event loop - see its own callers) or from its fetch
+// goroutines' app.QueueUpdateDraw callbacks (also the main loop) - no
+// mutex needed, the same "one event-loop goroutine" invariant every
+// other piece of shared TUI state in this app already follows
+// (CLAUDE.md). A nil *HostDetailCache (RunHostDetailStandalone's own
+// call, which only ever shows one host once) disables caching entirely -
+// every read/write below is guarded accordingly.
+//
+// summaryFacts caches Summary's own resolved ansible_facts alongside its
+// rendered text, not just the text itself - needed so a Summary cache
+// hit can still feed Everything Known's own fact-merge step (the
+// summaryFacts channel below) on the rare occasion Everything Known
+// isn't also cached yet (its own fetch failed last time, say, and
+// errors are deliberately never cached - so it retries fresh even while
+// Summary serves from cache).
+type HostDetailCache struct {
+	summary         map[string]string
+	summaryFacts    map[string]map[string]interface{}
+	groups          map[string]string
+	plays           map[string]string
+	hostVars        map[string]string
+	everythingKnown map[string]string
+}
+
+// NewHostDetailCache returns an empty HostDetailCache, ready to pass into
+// every BuildHostDetailPrimitive call for one hosts/inventory session.
+func NewHostDetailCache() *HostDetailCache {
+	return &HostDetailCache{
+		summary:         map[string]string{},
+		summaryFacts:    map[string]map[string]interface{}{},
+		groups:          map[string]string{},
+		plays:           map[string]string{},
+		hostVars:        map[string]string{},
+		everythingKnown: map[string]string{},
+	}
+}
+
 // BuildHostDetailPrimitive builds design-docs/HostVerb.md's five-tab host
 // detail view - a thin header (hostname + playbook, mirroring the
 // "template" Verb's own header pattern) and a five-tab body (TabbedPane,
@@ -1385,8 +1437,13 @@ func TabIndexByName(names []string, name string) int {
 // dot for this host, if any (false/false for the standalone "host" Verb,
 // which has no ping subsystem at all - RunHostDetailStandalone always
 // passes that) - see the Summary tab's own progressive-fetch goroutine
-// below for what this changes.
-func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string, pingKnown, pingOK bool) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *uikit.TabSearchBar) {
+// below for what this changes. cache (HostDetailCache's own doc comment)
+// is checked per tab before any fetch starts - a hit renders that tab's
+// already-known text immediately, synchronously, no placeholder flash and
+// no goroutine at all; a miss fetches exactly as before and stores its
+// own result once done. nil disables caching entirely (RunHostDetailStandalone's
+// own call, which only ever shows one host once).
+func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string, pingKnown, pingOK bool, cache *HostDetailCache) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *uikit.TabSearchBar) {
 	header := tview.NewTextView().SetDynamicColors(true)
 	header.SetTextStyle(uikit.BarStyle)
 	playbookLabel := playbook
@@ -1424,7 +1481,20 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		AddItem(tabs.Primitive(), 0, 1, true).
 		AddItem(searchBar.Primitive(), 1, 0, false)
 
-	fetch := func(view *tview.TextView, do func() (string, error)) {
+	// fetch runs do in the background and renders its result, same as
+	// before, unless cached already has this host's own text from an
+	// earlier visit this session - then it's rendered directly, no
+	// goroutine, no placeholder flash. cached is nil to disable caching
+	// (standalone "host" Verb) - a nil map read is always a safe miss,
+	// but a write still needs guarding (writing to a nil map panics).
+	fetch := func(view *tview.TextView, cached map[string]string, do func() (string, error)) {
+		if cached != nil {
+			if text, ok := cached[hostname]; ok {
+				view.SetText(text)
+				view.ScrollToBeginning()
+				return
+			}
+		}
 		go func() {
 			text, err := do()
 			app.QueueUpdateDraw(func() {
@@ -1438,6 +1508,11 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 					view.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 				} else {
 					view.SetText(text)
+					if cached != nil {
+						cached[hostname] = text // errors are deliberately
+						// never cached - a transient failure shouldn't stick
+						// around for the rest of the session.
+					}
 				}
 				view.ScrollToBeginning()
 			})
@@ -1465,6 +1540,18 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	// already found unreachable) avoids a second, doomed connection
 	// attempt just to build this tab - see FetchHostFacts' own doc comment.
 	go func() {
+		if cache != nil {
+			if text, ok := cache.summary[hostname]; ok {
+				summaryFacts <- cache.summaryFacts[hostname] // may be nil -
+				// Everything Known's own receiver already treats that as
+				// "nothing to merge," same as a live fetch's own nil send.
+				app.QueueUpdateDraw(func() {
+					summaryView.SetText(text)
+					summaryView.ScrollToBeginning()
+				})
+				return
+			}
+		}
 		res, err := FetchHostFacts(stubPath, hostname, rest, pingKnown && !pingOK)
 		if err != nil {
 			summaryFacts <- nil // never leave Everything Known's own
@@ -1510,11 +1597,26 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 				summaryView.SetText(doc.render())
 			})
 		}
+		// Enqueued after every closure above that might still touch doc
+		// (the per-line ones, or the len(lines)==0 fallback) - QueueUpdateDraw
+		// runs its closures in order on the one event-loop goroutine, so by
+		// the time this one runs, doc.recent already holds its true final
+		// value, never a "scanning recent runs..." or partial-streaming one.
+		if cache != nil {
+			app.QueueUpdateDraw(func() {
+				cache.summary[hostname] = doc.render()
+				cache.summaryFacts[hostname] = res.facts
+			})
+		}
 	}()
 
-	fetch(groupsView, func() (string, error) { return FetchHostGroups(hostname, rest) })
-	fetch(playsView, func() (string, error) { return FetchHostPlays(playbook, rest, hostname) })
-	fetch(hostVarsView, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
+	var groupsCache, playsCache, hostVarsCache, everythingCache map[string]string
+	if cache != nil {
+		groupsCache, playsCache, hostVarsCache, everythingCache = cache.groups, cache.plays, cache.hostVars, cache.everythingKnown
+	}
+	fetch(groupsView, groupsCache, func() (string, error) { return FetchHostGroups(hostname, rest) })
+	fetch(playsView, playsCache, func() (string, error) { return FetchHostPlays(playbook, rest, hostname) })
+	fetch(hostVarsView, hostVarsCache, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
 
 	// Everything known also gets its own bespoke goroutine rather than the
 	// generic fetch helper: it renders immediately from its own
@@ -1524,13 +1626,27 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	// (mergeFactsIntoEverythingKnown) rather than leaving this tab
 	// dependent on winning its own race against Summary's live gather.
 	go func() {
+		if everythingCache != nil {
+			if text, ok := everythingCache[hostname]; ok {
+				everythingView.SetText(text)
+				everythingView.ScrollToBeginning()
+				return // never touches summaryFacts - harmless either way:
+				// Summary's own send (live or cached) is buffered, absorbed
+				// without a receiver if nothing ever reads it.
+			}
+		}
 		raw, err := FetchHostEverythingKnownRaw(hostname, rest)
 		app.QueueUpdateDraw(func() {
 			searchBar.ClearForView(everythingView)
 			if err != nil {
 				everythingView.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
 			} else {
-				everythingView.SetText(uikit.HighlightJSONKeys(string(raw)))
+				text := uikit.HighlightJSONKeys(string(raw))
+				everythingView.SetText(text)
+				if everythingCache != nil {
+					everythingCache[hostname] = text // tentative - overwritten
+					// below if a facts merge lands on top of it.
+				}
 			}
 			everythingView.ScrollToBeginning()
 		})
@@ -1544,10 +1660,14 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		merged, mergeErr := mergeFactsIntoEverythingKnown(raw, facts)
 		if mergeErr != nil {
 			return // best-effort - the plain ansible-inventory dump
-			// already shown above stays as the final answer
+			// already shown (and cached) above stays as the final answer
 		}
+		text := uikit.HighlightJSONKeys(string(merged))
 		app.QueueUpdateDraw(func() {
-			everythingView.SetText(uikit.HighlightJSONKeys(string(merged)))
+			everythingView.SetText(text)
+			if everythingCache != nil {
+				everythingCache[hostname] = text
+			}
 		})
 	}()
 
@@ -1565,7 +1685,7 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
-	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, hostDetailBar, false, false)
+	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, hostDetailBar, false, false, nil)
 	pages := tview.NewPages().AddPage("main", detail, true, true)
 	help := uikit.NewHelpOverlay(app, pages)
 
@@ -1590,7 +1710,7 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 		}
 		switch {
 		case uikit.IsHelpKey(event):
-			help.Open(hostDetailHelp, hostDetailHidden(false, false))
+			help.Open(hostDetailHelp, hostDetailHidden(false))
 			return nil
 		case event.Key() == tcell.KeyEscape && searchBar.HasActive():
 			searchBar.Clear()
@@ -1752,6 +1872,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 	// showing it.
 	splitDetailFooterText := hostsSplitDetailBar
 	help := uikit.NewHelpOverlay(app, pages)
+	detailCache := NewHostDetailCache()
 
 	var showDetail func(hostname string)
 	var layout func()
@@ -1839,7 +1960,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 		if totalWidth >= uikit.SplitMinTotalWidth {
 			footer = splitDetailFooterText
 		}
-		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footer, pingKnown[hostname], pingOK[hostname])
+		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footer, pingKnown[hostname], pingOK[hostname], detailCache)
 		pages.RemovePage("detail")
 		pages.AddPage("detail", detail, true, true)
 		detailTabs, detailHeader, detailSearch, detailPrimitive = tabs, hdr, bar, detail
@@ -1860,20 +1981,20 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 	layout = func() {
 		_, _, totalWidth, _ := pages.GetInnerRect()
 		lastTotalWidth = totalWidth
+		if !viewingDetail {
+			// Nothing opened yet - full-width list regardless of terminal
+			// width, matching the live run tree's own rule (design-docs/
+			// TwoPanedLayout.md): a split pane only ever exists once a
+			// drill-down is actually open, never just because the
+			// terminal happens to be wide enough. splitMode itself is
+			// meaningless until then.
+			splitMode = false
+			pages.SwitchToPage("list")
+			app.SetFocus(list)
+			return
+		}
 		splitMode = totalWidth >= uikit.SplitMinTotalWidth
 		if splitMode {
-			if !viewingDetail {
-				// Wide enough but nothing ever opened yet - split mode
-				// has no "nothing open" state at all (the detail pane is
-				// always right there alongside the list), so this
-				// auto-opens whatever the list's own cursor already sits
-				// on, matching design-docs/HostVerb.md's own "moving the
-				// cursor should immediately update the detail pane".
-				// Recurses exactly once (showDetail sets viewingDetail
-				// before calling back into layout), never deeper.
-				showDetail(hosts[selectedIdx])
-				return
-			}
 			splitFlex := tview.NewFlex().SetDirection(tview.FlexColumn).
 				AddItem(listFlex, uikit.SplitTreeWidth(totalWidth), 0, false).
 				AddItem(splitDivider, uikit.SplitDividerWidth, 0, false).
@@ -1888,20 +2009,15 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 			// otherwise: with focus left on list, ↑/↓ only ever moved the
 			// host cursor, and there was no way to scroll a tab's own
 			// content at all. Host-to-host navigation while split still
-			// works via n/N (handleKey intercepts those regardless of
+			// works via n/N/←/→ (handleKey intercepts those regardless of
 			// real focus) and via a mouse click/wheel on the list pane
 			// itself (TreeList's own MouseHandler moves real focus back
 			// onto list when clicked, same as any other widget).
 			app.SetFocus(detailTabs.Primitive())
 			return
 		}
-		if viewingDetail {
-			pages.SwitchToPage("detail")
-			app.SetFocus(detailTabs.Primitive())
-		} else {
-			pages.SwitchToPage("list")
-			app.SetFocus(list)
-		}
+		pages.SwitchToPage("detail")
+		app.SetFocus(detailTabs.Primitive())
 	}
 
 	list.SetChangedFunc(func(index int) {
@@ -1968,10 +2084,20 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 		}
 		switch {
 		case uikit.IsHelpKey(event) && viewingDetail:
-			help.Open(hostDetailHelp, hostDetailHidden(true, splitMode))
+			help.Open(hostDetailHelp, hostDetailHidden(true))
 			return nil
 		case uikit.IsHelpKey(event):
 			help.Open(hostsListHelp, nil)
+			return nil
+		// q while a detail view is open just closes it, back to the list -
+		// matching the live run tree's own handleOutputViewQuit - rather
+		// than quitting outright. Checked here, before the viewingDetail
+		// switch below, so it closes unconditionally even with an active
+		// search (same precedence as handleOutputViewQuit, which also
+		// bypasses Escape's own "clear the search first" nuance).
+		case event.Rune() == 'q' && viewingDetail:
+			viewingDetail = false
+			layout()
 			return nil
 		case event.Rune() == 'q':
 			quitting.Store(true)
@@ -1988,16 +2114,30 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 			case event.Key() == tcell.KeyEscape && detailSearch.HasActive():
 				detailSearch.Clear()
 				return nil
-			case event.Key() == tcell.KeyEscape && !splitMode:
-				pages.SwitchToPage("list")
+			case event.Key() == tcell.KeyEscape:
+				// Closes the detail view in split mode too now, matching
+				// the live run tree's own drill-down (design-docs/
+				// TwoPanedLayout.md) - no longer gated on !splitMode.
 				viewingDetail = false
-				app.SetFocus(list)
+				layout()
 				return nil
 			case event.Key() == tcell.KeyTab:
 				detailTabs.Next()
 				return nil
 			case event.Key() == tcell.KeyBacktab:
 				detailTabs.Prev()
+				return nil
+			// Left/Right are a plain alias for n/N here - hosts has only
+			// one dimension to hop along (unlike the live run tree's own
+			// drill-down, where Left/Right hop hosts and n/N hop tasks),
+			// so both keys do the identical navigateHostDetail call; kept
+			// as an addition, not a replacement, since n/N already worked
+			// this way before Left/Right did too.
+			case event.Key() == tcell.KeyLeft:
+				navigateHostDetail(-1)
+				return nil
+			case event.Key() == tcell.KeyRight:
+				navigateHostDetail(1)
 				return nil
 			// n/N are context-sensitive here, the same way tui.go's own
 			// task-hop n/N become match-nav while a search is active: this

@@ -9,7 +9,7 @@
 #       source /path/to/tangsible/completions/tangsible.bash
 #
 # Covers tangsible's own verbs and positionals (resolve.go/role.go/
-# template.go/host.go/revisit.go/vault.go) plus every flag
+# template.go/host.go/inventory.go/revisit.go/vault.go) plus every flag
 # `ansible-playbook --help` lists, since every verb but vault/version
 # passes those straight through unchanged - and tangsible's own synthetic
 # flags (--start-at-play/--dialog/--no-dialog/--only-failed/
@@ -22,7 +22,7 @@
 # chased further" heuristic tangsible's own source uses for similar
 # judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts revisit vault version"
+_tangsible_verbs="run rerun role template host hosts inventory revisit vault version"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards
@@ -80,7 +80,7 @@ _tangsible_flags_for_verb()
 	role)
 		echo "$_tangsible_ap_flags $_tangsible_dialog_flags"
 		;;
-	template | host | hosts | revisit)
+	template | host | hosts | inventory | revisit)
 		echo "$_tangsible_ap_flags"
 		;;
 	vault)
@@ -203,10 +203,10 @@ _tangsible()
 	done
 
 	case "$verb" in
-	run | rerun | hosts | revisit)
+	run | rerun | hosts | inventory | revisit)
 		# tangsible <playbook.yml> [ansible-playbook args...]
 		# revisit's own positional is optional too (falls back to the most
-		# recently revisitable target), same shape as run/rerun/hosts.
+		# recently revisitable target), same shape as run/rerun/hosts/inventory.
 		if [ "$pos" -eq 0 ]; then
 			_tangsible_ymlfiles "$cur"
 		else
