@@ -76,4 +76,4 @@ Standard *ansible-playbook*(1) arguments can be used, e.g. *--inventory* or
 
 # SEE ALSO
 
-*tangsible*(1), *tangsible-hosts*(1), *tangsible-template*(1)
+*tangsible*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-template*(1)

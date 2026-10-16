@@ -38,6 +38,9 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 *tangsible-hosts*(1)
 	Browse all inventory host, then drill into any one of them with the same view *tangsible host* shows.
 
+*tangsible-inventory*(1)
+	Browse the whole inventory as an interactive tree of groups and hosts, similar to *ansible-inventory --graph*, then drill into any host with the same view *tangsible host* shows.
+
 *tangsible-revisit*(1)
 	Browse previous runs and reopen one, then analyze all information exactly as it looked when it finished.
 
@@ -124,4 +127,4 @@ past this count.
 
 # SEE ALSO
 
-*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-revisit*(1), *tangsible-vault*(1)
+*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-revisit*(1), *tangsible-vault*(1)
