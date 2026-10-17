@@ -85,6 +85,8 @@ changes might be necessary.
   names, source and output.
 - **Keyboard and mouse navigation** - use the keyboard or mouse throughout the
   TUI.
+- **Desktop integration** - desktop notifications, progress visualization in
+  the window title, copy output to clipboard.
 
 ### Iterate
 
