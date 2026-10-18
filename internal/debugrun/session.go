@@ -104,7 +104,14 @@ func Spawn(playbook string, args []string) (*Session, error) {
 		return nil, err
 	}
 
+	// --diff is always appended, never left to the caller's own args (same
+	// as runner.SpawnGeneration's own identical comment/behavior for a
+	// plain run) - otherwise the drill-down's Diff tab would never have
+	// anything to show in debug mode at all, even for a genuine change,
+	// unless the user happened to type --diff themselves. Harmless if
+	// they did anyway: ansible-playbook tolerates a repeated boolean flag.
 	cmdArgs := append([]string{playbook}, args...)
+	cmdArgs = append(cmdArgs, "--diff")
 	cmd := exec.Command("ansible-playbook", cmdArgs...)
 
 	stdinR, stdinW, err := os.Pipe()

@@ -394,6 +394,26 @@ afterward. New unit tests: `TestCursor_ApplyInsertsUnmatchedTasksLiveInPlace`,
 `TestCursor_ApplyInsertsHandlerTasksLive` (`internal/debugverb/
 cursor_test.go`).
 
+## Stage 2 follow-up round 5: no `--diff` at all (2026-10-18)
+
+**Reported live:** a `lineinfile` task that should have changed a file
+showed no Diff tab at all.
+
+**Root cause:** `debugrun.Spawn`'s own `cmdArgs` never appended `--diff`,
+unlike `runner.SpawnGeneration`'s own identical-looking code (`internal/
+runner/process.go`), which always does, specifically so `BuildDiffTab`
+has something to show whenever a module supports diff mode - not just
+when the user happens to pass `--diff` themselves. A debug session was
+spawned via a completely separate path (`debugrun.Spawn`, never
+`SpawnGeneration`), so it never inherited that behavior - the Diff tab
+could never have shown anything in debug mode, for any task, regardless
+of whether a real change happened. Fixed by adding the identical
+`--diff` append to `debugrun.Spawn`'s own `cmdArgs`.
+
+Verified live: a `lineinfile` task that actually changes a file's
+content now shows a real unified diff on the Diff tab, same as a plain
+`run` already would.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces
