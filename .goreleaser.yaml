@@ -44,7 +44,16 @@ builds:
       - -s -w
       - -X main.version={{ .Version }}
       - -X main.commit={{ .Commit }}
-      - -X main.date={{ .CommitDate }}
+      # CommitDate (not .Date/"now") for a real, tagged release - so
+      # building the same tag twice, on different machines or days,
+      # produces a byte-identical binary. A --snapshot build is a local,
+      # throwaway dev artifact with no such reproducibility goal, and the
+      # commit it's built from is often the same across several snapshot
+      # builds in a row (uncommitted local edits in between) - so it gets
+      # the actual wall-clock build time instead, specifically so
+      # `tangsible version`'s own "built:" line can answer "is this
+      # actually the one I just built, or did I forget to reinstall."
+      - -X main.date={{ if .IsSnapshot }}{{ .Date }}{{ else }}{{ .CommitDate }}{{ end }}
     mod_timestamp: "{{ .CommitTimestamp }}"
     goos:
       - linux
