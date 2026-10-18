@@ -182,6 +182,35 @@ func TestCursor_ApplyPopulatesHostOrder(t *testing.T) {
 	}
 }
 
+// TestCursor_ApplyTracksInFlight pins the busy-animation prefix's own
+// data source (PlaybookState.IncompleteTasks, which TaskLabel's "active"
+// case ultimately reads) actually gets populated for a debug session -
+// confirmed live as a real, reported bug without this: debug mode's own
+// busy column stayed permanently empty for the whole run, since nothing
+// in this package ever touched TaskNode.InFlight at all (aggregate.go's
+// own v2_runner_on_start/recordHost handling, which Cursor never goes
+// through - SeedState's own doc comment).
+func TestCursor_ApplyTracksInFlight(t *testing.T) {
+	skeleton := []runner.ProgressEntry{{Play: "p", Task: "t"}}
+	_, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "t"}})
+
+	c.Apply(playbook.RawEvent{Event: "v2_runner_on_start", Host: "host1", TimestampText: "2026-10-18T12:00:00.000000Z"})
+	if !nodes[0].InFlight["host1"] {
+		t.Fatal("InFlight[host1] not set after v2_runner_on_start")
+	}
+	if nodes[0].Started["host1"].IsZero() {
+		t.Error("Started[host1] not set after v2_runner_on_start")
+	}
+
+	c.Apply(playbook.RawEvent{Event: "v2_runner_on_ok", Hosts: map[string]json.RawMessage{"host1": []byte(`{}`)}})
+	if nodes[0].InFlight["host1"] {
+		t.Error("InFlight[host1] must be cleared once the host's own terminal outcome arrives")
+	}
+}
+
 // TestCursor_ApplyInsertsUnmatchedTasksLiveInPlace: a task-start event for
 // something --list-tasks never predicted - a task spliced in by a dynamic
 // include_tasks/include_role (design-docs/DebugMode.md's "Dynamic

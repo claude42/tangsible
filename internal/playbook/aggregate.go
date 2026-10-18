@@ -138,17 +138,21 @@ type TaskNode struct {
 	// pre-fork run log) it's not meaningful on its own, same caveat
 	// PerHostTaskTiming.md raised for the finish-only approach.
 	Finished map[string]time.Time
-	// inFlight is the set of hosts currently dispatched on this task but
+	// InFlight is the set of hosts currently dispatched on this task but
 	// not yet reported a terminal outcome - added by a v2_runner_on_start
 	// event (Apply's own case), removed by recordHost the moment that
 	// host's own outcome arrives. Backs PlaybookState.IncompleteTasks -
 	// design-docs/StrategyFree.md's exact (not approximated) replacement
 	// for the old single currentTask pointer, which broke down the moment
 	// more than one task could be in flight at once (strategy: free).
-	// Unexported: nothing outside this package needs per-host in-flight
-	// detail, only the task-level "is anything still in flight"
-	// aggregate IncompleteTasks provides.
-	inFlight map[string]bool
+	// Exported so debugverb.Cursor (outside this package, never calling
+	// Apply at all - its own doc comment) can mirror the exact same
+	// v2_runner_on_start/terminal-event effect on it directly, for a
+	// debug session's tree - confirmed live as a real, reported bug
+	// without this: debug mode's own busy-animation column stayed
+	// permanently empty, since IncompleteTasks (and so the spinner) had
+	// nothing to find.
+	InFlight map[string]bool
 }
 
 func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedAt time.Time) {
@@ -161,7 +165,7 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedA
 	t.HasStderr[host] = hasNonEmptyStderr(raw)
 	t.Ignored[host] = HasIgnoreErrors(raw)
 	t.Finished[host] = finishedAt
-	delete(t.inFlight, host)
+	delete(t.InFlight, host)
 }
 
 // hasHost reports whether host has already touched this task node, in
@@ -389,7 +393,7 @@ func (s *PlaybookState) findOrCreateTask(ev RawEvent, host string) *TaskNode {
 		Ignored:   map[string]bool{},
 		Started:   map[string]time.Time{},
 		Finished:  map[string]time.Time{},
-		inFlight:  map[string]bool{},
+		InFlight:  map[string]bool{},
 	}
 	s.currentPlay.Tasks = append(s.currentPlay.Tasks, t)
 	if s.tasksByID == nil {
@@ -474,7 +478,7 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 
 	// Only ever arrives from this app's own bundled callback plugin fork
 	// (RawEvent.Host's own doc comment) - a pre-fork run log simply never
-	// produces this case, leaving Started/inFlight empty exactly like
+	// produces this case, leaving Started/InFlight empty exactly like
 	// every other "unknown" event-derived field in this package. Resolves
 	// its own task by ID (findOrCreateTask) rather than trusting
 	// currentTask, the same as every other case above now - under
@@ -491,7 +495,7 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 		task := s.findOrCreateTask(ev, ev.Host)
 		if task != nil && ev.Host != "" {
 			task.Started[ev.Host] = ev.Timestamp()
-			task.inFlight[ev.Host] = true
+			task.InFlight[ev.Host] = true
 		}
 	}
 }
@@ -512,7 +516,7 @@ func (s *PlaybookState) recordHost(task *TaskNode, host string, o Outcome, raw j
 
 // IncompleteTasks returns every task, across all plays, in first-seen
 // (run) order, that currently has at least one host dispatched but not yet
-// reporting a terminal outcome (TaskNode.inFlight, set by a
+// reporting a terminal outcome (TaskNode.InFlight, set by a
 // v2_runner_on_start event, cleared the moment that host's own result
 // arrives - see Apply/TaskNode.record). Exposed read-only for tui.go, which
 // uses it to mark every currently-active task's row with a spinner and to
@@ -526,7 +530,7 @@ func (s *PlaybookState) recordHost(task *TaskNode, host string, o Outcome, raw j
 // bundled callback plugin fork - RawEvent.Host's own doc comment - for
 // both lockstep and free strategies alike); a pre-fork run log (no
 // v2_runner_on_start events at all, e.g. a saved run replayed via revisit/
-// diff) simply never populates inFlight for anything, so this always
+// diff) simply never populates InFlight for anything, so this always
 // returns empty for one - harmless, since a replayed log is already frozen
 // (processDone pre-true) by the time anything asks. A plain scan over
 // Plays/Tasks, not a maintained index - same "simple beats clever at
@@ -535,7 +539,7 @@ func (s *PlaybookState) IncompleteTasks() []*TaskNode {
 	var tasks []*TaskNode
 	for _, play := range s.Plays {
 		for _, t := range play.Tasks {
-			if len(t.inFlight) > 0 {
+			if len(t.InFlight) > 0 {
 				tasks = append(tasks, t)
 			}
 		}

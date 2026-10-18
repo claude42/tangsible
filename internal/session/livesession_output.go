@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"code.aw.net/claude/tangsible/internal/ansibledoc"
+	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
@@ -106,13 +107,16 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 	// stays false - the user's own call: reviving the old plain-run
 	// mechanism isn't worth it, this new one supersedes it for debug
 	// specifically) - it has its own trigger instead: a task_vars
-	// snapshot captured at the exact moment this (task, host) was paused
-	// on (debugCaptureTaskVars). No snapshot (this task's breakpoint was
-	// never armed, so debugrun's own BreakpointSet silently ran straight
-	// through it - an accepted v1 scope, design-docs/DebugMode.md) means
-	// nothing to kick off at all; the tab just stays absent for it, same
-	// as any other task with nothing to show.
-	snapshot, haveSnapshot := s.debugTaskVarsCache[key]
+	// snapshot captured for *every* pause reached (debugOnPause,
+	// livesession_debug.go - including one silently continued past, not
+	// just one actually surfaced), keyed by the debugger's own task
+	// label + host rather than by task identity (debugVarsKey's own doc
+	// comment). No snapshot (this task genuinely never paused at all -
+	// e.g. it ran under a strategy the debugger never splices onto, or
+	// the session finished before this task was reached) means nothing
+	// to kick off at all; the tab just stays absent for it, same as any
+	// other task with nothing to show.
+	snapshot, haveSnapshot := s.debugTaskVarsCache[debugVarsKey{debugverb.TaskLabel(task.Name), host}]
 	shouldResolve := !cached && (resolvedTabEnabled || (s.debugMode && haveSnapshot))
 	if shouldResolve {
 		resolved = uikit.ResolvedRender{Pending: true}

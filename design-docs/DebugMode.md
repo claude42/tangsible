@@ -565,6 +565,84 @@ not-actually-resolved value. A task whose breakpoint was never armed
 shows no Resolved tab at all, confirming the "only a surfaced pause"
 scope above.
 
+## Stage 3 follow-up: every task, not just a surfaced pause; a second, unrelated bug (2026-10-18)
+
+**Reported live, a misunderstanding of Stage 3's own scope:** the
+Resolved tab should be available in *any* task's drill-down, not just
+one actually paused at/stepped to/erroring on - Stage 3's own "accepted
+v1 scope" above undersold what was actually wanted.
+
+**Why "only a surfaced pause" wasn't actually a hard limit.** The real
+constraint was narrower than first assumed: `debugrun`'s own
+`BreakpointSet`-driven `applyPolicy` (`breakpoints.go`) *does* reach
+every single pause in the whole run, including one whose task isn't
+armed - it just silently calls `Continue()` past it in a tight loop
+*internal to that package*, discarding each one before `internal/
+session` ever sees it. The data was reachable the whole time; nothing
+outside `debugrun` had ever been given a chance to look.
+
+**Fix: a hook inside the loop itself.** `RunWithBreakpoints`/
+`ContinueWithBreakpoints`/`applyPolicy` gained a new `onPause
+func(Pause)` parameter, called for *every* pause reached - surfaced or
+silently continued past - before the surface/continue decision. New
+test `TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause` pins
+this: with an empty `BreakpointSet`, a whole three-task/two-host run
+still fires `onPause` six times in one `RunWithBreakpoints` call, not
+once.
+
+**The capture mechanism moved, and had to change its own cache key.**
+`debugOnPause` (`livesession_debug.go`) replaces the old
+`debugCaptureTaskVars`, called from `onPause` on `debugStartOrContinue`'s
+own background goroutine (not the event-loop one - only the actual
+cache write is `QueueUpdateDraw`-wrapped) for every pause instead of
+just the one `debugApplyPauseResult` used to see. This meant
+`debugTaskVarsCache` could no longer be keyed by `resolveKey{*playbook.
+TaskNode, string}`: `onPause` fires in lockstep with the REPL's own
+pause sequence, racing independently against the jsonl event stream
+that `debugCursor.CurrentTask` is driven by (the exact race
+`debugPendingOpenTask`/`Host` already exists to cope with, for one
+pause at a time - reliably doing the equivalent for every pause in an
+unbroken, rapid, auto-continued sequence would need a comparably
+complex buffering mechanism of its own, not attempted here). New
+`debugVarsKey{label, host string}` keys by the debugger's own pause
+identity instead - `Pause.Task`/`Pause.Host` - sidestepping the race
+entirely at the cost of accepting the same label-based ambiguity
+breakpoints themselves already do (`debugverb.TaskLabel`'s own doc
+comment: two tasks sharing an exact name alias to the same one) - a
+pre-existing, accepted limitation elsewhere in this same feature area,
+not a new one introduced here.
+
+Verified live: a two-task fixture run straight through with F5 and
+*nothing* armed at all - no pause ever surfaced - still shows a correct
+Resolved tab, with the real substituted value, when opening the
+drill-down for either task afterward (a task with nothing to resolve,
+e.g. one with no `{{ }}` expression at all, correctly still shows no
+tab - `ResolvedTabHidden`, unchanged).
+
+**Second, unrelated bug, reported in the same message: the per-task
+busy-animation (spinner) never appeared anywhere in debug mode.** Root
+cause: `PlaybookState.IncompleteTasks` (what `TaskLabel`'s "active" case
+reads to decide which row gets a spinner instead of its usual prefix)
+is driven entirely by `TaskNode.InFlight`, set by `Apply`'s own handling
+of `v2_runner_on_start` and cleared by `recordHost` - both exclusively
+inside `internal/playbook`, and both never gone through at all for a
+debug session (`SeedState`'s own doc comment: a debug session's events
+never go through `Apply`). `debugverb.Cursor.Apply` simply never
+touched it, and couldn't have anyway - the field was unexported
+(`inFlight`), on the stated premise that "nothing outside this package
+needs per-host in-flight detail," which stopped being true the moment
+debug mode needed to mirror its effect from outside the package. Fixed
+by exporting it (`InFlight`) and adding a `v2_runner_on_start` case to
+`Cursor.Apply` (sets `Started`/`InFlight` against `CurrentTask`,
+mirroring `Apply`'s own case - task-start always precedes any host's
+own dispatch, so `CurrentTask` is already correct by the time this
+fires) plus clearing `InFlight` alongside the existing `Hosts`/`Raw`/
+`Ignored` writes in the terminal-outcome case. New test
+`TestCursor_ApplyTracksInFlight`. Verified live with a deliberately slow
+task (`command: sleep 8`): the spinner now animates in column one while
+it's running, and disappears once it completes, exactly matching a
+plain run's own tree.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

@@ -560,18 +560,21 @@ and finished both look like an ordinary session - navy, same as `run`.
 
 **Resolved tab.** Unlike a plain run (where this tab stays off -
 `resolvedTabEnabled`, `internal/session/resolved.go`), debug mode gets
-its own working one: the task's own source, with `{{ }}` expressions
-filled in using the real `task_vars` snapshot captured at the exact
-moment that task's pause surfaced - including any `register`/`set_fact`
-value an earlier task made, which a plain run's own (disabled)
-mechanism could never see. Only present for a task actually paused at,
-stepped to, or erroring on - one whose breakpoint was never armed ran
-straight through and has nothing captured for it, so the tab stays
-absent, same as it would for any task with nothing to show. Loop
-variables (`item`) still fall back to their own literal text, same as
-always; variables inside `when:` conditions aren't touched by this
-mechanism at all (it only re-templates the task's own `{{ }}`
-expressions, not conditionals).
+its own working one, for *any* task's drill-down, not just one actually
+paused at: the task's own source, with `{{ }}` expressions filled in
+using the real `task_vars` snapshot captured for every pause the
+debugger ever reaches - including any `register`/`set_fact` value an
+earlier task made, which a plain run's own (disabled) mechanism could
+never see, and including one whose breakpoint was never armed (`onPause`,
+`debugrun/breakpoints.go` - captured even though that pause auto-
+continues without ever surfacing to the user). A task that genuinely
+never ran at all this session (the run finished before reaching it) has
+nothing captured, so the tab stays absent for it, same as any other
+task with nothing to show - likewise a task with no `{{ }}` expression
+of its own in the first place. Loop variables (`item`) still fall back
+to their own literal text, same as always; variables inside `when:`
+conditions aren't touched by this mechanism at all (it only re-templates
+the task's own `{{ }}` expressions, not conditionals).
 
 **Known gaps:** the raw-output (`o`) view has nothing to show (the
 debugger owns the child's stdout for its own prompt text - design-docs/

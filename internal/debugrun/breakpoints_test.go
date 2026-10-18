@@ -89,7 +89,7 @@ func TestBreakpoints_RunTillBreakpoint_EmptySetRunsToCompletion(t *testing.T) {
 	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
 	bps := NewBreakpointSet()
 
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint)
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 	bps := NewBreakpointSet()
 	bps.Set("TASK: task two")
 
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint)
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 	// Both hosts pause on the armed task - the breakpoint is per task
 	// label, not per host, so the second host's own pause on the same
 	// task must also surface, not auto-continue past.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +133,46 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 
 	// task three isn't armed - both hosts' pauses on it auto-continue,
 	// running the rest of the playbook to completion in one call.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !eof {
 		t.Errorf("expected eof after the unarmed task three, got pause %+v", pause)
+	}
+}
+
+// TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause is design-
+// docs/DebugMode.md's "Resolved Variables tab, every task": a caller
+// needs to see (and query) a pause even when its own task isn't armed -
+// RunTillBreakpoint's own silent Continue() loop would otherwise make
+// that pause's data permanently unreachable the instant it moves past
+// it. bps here is empty - every one of the three tasks' pauses auto-
+// continues all the way to eof in one RunWithBreakpoints call - so
+// onPause firing six times (3 tasks x 2 hosts, matching
+// TestBreakpoints_StepOne_SurfacesEveryPauseRegardlessOfSet's own host
+// count) is only possible if it's called from inside applyPolicy's own
+// loop, not just once on the single value the function ultimately
+// returns.
+func TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
+	bps := NewBreakpointSet() // deliberately empty
+
+	var seen []Pause
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, func(p Pause) {
+		seen = append(seen, p)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eof {
+		t.Fatalf("expected eof with no breakpoints armed, got pause %+v", pause)
+	}
+	if len(seen) != 6 {
+		t.Fatalf("onPause fired %d times, want 6 (3 tasks x 2 hosts): %+v", len(seen), seen)
 	}
 }
 
@@ -150,13 +184,13 @@ func TestBreakpoints_StepOne_SurfacesEveryPauseRegardlessOfSet(t *testing.T) {
 	bps := NewBreakpointSet() // deliberately empty - StepOne ignores it
 
 	var pauses []Pause
-	pause, eof, err := RunWithBreakpoints(sess, bps, StepOne)
+	pause, eof, err := RunWithBreakpoints(sess, bps, StepOne, nil)
 	for !eof {
 		if err != nil {
 			t.Fatal(err)
 		}
 		pauses = append(pauses, pause)
-		pause, eof, err = ContinueWithBreakpoints(sess, bps, StepOne)
+		pause, eof, err = ContinueWithBreakpoints(sess, bps, StepOne, nil)
 	}
 	if err != nil {
 		t.Fatal(err)

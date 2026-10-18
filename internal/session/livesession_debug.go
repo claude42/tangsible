@@ -294,7 +294,7 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 			s.procH.Store(sess.Process())
 			s.app.QueueUpdateDraw(func() { s.debugSess = sess })
 			go s.debugDrainEvents(sess)
-			pause, eof, perr := debugrun.RunWithBreakpoints(sess, s.debugBPS, mode)
+			pause, eof, perr := debugrun.RunWithBreakpoints(sess, s.debugBPS, mode, s.debugOnPause(sess))
 			s.app.QueueUpdateDraw(func() {
 				s.debugApplyPauseResult(pause, eof, perr)
 			})
@@ -304,11 +304,47 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 
 	sess := s.debugSess
 	go func() {
-		pause, eof, perr := debugrun.ContinueWithBreakpoints(sess, s.debugBPS, mode)
+		pause, eof, perr := debugrun.ContinueWithBreakpoints(sess, s.debugBPS, mode, s.debugOnPause(sess))
 		s.app.QueueUpdateDraw(func() {
 			s.debugApplyPauseResult(pause, eof, perr)
 		})
 	}()
+}
+
+// debugOnPause returns applyPolicy's own onPause callback (debugrun/
+// breakpoints.go) for sess: queries task_vars for *every* pause it's
+// given - including one silently continued past under RunTillBreakpoint,
+// never otherwise surfaced to this package at all - design-docs/
+// DebugMode.md's "Resolved Variables tab, every task." Runs on
+// debugStartOrContinue's own background goroutine (the same one blocked
+// inside RunWithBreakpoints/ContinueWithBreakpoints calling this), so
+// Query's blocking pipe round-trip never touches the event-loop
+// goroutine at all; only the cache write below is QueueUpdateDraw-
+// wrapped.
+//
+// Keyed by (pause.Task, pause.Host) - the debugger's own task label and
+// host, not resolveKey{*playbook.TaskNode, string} - deliberately: this
+// fires on the REPL-driving goroutine, in lockstep with the REPL's own
+// pause sequence, with no reliable way to correlate a given pause
+// against debugCursor.CurrentTask, which is updated by an entirely
+// separate, independently-racing jsonl event stream (the exact same
+// race debugPendingOpenTask/Host already exists to cope with, for one
+// pause at a time - doing that reliably for every pause in an unbroken,
+// auto-continued run-to-completion sequence would need a comparably
+// complex buffering mechanism of its own). This accepts the same label-
+// based ambiguity breakpoints themselves already do (debugverb.
+// TaskLabel's own doc comment: two tasks sharing an exact name alias to
+// the same breakpoint) - a known, pre-existing limitation, not a new one.
+func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause) {
+	return func(pause debugrun.Pause) {
+		raw, err := sess.Query("task_vars")
+		if err != nil {
+			return
+		}
+		s.app.QueueUpdateDraw(func() {
+			s.debugTaskVarsCache[debugVarsKey{pause.Task, pause.Host}] = raw
+		})
+	}
 }
 
 // debugApplyPauseResult runs on the event-loop goroutine (always called
@@ -355,7 +391,6 @@ func (s *liveSession) debugApplyPauseResult(pause debugrun.Pause, eof bool, err 
 		return
 	}
 	task := s.debugCursor.CurrentTask
-	s.debugCaptureTaskVars(task, pause.Host)
 	if _, ok := task.Hosts[pause.Host]; ok {
 		s.debugPendingOpenTask, s.debugPendingOpenHost = nil, ""
 		s.showOutputWithOrigin(task, pause.Host, false)
@@ -363,43 +398,6 @@ func (s *liveSession) debugApplyPauseResult(pause debugrun.Pause, eof bool, err 
 	}
 	s.debugPendingOpenTask, s.debugPendingOpenHost = task, pause.Host
 	s.rebuild()
-}
-
-// debugCaptureTaskVars queries the debugger's own REPL for task_vars at
-// the exact moment a pause surfaces (design-docs/DebugMode.md's
-// "Resolved Variables tab"), and caches the raw JSON for
-// showOutputWithOrigin to feed into resolveTaskValuesFromSnapshot later,
-// however much later that turns out to be - once Continue/Step moves
-// the REPL past this pause, task_vars for it is gone for good (the
-// debugger has no notion of history), so this is the only moment this
-// data will ever be available at all. Called synchronously, right here
-// on the event-loop goroutine: the REPL is guaranteed idle at this exact
-// point (debugStartOrContinue's own background goroutine has already
-// returned the Pause this function is handling, and nothing else drives
-// the REPL until the user's next F5/F9/F10), and debugrun.Session.Query
-// is a single local-pipe round-trip to a child already sitting at its
-// prompt - negligible latency, not worth a second goroutine for.
-//
-// A query failure (the child already exited between the pause and this
-// call, a malformed response) just leaves no snapshot for this (task,
-// host) - the Resolved tab stays absent for it, same as for a task whose
-// breakpoint was never armed in the first place: debugrun's own
-// BreakpointSet-driven applyPolicy silently Continues straight past
-// those pauses, so this function is never even reached for them at all.
-// An accepted v1 scope (every task actually paused at, stepped to, or
-// erroring on gets a Resolved tab; one that ran straight through
-// doesn't) - capturing every pause regardless of whether it surfaces
-// would mean threading a capture hook into debugrun's own policy loop
-// itself, not something this function alone can reach.
-func (s *liveSession) debugCaptureTaskVars(task *playbook.TaskNode, host string) {
-	if s.debugSess == nil {
-		return
-	}
-	raw, err := s.debugSess.Query("task_vars")
-	if err != nil {
-		return
-	}
-	s.debugTaskVarsCache[resolveKey{task, host}] = raw
 }
 
 // debugFinish marks the session done once debugrun reports eof (the

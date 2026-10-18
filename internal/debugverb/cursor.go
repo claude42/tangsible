@@ -16,6 +16,7 @@ package debugverb
 
 import (
 	"encoding/json"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/playbook"
@@ -91,9 +92,9 @@ func SeedState(skeleton []runner.ProgressEntry) (state *playbook.PlaybookState, 
 }
 
 // newEmptyTaskNode builds a *TaskNode the same way SeedState's own skeleton
-// loop does, with Hosts/Raw/Ignored initialized (not left nil) - shared
-// with Cursor.insertDynamicTask below, which builds nodes the same shape
-// one at a time instead of all at once from a skeleton.
+// loop does, with Hosts/Raw/Ignored/InFlight initialized (not left nil) -
+// shared with Cursor.insertDynamicTask below, which builds nodes the same
+// shape one at a time instead of all at once from a skeleton.
 func newEmptyTaskNode(name string, isHandler bool) *playbook.TaskNode {
 	return &playbook.TaskNode{
 		Name:      name,
@@ -101,6 +102,8 @@ func newEmptyTaskNode(name string, isHandler bool) *playbook.TaskNode {
 		Hosts:     map[string]playbook.Outcome{},
 		Raw:       map[string]json.RawMessage{},
 		Ignored:   map[string]bool{},
+		InFlight:  map[string]bool{},
+		Started:   map[string]time.Time{},
 	}
 }
 
@@ -252,8 +255,32 @@ func (c *Cursor) Apply(ev playbook.RawEvent) (recordedHost string, taskChanged b
 				if ev.Event == "v2_runner_on_failed" {
 					c.CurrentTask.Ignored[host] = playbook.HasIgnoreErrors(raw)
 				}
+				// InFlight, not just Hosts/Raw/Ignored: mirrors
+				// aggregate.go's own recordHost/record exactly (the
+				// delete(t.InFlight, host) there) - PlaybookState.
+				// IncompleteTasks (and so the tree's own busy-animation
+				// prefix, TaskLabel's "active" case) reads InFlight, not
+				// Hosts, to decide what's still running. Confirmed live
+				// as a real, reported bug without this *and* the
+				// v2_runner_on_start case below: debug mode's own busy
+				// column stayed permanently empty, since nothing in this
+				// package ever touched InFlight at all.
+				delete(c.CurrentTask.InFlight, host)
 				recordedHost = host // only ever one host per terminal event in practice (jsonl.py's own _record_task_result)
 			}
+		}
+	case "v2_runner_on_start":
+		// Only ever arrives from this app's own bundled callback plugin
+		// fork (RawEvent.Host's own doc comment) - mirrors aggregate.go's
+		// own Apply case exactly (Started/InFlight), using CurrentTask
+		// directly rather than findOrCreateTask: by the time any host's
+		// own v2_runner_on_start fires, the task-start event that set
+		// CurrentTask to this exact task has always already arrived
+		// (ansible fires a task's own start event once, before any host
+		// is individually dispatched on it).
+		if ev.Host != "" && c.CurrentTask != nil {
+			c.CurrentTask.Started[ev.Host] = ev.Timestamp()
+			c.CurrentTask.InFlight[ev.Host] = true
 		}
 	}
 	return recordedHost, taskChanged

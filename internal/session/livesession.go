@@ -376,14 +376,25 @@ type liveSession struct {
 	// does. "" / nil once there's nothing pending.
 	debugPendingOpenTask *playbook.TaskNode
 	debugPendingOpenHost string
-	// debugTaskVarsCache holds the raw task_vars JSON captured (debugCaptureTaskVars,
-	// livesession_debug.go) at the exact moment each pause surfaced -
-	// design-docs/DebugMode.md's "Resolved Variables tab". Keyed the same
-	// way s.resolveCache is (resolveKey{task, host}); showOutputWithOrigin
-	// consumes an entry here, when one exists, to seed resolveTaskValues'
-	// own --extra-vars snapshot instead of letting it re-gather fresh.
-	// Only ever grows - a debug session has exactly one generation (no
-	// rerun - requestRerun is nil for "debug", main.go), so there's
-	// nothing to clear it for.
-	debugTaskVarsCache map[resolveKey]json.RawMessage
+	// debugTaskVarsCache holds the raw task_vars JSON captured
+	// (debugOnPause, livesession_debug.go) for *every* pause reached,
+	// surfaced or not - design-docs/DebugMode.md's "Resolved Variables
+	// tab, every task". Keyed by debugVarsKey (the debugger's own pause
+	// identity: task label + host), not resolveKey{task, host} -
+	// debugOnPause's own doc comment explains why a *playbook.TaskNode
+	// pointer isn't a reliable key here. showOutputWithOrigin consumes
+	// an entry here, when one exists for a task's own TaskLabel + host,
+	// to seed resolveTaskValues' own --extra-vars snapshot instead of
+	// letting it re-gather fresh. Only ever grows - a debug session has
+	// exactly one generation (no rerun - requestRerun is nil for
+	// "debug", main.go), so there's nothing to clear it for.
+	debugTaskVarsCache map[debugVarsKey]json.RawMessage
+}
+
+// debugVarsKey identifies one captured task_vars snapshot - see
+// debugTaskVarsCache/debugOnPause (livesession_debug.go) for why this is
+// keyed by the debugger's own pause identity rather than by
+// *playbook.TaskNode.
+type debugVarsKey struct {
+	label, host string
 }
