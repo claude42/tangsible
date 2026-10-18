@@ -92,3 +92,17 @@ would (`TreeList.MouseHandler`'s own default) - only the mouse gained a new
 capability here, not the keyboard, so a click into the tree pane can't
 silently steal keyboard control away from the drill-down the way it
 otherwise would with no obvious way back short of Escape.
+
+## Header alignment (2026-10-18)
+
+`ComposeSplitHeaderLine`'s "Hosts: `<host>` `<task>`" segment starts at
+the exact column the drill-down pane itself starts at
+(`SplitTreeWidth(width) + SplitDividerWidth`), plus one more column for
+`TabbedPane`'s own fixed leading space before every tab label
+(`tabs.go`'s `renderHeader`, `" %s "`) - so it lines up with the tab
+bar's own "Task"/"Output"/... row directly below it, rather than
+trailing right after "Filter:" wherever that happens to land. Requested
+live: at a wide enough terminal (where the tree pane itself eats most of
+the width before the drill-down pane even starts), "Hosts:" sat well to
+the left of the tab bar, meaning "which host is this even showing" meant
+looking away from the pane it was actually describing.

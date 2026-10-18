@@ -219,6 +219,17 @@ func (s *Session) Signal(sig os.Signal) error {
 	return s.cmd.Process.Signal(sig)
 }
 
+// Process returns the underlying child process - for a caller
+// (internal/session, design-docs/DebugMode.md's "Stage 2") that stores
+// it into its own runner.ProcHandle, so q/Ctrl-C's existing signal-
+// forwarding code (handleCtrlC/handleGlobalQuit) can reach it completely
+// unchanged, the same way it already does for a plain run. Never nil:
+// Spawn only ever returns a *Session once cmd.Start() has already
+// succeeded.
+func (s *Session) Process() *os.Process {
+	return s.cmd.Process
+}
+
 // Close ends the session: closing our end of the REPL pipe sends EOF on
 // the child's stdin, which the debugger's own do_EOF handler treats as
 // "quit" if the child is still paused; then waits for the process to

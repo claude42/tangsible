@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/debugrun"
+	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
@@ -319,4 +321,58 @@ type liveSession struct {
 	// help is the '?'/F1 help dialog (design-docs/Help.md), opened with
 	// whichever screen's table (helptables.go) is frontmost.
 	help *uikit.HelpOverlay
+
+	// --- debug mode (design-docs/DebugMode.md's "Stage 2") ---
+	// debugMode is true only for the "debug" Verb - gates handleDebugKey
+	// and debugArmed so every other Verb's own key handling/rendering is
+	// completely unaffected (both are nil-safe either way, but this keeps
+	// the common case from ever touching debug-only state at all).
+	debugMode bool
+	// debugCopyPlaybookPath is the absolute path into the shadow copy
+	// (debugverb.PrepareSession's own CopyPlaybookPath) - what F5/F10
+	// actually spawn, never playbookName/targetPlaybook (the real
+	// playbook - display/sourceIndex/history use that instead).
+	debugCopyPlaybookPath string
+	// debugBPS is this session's own armed-breakpoint set (F9 toggles
+	// it) - keyed by debugverb.TaskLabel(task.Name), the debugger's own
+	// prompt text, the only identity a Pause carries (internal/debugrun).
+	debugBPS *debugrun.BreakpointSet
+	// debugCursor resolves a live jsonl event against debugPrep's own
+	// skeleton-seeded state.Plays, writing straight into the right
+	// pre-built *TaskNode - never through PlaybookState.Apply (see
+	// debugverb.SeedState's own doc comment for why not). nil until
+	// PrepareSession's own skeleton is seeded (main.go), same lifetime
+	// as state.Plays itself.
+	debugCursor *debugverb.Cursor
+	// debugSess is nil until the user's first F5/F10 - see
+	// debugStartOrContinue's own doc comment for why it's published via
+	// QueueUpdateDraw immediately once debugrun.Spawn succeeds, before
+	// the blocking call that follows it (the exact race a previous,
+	// separate debug TUI already fixed once - must not regress here).
+	debugSess *debugrun.Session
+	// debugDriving is true while a Start/Continue/Step call is in flight
+	// on its own goroutine - guards against a second one starting
+	// concurrently (F5 held down, a double keypress, ...), the same
+	// single-flight role Session's own REPL channel requires.
+	debugDriving bool
+	// debugPausedHost is "" unless genuinely paused at a breakpoint right
+	// now - distinct from s.processDone (CLAUDE.md's "Generation outcome
+	// ordering" invariant covers that one; a pause is the child process
+	// very much still running, just blocked on its own REPL pipe, an
+	// entirely different condition from the process having exited).
+	debugPausedHost string
+	// debugPendingOpenTask/debugPendingOpenHost hold a pause's own
+	// (task, host) when the drill-down can't be auto-opened for it yet -
+	// the debugger's own REPL pause notification and the jsonl event
+	// reporting that exact host's result arrive on two entirely
+	// independent pipes/goroutines with no ordering guarantee between
+	// them, and opening before the event arrives would show an Output
+	// tab reading "no output recorded" with every other tab missing too
+	// (confirmed live as a real, reported bug - "sometimes the drilldown
+	// only has the Output tab"). debugApplyPauseResult sets these instead
+	// of opening immediately when the event hasn't arrived yet;
+	// debugDrainEvents' own event-apply path finishes the job once it
+	// does. "" / nil once there's nothing pending.
+	debugPendingOpenTask *playbook.TaskNode
+	debugPendingOpenHost string
 }

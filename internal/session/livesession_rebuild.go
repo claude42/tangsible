@@ -141,6 +141,11 @@ func (s *liveSession) currentMainBottomBarText() string {
 	if s.revisitActive {
 		text += " Esc: back to the list "
 	}
+	if s.debugMode {
+		// design-docs/DebugMode.md's "Stage 1" keys - no existing tree
+		// binding to collide with/replace, so just appended.
+		text += s.debugBottomBarHint()
+	}
 	return text
 }
 
@@ -167,6 +172,17 @@ func (s *liveSession) chromeColorName() string {
 	if s.revisitActive {
 		return uikit.ChromeRevisitColor
 	}
+	if s.debugMode {
+		switch {
+		case s.debugDriving:
+			return uikit.ChromeDebugRunningColor
+		case s.debugPausedHost != "":
+			return uikit.ChromeDebugPausedColor
+		}
+		// Idle (before the first Start/Continue/Step) and finished both
+		// fall through to s.liveChromeColorName unchanged, same as a
+		// plain run - design-docs/DebugMode.md's "Stage 1 decisions".
+	}
 	return s.liveChromeColorName
 }
 
@@ -191,6 +207,9 @@ func (s *liveSession) showElapsed() bool { return !s.revisitActive }
 func (s *liveSession) outputBottomBarNormalStyle() tcell.Style {
 	if s.revisitActive {
 		return s.chromeStyle
+	}
+	if s.debugMode {
+		return s.debugChromeStyle()
 	}
 	return s.liveChromeStyle
 }
@@ -229,7 +248,18 @@ func (s *liveSession) rebuild() {
 	// bar's elapsed/spinner and every active row's spinner below, so a
 	// single pass renders a self-consistent instant rather than
 	// drifting per-row/per-call time.Now() reads.
-	frozen := s.processDone.Load()
+	// s.everStarted: processDone starts forced true before anything has
+	// actually been spawned (main.go, "rerun"'s/"debug"'s own idle startup
+	// - see NewLiveTUI's own pendingSpawned/everStarted doc comments) -
+	// without this, every "frozen" consumer below (the progress bar's own
+	// snap-to-100%, the recap/status row, frozenElapsed's own one-time
+	// latch, notifications) would misread "nothing has run yet" as "a run
+	// just finished." s.everStarted is what the recap/notification code
+	// already needed this distinction for; folding it in here once means
+	// every other frozen-gated feature in this function gets it for free
+	// too, instead of needing the same `&& s.everStarted` repeated at each
+	// call site.
+	frozen := s.processDone.Load() && s.everStarted
 	elapsed := now.Sub(s.startedAt)
 	if frozen {
 		if !s.haveFrozenElapsed {
@@ -466,7 +496,7 @@ func (s *liveSession) rebuild() {
 	// "computed once per rebuild" reasoning (ComputeDurationLayout).
 	durationLayout := uikit.ComputeDurationLayout(s.state, treeAllHosts)
 
-	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, durationLayout, treeAllHosts, activeTasks, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor)
+	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, durationLayout, treeAllHosts, activeTasks, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor, s.debugArmed, s.debugIsPaused)
 	hasStatusRow := false
 	if frozen && s.everStarted {
 		if text := uikit.StatusRowText(int(s.exitCode.Load()), s.state.HadUnreachable, runner.AnsibleUserInterruptedExitCode); text != "" {
@@ -524,7 +554,36 @@ func (s *liveSession) rebuild() {
 	// (shouldn't happen - nothing is ever removed - but not indexing
 	// out of range if it somehow did).
 	selectedIndex := 0
-	if s.following {
+	if s.following && s.debugMode {
+		// "The newest row" means something different here: a plain run's
+		// own state.Plays grows incrementally, so "the last row" and "the
+		// currently active task" are the same thing for that row's whole
+		// lifetime (see the plain-run branch below) - a debug session's
+		// tree is fully pre-built up front (debugverb.SeedState), so the
+		// literal last row is just whatever the playbook's own last task
+		// happens to be, almost never the right one to follow. Pin to
+		// debugCursor's own CurrentTask instead; before the very first
+		// task has started (CurrentTask nil - this session's idle
+		// startup), land on the first interactive row instead of the
+		// last - confirmed live as a real bug otherwise: the cursor (and
+		// so the whole viewport) opened on the last task, not the first,
+		// before anything had even run.
+		selectedIndex = -1
+		if s.debugCursor != nil && s.debugCursor.CurrentTask != nil {
+			for i, r := range s.currentRows {
+				if r.ID == s.debugCursor.CurrentTask {
+					selectedIndex = i
+					break
+				}
+			}
+		}
+		if selectedIndex == -1 {
+			selectedIndex = uikit.NextInteractiveRow(s.currentRows, -1, 1)
+		}
+		if selectedIndex == -1 {
+			selectedIndex = 0
+		}
+	} else if s.following {
 		// Skip back past the trailing status/divider rows (see
 		// StatusRowText) - they have no selected-row rendering
 		// variant (see the switch below), so s.following would
@@ -564,9 +623,17 @@ func (s *liveSession) rebuild() {
 	case *playbook.PlayNode:
 		s.currentRows[selectedIndex].Text = uikit.PlayRowText(id, true)
 	case *playbook.TaskNode:
-		s.currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, activeTasks[id], uikit.SpinnerAt(elapsed), true, s.useColor, "")
+		var marker string
+		if s.debugArmed(id) {
+			marker = uikit.BreakpointMarkerText()
+		}
+		s.currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, activeTasks[id], uikit.SpinnerAt(elapsed), true, s.useColor, marker)
 	case uikit.HostRowID:
-		s.currentRows[selectedIndex].Text = uikit.HostLabel(id.Task, id.Host, durationLayout, true)
+		var hostMarker string
+		if s.debugIsPaused(id.Task, id.Host) {
+			hostMarker = uikit.PausedHostMarkerText()
+		}
+		s.currentRows[selectedIndex].Text = uikit.HostLabel(id.Task, id.Host, durationLayout, true, hostMarker)
 	case recapHostRowID:
 		s.currentRows[selectedIndex].Text = recapHostRowText(string(id), recapForHost(s.state, string(id)), recapComputeColumnWidths(s.state), true)
 	case recapCategoryRowID:

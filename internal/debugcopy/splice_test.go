@@ -15,6 +15,7 @@
 package debugcopy
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,6 +150,85 @@ func TestSpliceDebuggerAlways_MultipleTasksInOneFileProcessedBottomUp(t *testing
 	for _, name := range []string{"task one", "task two", "task three"} {
 		if !strings.Contains(spliced, "name: "+name) {
 			t.Errorf("lost task %q:\n%s", name, spliced)
+		}
+	}
+}
+
+// TestBuildPathMapping_AccountsForEveryEarlierSplicedLine confirms the
+// mapping's own line-shift math against the *real* spliced file's own
+// actual line numbers (found by searching it directly), not just against
+// a hand-derived expectation - the whole point being to catch exactly
+// the kind of off-by-N error that's easy to get wrong on paper.
+func TestBuildPathMapping_AccountsForEveryEarlierSplicedLine(t *testing.T) {
+	proj := t.TempDir()
+	playbook := `- hosts: all
+  gather_facts: false
+  tasks:
+    - name: task one
+      command: echo one
+
+    - name: task two
+      command: echo two
+
+    - name: task three
+      command: echo three
+`
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	writeFile(t, playbookPath, playbook)
+
+	locs := source.ListTaskLocations(playbookPath)
+	if len(locs) != 3 {
+		t.Fatalf("expected 3 task locations, got %d: %+v", len(locs), locs)
+	}
+
+	copyDir, cleanup, err := BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	if err := SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	mapping := BuildPathMapping(proj, copyDir, locs)
+
+	splicedData, err := os.ReadFile(filepath.Join(copyDir, "playbook.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	splicedLines := strings.Split(string(splicedData), "\n")
+
+	for _, name := range []string{"task one", "task two", "task three"} {
+		// Find this task's own real line number (1-indexed) in the
+		// actual spliced file - the ground truth BuildPathMapping's own
+		// arithmetic must agree with.
+		wantCopyLine := -1
+		for i, line := range splicedLines {
+			if strings.Contains(line, "name: "+name) {
+				wantCopyLine = i + 1
+				break
+			}
+		}
+		if wantCopyLine == -1 {
+			t.Fatalf("couldn't find %q in the spliced file:\n%s", name, string(splicedData))
+		}
+
+		var loc *source.TaskLocation
+		for i := range locs {
+			if strings.HasSuffix(strings.TrimSpace(strings.Split(playbook, "\n")[locs[i].StartLine-1]), name) {
+				loc = &locs[i]
+				break
+			}
+		}
+		if loc == nil {
+			t.Fatalf("couldn't find original TaskLocation for %q", name)
+		}
+
+		copyKey := mapping[fmt.Sprintf("%s:%d", filepath.Join(copyDir, "playbook.yml"), wantCopyLine)]
+		wantOrigKey := fmt.Sprintf("%s:%d", playbookPath, loc.StartLine)
+		if copyKey != wantOrigKey {
+			t.Errorf("%s: mapping[copy:%d] = %q, want %q (the task's own real original line)", name, wantCopyLine, copyKey, wantOrigKey)
 		}
 	}
 }

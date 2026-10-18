@@ -185,8 +185,16 @@ func TestTreeListOffset(t *testing.T) {
 
 func TestTreeListEnsureVisibleViaSetCurrentItem(t *testing.T) {
 	l := NewTreeList()
+	// Non-nil Selected, matching every real caller's own ordinary
+	// (non-header) row - nil marks a row non-interactive, which
+	// ensureVisible now also treats as "reveal this one too when
+	// scrolling up to the row right below it" (see
+	// TestTreeListEnsureVisibleRevealsHeaderAboveFirstTask below); an
+	// all-nil fixture here would trigger that on every single move,
+	// which isn't what this test is about.
+	noop := func() {}
 	for i := 0; i < 20; i++ {
-		l.AddItem("row", nil)
+		l.AddItem("row", noop)
 	}
 	l.SetRect(0, 0, 80, 5) // viewport height 5
 
@@ -209,6 +217,52 @@ func TestTreeListEnsureVisibleViaSetCurrentItem(t *testing.T) {
 	l.SetCurrentItem(2)
 	if got := l.GetOffset(); got != 2 {
 		t.Fatalf("GetOffset() after SetCurrentItem(2) = %d, want 2", got)
+	}
+}
+
+// TestTreeListEnsureVisibleRevealsHeaderAboveFirstTask: scrolling up to a
+// play's first task (row 1 here - row 0 is its own header, nil Selected,
+// same convention FlattenRows already uses for a play header row) must
+// also reveal that header, not stop exactly on the task and leave the
+// header one row above the visible viewport - confirmed live as a real,
+// reported complaint ("which play is this task even under?").
+func TestTreeListEnsureVisibleRevealsHeaderAboveFirstTask(t *testing.T) {
+	l := NewTreeList()
+	noop := func() {}
+	l.AddItem("play header", nil) // row 0: non-interactive
+	for i := 0; i < 19; i++ {
+		l.AddItem("task", noop) // rows 1-19: interactive
+	}
+	l.SetRect(0, 0, 80, 5) // viewport height 5
+
+	l.SetCurrentItem(10) // scroll down away from the top first
+	if got := l.GetOffset(); got != 6 {
+		t.Fatalf("GetOffset() after SetCurrentItem(10) = %d, want 6", got)
+	}
+
+	l.SetCurrentItem(1) // the play's first (and only) task row
+	if got := l.GetOffset(); got != 0 {
+		t.Fatalf("GetOffset() after SetCurrentItem(1) = %d, want 0 (header at row 0 revealed too)", got)
+	}
+}
+
+// TestTreeListEnsureVisibleDoesNotRevealOrdinaryRowAbove: the reveal-one-
+// extra-row behavior must only fire for a genuinely non-interactive row
+// immediately above - an ordinary task-to-task move within the same play
+// (both Selected non-nil) must scroll exactly to the target row, same as
+// before this feature existed.
+func TestTreeListEnsureVisibleDoesNotRevealOrdinaryRowAbove(t *testing.T) {
+	l := NewTreeList()
+	noop := func() {}
+	for i := 0; i < 20; i++ {
+		l.AddItem("task", noop)
+	}
+	l.SetRect(0, 0, 80, 5)
+
+	l.SetCurrentItem(10)
+	l.SetCurrentItem(3)
+	if got := l.GetOffset(); got != 3 {
+		t.Fatalf("GetOffset() after SetCurrentItem(3) = %d, want 3 (no header above to reveal)", got)
 	}
 }
 

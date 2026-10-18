@@ -1,5 +1,318 @@
 # Debug mode
 
+## UI ideas
+
+* Generally very similar to how run looks like. One-pane or two-pane mode
+  depending on available screen real estate.
+* But assumption is that the two-pane mode is the natural mode for the
+  debugger
+* Tree is the same, play, task, host lines - host lines are currently missing
+* When the user presses enter on a host line the standard drill-down view
+  opens
+* When the debugger hits a break point or if there's an error or if the user
+  has just performed a single step, the drill down opens for the current
+  task+host
+* We will have to bring back the currently disabled "Resolved variables" tab
+  of the drill down view because now we can really resolve all variables
+  (except for loop iterators...)
+* The chrome shall get two additional colors, one for "playbook is currently
+  running in debug mode" and one for "playbook has stopped at break point or
+  in single step mode"
+* User gets additional keyboard shortcuts for
+  * toggling breakpoints (some already implemented) (Shortcut: F9)
+  * single stepping (Shortcut: F10)
+  * running until hitting a break point (Shortcut: F5)
+  * looking at variables (see below)
+* What's really new, a variable explorer
+  * when pressing a keyboard shortcut (Shortcut still TBD), a modal dialog shall open
+  * it contains a text field
+  * the user an enter a variable name
+  * text field autocompletes during typing. What's special: it autocomples
+    both the variable name as well as its contents. So already while typing,
+    the user sees both names + contents.
+  * When the user wants to watch a variable, they can press enter in the
+    dialog.
+  * Watch variables and their contents will be continuously visualized at the
+    bottom of the drill down view (so they will eat a variable amount of
+    vertical space from the drill down view depending on how many variables
+    are being watched.
+
+## Architecture decision (2026-10-18): fold into `liveSession`, not a second TUI
+
+The "UI ideas" above (two-pane as the natural mode, the real tabbed
+drill-down, live-sync between it and the tree) are all `liveSession`
+machinery today (`internal/session`), not anything `debugverb`'s own
+small, separate TUI has. Decided: `debug` stops being a "standalone
+program that never builds the live tree" (CLAUDE.md's own current
+framing) and becomes a `liveSession` with debug-specific state layered
+on (breakpoints, pause, its own chrome) - not a second copy of two-pane/
+drill-down maintained in parallel. `debug` stays its own verb/entry
+point (`tangsible debug <playbook>`, discoverable and intentional, same
+shape `role`/`revisit` already reuse the tree with their own twist) -
+the change is what happens once that verb builds its `liveSession`, not
+which command the user types. Follow-on documentation debt once this
+lands: CLAUDE.md's "Scope" section's "`debug` ... not available from
+inside the regular live tree" line, and the tview/tcell package-boundary
+note ("only `internal/session`... and `internal/debugverb`...") both
+need rewriting, since `debugverb` stops owning a TUI at all.
+
+Staged, in this order: (1) keybindings/configurability/chrome, settled on
+paper below, no code yet; (2) the merge itself - breakpoint toggle/step/
+continue wired into `liveSession`, auto-open drill-down on
+breakpoint/error/step, `debugverb`'s own TUI retired; (3) the Resolved
+tab upgraded to use real per-`(task, host)` `task_vars` from the live
+debugger, captured at *every* spliced pause (not just surfaced ones, so
+scrolling back to an earlier task can still recall it) - performance
+impact of the extra `Query()` per task not yet measured, revisit once
+stage 2 is in; (4) the variable watch explorer (modal, autocomplete with
+a live value preview, persistent watch panel).
+
+## Stage 1 decisions (2026-10-18): keybindings, configurability, chrome
+
+Settled on paper, nothing implemented yet.
+
+**Debug-specific keys.** Everything else (navigation, Enter-to-expand/
+drill-down, two-pane, `q`/Ctrl-C, filter, search, ...) is inherited as-is
+from the plain live tree once `debug` builds one with extra state; only
+these four actions have no existing tree equivalent to collide with:
+
+| Action                             | Key   |
+|-------------------------------------|-------|
+| Run / continue to next breakpoint   | F5    |
+| Toggle breakpoint on selected task  | F9    |
+| Single step                         | F10   |
+| Open the variable watch dialog      | `v`   |
+
+`v` reuses the old single-shot "view task\_vars" binding's own key -
+that page is retired (confirmed), replaced by the watch dialog, which
+seemed worth keeping the same key for since existing muscle memory
+already points at "`v` for variables."
+
+**Configurable.** New ground - nothing in tangsible rebinds a key from
+`config.toml` today. A `[keys]` section (not `[debug_keys]`: scoped to
+these four debug actions for now, but named with room for other views to
+grow configurable keys later too), snake\_case action names matching the
+table above (`run`, `toggle_breakpoint`, `step`, `watch`), values spelled
+the way `tcell` itself names them (`"F5"`, a single character otherwise).
+v1 scope is exactly these four actions - not navigation, not `q`/Ctrl-C,
+not anything the plain tree already owns. An unrecognized value falls
+back to the key's own default and warns after exit, the same convention
+`[colors]` already uses for a bad value (`PrintColorWarnings`,
+`CLAUDE.md`'s "Never print while the TUI runs" invariant). A value that
+collides with an existing, non-debug tree binding (e.g. remapping
+`watch` to `f`, already Filter) is honored anyway, with the same kind of
+warning rather than refused outright - the user's own informed choice,
+consistent with how a bad `[colors]` value is handled, not a hard
+validation error.
+
+**Chrome.** Four states, each one of `uikit.ChromeLiveColor`'s own
+default navy or the two new vars this adds (`ChromeDebugRunningColor`/
+`ChromeDebugPausedColor` → `chrome_debug_running`/`chrome_debug_paused`,
+following the existing `uikit.*Color` → snake\_case convention,
+`design-docs/ColorConfig.md`):
+
+* Idle, before the first Start/Continue/Step call - default chrome
+  (navy), same as a plain run.
+* Running - a Start/Continue/Step call actually in flight -
+  `chrome_debug_running`.
+* Paused at a breakpoint, or stopped on a task error - both
+  `chrome_debug_paused`; an error is treated exactly like a pause, both
+  for chrome and for the drill-down auto-open behavior above.
+* Finished, the whole run completed - back to default chrome, same as
+  idle.
+
+## Stage 2: implemented (2026-10-18)
+
+The merge itself. `debug` is now a real `liveSession`
+(`internal/session`'s own switch in `main.go`), not a second TUI -
+`internal/debugverb` dropped its `tview`/`tcell`/`uikit` dependency
+entirely and became a headless package, the same shape `internal/
+debugcopy`/`internal/debugrun` already were. `tui.go`/`tui_test.go`/
+`helptables.go` (the old standalone TUI) are gone.
+
+**The one real risk, found and resolved during this pass:** the
+predicted, pre-run tree (every task visible before anything has run, so
+breakpoints can be armed up front) can't be built the way a plain run's
+tree is. `PlaybookState.Apply`'s own task/play identity resolution
+(`findOrCreateTask`, `aggregate.go`) assumes incremental arrival - it
+matches purely by the live event's own `task.id`, and
+`v2_playbook_on_play_start` always starts a fresh `PlayNode`, never
+reusing one by name. Pre-populating `state.Plays` from a skeleton and
+then letting real events flow through `Apply` as normal would not reuse
+those nodes at all - it would create a second, parallel set once the run
+actually started, leaving the pre-built ones frozen and orphaned.
+Confirmed by reading `Apply`/`findOrCreateTask` directly, not assumed.
+Resolved by never calling `Apply` for a debug session at all:
+`debugverb.SeedState` builds `state.Plays` directly from the skeleton
+(mirroring the old standalone TUI's own `buildRows`, which already
+proved this works), and `debugverb.Cursor.Apply` resolves each live
+event against those exact nodes via the same `runner.ProgressTracker`
+forward-matching the progress bar already uses, writing straight into
+`Hosts`/`Raw`/`Ignored` - never through `Apply`. Because `rebuild()`,
+`uikit.FlattenRows`, the drill-down, two-pane layout, etc. only ever
+*read* `state.Plays`/`*TaskNode` fields, all of that machinery works
+unchanged on top of a tree built this way.
+
+**Other things built:** `uikit.FlattenRows` grew an `armed func(*TaskNode)
+bool` parameter (nil for every non-debug caller) so the breakpoint marker
+renders through the real shared row renderer, via a new shared
+`uikit.BreakpointMarkerText()`, instead of debug-specific rendering code.
+`playbook.PlaybookState.NoteHost` was exported (debug's own event
+resolution needs it, and can't call `Apply`'s private equivalent).
+`debugrun.Session.Process()` was added so the real child's `*os.Process`
+reaches the session's own `procH` the same way a plain run's does -
+`q`/Ctrl-C needed zero debug-specific code as a result. `NewLiveTUI`
+gained two new parameters: `pendingSpawned bool` (decoupled from
+`startWithRerunDialog` - debug's own "idle, no dialog, nothing spawned"
+startup is a combination no earlier Verb needed) and `debugCfg
+debugverb.DebugConfig` (the armed-breakpoint set + cursor + shadow-copy
+path). `rebuild()`'s own `frozen` local now also requires
+`s.everStarted` - without it, debug's idle state (`processDone` forced
+true, same trick `rerun`'s own pre-dialog startup already used) rendered
+a "Playbook completed successfully" recap before anything had run.
+
+**A real bug found and fixed live, not just on paper:** `processDone`
+starts forced `true` for debug's own idle state, and nothing cleared it
+once a real run actually started - so `q`/Ctrl-C's own
+`handleGlobalQuit`/`handleCtrlC` (which read `processDone` directly, not
+`s.everStarted`) still saw it as `true` the entire time a real child was
+alive and running, and quit outright on the very first `q` instead of
+interrupting it. Confirmed by checking the actual OS process (not just
+the tmux pane) before and after each press - fixed by clearing
+`processDone` the moment driving begins (`debugStartOrContinue`).
+
+**Verified live via tmux:** the full predicted tree renders idle, with
+nothing spawned; F9 arms a breakpoint (marker renders in the right
+column); F5 runs to it, auto-opening the drill-down in two-pane mode for
+the exact paused task+host; F5 again continues to completion, recap
+renders correctly; `q`/Ctrl-C's two-stage interrupt-then-quit behavior is
+correct in all four states (idle, driving, paused, finished), confirmed
+by inspecting the real child process's survival, not just the pane; both
+new chrome colors render distinctly from navy and from each other.
+
+**Deferred, not done in this pass:**
+- The `[keys]` config section ("Stage 1 decisions" above) - F5/F9/F10
+  are hardcoded for now, not yet read from `config.toml`.
+- "Stopped on a task error" (the "UI ideas" section's own "if there's an
+  error" auto-open trigger) isn't actually implemented as its own
+  mechanism: `debugrun.BreakpointSet`'s policy (`applyPolicy`) has no
+  concept of a task's own outcome at all - a `Pause` carries only a host
+  and a task label, never success/failure, which only the jsonl event
+  stream (a different pipe, consumed on a different goroutine) knows.
+  Making a task failure auto-surface regardless of arming would need
+  either a new synchronous query against the debugger's own `result`
+  scope at every single pause (a real cost, and a new round-trip per
+  task), or re-implementing `RunWithBreakpoints`/`ContinueWithBreakpoints`'s
+  loop inside `internal/session` instead of delegating to `debugrun` -
+  neither attempted here. Today, a failed task only pauses if its own
+  breakpoint happens to be armed, same as any other task.
+
+## Stage 2 follow-up: three bugs found in real use (2026-10-18)
+
+All found from actually using the merged session, not spotted on paper:
+
+1. **Cursor/viewport opened on the last task, not the first.**
+   `rebuild()`'s own `s.following` branch pins to "the newest row" as
+   `len(currentRows) - 1` - correct for a plain run, whose `state.Plays`
+   grows incrementally (the last row really is the newest one, for that
+   row's whole lifetime), completely wrong for a debug session's own
+   fully pre-built tree, where "the last row" is just whatever the
+   playbook's own last task happens to be. Fixed with a debug-specific
+   branch: pin to `debugCursor.CurrentTask`'s own row once something has
+   started, the first interactive row before that.
+2. **Scrolling up to a play's first task never revealed its own header.**
+   Pre-existing in the plain tree too, not new here - just far more
+   noticeable in debug mode, where the *whole* tree (every play) is
+   visible from the very first frame. `TreeList.ensureVisible` now
+   reveals one additional non-interactive row (a header, or any other
+   decorative divider - inferred the same way `AddItem`'s own "nil
+   Selected marks a row non-interactive" convention already does, not a
+   header-specific concept) immediately above wherever it scrolls up to,
+   if there is one - a direct jump (Home/Ctrl-A) is unaffected, and
+   ordinary task-to-task moves within the same play don't trigger it.
+3. **Enter never expanded a task into its own host rows.** `FlattenRows`
+   (`uikit/tui_rows.go`) iterates a task's `HostOrder`, never `Hosts`
+   directly - `debugverb.Cursor.Apply` populated `Hosts`/`Raw`/`Ignored`
+   on every terminal event but never touched `HostOrder` at all, so it
+   stayed permanently empty for every debug task, regardless of whether
+   a breakpoint was armed. Fixed by mirroring `aggregate.go`'s own
+   `TaskNode.record` exactly: append to `HostOrder` the first time a
+   host is ever seen for that task, before `Hosts` itself is written.
+
+## Stage 2 follow-up round 2: three more, from real use (2026-10-18)
+
+1. **"Task definition" tab always missing.** `TaskNode.Path` was never
+   set at all for a debug session - `SeedState` has nothing to set it
+   from (the `--list-tasks` skeleton carries only play/task names, no
+   file:line), and `Cursor.Apply` never touched it either. Both the
+   drill-down's "Task definition" tab and its "Resolved" tab are keyed
+   by `sourceIndex[task.Path]`/`resolveTaskValues(task.Path, ...)` - with
+   `Path` always `""`, both came back with nothing to show, always.
+   Fixing this is more than copying `ev.Task.Path` over, though: that
+   path points into the *shadow copy*, post-splice - `sourceIndex` is
+   built from the real tree, with real file paths as keys, and
+   `SpliceDebuggerAlways`'s own `debugger: always` lines are real,
+   inserted lines, not a zero-width marker, so every task's own line
+   number shifts downward in the copy by however many *other* tasks
+   earlier in the same file already got their own line spliced in above
+   it (confirmed by reading `spliceFile`, not assumed - a single-task
+   file, or the first task in a multi-task one, comes out unshifted,
+   which is exactly what made this easy to miss testing with a single-
+   task-per-file fixture). Fixed with a new `debugcopy.BuildPathMapping`,
+   computed from the exact same `locations` `SpliceDebuggerAlways` itself
+   spliced from, translating a copy-side "path:line" straight to the
+   original's - verified against a *real* spliced file's own actual line
+   numbers in a new test, not just hand-derived arithmetic. Confirmed
+   live on a 5-task single-file playbook: "Task definition" now shows
+   the exact right task's source, at the exact right original line.
+2. **The drill-down sometimes opened with only an Output tab reading
+   "no output recorded for `<host>`"**, every other tab missing -
+   until navigating to a different host row and back, which somehow
+   fixed it. Root cause: the debugger's own REPL pause notification
+   (`debugApplyPauseResult`) and the jsonl event reporting that exact
+   host's result (`debugDrainEvents`) arrive on two entirely independent
+   pipes and goroutines, with no ordering guarantee between them - the
+   auto-open was racing the very data it needed to render anything.
+   Fixed by not opening immediately unless that host's result is already
+   on `debugCursor.CurrentTask`; otherwise remembering the target
+   (`debugPendingOpenTask`/`Host`) and letting `debugDrainEvents`' own
+   event-apply path open it the moment the event actually arrives,
+   whichever of the two that turns out to be.
+3. **No way to see which host line the debugger is actually paused
+   on**, once a task has more than one host and its own row is expanded -
+   requested as a `›` marker, `chrome_debug_paused`'s own color. Added as
+   `HostLabel`'s own `marker` parameter (mirroring `TaskLabel`'s existing
+   one for the breakpoint `●`) - same "one slot, several mutually
+   exclusive meanings" shape as the existing warning-glyph prefix, since
+   a host can genuinely be both the paused one and carry a warning at
+   once, and there's only one column to show either in.
+
+## Stage 2 follow-up round 3: two more, from real use (2026-10-18)
+
+1. **F9 at idle, before ever navigating, silently armed nothing at all.**
+   `debugToggleBreakpoint` resolved its own target from `s.currentID` -
+   but that field is only ever set by a genuine `SetCurrentItem` call
+   made from *outside* `rebuild()` (`TreeList`'s own `SetChangedFunc`
+   bails out whenever `s.rebuilding` is true, guarding against a
+   recursive rebuild). Debug mode's own following-pinned selection
+   (`rebuild()`'s own debug-aware `selectedIndex` branch, the "cursor
+   defaults to the first task" fix from the previous round) is applied
+   *from inside* `rebuild()` itself, so `s.currentID` never actually gets
+   synced to it - confirmed live by pressing F9 then F5 immediately on
+   open and watching the whole playbook run with no pause at all. Fixed
+   with a new `debugCursorTask()`, mirroring `rebuild()`'s own
+   resolution instead of trusting `currentID` whenever still following.
+2. **The drill-down kept the plain navy chrome regardless of the
+   session's own running/paused state.** `s.outputBottomBar`/
+   `s.outputTabs`/`s.splitDivider` - the drill-down's three remaining
+   pieces of chrome, on top of the top/split-header bars' own progress-
+   fill (already dynamic for free via `chromeColorName`'s own color
+   tags) - were only ever styled once, at construction, from a static
+   snapshot (`s.chromeStyle`/`s.chromeBg`) that's never debug-aware.
+   Fixed by extending `debugRefreshChrome` to update all three, on every
+   debug state transition, the same way it already did for the tree's
+   own bottom bar.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

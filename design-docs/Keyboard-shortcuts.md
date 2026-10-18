@@ -499,95 +499,65 @@ InputField behavior); the Apply button does the same as Enter; the Cancel
 button closes with no change. A click outside the box does nothing.
 Neither button is Tab-reachable - see below.
 
-## The `debug` verb (standalone program, `internal/debugverb`)
+## The `debug` verb
 
-A completely separate program from `run`/`rerun`/`role` (own TUI
-construction, own key handling via `debugApp.handleKey`) - see
-design-docs/DebugMode.md for the full design. Shows every play/task up
-front in a flat tree (`uikit.TreeList`), backed by real
-`playbook.TaskNode`/`PlayNode`/`PlaybookState` values (populated directly
-from the skeleton, not via `Apply`) specifically so rendering reuses
-`uikit.TaskLabel`/`PlayRowText`/`ComputeHostColumnLayout`/`HostLabel`/
-`ComputeDurationLayout` - the exact functions the main tree calls, not a
-second, divergent rendering of the same row. A task row can be expanded
-(`Tab`) to show its own per-host rows underneath, same idea as the main
-tree's own Enter - just a different key, since this app's own Enter
-already means "run/continue". Lets breakpoints be armed/disarmed on any
-task before or during a run, and drives ansible-core's own built-in task
-debugger underneath (`internal/debugrun`).
+A `liveSession` (`internal/session`), same as `run`/`rerun`/`role` - not
+a second TUI (design-docs/DebugMode.md's "Architecture decision
+(2026-10-18)"). Every key/mouse binding documented above for the main
+tree - navigation, Enter-to-expand a task into its own per-host rows,
+two-pane drill-down, filter, search, recap, `q`/Ctrl-C - works
+identically here, since it's the exact same code. The whole predicted
+task tree is visible up front, before anything has run (seeded from a
+`--list-tasks` skeleton probe, `internal/debugverb.SeedState` - see
+DebugMode.md for why this can't go through `PlaybookState.Apply` the way
+a plain run's tree grows), so breakpoints can be armed before pressing
+F5/F10 even once.
 
-* ↑ / ↓             - move the cursor, skipping over play-header rows
-                     entirely (`uikit.NextInteractiveRow`, same mechanism
-                     and same reasoning as the main tree's own
-                     `handleTreeRowSkip` - a play header isn't a cursor
-                     target there either); `j`/`k` get the identical
-                     treatment, checked before the alias translation
-                     below. Space/`b` (page down/up), Ctrl-F/Ctrl-B,
-                     Ctrl-A/Ctrl-E, `<`/`>`/`G` fall through to native
-                     `TreeList` jumps instead (can land on a header row,
-                     same as the main tree) via the same shared
-                     `uikit.TranslateNavAlias` every other view uses -
-                     **not** `b` for "breakpoint" (see below)
-* t                - arm/disarm a breakpoint on the selected task - a
-                     plain `t`, not `b`: `b` is already the shared
-                     Page-Up alias above, confirmed live that it never
-                     reaches this view's own key handling at all
-* Tab              - show/hide the selected task's own per-host rows
-                     (`uikit.HostLabel`, same as the main tree's own
-                     Enter-to-expand) - not Enter here, since Enter
-                     already means "run/continue" below
-* F                - jump to the row currently executing/paused and
-                     follow it as the run advances again - the only key
-                     that resumes following once any navigation (arrows,
-                     Home/End/PgUp/PgDn, a click) has turned it off; same
-                     "only F resumes it" rule as the main tree's own
-                     following (`design-docs/Help.md`)
-* Enter            - before a run starts, or while paused: run - resumes
+Three keys exist only for this verb, with no plain-tree equivalent to
+collide with:
+
+* F5               - run: before a run starts, or while paused, resumes
                      past every pause whose task isn't armed, surfacing
                      only an armed one (or running to completion
                      outright if nothing is armed at all)
-* s                - before a run starts, or while paused: step - stops
+* F9               - arm/disarm a breakpoint on the selected task row (a
+                     no-op on a play header or a host row) - shown as a
+                     red `●` before the task's name, inside `uikit.
+                     TaskLabel`'s own prefix slot (same column the busy
+                     indicator uses on a plain run's tree, not a second
+                     one of its own)
+* F10              - step: before a run starts, or while paused, stops
                      at the very next pause unconditionally, armed or
                      not (this is also "Step Into" from design-docs/
                      DebugMode.md's own vision - they're the same thing
                      here, since Ansible flattens includes/roles/blocks
                      into one sequential pause stream)
-* v                - only while paused: show the paused task's own
-                     `task_vars` (the pre-task snapshot - this task's
-                     own effect on a variable isn't visible until the
-                     *next* task's own pause) as indented JSON, on its
-                     own page; Esc or `v` again returns to the tree
-* ? / F1           - help for this view
-* q / Ctrl-C       - while the child is running or paused: forward
-                     SIGINT to it (best-effort; doesn't quit yet - the
-                     same two-stage behavior the main tree's own
-                     `handleGlobalQuit`/`handleCtrlC` already have).
-                     Once finished (including right after that
-                     interrupt lands) or before any run has started:
-                     quit outright
 
-**Reading the tree**
-* A red `●` before a task's name - a breakpoint is armed on it
-* A colored hostname after a task's name, one per host that's reached it -
-  that host's own outcome (green/yellow/teal/red/maroon = ok/changed/
-  skipped/failed/unreachable, orange if a failure was `ignore_errors:
-  true`, same convention and the same shrink-to-fit behavior as the main
-  tree's own collapsed task rows)
-* `(paused: <host>)` after a task's name - the run is currently paused
-  there, for that host
-* The top bar - the playbook name, every host seen so far, and (same as
-  the main tree's own top bar) a predicted progress percentage/fill,
-  predicted the same way from a `--list-tasks --list-hosts` probe
-  (`design-docs/ProgressIndicator.md`); unlike the main tree's own top
-  bar, there's no `Filter:` field (debug mode has no filtering feature to
-  show one for) and no elapsed mm:ss clock (this view can sit paused
-  indefinitely between breakpoints, or before a run even starts - a
-  clock ticking the whole time read as "how long has this debug session
-  been stuck," not "how long has the playbook been running")
+Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
+sketches a `[keys]` config section for these three; not wired up yet).
 
-**Mouse** - wheel scrolling and clicking a row (same as the main tree)
-work via `TreeList`'s own built-in handling; no other mouse affordances
-are wired up for this first version.
+**Auto-open.** Whenever a pause surfaces (an armed breakpoint, or a
+step), the drill-down opens automatically for that exact paused task and
+host - the two-pane/full-screen decision is the same live, terminal-
+width-driven one `design-docs/TwoPanedLayout.md` already describes. If
+the task's expanded (`Enter`) to show its own per-host rows, the exact
+paused host also gets its own marker: a `›` in `chrome_debug_paused`'s
+own color, in `HostLabel`'s own prefix slot (same "one slot, several
+mutually exclusive meanings" shape as the warning glyph it shares that
+slot with).
+
+**Chrome.** Two extra states on top of the usual navy: `chrome_debug_running`
+while a Start/Continue/Step call is actually in flight, `chrome_debug_paused`
+while genuinely paused at a breakpoint. Idle (before the first F5/F10)
+and finished both look like an ordinary session - navy, same as `run`.
+
+**Known gaps:** the raw-output (`o`) view has nothing to show (the
+debugger owns the child's stdout for its own prompt text - design-docs/
+DebugMode.md's "stdout-ownership wrinkle"); a process-level failure has
+no stderr text in the "why did this fail" row for the same reason. A
+per-task failure is unaffected either way - that's visible via the
+tree's own coloring, driven by the jsonl event stream, which is
+untouched.
 
 ## Possible inconsistencies
 

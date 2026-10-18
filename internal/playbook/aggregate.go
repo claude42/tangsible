@@ -501,7 +501,7 @@ func (s *PlaybookState) recordHost(task *TaskNode, host string, o Outcome, raw j
 		return
 	}
 	task.record(host, o, raw, finishedAt)
-	s.noteHost(host)
+	s.NoteHost(host)
 	if o == OutcomeUnreachable {
 		s.HadUnreachable = true
 	}
@@ -600,12 +600,16 @@ func (s *PlaybookState) EarliestFailingPlay() string {
 	return ""
 }
 
-// noteHost adds host to AllHosts, keeping it sorted, the first time it's
+// NoteHost adds host to AllHosts, keeping it sorted, the first time it's
 // seen run-wide (across any task). A plain linear scan plus an unconditional
 // re-sort on every new host is dead simple and more than fast enough at this
 // project's explicit ~10-host target scale (Purpose.md) — not worth a
-// membership map or an insertion-sort for that size.
-func (s *PlaybookState) noteHost(host string) {
+// membership map or an insertion-sort for that size. Exported so a debug
+// session's own event resolution (internal/session's debugDrainEvents,
+// design-docs/DebugMode.md's "Stage 2") can record a host the same way,
+// without going through Apply (which it deliberately never calls - see
+// debugverb.SeedState's own doc comment).
+func (s *PlaybookState) NoteHost(host string) {
 	for _, h := range s.AllHosts {
 		if h == host {
 			return

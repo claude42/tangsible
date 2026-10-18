@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/diff"
 	"code.aw.net/claude/tangsible/internal/host"
@@ -95,18 +96,19 @@ func Main(build BuildInfo) {
 
 	// "template" (design-docs/Tangsible template.md), "host"/"hosts"/
 	// "inventory" (design-docs/HostVerb.md), "revisit" (design-docs/
-	// Revisit.md), "vault" (design-docs/Vault.md), and "debug" (design-
-	// docs/DebugMode.md) are each standalone programs - they share none of
-	// run/rerun/role's own tree-building machinery below (procH, playbook
-	// resolution, the live jsonl pipeline, NewLiveTUI's own construction,
-	// ...), so they're split off here before any of that gets set up,
-	// rather than threaded through the switch below. "revisit" does still
-	// end up inside NewLiveTUI for its own detail view (unlike the other
-	// four) - but only once per selected entry, each its own fresh call
-	// with a freshly replayed state, never sharing this function's own
-	// run/rerun/role setup. "vault" never touches tview at all, unlike
-	// every other Verb here; "debug" builds its own separate, smaller TUI
-	// (internal/debugverb) rather than NewLiveTUI's.
+	// Revisit.md), and "vault" (design-docs/Vault.md) are each standalone
+	// programs - they share none of run/rerun/role's own tree-building
+	// machinery below (procH, playbook resolution, the live jsonl
+	// pipeline, NewLiveTUI's own construction, ...), so they're split off
+	// here before any of that gets set up, rather than threaded through
+	// the switch below. "revisit" does still end up inside NewLiveTUI for
+	// its own detail view (unlike the other three) - but only once per
+	// selected entry, each its own fresh call with a freshly replayed
+	// state, never sharing this function's own run/rerun/role setup.
+	// "vault" never touches tview at all, unlike every other Verb here.
+	// "debug" (design-docs/DebugMode.md) used to be a fifth standalone
+	// program, with its own separate, smaller TUI - it's a liveSession
+	// now, same as run/role, so it's handled in the switch below instead.
 	if v == config.VerbTemplate {
 		code := template.RunTemplateVerb(args)
 		printStartupWarnings()
@@ -137,14 +139,26 @@ func Main(build BuildInfo) {
 		printStartupWarnings()
 		os.Exit(code)
 	}
-	if v == config.VerbDebug {
-		code := debugverb.RunDebugVerb(args)
-		printStartupWarnings()
-		os.Exit(code)
-	}
 
 	var procH runner.ProcHandle
 	var playbook string
+	// debugPrep is "tangsible debug"'s own setup (debugverb.PrepareSession
+	// - the shadow copy + debugger: always splice + skeleton probe, M0-M2's
+	// headless primitives) - zero value (Skeleton == nil) for every other
+	// Verb. Read after the switch, alongside startExpanded/twoPaneLayout/
+	// colorEnabled, to seed state/progH directly from the skeleton rather
+	// than leaving them empty for Apply to grow incrementally the way a
+	// plain run's do (design-docs/DebugMode.md's "Stage 2": Apply's own
+	// task/play identity resolution can't reuse a pre-built skeleton node
+	// at all).
+	var debugPrep debugverb.SessionPrep
+	// debugNodes is debugverb.SeedState's own second return value
+	// (skeleton's index parallel, one *TaskNode per predicted task) -
+	// nil for every other Verb. Stays empty here for now (Stage 2's
+	// checkpoint 1: the predicted tree renders, nothing can run yet);
+	// a later checkpoint threads this into a debugverb.Cursor the
+	// orchestration goroutine drives.
+	var debugNodes []*pb.TaskNode
 	// spawnPlaybook is what's actually passed to ansible-playbook for this
 	// session's first generation - normally identical to playbook, but set
 	// to a source.TrimPlaybookToPlay copy by "run"'s own "--start-at-play"
@@ -397,6 +411,29 @@ func Main(build BuildInfo) {
 			}
 		}
 
+	case config.VerbDebug:
+		// debugverb.PrepareSession does everything "run"'s own switch
+		// branch above does up through resolving a real, spawnable
+		// playbook - resolve the argument, reject --step, build the
+		// shadow copy + debugger: always splice, probe the skeleton -
+		// collapsed into one call since none of it is specific to this
+		// session's own tree-building the way "run"'s --start-at-play/
+		// --dialog handling is. Exits on any fatal error itself (same
+		// convention role.StartRoleSession already uses).
+		var debugCleanup func()
+		debugPrep, debugCleanup = debugverb.PrepareSession(args)
+		playbook = debugPrep.Playbook
+		cleanup = debugCleanup
+		originalArgs = config.ParsedPassthroughArgs{Rest: debugPrep.Rest}
+		// pending stays nil - unlike "run"/"role", nothing is spawned
+		// here: the predicted tree (seeded from debugPrep.Skeleton, after
+		// this switch) is shown idle until the user's first F5/F10
+		// (design-docs/DebugMode.md's "Stage 1" chrome states). No
+		// --dialog/--no-dialog support, no invocation-history recording -
+		// a debug session isn't an "invocation" a later bare "tangsible
+		// rerun" should ever replay, same decision this verb's own former
+		// standalone TUI already made.
+
 	case config.VerbRerun:
 		// "--start-at-play" is pulled out of args before ResolveRerun ever
 		// sees the rest - same reasoning and same helper as "run"'s own
@@ -604,6 +641,15 @@ func Main(build BuildInfo) {
 			progH.Store(runner.NewProgressTracker(runner.BuildProgressSkeleton(spawnPlaybook, originalArgs.Reassemble())))
 		}()
 	}
+	if v == config.VerbDebug {
+		// Already probed synchronously, in PrepareSession, before the TUI
+		// exists at all - needed right now (not backgrounded the way
+		// run/role's own progress-bar-only probe above is) to seed state
+		// below with the predicted tree. Shared with the progress bar
+		// here too (debugverb.Cursor, wired below, advances the same
+		// tracker a live event resolves against).
+		progH.Store(runner.NewProgressTracker(debugPrep.Skeleton))
+	}
 
 	// Read fresh here rather than threading through the "rerun" branch's
 	// own cfg local (which is scoped to that switch case, and is now a
@@ -620,6 +666,15 @@ func Main(build BuildInfo) {
 	colorEnabled := config.ColorEnabledByUser(settings)
 
 	state := &pb.PlaybookState{}
+	if v == config.VerbDebug {
+		// Seeded directly from the skeleton, never grown via Apply - see
+		// debugverb.SeedState's own doc comment for exactly why Apply
+		// can't be reused for this. debugNodes (declared above) is kept
+		// for the orchestration goroutine a later checkpoint adds, to
+		// resolve a live event against the exact same nodes this state
+		// already holds.
+		state, debugNodes = debugverb.SeedState(debugPrep.Skeleton)
+	}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
 	// lastStderr (design-docs/ErrorOutput.md) holds the current/most
@@ -678,6 +733,17 @@ func Main(build BuildInfo) {
 		runner.RunOneGeneration(cmd, stdoutCh, stderrLines, outLog, runID, playbook, roleDisplayName, apply, &exitCode, &processDone, &lastStderr, recordOutcome, peeked...)
 	}
 	requestRerun := runner.NewRequestRerun(playbook, roleDisplayName, originalArgs.Rest, state, &procH, &processDone, &exitCode, &lastStderr, &outLog, &progH, apply, recordOutcome, sourceIndex)
+	if v == config.VerbDebug {
+		// Never wired to the plain SpawnGeneration-based mechanism above:
+		// that would spawn a real ansible-playbook run straight against
+		// the original playbook, bypassing the shadow copy/splice/REPL
+		// entirely. nil disables the 'r' key outright - already a
+		// recognized, handled case (helptables.go/livesession_rebuild.go/
+		// livesession_input.go all already treat a nil requestRerun as
+		// "no rerun available", the same state a revisit session without
+		// one already uses).
+		requestRerun = nil
+	}
 
 	// displayName is what the TUI's top bar shows - normally the resolved
 	// playbook's own filename, but a role session's playbook local holds
@@ -690,7 +756,23 @@ func Main(build BuildInfo) {
 		displayName = roleDisplayName
 		targetPlaybook, targetRole = "", roleDisplayName
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, pending == nil, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole)
+	// startWithRerunDialog is normally just "nothing has spawned yet"
+	// (pending == nil) - true for "rerun" always, and for "run"/"role"
+	// exactly when showDialog deferred the spawn below. "debug" also
+	// has pending == nil (nothing is spawned until the user's first
+	// F5/F10 - design-docs/DebugMode.md's "Stage 1" chrome states: idle
+	// before that, not mid-dialog), but wants no dialog at all, so it's
+	// excluded here rather than let that inference wrongly pop one open.
+	startWithRerunDialog := pending == nil && v != config.VerbDebug
+	var debugCfg debugverb.DebugConfig
+	if v == config.VerbDebug {
+		debugCfg = debugverb.DebugConfig{
+			CopyPlaybookPath: debugPrep.CopyPlaybookPath,
+			BPS:              debugrun.NewBreakpointSet(),
+			Cursor:           debugverb.NewCursor(debugNodes, progH.Load(), debugPrep.PathMapping),
+		}
+	}
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.OutLog, pending.RunID, pending.First)

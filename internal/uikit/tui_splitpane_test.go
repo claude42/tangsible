@@ -17,6 +17,7 @@ package uikit
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
 )
@@ -36,6 +37,35 @@ func TestSplitTreeWidth(t *testing.T) {
 		if got := SplitTreeWidth(c.totalWidth); got != c.want {
 			t.Errorf("splitTreeWidth(%d) = %d, want %d", c.totalWidth, got, c.want)
 		}
+	}
+}
+
+// TestComposeSplitHeaderLine_HostsAlignsWithOutputPane: "Hosts: <host>
+// <task>" must line up with the drill-down pane's own tab labels one
+// line below - SplitTreeWidth(width) + SplitDividerWidth (where the
+// output pane itself starts) plus one more column for TabbedPane's own
+// fixed leading space before every tab label (tabs.go's renderHeader,
+// " %s " - confirmed live, not guessed: without this +1, "Hosts:" lined
+// up with the tab bar's own left edge, one column short of where the
+// labels themselves actually start reading). Requested live: at a wide
+// terminal, where the tree pane eats most of the width before the
+// drill-down pane even starts, "Hosts:" trailing right after "Filter:"
+// instead sat well to the left of the tab bar directly below it, rather
+// than lining up with it.
+func TestComposeSplitHeaderLine_HostsAlignsWithOutputPane(t *testing.T) {
+	width := 207
+	line := ComposeSplitHeaderLine("site.yml", "Playbook", "zen   bootstrap : Check if host key is already known", 2*time.Second, false, FilterQuery{}, 0, 10, width, true)
+
+	wantCol := SplitTreeWidth(width) + SplitDividerWidth + 1
+	gotCol := strings.Index(line, "Hosts:")
+	if gotCol == -1 {
+		t.Fatalf("ComposeSplitHeaderLine(...) = %q, has no \"Hosts:\" at all", line)
+	}
+	if gotCol != wantCol {
+		t.Errorf("\"Hosts:\" starts at column %d, want %d (SplitTreeWidth(%d) + SplitDividerWidth)\nline: %q", gotCol, wantCol, width, line)
+	}
+	if got := len([]rune(line)); got != width {
+		t.Errorf("ComposeSplitHeaderLine(...) length = %d, want exactly width %d", got, width)
 	}
 }
 

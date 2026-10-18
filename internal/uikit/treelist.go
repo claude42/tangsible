@@ -193,7 +193,24 @@ func (t *TreeList) ensureVisible() {
 		return
 	}
 	if t.currentItem < t.itemOffset {
-		t.itemOffset = t.currentItem
+		target := t.currentItem
+		// Also reveal one non-interactive row immediately above
+		// currentItem (a play header, or any other decorative row with
+		// no Selected callback - AddItem's own "nil marks this row
+		// non-interactive" convention), if there is one - otherwise
+		// scrolling up to a play's first task lands exactly on that
+		// task with its own play header still scrolled out of view,
+		// irritating and confusing (which play is this?), confirmed live
+		// as a real, reported complaint. Only applies here, scrolling
+		// *up* to reveal currentItem for the first time - a header
+		// already visible, or revealed by a direct jump (Home/Ctrl-A),
+		// is untouched; this never fires for an ordinary task-to-task
+		// move within the same play; already-visible headers are
+		// unaffected either way.
+		if target > 0 && t.rows[target-1].selected == nil {
+			target--
+		}
+		t.itemOffset = target
 	} else if t.currentItem-t.itemOffset >= height {
 		t.itemOffset = t.currentItem - height + 1
 	}

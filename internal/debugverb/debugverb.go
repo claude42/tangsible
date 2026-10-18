@@ -12,28 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package debugverb implements the "debug" verb (design-docs/DebugMode.md's
-// M3): an entry point and its own standalone TUI on top of the headless
-// primitives built in M0-M2 (internal/debugcopy, internal/debugrun) -
-// following the same "one package per standalone verb" pattern internal/
-// role, internal/template, internal/host and internal/vault already use,
-// not internal/session's own liveSession/NewLiveTUI (a deliberate choice,
-// confirmed with the user before writing any of this: that machinery's 30+
-// constructor parameters and cross-cutting dialogs - rerun, revisit,
-// two-pane drill-down, filter/search, recap - don't apply to a debug
-// session, and grafting onto it risked destabilizing the riskiest,
-// highest-invariant file in the repo for a feature that needs none of it).
-//
-// What IS reused, deliberately, per the user's own standing instruction
-// ("certainly use the same mechanisms as with the live run, otherwise
-// implementations will drift apart"): the same jsonl event stream/decoding
-// (runner.ScanEvents, playbook.RawEvent/DecodeHostResult), the same
-// outcome/color vocabulary (playbook.Outcome, uikit.ColorTag), and the same
-// --list-tasks --list-hosts skeleton-building/forward-matching machinery
-// the live run's own progress indicator already uses (runner.
-// BuildProgressSkeleton/ProgressTracker) - repurposed here not to predict a
-// percentage, but to build the pre-run tree itself and to resolve which row
-// a live event or debugger pause belongs to, despite task names repeating.
+// Package debugverb is the "debug" verb's own headless glue
+// (design-docs/DebugMode.md's "Architecture decision (2026-10-18)"):
+// PrepareSession resolves "tangsible debug"'s own arguments and builds
+// the shadow copy + splice + skeleton probe on top of M0-M2's headless
+// primitives (internal/debugcopy, internal/debugrun); SeedState/Cursor
+// (cursor.go) resolve a live debug session's own jsonl event stream
+// against that skeleton without ever going through PlaybookState.Apply
+// (see SeedState's own doc comment for why not). internal/session is the
+// only caller - it builds a real liveSession around this package's own
+// output, the same tree/two-pane/drill-down every other verb gets,
+// rather than this package building a second, separate TUI of its own
+// the way it used to (M3). Like internal/debugcopy/internal/debugrun,
+// this package touches no tview/tcell/uikit at all.
 package debugverb
 
 import (
@@ -48,24 +39,53 @@ import (
 	"code.aw.net/claude/tangsible/internal/source"
 )
 
-// RunDebugVerb implements "tangsible debug [<playbook.yml>] [ansible-
-// playbook args...]". Deliberately simpler than "run"'s own arg handling
-// (resolve.go's VerbRun case in session/main.go): no --start-at-play, no
-// re-run dialog, no history recording - a debug session isn't an
-// "invocation" a later bare "tangsible rerun" should ever replay, and there
-// is no re-run dialog here to pre-fill from one. Known, accepted gap for
-// this first slice (noted in design-docs/DebugMode.md): the exit code is
-// always 0 once the TUI itself exits normally, regardless of whether any
-// task actually failed - the tree's own per-host coloring already shows
-// that, and this verb has made no other promise about its exit code yet.
-func RunDebugVerb(args []string) int {
+// SessionPrep is PrepareSession's own successful result - everything
+// internal/session needs to build a debug liveSession.
+type SessionPrep struct {
+	// Playbook is the real playbook's own absolute path - what display/
+	// sourceIndex/invocation-history code should use, never CopyPlaybookPath.
+	Playbook string
+	// Rest is the passthrough ansible-playbook args, --step already
+	// rejected and stripped of nothing else - debug has no synthetic
+	// flags of its own to extract (no --start-at-play, no --dialog, no
+	// rerun-only flags; design-docs/DebugMode.md's own "no history
+	// recording" decision also means there's no rerun dialog to pre-fill
+	// from).
+	Rest []string
+	// CopyPlaybookPath is the absolute path into the shadow copy - what
+	// actually gets spawned (internal/debugrun.Spawn).
+	CopyPlaybookPath string
+	// Skeleton is the --list-tasks/--list-hosts probe against the
+	// already-spliced copy - SeedState's own input.
+	Skeleton []runner.ProgressEntry
+	// PathMapping translates a live event's own task.path (reported
+	// against the shadow copy, post-splice) back to the real tree's own
+	// "path:line" - debugcopy.BuildPathMapping's own output, Cursor's
+	// input. Needed for the drill-down's Task definition/Resolved tabs,
+	// both keyed by TaskNode.Path against sourceIndex, which is built
+	// from the real tree and so has no entries for the copy's own,
+	// line-shifted paths at all.
+	PathMapping map[string]string
+}
+
+// PrepareSession resolves "tangsible debug [<playbook.yml>] [ansible-
+// playbook args...]" and builds the shadow copy + debugger: always
+// splice (internal/debugcopy) + skeleton probe - everything this
+// package's own former RunDebugVerb/runDebugTUI did before constructing
+// its own TUI (M3), minus the TUI itself. Prints to stderr and exits on
+// any fatal error - same convention role.StartRoleSession already uses
+// for its own setup failures: there is no TUI yet at this point for an
+// error to show up inside instead. cleanup removes the shadow copy; the
+// caller is expected to wire it the same way a role stub's own cleanup
+// already is (session/main.go's "cleanup, if non-nil" convention).
+func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 	playbookArg, rest, explicit := config.SplitPlaybookArgs(args)
 	if !explicit {
 		playbookArg, _ = config.ResolvePlaybook()
 		if playbookArg == "" {
 			fmt.Fprintf(os.Stderr, "usage: %s debug [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
 			fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible/config.toml, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
-			return 2
+			os.Exit(2)
 		}
 	}
 
@@ -81,42 +101,47 @@ func RunDebugVerb(args []string) int {
 	for _, a := range rest {
 		if a == "--step" {
 			fmt.Fprintln(os.Stderr, "tangsible: debug does not support --step - its own breakpoint mechanism (not ansible-playbook's) is what pauses the run")
-			return 2
+			os.Exit(2)
 		}
 	}
 
 	absPlaybook, err := filepath.Abs(playbookArg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
-		return 1
+		os.Exit(1)
 	}
 	playbookDir := filepath.Dir(absPlaybook)
 	relPlaybook, err := filepath.Rel(playbookDir, absPlaybook)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
-		return 1
+		os.Exit(1)
 	}
 
 	locs := source.ListTaskLocations(absPlaybook)
 	if len(locs) == 0 {
 		fmt.Fprintf(os.Stderr, "tangsible: no tasks found in %s\n", playbookArg)
-		return 1
+		os.Exit(1)
 	}
 
 	// internal/debugcopy (M0): hardlink shadow copy + debugger: always
 	// splice, exactly as spiked/built there - never touches the real
 	// playbook tree.
-	copyDir, cleanup, err := debugcopy.BuildShadowCopy(playbookDir, config.NewRunID(time.Now()))
+	copyDir, copyCleanup, err := debugcopy.BuildShadowCopy(playbookDir, config.NewRunID(time.Now()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a debug copy of %s: %v\n", playbookDir, err)
-		return 1
+		os.Exit(1)
 	}
-	defer cleanup()
 
 	if err := debugcopy.SpliceDebuggerAlways(playbookDir, copyDir, locs); err != nil {
+		copyCleanup()
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a debug copy of %s: %v\n", playbookDir, err)
-		return 1
+		os.Exit(1)
 	}
+
+	// Computed from the exact same locs SpliceDebuggerAlways just used,
+	// so the line-shift math always agrees with whatever that call
+	// actually spliced - see BuildPathMapping's own doc comment.
+	pathMapping := debugcopy.BuildPathMapping(playbookDir, copyDir, locs)
 
 	// Probed against the already-spliced copy, with the exact passthrough
 	// args the real debug run is about to use (runner.BuildProgressSkeleton's
@@ -130,10 +155,16 @@ func RunDebugVerb(args []string) int {
 	copyPlaybookPath := filepath.Join(copyDir, relPlaybook)
 	skeleton := runner.BuildProgressSkeleton(copyPlaybookPath, rest)
 	if len(skeleton) == 0 {
+		copyCleanup()
 		fmt.Fprintln(os.Stderr, "tangsible: couldn't predict this playbook's own task list (--list-tasks probe failed) - nothing to debug")
-		return 1
+		os.Exit(1)
 	}
 
-	runDebugTUI(copyPlaybookPath, relPlaybook, rest, skeleton)
-	return 0
+	return SessionPrep{
+		Playbook:         absPlaybook,
+		Rest:             rest,
+		CopyPlaybookPath: copyPlaybookPath,
+		Skeleton:         skeleton,
+		PathMapping:      pathMapping,
+	}, copyCleanup
 }

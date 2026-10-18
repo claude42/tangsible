@@ -171,13 +171,22 @@ func ComposeTopBarLine(playbookName, label string, hosts []string, elapsed time.
 // composition against one width, computed once, can't disagree with
 // itself.
 //
-// Layout, left to right: label (TopBarLabel), Filter:, "Hosts: " followed by
-// hostAndTask (the drill-down's own currently-shown "<host>   <task
-// title>", three spaces between the two - matching every other field
-// separator on this line - there's exactly one relevant host/task
+// Layout, left to right: label (TopBarLabel), Filter:, then - starting
+// exactly at the column the drill-down pane itself starts at
+// (SplitTreeWidth(width) + SplitDividerWidth, the same arithmetic
+// s.splitBody's own ResizeItem call sizes the tree pane with) - "Hosts: "
+// followed by hostAndTask (the drill-down's own currently-shown "<host>
+// <task title>", three spaces between the two - matching every other
+// field separator on this line - there's exactly one relevant host/task
 // pane-side, not "every host seen so far" the way the tree-only bar's
-// own host list is), then - flush right, same as topBarText's own right
-// side - the progress percentage (temporarily reinstated, see
+// own host list is). Requested live: with "Hosts: ..." trailing right
+// after "Filter:" instead, at a wide enough terminal (where the tree
+// pane itself eats most of the width before the drill-down pane even
+// starts) it sat well to the left of the drill-down's own tab bar
+// directly below it, rather than lining up with it - "which host is this
+// even showing" meant looking all the way to the left, away from the
+// pane it was actually describing. Flush right, same as topBarText's own
+// right side - the progress percentage (temporarily reinstated, see
 // progressPercentPrefix's own doc comment) and the heartbeat (spinner +
 // elapsed, or just elapsed once frozen).
 func ComposeSplitHeaderLine(playbookName, label string, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
@@ -193,7 +202,23 @@ func ComposeSplitHeaderLine(playbookName, label string, hostAndTask string, elap
 		right = fmt.Sprintf("%s%c %02d:%02d ", progressPrefix, SpinnerAt(elapsed), mm, ss)
 	}
 
-	left := fmt.Sprintf(" %s: %s   Filter: %s   Hosts: %s", label, playbookName, filter.label(), hostAndTask)
+	leftHead := fmt.Sprintf(" %s: %s   Filter: %s", label, playbookName, filter.label())
+	// +1: TabbedPane's own renderHeader pads every tab label " like this "
+	// (tabs.go), a fixed leading space before the very first one's own
+	// letters - without accounting for it, "Hosts:" lined up with the
+	// tab bar's own left edge, one column short of where the tab labels
+	// themselves actually start reading (confirmed live, by eye).
+	hostsCol := SplitTreeWidth(width) + SplitDividerWidth + 1
+	headPad := hostsCol - len([]rune(leftHead))
+	if headPad < 1 {
+		// leftHead itself already overruns where the drill-down pane
+		// starts (a narrow terminal, or an unusually long playbook
+		// name/filter label) - fall back to trailing "Hosts:" right
+		// after it, same as before this alignment existed, rather than
+		// a nonsensical negative pad.
+		headPad = 1
+	}
+	left := leftHead + strings.Repeat(" ", headPad) + fmt.Sprintf("Hosts: %s", hostAndTask)
 
 	pad := width - len([]rune(left)) - len([]rune(right))
 	if pad < 1 {
@@ -353,6 +378,27 @@ func ColorTag(o playbook.Outcome) string {
 	default:
 		return "-"
 	}
+}
+
+// BreakpointMarkerText is TaskLabel's own marker argument for a task row
+// with an armed breakpoint (design-docs/DebugMode.md) - a single shared
+// definition so every caller with any concept of "armed" (today, only a
+// debug session's own tree, via FlattenRows' own armed parameter) looks
+// identical. Reuses OutcomeFailed's own red, the same convention a
+// previous, separate debug TUI already settled on live.
+func BreakpointMarkerText() string {
+	return "[" + ColorTag(playbook.OutcomeFailed) + "]●[-] "
+}
+
+// PausedHostMarkerText is HostLabel's own marker argument for the exact
+// host a debug session is currently paused on (design-docs/DebugMode.md)
+// - same ChromeDebugPausedColor a paused session's own chrome already
+// uses, so the one glyph and the session-wide "you are paused" color cue
+// agree. Padded out to HostIndent's own width, same as HostLabel's own
+// warning-glyph branch, so the hostname itself never shifts regardless
+// of which of the two (or neither) is showing.
+func PausedHostMarkerText() string {
+	return "[" + ChromeDebugPausedColor + "]›[-]" + strings.Repeat(" ", len(HostIndent)-1)
 }
 
 // SummaryFieldColor is hostSummaryColoredText's own per-field color
@@ -1046,15 +1092,29 @@ func TaskHasWarnings(task *playbook.TaskNode) bool {
 // leading marker one column right of column 1 - both reverted after live
 // use: a marker at the row's very first column, with the hostname itself
 // never shifting regardless of whether it's showing, reads clearest.
-func HostLabel(task *playbook.TaskNode, host string, layout DurationLayout, selected bool) string {
+//
+// marker is a caller-supplied override for that same prefix slot,
+// outranking the warning glyph when both would otherwise apply - debug
+// mode's own "the debugger is paused on exactly this host" indicator
+// (design-docs/DebugMode.md), "" for every other caller. Same "one slot,
+// several mutually exclusive meanings" shape TaskLabel's own marker
+// parameter already has, for the same reason: a host genuinely can be
+// both the paused one and carry a warning at once, and there's only one
+// column to show either in.
+func HostLabel(task *playbook.TaskNode, host string, layout DurationLayout, selected bool, marker string) string {
 	o := task.Hosts[host]
 	// The whole prefix (not just host) is escaped as one unit - safe even
 	// though most of it (parens, digits, the fixed padding) is never
 	// untrusted text, since tview.Escape only ever touches '[' characters.
 	line := fmt.Sprintf("%s%s%s", tview.Escape(HostAndDurationPrefix(task, host, layout)), o, tview.Escape(OutcomeDetailText(task, host)))
-	prefix := tview.Escape(HostIndent)
-	if task.Warnings[host] {
+	var prefix string
+	switch {
+	case marker != "":
+		prefix = marker
+	case task.Warnings[host]:
 		prefix = fmt.Sprintf("[%s]⚠[-]%s", WarningColor, strings.Repeat(" ", len(HostIndent)-1))
+	default:
+		prefix = tview.Escape(HostIndent)
 	}
 	// done is always true here - HostLabel is only ever called for a host
 	// that's already in task.Hosts (see FlattenRows' own t.HostOrder loop),

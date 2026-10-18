@@ -166,7 +166,15 @@ func LastFailedTaskAndHost(state *playbook.PlaybookState) (*playbook.TaskNode, s
 // sourceIndex is only read by taskVisible's filterSearch case, to search a
 // task's own source text. useColor is threaded straight through to each
 // row's own taskLabel call - see its doc comment (design-docs/Morehosts.md).
-func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout HostColumnLayout, durationLayout DurationLayout, allHosts []string, activeTasks map[*playbook.TaskNode]bool, frame rune, filter FilterQuery, sourceIndex map[string]string, showOutput func(task *playbook.TaskNode, host string), useColor bool) []Row {
+// armed, if non-nil, marks a task row with BreakpointMarkerText() instead
+// of TaskLabel's own usual spinner/warning/indent prefix (design-docs/
+// DebugMode.md) - nil for every caller but a debug session's own tree,
+// which is the only one with any concept of an armed breakpoint at all.
+// isPaused, if non-nil, marks the exact host row a debug session is
+// currently paused on with PausedHostMarkerText() instead of HostLabel's
+// own usual warning/indent prefix - same nil-for-every-other-caller
+// shape as armed.
+func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]bool, width int, layout HostColumnLayout, durationLayout DurationLayout, allHosts []string, activeTasks map[*playbook.TaskNode]bool, frame rune, filter FilterQuery, sourceIndex map[string]string, showOutput func(task *playbook.TaskNode, host string), useColor bool, armed func(*playbook.TaskNode) bool, isPaused func(*playbook.TaskNode, string) bool) []Row {
 	var rows []Row
 	for _, play := range state.Plays {
 		var playRows []Row
@@ -175,16 +183,24 @@ func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]
 			if !TaskVisible(t, filter, sourceIndex, activeTasks[t]) {
 				continue
 			}
+			var marker string
+			if armed != nil && armed(t) {
+				marker = BreakpointMarkerText()
+			}
 			playRows = append(playRows, Row{
-				Text:     TaskLabel(t, allHosts, layout, width, activeTasks[t], frame, false, useColor, ""),
+				Text:     TaskLabel(t, allHosts, layout, width, activeTasks[t], frame, false, useColor, marker),
 				ID:       t,
 				Selected: func() { expanded[t] = !expanded[t] },
 			})
 			if expanded[t] {
 				for _, host := range t.HostOrder {
 					h := host
+					var hostMarker string
+					if isPaused != nil && isPaused(t, h) {
+						hostMarker = PausedHostMarkerText()
+					}
 					playRows = append(playRows, Row{
-						Text:     HostLabel(t, h, durationLayout, false),
+						Text:     HostLabel(t, h, durationLayout, false, hostMarker),
 						ID:       HostRowID{t, h},
 						Selected: func() { showOutput(t, h) },
 					})

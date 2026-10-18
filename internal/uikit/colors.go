@@ -178,6 +178,15 @@ var (
 	ChromeLiveColor    = "navy"
 	ChromeRevisitColor = "purple"
 	ChromeCheckColor   = "olive"
+	// ChromeDebugRunningColor/ChromeDebugPausedColor (design-docs/
+	// DebugMode.md's "Stage 1 decisions") are a debug session's own two
+	// extra chrome states, on top of the four above: idle (before the
+	// first Start/Continue/Step call) and finished both use ChromeLiveColor
+	// unchanged, same as a plain run - only "a Start/Continue/Step call is
+	// actually in flight" and "paused at a breakpoint, or stopped on a
+	// task error" get their own look.
+	ChromeDebugRunningColor = "teal"
+	ChromeDebugPausedColor  = "maroon"
 )
 
 // SelectedRowTextColor is every selected row's own text color, app-wide -
@@ -424,6 +433,8 @@ func ApplyColorConfig(cfg config.ColorsConfig) {
 	ChromeLiveColor = ResolveColorOverride("chrome_live", cfg.ChromeLive, ChromeLiveColor)
 	ChromeRevisitColor = ResolveColorOverride("chrome_revisit", cfg.ChromeRevisit, ChromeRevisitColor)
 	ChromeCheckColor = ResolveColorOverride("chrome_check", cfg.ChromeCheck, ChromeCheckColor)
+	ChromeDebugRunningColor = ResolveColorOverride("chrome_debug_running", cfg.ChromeDebugRunning, ChromeDebugRunningColor)
+	ChromeDebugPausedColor = ResolveColorOverride("chrome_debug_paused", cfg.ChromeDebugPaused, ChromeDebugPausedColor)
 
 	SelectedRowTextColor = ResolveColorOverride("selected_row_text", cfg.SelectedRowText, SelectedRowTextColor)
 	SelectedRowBackgroundColor = ResolveColorOverride("selected_row_background", cfg.SelectedRowBackground, SelectedRowBackgroundColor)
@@ -462,5 +473,7 @@ func ApplyColorConfig(cfg config.ColorsConfig) {
 	BarStyle = buildChromeStyle("white", ChromeLiveColor)
 	ReplayBarStyle = buildChromeStyle("white", ChromeRevisitColor)
 	CheckBarStyle = buildChromeStyle("white", ChromeCheckColor)
+	DebugRunningBarStyle = buildChromeStyle("white", ChromeDebugRunningColor)
+	DebugPausedBarStyle = buildChromeStyle("white", ChromeDebugPausedColor)
 	SearchBarStyle = buildChromeStyle(searchMatchForegroundColor, searchMatchBackgroundColor)
 }

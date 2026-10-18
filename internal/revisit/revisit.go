@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/role"
@@ -56,7 +57,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string, pendingSpawned bool, debugCfg debugverb.DebugConfig) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -624,7 +625,16 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		// "revisit" (Phase 2/3): whenever this entry opens straight into
 		// the dialog at all, it should actually render, never auto-submit.
 		"", invArgs.Tags, invArgs.SkipTags, invArgs.Hosts, runner.InitialRerunDefaults{}, startWithRerunDialog, startWithRerunDialog, requestRerun, invArgs.Rest, &progH, revisitReturn,
-		e.Playbook, e.Role)
+		e.Playbook, e.Role,
+		// pendingSpawned doesn't actually matter here: revisitReturn != nil
+		// already forces s.everStarted true on its own (NewLiveTUI's own
+		// doc comment) - true is simply accurate too, a revisited entry's
+		// own run has, by definition, already happened (replayed frozen).
+		true,
+		// debugCfg is always the zero value here - "revisit" never builds
+		// a debug session (design-docs/DebugMode.md's "Stage 2" is "debug"
+		// Verb-only).
+		debugverb.DebugConfig{})
 
 	runErr := uikit.RunWithTitleStack(app)
 	quitting.Store(true) // defensive: same reasoning as main.go's own

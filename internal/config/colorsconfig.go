@@ -64,10 +64,12 @@ type ColorsConfig struct {
 	ProgressText *string `toml:"progress_text"`
 	TabText      *string `toml:"tab_text"`
 
-	ChromeLive    *string `toml:"chrome_live"`
-	ChromeRevisit *string `toml:"chrome_revisit"`
-	ChromeCheck   *string `toml:"chrome_check"`
-	DiffChrome    *string `toml:"diff_chrome"`
+	ChromeLive         *string `toml:"chrome_live"`
+	ChromeRevisit      *string `toml:"chrome_revisit"`
+	ChromeCheck        *string `toml:"chrome_check"`
+	ChromeDebugRunning *string `toml:"chrome_debug_running"`
+	ChromeDebugPaused  *string `toml:"chrome_debug_paused"`
+	DiffChrome         *string `toml:"diff_chrome"`
 
 	SelectedRowText       *string `toml:"selected_row_text"`
 	SelectedRowBackground *string `toml:"selected_row_background"`
@@ -140,10 +142,12 @@ func mergeColors(project, global, system ColorsConfig) ColorsConfig {
 		ProgressText: firstNonNil(project.ProgressText, global.ProgressText, system.ProgressText),
 		TabText:      firstNonNil(project.TabText, global.TabText, system.TabText),
 
-		ChromeLive:    firstNonNil(project.ChromeLive, global.ChromeLive, system.ChromeLive),
-		ChromeRevisit: firstNonNil(project.ChromeRevisit, global.ChromeRevisit, system.ChromeRevisit),
-		ChromeCheck:   firstNonNil(project.ChromeCheck, global.ChromeCheck, system.ChromeCheck),
-		DiffChrome:    firstNonNil(project.DiffChrome, global.DiffChrome, system.DiffChrome),
+		ChromeLive:         firstNonNil(project.ChromeLive, global.ChromeLive, system.ChromeLive),
+		ChromeRevisit:      firstNonNil(project.ChromeRevisit, global.ChromeRevisit, system.ChromeRevisit),
+		ChromeCheck:        firstNonNil(project.ChromeCheck, global.ChromeCheck, system.ChromeCheck),
+		ChromeDebugRunning: firstNonNil(project.ChromeDebugRunning, global.ChromeDebugRunning, system.ChromeDebugRunning),
+		ChromeDebugPaused:  firstNonNil(project.ChromeDebugPaused, global.ChromeDebugPaused, system.ChromeDebugPaused),
+		DiffChrome:         firstNonNil(project.DiffChrome, global.DiffChrome, system.DiffChrome),
 
 		SelectedRowText:       firstNonNil(project.SelectedRowText, global.SelectedRowText, system.SelectedRowText),
 		SelectedRowBackground: firstNonNil(project.SelectedRowBackground, global.SelectedRowBackground, system.SelectedRowBackground),
@@ -257,10 +261,12 @@ func resolveEffectiveColorsWithTheme(cfg SettingsConfig, theme ThemeFile) Colors
 		ProgressText: pick("progress_text", cfg.Colors.ProgressText),
 		TabText:      pick("tab_text", cfg.Colors.TabText),
 
-		ChromeLive:    pick("chrome_live", cfg.Colors.ChromeLive),
-		ChromeRevisit: pick("chrome_revisit", cfg.Colors.ChromeRevisit),
-		ChromeCheck:   pick("chrome_check", cfg.Colors.ChromeCheck),
-		DiffChrome:    pick("diff_chrome", cfg.Colors.DiffChrome),
+		ChromeLive:         pick("chrome_live", cfg.Colors.ChromeLive),
+		ChromeRevisit:      pick("chrome_revisit", cfg.Colors.ChromeRevisit),
+		ChromeCheck:        pick("chrome_check", cfg.Colors.ChromeCheck),
+		ChromeDebugRunning: pick("chrome_debug_running", cfg.Colors.ChromeDebugRunning),
+		ChromeDebugPaused:  pick("chrome_debug_paused", cfg.Colors.ChromeDebugPaused),
+		DiffChrome:         pick("diff_chrome", cfg.Colors.DiffChrome),
 
 		SelectedRowText:       pick("selected_row_text", cfg.Colors.SelectedRowText),
 		SelectedRowBackground: pick("selected_row_background", cfg.Colors.SelectedRowBackground),

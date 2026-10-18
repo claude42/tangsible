@@ -14,12 +14,12 @@ maps packages/files (verify against `grep`, it can drift);
 `design-docs/Keyboard-shortcuts.md` is the full key reference.
 
 One Go binary, eleven verbs (`internal/config/resolve.go`'s `ParseVerb`):
-`run`, `rerun`, `role`, `revisit` share the live tree/TUI machinery
-(`internal/session`); `template`, `host`/`hosts`/`inventory`, `vault`,
-`debug`, `version` are standalone programs that never build the live tree -
-`debug` (`internal/debugverb`, `design-docs/DebugMode.md`) has its own
-small TUI, not `internal/session`'s `liveSession`. Requires
-`ansible-playbook` and a real TTY. Root `main.go` just calls `session.Main`.
+`run`, `rerun`, `role`, `revisit`, `debug` share the live tree/TUI
+machinery (`internal/session`) - `debug` (`design-docs/DebugMode.md`)
+adds breakpoint/pause state on top, not a second TUI of its own;
+`template`, `host`/`hosts`/`inventory`, `vault`, `version` are standalone
+programs that never build the live tree. Requires `ansible-playbook` and
+a real TTY. Root `main.go` just calls `session.Main`.
 
 ## Commands
 
@@ -55,15 +55,17 @@ pattern appears in it.
 dialogs, search, help, colors - nothing verb-specific) · `internal/config`
 (settings, history, arg parsing, run logs) · `internal/runner` (spawn/stream/
 progress/outcome of one `ansible-playbook` generation) · `internal/source`
-(task YAML source lookup) · `internal/session` (run/rerun/role orchestration +
-the live TUI) · one package per standalone verb (`role`, `template`, `host`,
-`revisit`, `diff`, `vault*`, `debugverb`) · `internal/debugcopy`/
-`internal/debugrun` (debug mode's headless primitives: shadow-copy/splice,
-live process driver + breakpoint policy - `debugverb` is their only caller)
-· `internal/inventory`, `internal/ansibledoc` (small shared clients). Only
-`internal/session` (its `tui.go` and `livesession*.go`), `internal/uikit`,
-and `internal/debugverb` (its own separate, smaller TUI - see "What this
-is" above) touch `tview`/`tcell`; `session/main.go` doesn't.
+(task YAML source lookup) · `internal/session` (run/rerun/role/debug
+orchestration + the live TUI) · one package per standalone verb (`role`,
+`template`, `host`, `revisit`, `diff`, `vault*`) · `internal/debugcopy`/
+`internal/debugrun`/`internal/debugverb` (debug mode's own headless
+primitives: shadow-copy/splice, the live process driver + breakpoint
+policy, and skeleton-seeded state/event resolution, respectively -
+`internal/session` is their only caller, same as any other verb-specific
+package above) · `internal/inventory`, `internal/ansibledoc` (small shared
+clients). Only `internal/session` (its `tui.go` and `livesession*.go`) and
+`internal/uikit` touch `tview`/`tcell`; `session/main.go` doesn't, and
+neither does any of debug mode's own three packages.
 
 The live TUI is a `liveSession` struct (`livesession.go`) built by `NewLiveTUI`
 (`tui.go`), with methods split by concern across `livesession_*.go` (rebuild,
@@ -274,13 +276,22 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - **Vault** (`Vault.md`): native AES-CTR (`internal/vaultcrypto`); re-encrypts
   only changed keys and splices original bytes for unchanged ones (yaml.v3
   can't reproduce ansible-vault's indentation); never touches tview.
-- **Debug** (`DebugMode.md`): breakpoints + step on ansible-core's own
-  `debugger:` keyword, spliced onto every task in a disposable hardlink
-  shadow copy (`internal/debugcopy`); `internal/debugrun` drives it over a
-  second pipe pair alongside the normal jsonl event stream; `internal/
-  debugverb`'s own standalone TUI decides which pauses to surface
-  (`BreakpointSet`) and shows live per-host outcomes/the current pause on
-  a pre-run tree predicted the same way the progress indicator is.
+- **Debug** (`DebugMode.md`): a `liveSession` with breakpoint/pause state
+  layered on, not a second TUI - the real tree, two-pane layout, and
+  drill-down are the exact same ones `run`/`rerun`/`role` use. Breakpoints
+  + step on ansible-core's own `debugger:` keyword, spliced onto every
+  task in a disposable hardlink shadow copy (`internal/debugcopy`);
+  `internal/debugrun` drives it over a second pipe pair alongside the
+  normal jsonl event stream, deciding which pauses to surface
+  (`BreakpointSet`); `internal/debugverb.SeedState` pre-builds the whole
+  predicted tree from a `--list-tasks` skeleton up front (so breakpoints
+  can be armed before anything runs), and `debugverb.Cursor` resolves
+  each live event against it - deliberately never through
+  `PlaybookState.Apply`, which can't reuse those pre-built nodes at all
+  once a real run starts. F5/F9/F10 run/toggle-breakpoint/step
+  (`livesession_debug.go`); two extra chrome colors
+  (`chrome_debug_running`/`chrome_debug_paused`) mark a session actually
+  running vs. paused, on top of the four other chrome states.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):
@@ -298,8 +309,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   `role` (`--step` crashes, a bare `pause:` is skipped); become/vault
   password prompts work because they happen before the TUI. `debug`
   (`DebugMode.md`) is the dedicated way to drive ansible-core's own task
-  debugger instead - not available from inside the regular live tree, and
-  it rejects `--step` itself (a second, unhandled pause mechanism).
+  debugger instead, via its own F5/F9/F10 keys - it rejects ansible-
+  playbook's own `--step` outright (a second, unhandled pause mechanism,
+  `debugverb.PrepareSession`).
 - `strategy: free` is supported (`StrategyFree.md`); a globally configured
   `free` isn't seen by the progress probe.
 - No execution environments / ansible-runner; only a subset of

@@ -179,7 +179,7 @@ func TestHostLabel_RecolorsIgnoredFailure(t *testing.T) {
 	}
 
 	for _, selected := range []bool{false, true} {
-		got := HostLabel(ignored, "host1", DurationLayout{}, selected)
+		got := HostLabel(ignored, "host1", DurationLayout{}, selected, "")
 		if !strings.Contains(got, ignoredTag(selected)) {
 			t.Errorf("selected=%v: HostLabel(ignored) = %q, want it to contain %q", selected, got, ignoredTag(selected))
 		}
@@ -187,7 +187,7 @@ func TestHostLabel_RecolorsIgnoredFailure(t *testing.T) {
 			t.Errorf("selected=%v: HostLabel(ignored) = %q, want it to NOT contain %q", selected, got, failedTag(selected))
 		}
 
-		got = HostLabel(genuine, "host2", DurationLayout{}, selected)
+		got = HostLabel(genuine, "host2", DurationLayout{}, selected, "")
 		if !strings.Contains(got, failedTag(selected)) {
 			t.Errorf("selected=%v: HostLabel(genuine) = %q, want it to contain %q", selected, got, failedTag(selected))
 		}

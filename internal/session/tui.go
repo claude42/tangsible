@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
@@ -142,6 +143,16 @@ import (
 // inventory/extra-vars context the real run did. Not used for anything
 // else in this function.
 //
+// pendingSpawned is main.go's own ground truth for whether a generation
+// has actually been spawned by the time this runs (pending != nil there) -
+// see s.everStarted's own assignment below for the one place it's used.
+// Independent of startWithRerunDialog: every existing Verb's pending and
+// startWithRerunDialog already move together (pending == nil exactly when
+// startWithRerunDialog is true), but "debug"'s own idle startup
+// (design-docs/DebugMode.md's "Stage 2") needs startWithRerunDialog false
+// (no dialog-or-auto-submit flow at all) while still being unspawned
+// (pendingSpawned false) - a combination no earlier Verb needed.
+//
 // colorEnabled is general.color's own resolved value (ColorEnabledByUser,
 // resolve.go), read once by main.go before construction - one of three
 // independent inputs (alongside the terminal's own detected color
@@ -167,7 +178,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string) (*tview.Application, func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames, knownGroups []string, startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string, pendingSpawned bool, debugCfg debugverb.DebugConfig) (*tview.Application, func(playbook.RawEvent)) {
 	// s (*liveSession, livesession.go) holds every piece of state this
 	// function's closures share - see its own doc comment for the full
 	// rationale (design-docs/Restructuring.md's own postponed "Phase 3").
@@ -201,6 +212,15 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.revisitReturn = revisitReturn
 	s.targetPlaybook = targetPlaybook
 	s.targetRole = targetRole
+	// debugMode is derived from debugCfg.BPS rather than taking its own
+	// explicit bool parameter - "a debug session is exactly the one with
+	// a breakpoint set" is the simplest thing that's always true, and
+	// keeps every other debug field's own zero value (nil) meaningful on
+	// its own for every other Verb, with nothing to keep in sync.
+	s.debugMode = debugCfg.BPS != nil
+	s.debugCopyPlaybookPath = debugCfg.CopyPlaybookPath
+	s.debugBPS = debugCfg.BPS
+	s.debugCursor = debugCfg.Cursor
 	s.lastTitlePercent = -1 // sentinel: no percentage ever written to the
 	// window title yet (0 is a real, reachable value at the very start of
 	// a run) - see updateWindowTitle.
@@ -237,17 +257,25 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// every 200ms, while a run is still live, fighting any mouse-wheel
 	// panning the user just did. See RestoreCurrentItem's own doc comment.
 	s.following = true // auto-follow the newest row until the user navigates away
-	// s.everStarted is false only for the "rerun" Verb's startup dialog, until
-	// submitRerun's first-ever call flips it true - see s.rebuild()'s own use
-	// of it below: processDone starts true in that one case (see
-	// startWithRerunDialog's own doc comment above) even though nothing has
-	// actually run, which would otherwise make s.rebuild() render a "Playbook
-	// completed successfully" status row before anything ever happened. A
-	// revisit session opened straight into the re-run dialog ('r' on the
-	// s.list) also sets startWithRerunDialog, but there a run genuinely *has*
-	// happened (replayed frozen), so its status row/recap must still show
-	// behind the dialog - hence the revisitReturn != nil exception.
-	s.everStarted = !startWithRerunDialog || revisitReturn != nil
+	// s.everStarted is false whenever nothing has actually been spawned yet
+	// (pendingSpawned false - main.go's own ground truth, pending != nil
+	// there) - see s.rebuild()'s own use of it below: processDone starts
+	// true in that case (see startWithRerunDialog's own doc comment above)
+	// even though nothing has actually run, which would otherwise make
+	// s.rebuild() render a "Playbook completed successfully" status row
+	// before anything ever happened. True for "run"/"role" (always spawned
+	// by the time this runs, unless their own dialog deferred it - the same
+	// case startWithRerunDialog tests), always false for "rerun"'s own
+	// startup dialog until submitRerun's first-ever call flips s.everStarted
+	// true directly, and - new with design-docs/DebugMode.md's "Stage 2" -
+	// always false for "debug"'s own idle startup too (nothing is spawned
+	// until the user's first F5/F10, with no dialog of any kind in between,
+	// unlike every other startWithRerunDialog-true case). A revisit session
+	// opened straight into the re-run dialog ('r' on the s.list) also has
+	// pendingSpawned false, but there a run genuinely *has* happened
+	// (replayed frozen), so its status row/recap must still show behind the
+	// dialog - hence the revisitReturn != nil exception.
+	s.everStarted = pendingSpawned || revisitReturn != nil
 	s.revisitActive = revisitReturn != nil // true for the whole lifetime of
 	// a revisit session until a real rerun is confirmed (submitRerun) -
 	// once that happens there's a live/finished generation of its own on
@@ -935,6 +963,17 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 			// caller, so the dialog never actually renders a frame.
 			s.submitRerun()
 		}
+	} else if !pendingSpawned {
+		// "debug"'s own idle startup (design-docs/DebugMode.md's "Stage
+		// 2"): unlike every other case reaching here, nothing above this
+		// point ever calls rebuild() - run/role's first real event does
+		// (via applyLive, fed in right after this function returns),
+		// openRerunDialog/submitRerun do for the dialog-flow cases just
+		// above. Without this, the predicted tree (already fully seeded
+		// into state by main.go, before this function was even called)
+		// would show as a blank tree until the heartbeat's own first
+		// tick or some other redraw happened to fire - confirmed live.
+		s.rebuild()
 	}
 
 	return s.app, s.applyLive

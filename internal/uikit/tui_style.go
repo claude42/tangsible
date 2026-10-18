@@ -48,6 +48,17 @@ var ReplayBarStyle = buildChromeStyle("white", ChromeRevisitColor)
 // from ChromeLiveColor - see its own doc comment.
 var CheckBarStyle = buildChromeStyle("white", ChromeCheckColor)
 
+// DebugRunningBarStyle/DebugPausedBarStyle (design-docs/DebugMode.md's
+// "Stage 1 decisions") are a debug session's own two extra chrome states,
+// built the same way BarStyle/CheckBarStyle are - applied dynamically,
+// not just once at construction the way every other chrome style here is
+// (livesession_debug.go's own debugRefreshChrome): a debug session's
+// phase (idle/running/paused/finished) changes repeatedly over its own
+// lifetime, unlike --check/revisit, which are each fixed for a whole
+// session.
+var DebugRunningBarStyle = buildChromeStyle("white", ChromeDebugRunningColor)
+var DebugPausedBarStyle = buildChromeStyle("white", ChromeDebugPausedColor)
+
 // SearchBarStyle is the drill-down/host-detail/template view's own bottom
 // bar style while an in-tab search (design-docs/Search.md) is being
 // composed or is currently active - black on yellow by default, the same
