@@ -15,6 +15,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"sync/atomic"
 	"time"
@@ -556,6 +557,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// touches it from inside s.app.QueueUpdateDraw), so - like everything
 	// else in this file - it needs no locking of its own.
 	s.resolveCache = map[resolveKey]uikit.ResolvedRender{}
+	s.debugTaskVarsCache = map[resolveKey]json.RawMessage{}
 
 	// s.docsCache holds every module's own ResolvedRender for the "Docs" tab
 	// (ansibledoc.go's ansibledoc.FetchAnsibleDoc), keyed by the task's own "action"

@@ -123,12 +123,20 @@ func jinjaStringLiteral(s string) string {
 // separately), so there's no risk of it conflicting with this function's
 // own hosts: line.
 //
+// extraVarsFile, if non-empty, is appended as --extra-vars @extraVarsFile,
+// last on the command line so it wins over anything rest itself already
+// carries - debug mode's own resolveTaskValuesFromSnapshot (below) is
+// the only caller that ever sets it, to seed the render from a captured
+// task_vars snapshot (ansible's own highest-precedence layer) rather
+// than whatever the stub would otherwise gather fresh. Empty for a plain
+// run - no behavior change there at all.
+//
 // err is non-nil for a genuine failure to determine anything at all
 // (mirroring RenderTemplate's own pre-flight-failure case) - a Jinja
 // error wrapJinjaDefaults couldn't save (see its own doc comment) is
 // reported the same way, since from the caller's point of view both just
 // mean "show this error instead of a resolved result."
-func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string, error) {
+func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVarsFile string) (string, error) {
 	wrapped := wrapJinjaDefaults(taskSource)
 
 	tplFile, err := os.CreateTemp("", "tangsible-resolve-*.j2")
@@ -163,6 +171,18 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	var b strings.Builder
 	fmt.Fprintf(&b, "- hosts: %s\n", host)
 	b.WriteString("  ignore_unreachable: true\n")
+	if extraVarsFile != "" {
+		// gather_facts: false only when a snapshot is already supplying
+		// everything (debug mode) - the snapshot's own ansible_facts,
+		// captured from the real run, is both unnecessary to re-gather
+		// and strictly more accurate than a fresh gather could be (it
+		// reflects the exact moment the real run paused, not "whatever
+		// is true right now"). Left enabled for a plain run's own
+		// (currently disabled) resolve, which has no snapshot to fall
+		// back on and may genuinely need a fresh gather to resolve a
+		// facts-dependent expression at all.
+		b.WriteString("  gather_facts: false\n")
+	}
 	if varsFiles := template.RoleVarsFiles(roleTaskPath); len(varsFiles) > 0 {
 		b.WriteString("  vars_files:\n")
 		for _, f := range varsFiles {
@@ -172,6 +192,16 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	b.WriteString("  tasks:\n")
 	b.WriteString("    - name: resolve task values\n")
 	b.WriteString("      delegate_to: localhost\n")
+	// connection: local, not just delegate_to - without it, an explicit
+	// inventory entry literally named "localhost" (-i localhost, this
+	// project's own test fixtures among them) gets no special treatment
+	// at all: only ansible's own *implicit*, auto-added localhost (no
+	// inventory source names it) defaults to the local connection
+	// plugin - an explicit one still tries real SSH unless told
+	// otherwise. Confirmed live as a real bug: "Failed to connect to
+	// the host via ssh: Host key verification failed" delegating to a
+	// perfectly reachable control node.
+	b.WriteString("      connection: local\n")
 	b.WriteString("      ansible.builtin.template:\n")
 	fmt.Fprintf(&b, "        src: %s\n", tplPath)
 	fmt.Fprintf(&b, "        dest: %s\n", outputPath)
@@ -192,7 +222,11 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("ansible-playbook", append([]string{stubPath}, rest...)...)
+	cmdArgs := append([]string{stubPath}, rest...)
+	if extraVarsFile != "" {
+		cmdArgs = append(cmdArgs, "--extra-vars", "@"+extraVarsFile)
+	}
+	cmd := exec.Command("ansible-playbook", cmdArgs...)
 	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -250,4 +284,34 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string) (string
 		return "", fmt.Errorf("resolve task reported success but the rendered file couldn't be read: %w", err)
 	}
 	return string(content), nil
+}
+
+// resolveTaskValuesFromSnapshot is resolveTaskValues' own debug-mode
+// counterpart (design-docs/DebugMode.md's "Resolved Variables tab"): the
+// same template-stub render - real Jinja evaluation of the task's own
+// source expressions still has to happen somewhere, and "let Ansible do
+// the actual work" stays the right call here - seeded from a captured
+// task_vars snapshot (debugCaptureTaskVars, livesession_debug.go)
+// instead of letting the stub re-gather facts/host_vars/group_vars
+// fresh. Strictly more accurate for a debug session: the snapshot
+// already reflects every register/set_fact/earlier-task update visible
+// to the real run at the exact moment it paused, none of which a fresh
+// subprocess could ever see or reconstruct. rest is still passed through
+// unchanged (importantly -i, so the stub's own "hosts: host" line can
+// still resolve against the real inventory) - only the variable *values*
+// come from the snapshot, not the targeting.
+func resolveTaskValuesFromSnapshot(taskPath, taskSource, host string, rest []string, snapshot json.RawMessage) (string, error) {
+	snapFile, err := os.CreateTemp("", "tangsible-resolve-snapshot-*.json")
+	if err != nil {
+		return "", err
+	}
+	snapPath := snapFile.Name()
+	defer os.Remove(snapPath)
+	if _, err := snapFile.Write(snapshot); err != nil {
+		snapFile.Close()
+		return "", err
+	}
+	snapFile.Close()
+
+	return resolveTaskValues(taskPath, taskSource, host, rest, snapPath)
 }

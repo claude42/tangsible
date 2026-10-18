@@ -456,6 +456,115 @@ still expands/collapses normally and never disturbs the marker, both in
 full-screen and two-pane mode, and a mouse-armed breakpoint genuinely
 pauses the run exactly like one armed with F9.
 
+## Stage 3: Resolved Variables tab, debug mode only (2026-10-18)
+
+**Requested live:** bring back the drill-down's "Resolved" tab - but
+only for `debug`, using the real variable data a debug session now has
+that a plain run never did; explicitly not reviving `resolvedTabEnabled`
+(`internal/session/resolved.go`) for plain `run`/`rerun`/`role`, which
+stays `false`. Loop variables stay unresolvable by nature (understood,
+not chased); variables inside `when:` conditions are explicitly
+postponed (see "Scope, deliberately not solved here" below - it turns
+out there's nothing *to* solve, this mechanism never touches them at
+all).
+
+**Where the data comes from.** `internal/debugrun.Session.Query` already
+existed, fully implemented and tested, but uncalled from anywhere in
+`internal/session` - a leftover from the 2026-10-14 dual-channel spike's
+own `print(json.dumps(expr, default=str))` trick. `Query("task_vars")`
+asks the debugger's own REPL, at its *current* pause, for the exact
+pre-task variable snapshot that task's own `{{ }}` expressions would
+have resolved against - confirmed (independently, twice, across two
+different spikes - "Pivot spike"/"dual-channel spike" above) to be the
+*pre-task* snapshot specifically: at a later task's own pause, querying
+`task_vars` still reads an earlier task's `register`/`set_fact` value
+from *before* that later task ran, exactly the semantics "what did this
+task see" needs.
+
+**Capture timing is the one real constraint.** The REPL has no notion of
+history - once `Continue`/`Step` moves past a pause, `task_vars` for it
+is gone for good. New `debugCaptureTaskVars` (`livesession_debug.go`)
+queries and caches it the moment a pause surfaces, synchronously, inside
+`debugApplyPauseResult` itself - called right then and there is the
+*only* chance this data will ever be collectable at all, not a choice
+made for convenience. Safe to do synchronously (not a background
+goroutine): the REPL is guaranteed idle at that exact point (nothing
+else drives it until the user's next F5/F9/F10), and it's one local-pipe
+round-trip to a child already sitting at its prompt.
+
+**Scope, deliberately not solved here: a task whose breakpoint was never
+armed.** `debugrun`'s own `BreakpointSet`-driven `applyPolicy` silently
+`Continue()`s straight past every pause that isn't armed - that loop
+lives entirely inside `internal/debugrun`, so `debugCaptureTaskVars` is
+never even reached for those pauses; `internal/session` never sees them
+at all. A task actually paused at, stepped to, or erroring on gets a
+Resolved tab; one that ran straight through doesn't - the tab stays
+exactly as absent for it as it already was, same convention the tab
+always had. Capturing every pause regardless would mean threading a
+capture hook into `debugrun`'s own policy loop itself, not something
+reachable from `internal/session` alone - left as a known gap, not a
+bug, and not attempted this round.
+
+**Rendering reuses the existing mechanism, seeded differently - not
+reimplemented.** `resolveTaskValues`'s "Consuming the data" plan (2026-
+10-14, above) holds: real Jinja evaluation of the task's own source
+still has to happen somewhere, and "let Ansible do the actual work" via
+the same `ansible.builtin.template` stub stays the right call - just fed
+from the captured snapshot instead of letting the stub re-gather facts/
+host_vars/group_vars fresh. New `resolveTaskValuesFromSnapshot` writes
+the snapshot to a temp JSON file and calls `resolveTaskValues` with a
+new `extraVarsFile` parameter, appended as `--extra-vars @file` (ansible's
+own highest-precedence layer) - last on the command line, so it wins
+over anything `rest` itself might also carry. Strictly more accurate
+than a fresh-gathered plain-run resolve ever could be: the snapshot
+already reflects every `register`/`set_fact`/earlier-task update visible
+to the real run at the exact moment it paused.
+
+`showOutputWithOrigin`'s existing async-fetch-on-open machinery
+(`livesession_output.go`) needed no new shape, only a second trigger
+condition alongside `resolvedTabEnabled`: `s.debugMode` plus a cached
+snapshot for this `(task, host)` in the new `s.debugTaskVarsCache`. Same
+`s.resolveCache`/`ResolvedRender` the plain-run path already uses for
+the final rendered result - `BuildOutputTabs`/`ResolvedTabHidden`/
+`BuildResolvedTab` (`uikit/tui_drilldown.go`) needed no changes
+whatsoever, confirming the original design's own instinct that this tab
+never needed to know where its data came from.
+
+**Two real, pre-existing bugs in `resolveTaskValues` itself, found while
+verifying live** (this mechanism had never actually run in production
+before - `resolvedTabEnabled` has been `false` since before this stage
+existed):
+1. The stub never set `gather_facts: false` - harmless for a reachable
+   host, but a playbook relying on `connection: local` (this project's
+   own test fixtures among them) has no way to satisfy a real connection
+   attempt during fact-gathering. Fixed, but *only* when a snapshot is
+   supplied (`extraVarsFile != ""`) - a plain-run resolve, with no
+   snapshot to fall back on, may still genuinely need a fresh gather to
+   resolve a facts-dependent expression at all, so that path keeps
+   gathering by default.
+2. The delegated task set `delegate_to: localhost` but never
+   `connection: local` - harmless for a real remote host, but for a host
+   literally named "localhost" via an *explicit* inventory entry (`-i
+   localhost,`, again this project's own fixtures), only ansible's own
+   *implicit*, auto-added localhost gets the automatic local-connection
+   treatment; an explicit one still tries real SSH. Fixed unconditionally
+   (both resolve paths) - this is never wrong to have on a
+   `delegate_to: localhost` task.
+   (`internal/template.WriteTemplateStub` has this same latent gap, for
+   the same reason - noted, not fixed, since `tangsible template` has
+   never hit it in practice targeting real remote hosts.)
+
+Verified live: a two-task fixture where the second task's own `{{ }}`
+expression depends on a `set_fact` the first task made - something a
+fresh-gathered plain-run resolve could never have seen at all - renders
+the real substituted value correctly. A looped task's own `{{ item }}`
+falls back to its own literal text exactly as `wrapJinjaDefaults` always
+intended, and - since that renders identical to "Task definition" -
+`ResolvedTabHidden` correctly omits the tab rather than showing a
+not-actually-resolved value. A task whose breakpoint was never armed
+shows no Resolved tab at all, confirming the "only a surfaced pause"
+scope above.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

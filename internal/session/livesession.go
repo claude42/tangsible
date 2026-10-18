@@ -15,6 +15,7 @@
 package session
 
 import (
+	"encoding/json"
 	"sync/atomic"
 	"time"
 
@@ -375,4 +376,14 @@ type liveSession struct {
 	// does. "" / nil once there's nothing pending.
 	debugPendingOpenTask *playbook.TaskNode
 	debugPendingOpenHost string
+	// debugTaskVarsCache holds the raw task_vars JSON captured (debugCaptureTaskVars,
+	// livesession_debug.go) at the exact moment each pause surfaced -
+	// design-docs/DebugMode.md's "Resolved Variables tab". Keyed the same
+	// way s.resolveCache is (resolveKey{task, host}); showOutputWithOrigin
+	// consumes an entry here, when one exists, to seed resolveTaskValues'
+	// own --extra-vars snapshot instead of letting it re-gather fresh.
+	// Only ever grows - a debug session has exactly one generation (no
+	// rerun - requestRerun is nil for "debug", main.go), so there's
+	// nothing to clear it for.
+	debugTaskVarsCache map[resolveKey]json.RawMessage
 }

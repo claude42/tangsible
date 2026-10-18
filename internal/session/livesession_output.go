@@ -102,11 +102,29 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 	// itself is still updated regardless, so a later revisit is free.
 	key := resolveKey{task, host}
 	resolved, cached := s.resolveCache[key]
-	if !cached && resolvedTabEnabled {
+	// debug mode never goes through resolvedTabEnabled at all (that flag
+	// stays false - the user's own call: reviving the old plain-run
+	// mechanism isn't worth it, this new one supersedes it for debug
+	// specifically) - it has its own trigger instead: a task_vars
+	// snapshot captured at the exact moment this (task, host) was paused
+	// on (debugCaptureTaskVars). No snapshot (this task's breakpoint was
+	// never armed, so debugrun's own BreakpointSet silently ran straight
+	// through it - an accepted v1 scope, design-docs/DebugMode.md) means
+	// nothing to kick off at all; the tab just stays absent for it, same
+	// as any other task with nothing to show.
+	snapshot, haveSnapshot := s.debugTaskVarsCache[key]
+	shouldResolve := !cached && (resolvedTabEnabled || (s.debugMode && haveSnapshot))
+	if shouldResolve {
 		resolved = uikit.ResolvedRender{Pending: true}
 		s.resolveCache[key] = resolved
 		go func() {
-			text, err := resolveTaskValues(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs)
+			var text string
+			var err error
+			if s.debugMode {
+				text, err = resolveTaskValuesFromSnapshot(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, snapshot)
+			} else {
+				text, err = resolveTaskValues(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, "")
+			}
 			result := uikit.ResolvedRender{}
 			if err != nil {
 				result.Err = err.Error()

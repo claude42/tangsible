@@ -355,6 +355,7 @@ func (s *liveSession) debugApplyPauseResult(pause debugrun.Pause, eof bool, err 
 		return
 	}
 	task := s.debugCursor.CurrentTask
+	s.debugCaptureTaskVars(task, pause.Host)
 	if _, ok := task.Hosts[pause.Host]; ok {
 		s.debugPendingOpenTask, s.debugPendingOpenHost = nil, ""
 		s.showOutputWithOrigin(task, pause.Host, false)
@@ -362,6 +363,43 @@ func (s *liveSession) debugApplyPauseResult(pause debugrun.Pause, eof bool, err 
 	}
 	s.debugPendingOpenTask, s.debugPendingOpenHost = task, pause.Host
 	s.rebuild()
+}
+
+// debugCaptureTaskVars queries the debugger's own REPL for task_vars at
+// the exact moment a pause surfaces (design-docs/DebugMode.md's
+// "Resolved Variables tab"), and caches the raw JSON for
+// showOutputWithOrigin to feed into resolveTaskValuesFromSnapshot later,
+// however much later that turns out to be - once Continue/Step moves
+// the REPL past this pause, task_vars for it is gone for good (the
+// debugger has no notion of history), so this is the only moment this
+// data will ever be available at all. Called synchronously, right here
+// on the event-loop goroutine: the REPL is guaranteed idle at this exact
+// point (debugStartOrContinue's own background goroutine has already
+// returned the Pause this function is handling, and nothing else drives
+// the REPL until the user's next F5/F9/F10), and debugrun.Session.Query
+// is a single local-pipe round-trip to a child already sitting at its
+// prompt - negligible latency, not worth a second goroutine for.
+//
+// A query failure (the child already exited between the pause and this
+// call, a malformed response) just leaves no snapshot for this (task,
+// host) - the Resolved tab stays absent for it, same as for a task whose
+// breakpoint was never armed in the first place: debugrun's own
+// BreakpointSet-driven applyPolicy silently Continues straight past
+// those pauses, so this function is never even reached for them at all.
+// An accepted v1 scope (every task actually paused at, stepped to, or
+// erroring on gets a Resolved tab; one that ran straight through
+// doesn't) - capturing every pause regardless of whether it surfaces
+// would mean threading a capture hook into debugrun's own policy loop
+// itself, not something this function alone can reach.
+func (s *liveSession) debugCaptureTaskVars(task *playbook.TaskNode, host string) {
+	if s.debugSess == nil {
+		return
+	}
+	raw, err := s.debugSess.Query("task_vars")
+	if err != nil {
+		return
+	}
+	s.debugTaskVarsCache[resolveKey{task, host}] = raw
 }
 
 // debugFinish marks the session done once debugrun reports eof (the
