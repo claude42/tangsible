@@ -142,7 +142,12 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
 * q                - same as Escape/Enter here (closes the view) - does
                      NOT quit the app, unlike bare `q` everywhere else
 * Cursor left / right - show the same tab's content for the previous /
-                     next host on this task (no wraparound)
+                     next host on this task; at the first/last host, rolls
+                     into the previous/next visible task's last/first host
+                     instead of stopping (no wraparound once the whole
+                     visible task list is exhausted; tasks with no recorded
+                     host result yet, e.g. still in flight, are skipped
+                     over)
 * n / N            - show the same tab's content for the next / previous
                      task, same host (no wraparound; skips tasks hidden by
                      the active filter). No separate 'p' - see the main

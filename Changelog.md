@@ -14,6 +14,8 @@
 - `hosts`/`inventory`: revisiting a host already opened this session now
   renders all five tabs instantly from cache instead of re-fetching the
   content every time.
+- Drill-down: `←`/`→` at a task's first/last host now rolls into the
+  previous/next task's last/first host instead of stopping there.
 
 ## [0.2.0] - 2026-10-08
 

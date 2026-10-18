@@ -293,8 +293,13 @@ func (s *liveSession) navigateOutputTask(delta int) {
 
 // navigateOutputHost moves the output page to the previous/next host
 // (delta -1/+1) within s.outputTask's own HostOrder - the same order the
-// s.expanded tree rows for that task already use. A no-op at either end
-// (no wraparound) and before any output has been shown yet.
+// s.expanded tree rows for that task already use. At either end, instead
+// of stopping, it rolls into the adjacent visible task (same run-order
+// walk navigateOutputTask/the main tree's own task-hop use), landing on
+// that task's first (delta>0) / last (delta<0) host; tasks with no
+// recorded host result yet (empty HostOrder, e.g. still in flight) are
+// skipped over. Still a no-op (no wraparound) once the whole visible
+// task list is exhausted, and before any output has been shown yet.
 func (s *liveSession) navigateOutputHost(delta int) {
 	if s.outputTask == nil {
 		return
@@ -310,11 +315,34 @@ func (s *liveSession) navigateOutputHost(delta int) {
 	if idx == -1 {
 		return
 	}
-	newIdx := idx + delta
-	if newIdx < 0 || newIdx >= len(hosts) {
+	if newIdx := idx + delta; newIdx >= 0 && newIdx < len(hosts) {
+		s.showOutputWithOrigin(s.outputTask, hosts[newIdx], s.viewingOutputFromRecap)
 		return
 	}
-	s.showOutputWithOrigin(s.outputTask, hosts[newIdx], s.viewingOutputFromRecap)
+
+	tasks := uikit.VisibleTasks(s.state, s.currentFilter, s.sourceIndex, s.activeTasks())
+	pos := -1
+	for i, t := range tasks {
+		if t == s.outputTask {
+			pos = i
+			break
+		}
+	}
+	if pos == -1 {
+		return
+	}
+	for i := pos + delta; i >= 0 && i < len(tasks); i += delta {
+		cand := tasks[i]
+		if len(cand.HostOrder) == 0 {
+			continue
+		}
+		h := cand.HostOrder[0]
+		if delta < 0 {
+			h = cand.HostOrder[len(cand.HostOrder)-1]
+		}
+		s.showOutputWithOrigin(cand, h, s.viewingOutputFromRecap)
+		return
+	}
 }
 
 // closeOutput backs out of the output drill-down view. Used to be
