@@ -9,9 +9,6 @@ immediately implemented.
   * Use virtual terminal to run ansible-playbook - to support things like
     --step, --pause, the debuger or ansible.builtin.pause
 
-* Let the normal plugin run alongside to produce the standard
-  ansible-playbook output
-
 * Jump to first / next fail
 
 * Big busy spinner for lazy loading tabs
@@ -87,10 +84,6 @@ immediately implemented.
 * show template for all hosts
 
 * show undefined variables in template
-
-
-
-* system wide install + /etc/tangsible/config.toml
 
 * allow tangsible run -l host playbook.yml (in addition to tangsible run
   playbook.yml -l host)
