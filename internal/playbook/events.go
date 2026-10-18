@@ -178,14 +178,18 @@ func hasNonEmptyStderr(raw json.RawMessage) bool {
 	return decoded.Stderr != ""
 }
 
-// hasIgnoreErrors reports whether raw carries "ignore_errors": true -
+// HasIgnoreErrors reports whether raw carries "ignore_errors": true -
 // present only on a v2_runner_on_failed result whose task set
 // ignore_errors: true, only ever emitted at all by this app's own bundled
 // callback plugin fork (design-docs/OwnCallbackPlugin.md - jsonl.py itself
 // receives this as a callback kwarg but never writes it into the emitted
 // JSON), so this is always false for a pre-fork run log or any other
-// outcome kind.
-func hasIgnoreErrors(raw json.RawMessage) bool {
+// outcome kind. Exported (unlike hasNonEmptyWarnings/hasNonEmptyStderr
+// alongside it) so internal/debugverb's own applyEvent - which can't
+// reuse record below, debug mode's skeleton is a static, pre-built shape
+// Apply would reshape - can classify this one field the same way,
+// instead of duplicating its JSON-shape logic a second time.
+func HasIgnoreErrors(raw json.RawMessage) bool {
 	var decoded struct {
 		IgnoreErrors bool `json:"ignore_errors"`
 	}

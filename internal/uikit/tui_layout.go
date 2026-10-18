@@ -734,24 +734,49 @@ func HostColorTag(task *playbook.TaskNode, host string, o playbook.Outcome, done
 	return ColorTag(o)
 }
 
-func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool) string {
+// marker is a caller-supplied override for the whole prefix slot below -
+// debug mode's own breakpoint-armed dot (design-docs/DebugMode.md), ""
+// for every other caller (internal/session's live tree has no equivalent
+// concept) or for debug mode's own not-armed rows, which fall back to the
+// normal active/warning/indent decision exactly as if marker didn't
+// exist. Deliberately the *same* 2-column slot taskIndent already is, not
+// a second one of its own next to it: an earlier version concatenated
+// marker in front of this function's whole return value instead, which
+// doubled a task row's own indent under its play header to 4 columns
+// instead of TaskIndent's own 2 - confirmed live, reported twice (design-
+// docs/DebugMode.md's follow-up entries) - once for putting the busy
+// indicator in the wrong column entirely, and again, after that was
+// fixed by moving marker to right after the prefix instead of before it,
+// for still doubling the total indent width even though the busy
+// indicator was now in the right column. Folding marker into prefix
+// itself fixes both: same column, same total width, as a plain
+// run/rerun/role tree. avail needs no adjustment of its own for it on
+// either count, same as every other caller.
+func TaskLabel(task *playbook.TaskNode, allHosts []string, layout HostColumnLayout, avail int, active bool, frame rune, selected bool, useColor bool, marker string) string {
 	// One prefix fills taskIndent's single slot (see its own doc comment) -
-	// the active spinner takes priority; otherwise a warningColor ⚠ if the
-	// task has finished with at least one host's warning recorded; plain
-	// spaces otherwise. tview.Escape's own guaranteed-correct handling of
-	// "[...]"-shaped text applies to the plain-text branches here too (list
-	// rows parse tags, unlike the top bar) - harmless no-op on taskIndent's
-	// plain spaces or the spinner rune, neither of which is ever
-	// "["-shaped. The warning branch's own tag is constructed here, from a
-	// fixed literal and warningColor, never from external data - already
-	// safe tag syntax, not something that needs (or should) survive
-	// Escape() the way the other two branches do.
+	// the active spinner takes priority over marker (a window too narrow
+	// to matter in practice - see TaskLabel's own caller in debugverb for
+	// why), then marker if the caller supplied one, then a warningColor ⚠
+	// if the task has finished with at least one host's warning recorded,
+	// plain spaces otherwise. tview.Escape's own guaranteed-correct
+	// handling of "[...]"-shaped text applies to the plain-text branches
+	// here too (list rows parse tags, unlike the top bar) - harmless no-op
+	// on taskIndent's plain spaces or the spinner rune, neither of which is
+	// ever "["-shaped. The warning branch's own tag is constructed here,
+	// from a fixed literal and warningColor, never from external data -
+	// already safe tag syntax, not something that needs (or should)
+	// survive Escape() the way the other two branches do. marker is
+	// trusted as already-safe tag syntax too, for the same reason - it
+	// only ever comes from debugverb's own fixed literal, never from a
+	// task/host name or other external text.
 	var prefix string
 	switch {
 	case active:
 		// task_title, same as the title it sits in front of - untagged it
 		// fell back to TreeList's own default (standard_text).
 		prefix = fmt.Sprintf("[%s]%s[-] ", TaskTitleColor, tview.Escape(string(frame)))
+	case marker != "":
+		prefix = marker
 	case TaskHasWarnings(task):
 		prefix = fmt.Sprintf("[%s]⚠[-] ", WarningColor)
 	default:

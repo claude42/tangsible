@@ -504,15 +504,17 @@ Neither button is Tab-reachable - see below.
 A completely separate program from `run`/`rerun`/`role` (own TUI
 construction, own key handling via `debugApp.handleKey`) - see
 design-docs/DebugMode.md for the full design. Shows every play/task up
-front in a flat tree (`uikit.TreeList`, no expand/collapse - there's no
-nested block/rescue structure in the predicted skeleton), backed by real
+front in a flat tree (`uikit.TreeList`), backed by real
 `playbook.TaskNode`/`PlayNode`/`PlaybookState` values (populated directly
 from the skeleton, not via `Apply`) specifically so rendering reuses
-`uikit.TaskLabel`/`PlayRowText`/`ComputeHostColumnLayout` - the exact
-functions the main tree calls, not a second, divergent rendering of the
-same row. Lets breakpoints be armed/disarmed on any task before or during
-a run, and drives ansible-core's own built-in task debugger underneath
-(`internal/debugrun`).
+`uikit.TaskLabel`/`PlayRowText`/`ComputeHostColumnLayout`/`HostLabel`/
+`ComputeDurationLayout` - the exact functions the main tree calls, not a
+second, divergent rendering of the same row. A task row can be expanded
+(`Tab`) to show its own per-host rows underneath, same idea as the main
+tree's own Enter - just a different key, since this app's own Enter
+already means "run/continue". Lets breakpoints be armed/disarmed on any
+task before or during a run, and drives ansible-core's own built-in task
+debugger underneath (`internal/debugrun`).
 
 * ↑ / ↓             - move the cursor, skipping over play-header rows
                      entirely (`uikit.NextInteractiveRow`, same mechanism
@@ -530,6 +532,16 @@ a run, and drives ansible-core's own built-in task debugger underneath
                      plain `t`, not `b`: `b` is already the shared
                      Page-Up alias above, confirmed live that it never
                      reaches this view's own key handling at all
+* Tab              - show/hide the selected task's own per-host rows
+                     (`uikit.HostLabel`, same as the main tree's own
+                     Enter-to-expand) - not Enter here, since Enter
+                     already means "run/continue" below
+* F                - jump to the row currently executing/paused and
+                     follow it as the run advances again - the only key
+                     that resumes following once any navigation (arrows,
+                     Home/End/PgUp/PgDn, a click) has turned it off; same
+                     "only F resumes it" rule as the main tree's own
+                     following (`design-docs/Help.md`)
 * Enter            - before a run starts, or while paused: run - resumes
                      past every pause whose task isn't armed, surfacing
                      only an armed one (or running to completion
@@ -556,12 +568,22 @@ a run, and drives ansible-core's own built-in task debugger underneath
 
 **Reading the tree**
 * A red `●` before a task's name - a breakpoint is armed on it
-* A colored `●` after a task's name, one per host that's reached it -
+* A colored hostname after a task's name, one per host that's reached it -
   that host's own outcome (green/yellow/teal/red/maroon = ok/changed/
-  skipped/failed/unreachable, `uikit.ColorTag`'s own convention, shared
-  with the main tree)
+  skipped/failed/unreachable, orange if a failure was `ignore_errors:
+  true`, same convention and the same shrink-to-fit behavior as the main
+  tree's own collapsed task rows)
 * `(paused: <host>)` after a task's name - the run is currently paused
   there, for that host
+* The top bar - the playbook name, every host seen so far, and (same as
+  the main tree's own top bar) a predicted progress percentage/fill,
+  predicted the same way from a `--list-tasks --list-hosts` probe
+  (`design-docs/ProgressIndicator.md`); unlike the main tree's own top
+  bar, there's no `Filter:` field (debug mode has no filtering feature to
+  show one for) and no elapsed mm:ss clock (this view can sit paused
+  indefinitely between breakpoints, or before a run even starts - a
+  clock ticking the whole time read as "how long has this debug session
+  been stuck," not "how long has the playbook been running")
 
 **Mouse** - wheel scrolling and clicking a row (same as the main tree)
 work via `TreeList`'s own built-in handling; no other mouse affordances

@@ -19,6 +19,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
 func TestOutcomeFor(t *testing.T) {
@@ -138,5 +139,88 @@ func TestRecordHost_SortedDedup(t *testing.T) {
 		if d.allHosts[i] != h {
 			t.Errorf("allHosts[%d] = %q, want %q", i, d.allHosts[i], h)
 		}
+	}
+}
+
+func TestFlatten_ExpandedTaskShowsOnlyReportedHosts(t *testing.T) {
+	skeleton := []runner.ProgressEntry{
+		{Play: "p", Task: "task a"},
+		{Play: "p", Task: "task b"},
+	}
+	d := &debugApp{expanded: map[*playbook.TaskNode]bool{}}
+	d.buildRows(skeleton)
+	d.allHosts = []string{"host1", "host2"}
+
+	taskA := d.rows[d.rowForSkeleton[0]].task
+	taskA.Hosts["host1"] = playbook.OutcomeOK // host2 hasn't reported yet
+	d.expanded[taskA] = true
+
+	flat, nav := d.flatten()
+	// header, task a, task a's host1 sub-row, task b.
+	if len(flat) != 4 {
+		t.Fatalf("flatten() rows = %+v, want length 4", flat)
+	}
+	if flat[2].rowIdx != d.rowForSkeleton[0] || flat[2].host != "host1" {
+		t.Errorf("flat[2] = %+v, want {rowIdx: %d, host: host1}", flat[2], d.rowForSkeleton[0])
+	}
+	if len(nav) != len(flat) {
+		t.Fatalf("nav length = %d, want %d (parallel to flat)", len(nav), len(flat))
+	}
+	if nav[0].Selected != nil {
+		t.Error("header row must stay non-interactive, like d.navRows' own header entries")
+	}
+	if nav[2].Selected == nil {
+		t.Error("a host sub-row must be interactive (a cursor target)")
+	}
+}
+
+func TestFlatten_CollapsedTaskHasNoHostRows(t *testing.T) {
+	skeleton := []runner.ProgressEntry{{Play: "p", Task: "task a"}}
+	d := &debugApp{expanded: map[*playbook.TaskNode]bool{}}
+	d.buildRows(skeleton)
+	d.allHosts = []string{"host1"}
+	d.rows[d.rowForSkeleton[0]].task.Hosts["host1"] = playbook.OutcomeOK
+	// d.expanded left empty - task a is collapsed.
+
+	flat, _ := d.flatten()
+	if len(flat) != 2 {
+		t.Fatalf("flatten() rows = %+v, want length 2 (header, task a - no host row)", flat)
+	}
+}
+
+func TestCurrentTaskRowIdx_HeaderAndHostRowsExcluded(t *testing.T) {
+	skeleton := []runner.ProgressEntry{{Play: "p", Task: "task a"}}
+	d := &debugApp{expanded: map[*playbook.TaskNode]bool{}}
+	d.buildRows(skeleton)
+	d.list = uikit.NewTreeList()
+	d.lastFlat = []flatEntry{{rowIdx: 0}, {rowIdx: 1}, {rowIdx: 1, host: "host1"}}
+	d.list.AddItem("header", nil)
+	d.list.AddItem("task", nil)
+	d.list.AddItem("host", nil)
+
+	d.list.SetCurrentItem(0)
+	if got := d.currentTaskRowIdx(); got != -1 {
+		t.Errorf("header row: currentTaskRowIdx() = %d, want -1", got)
+	}
+	d.list.SetCurrentItem(1)
+	if got := d.currentTaskRowIdx(); got != 1 {
+		t.Errorf("task row: currentTaskRowIdx() = %d, want 1", got)
+	}
+	d.list.SetCurrentItem(2)
+	if got := d.currentTaskRowIdx(); got != -1 {
+		t.Errorf("host sub-row: currentTaskRowIdx() = %d, want -1", got)
+	}
+}
+
+func TestFlatIndexForRow(t *testing.T) {
+	flat := []flatEntry{{rowIdx: 0}, {rowIdx: 1}, {rowIdx: 1, host: "host1"}, {rowIdx: 2}}
+	if got := flatIndexForRow(flat, 1); got != 1 {
+		t.Errorf("flatIndexForRow(flat, 1) = %d, want 1 (the task row itself, not its host sub-row)", got)
+	}
+	if got := flatIndexForRow(flat, 2); got != 3 {
+		t.Errorf("flatIndexForRow(flat, 2) = %d, want 3", got)
+	}
+	if got := flatIndexForRow(flat, 99); got != -1 {
+		t.Errorf("flatIndexForRow(flat, 99) = %d, want -1 for a row not present", got)
 	}
 }

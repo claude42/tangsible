@@ -36,6 +36,7 @@ var debugHelp = uikit.HelpScreen{
 	Sections: []uikit.HelpSection{
 		{Title: "Before the run starts", Entries: []uikit.HelpEntry{
 			{Keys: "↑ / ↓, j / k", Desc: "Move the cursor"},
+			{Keys: "tab", Desc: "Show/hide the selected task's own per-host rows, once it has a result"},
 			{Keys: "t", Desc: "Toggle a breakpoint on the selected task"},
 			{Keys: "enter", Desc: "Run - stops at the first armed breakpoint, or runs to completion with none set"},
 			{Keys: "s", Desc: "Step - stops at the very first task regardless of breakpoints"},
@@ -44,15 +45,18 @@ var debugHelp = uikit.HelpScreen{
 			{Keys: "enter", Desc: "Continue - runs to the next armed breakpoint (or to completion)"},
 			{Keys: "s", Desc: "Step - stops at the very next task, armed or not"},
 			{Keys: "t", Desc: "Toggle a breakpoint on the selected task - takes effect immediately"},
+			{Keys: "tab", Desc: "Show/hide the selected task's own per-host rows"},
 			{Keys: "v", Desc: "View this task's own variables (task_vars, the pre-task snapshot)"},
 		}},
 		{Title: "Reading the tree", Entries: []uikit.HelpEntry{
 			{Keys: "●  (red)", Desc: "A breakpoint is armed on this task"},
 			{Keys: "hostname (green/yellow/teal/red/maroon)", Desc: "A host's own outcome for this task: ok/changed/skipped/failed/unreachable - same colors, and the same shrink-to-fit behavior, as the run/rerun tree"},
 			{Keys: "(paused: host)", Desc: "The task currently paused, and which host"},
+			{Keys: "top bar", Desc: "Predicted progress (--list-tasks/--list-hosts, same as the run/rerun tree) - no elapsed clock, this view can sit paused indefinitely"},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},
+			{Keys: "F", Desc: "Jump to the currently executing/paused row and follow it again - the only key that resumes following"},
 			{Keys: "q / Ctrl-C", Desc: "Interrupt the child while it's running, quit once it's finished (or immediately before any run starts)"},
 		}},
 	},

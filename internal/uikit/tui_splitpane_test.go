@@ -65,7 +65,7 @@ func TestTaskLabelNilAllHosts(t *testing.T) {
 	layout := HostColumnLayout{TitleColWidth: 3, HostDisplay: []string{"web1", "web2"}} // deliberately
 	// mismatched, to prove it's ignored when allHosts is nil.
 
-	got := TaskLabel(task, nil, layout, 200, false, ' ', false, true)
+	got := TaskLabel(task, nil, layout, 200, false, ' ', false, true, "")
 	if !strings.Contains(got, "a-fairly-long-task-name") {
 		t.Errorf("taskLabel() = %q, want the full task name present (plenty of avail width, layout ignored)", got)
 	}

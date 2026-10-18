@@ -176,7 +176,7 @@ func FlattenRows(state *playbook.PlaybookState, expanded map[*playbook.TaskNode]
 				continue
 			}
 			playRows = append(playRows, Row{
-				Text:     TaskLabel(t, allHosts, layout, width, activeTasks[t], frame, false, useColor),
+				Text:     TaskLabel(t, allHosts, layout, width, activeTasks[t], frame, false, useColor, ""),
 				ID:       t,
 				Selected: func() { expanded[t] = !expanded[t] },
 			})

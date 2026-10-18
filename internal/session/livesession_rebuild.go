@@ -564,7 +564,7 @@ func (s *liveSession) rebuild() {
 	case *playbook.PlayNode:
 		s.currentRows[selectedIndex].Text = uikit.PlayRowText(id, true)
 	case *playbook.TaskNode:
-		s.currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, activeTasks[id], uikit.SpinnerAt(elapsed), true, s.useColor)
+		s.currentRows[selectedIndex].Text = uikit.TaskLabel(id, treeAllHosts, layout, width, activeTasks[id], uikit.SpinnerAt(elapsed), true, s.useColor, "")
 	case uikit.HostRowID:
 		s.currentRows[selectedIndex].Text = uikit.HostLabel(id.Task, id.Host, durationLayout, true)
 	case recapHostRowID:

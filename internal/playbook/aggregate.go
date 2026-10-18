@@ -159,7 +159,7 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedA
 	t.Raw[host] = raw
 	t.Warnings[host] = hasNonEmptyWarnings(raw)
 	t.HasStderr[host] = hasNonEmptyStderr(raw)
-	t.Ignored[host] = hasIgnoreErrors(raw)
+	t.Ignored[host] = HasIgnoreErrors(raw)
 	t.Finished[host] = finishedAt
 	delete(t.inFlight, host)
 }

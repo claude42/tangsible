@@ -60,7 +60,7 @@ func TestTaskLabel_ShowsHandlerTag(t *testing.T) {
 		[]string{"web1"}, 200, false,
 	)
 
-	got := TaskLabel(handler, []string{"web1"}, layout, 200, false, ' ', false, true)
+	got := TaskLabel(handler, []string{"web1"}, layout, 200, false, ' ', false, true, "")
 	// tview.Escape neutralizes the literal "[Handler]" text so its own tag
 	// parser doesn't misread it as a real tag (turning it into the raw
 	// tag-encoded form "[Handler[]") - Unescape reverses that back to what
@@ -78,7 +78,7 @@ func TestTaskLabel_NoHandlerTagForRegularTask(t *testing.T) {
 		[]string{"web1"}, 200, false,
 	)
 
-	got := TaskLabel(regular, []string{"web1"}, layout, 200, false, ' ', false, true)
+	got := TaskLabel(regular, []string{"web1"}, layout, 200, false, ' ', false, true, "")
 	if strings.Contains(got, "[Handler]") {
 		t.Errorf("TaskLabel = %q, want no \"[Handler]\" tag for a regular task", got)
 	}
@@ -135,7 +135,7 @@ func TestTaskLabel_RecolorsIgnoredFailure(t *testing.T) {
 	)
 
 	for _, selected := range []bool{false, true} {
-		got := TaskLabel(task, []string{"host1", "host2"}, layout, 200, false, ' ', selected, true)
+		got := TaskLabel(task, []string{"host1", "host2"}, layout, 200, false, ' ', selected, true, "")
 		if !strings.Contains(got, IgnoredColor) {
 			t.Errorf("selected=%v: TaskLabel = %q, want it to contain IgnoredColor (%q) for host1", selected, got, IgnoredColor)
 		}

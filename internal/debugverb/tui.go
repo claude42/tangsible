@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -29,14 +30,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
-
-// breakpointPrefixWidth is the fixed 2-column slot rowText reserves in
-// front of uikit.TaskLabel's own output for the breakpoint marker - a
-// concept the main live tree has no equivalent of, so it can't live
-// inside TaskLabel's own (shared, verb-agnostic) prefix slot. Subtracted
-// from avail before computing the host-column layout/calling TaskLabel,
-// so the two prefixes together still fit the real terminal width.
-const breakpointPrefixWidth = 2
 
 // debugRow is one row of the pre-run tree - either a play header or a
 // task, built once from the --list-tasks --list-hosts skeleton
@@ -74,6 +67,7 @@ func taskLabel(taskName string) string {
 type debugApp struct {
 	app      *tview.Application
 	list     *uikit.TreeList
+	header   *tview.TextView
 	help     *uikit.HelpOverlay
 	bar      *tview.TextView
 	pages    *tview.Pages
@@ -93,6 +87,59 @@ type debugApp struct {
 	currentRowIdx   int // -1 until the first task-start event arrives
 	pausedHost      string
 
+	// expanded mirrors internal/session's own s.expanded (CLAUDE.md
+	// "Expand state is per *TaskNode"): true once the user has opened a
+	// task row to see its own per-host rows underneath (toggleExpand,
+	// bound to Tab - not Enter, which this app already uses for its own
+	// primary "run/continue" action, unlike the main tree's bare Enter).
+	// Keyed by the same *playbook.TaskNode pointer every rows/d.pbState
+	// entry already shares - debug mode's skeleton is static (buildRows
+	// runs once, never reshaped), so unlike the main tree this never
+	// needs an "inherit the previous task's state" rule: there is only
+	// ever one TaskNode per task for the session's whole lifetime.
+	expanded map[*playbook.TaskNode]bool
+	// lastFlat is rebuildList's own flattened row list (rows plus, for
+	// every expanded task, one sub-row per host that has reported -
+	// flatten's doc comment) from the most recent call, cached here so a
+	// key handler (toggleBreakpoint/toggleExpand/handleRowSkip) reached
+	// synchronously afterward - never concurrently, both run on tview's
+	// one event-loop goroutine - can resolve "row under the cursor"
+	// without recomputing it a second time. Safe to read stale between
+	// two rebuilds: nothing changes d.rows/d.expanded/d.allHosts except
+	// on the event-loop goroutine either, so there is always exactly one
+	// rebuildList between any two key presses.
+	lastFlat []flatEntry
+	lastNav  []uikit.Row // parallel to lastFlat, backs handleRowSkip's own uikit.NextInteractiveRow call
+	// following mirrors internal/session's own s.following (CLAUDE.md
+	// "Following"): pins the cursor to the row currently executing (or
+	// paused) as the run advances, same as the main live tree's "follow
+	// the newest row." Any explicit navigation clears it; Tab's own
+	// expand/collapse does NOT clear it (unlike internal/session, which
+	// has no per-row toggle of its own to worry about this for - Enter
+	// there both toggles AND navigates, since TreeList's native Enter
+	// handling is what fires it).
+	following bool
+	// rebuilding guards the SetChangedFunc callback below against
+	// rebuildList's own trailing SetCurrentItem/RestoreCurrentItem call -
+	// mirrors internal/session's own s.rebuilding exactly (CLAUDE.md "One
+	// event-loop goroutine"; see handleTreeRowSkip's own doc comment for
+	// why that, not a narrower per-call-site flag, is the right guard: it
+	// lets rebuildList freely re-apply the following-pinned selection on
+	// every call without that alone ever being mistaken for user-driven
+	// navigation, while a genuine SetCurrentItem from outside rebuildList
+	// - handleRowSkip, a click, TreeList's own native Home/End/PgUp/PgDn -
+	// still reaches changed() normally and clears following).
+	rebuilding bool
+	// lastAppliedSelectedIndex is rebuildList's own last SetCurrentItem/
+	// RestoreCurrentItem argument - mirrors internal/session's own field
+	// of the same name (livesession.go) exactly, same reason: distinguish
+	// "the selection genuinely moved since last rebuild" (SetCurrentItem,
+	// which auto-scrolls) from "reasserting the same logical row after a
+	// data-only Clear()/AddItem() repopulation" (RestoreCurrentItem,
+	// which must NOT re-clamp a mouse-panned viewport back to the
+	// cursor - TreeList's own doc comment).
+	lastAppliedSelectedIndex int
+
 	startedAt time.Time   // drives rowText's own busy-spinner frame (uikit.SpinnerAt), same as liveSession's own startedAt
 	quitting  atomic.Bool // set just before app.Stop() - startHeartbeat's own guard against queueing into the 100-slot update queue after nothing drains it (CLAUDE.md)
 
@@ -102,26 +149,40 @@ type debugApp struct {
 	varsOpen bool
 }
 
+// flatEntry is one row debug mode's TreeList actually renders: either a
+// row straight from the static skeleton (rowIdx, host == "") or, for a
+// task row the user has expanded, one of its own per-host sub-rows
+// (rowIdx points at the owning task row, host names which one) - mirrors
+// internal/session's own FlattenRows (uikit/tui_rows.go), rebuilt fresh
+// on every rebuildList call instead of being a second, cached shape that
+// could drift from d.rows/d.expanded.
+type flatEntry struct {
+	rowIdx int
+	host   string
+}
+
 // runDebugTUI builds and runs the debug verb's own TUI - blocks until the
 // user quits. skeleton is the pre-run task list (runner.
 // BuildProgressSkeleton, already probed against the spliced copy).
 func runDebugTUI(copyPlaybookPath, relPlaybook string, rest []string, skeleton []runner.ProgressEntry) {
 	d := &debugApp{
-		copyPlaybookPath: copyPlaybookPath,
-		relPlaybook:      relPlaybook,
-		rest:             rest,
-		bps:              debugrun.NewBreakpointSet(),
-		tracker:          runner.NewProgressTracker(skeleton),
-		currentRowIdx:    -1,
+		copyPlaybookPath:         copyPlaybookPath,
+		relPlaybook:              relPlaybook,
+		rest:                     rest,
+		bps:                      debugrun.NewBreakpointSet(),
+		tracker:                  runner.NewProgressTracker(skeleton),
+		currentRowIdx:            -1,
+		expanded:                 map[*playbook.TaskNode]bool{},
+		following:                true, // nothing to navigate away from yet
+		lastAppliedSelectedIndex: -1,
 	}
 	d.buildRows(skeleton)
 
 	d.app = tview.NewApplication()
 	d.app.EnableMouse(true)
 
-	header := tview.NewTextView().SetDynamicColors(true)
-	header.SetTextStyle(uikit.BarStyle)
-	header.SetText(" Debug: " + tview.Escape(relPlaybook) + " ")
+	d.header = tview.NewTextView().SetDynamicColors(true)
+	d.header.SetTextStyle(uikit.BarStyle)
 
 	d.list = uikit.NewTreeList()
 	// Wired before the first rebuildList() call below - without it,
@@ -129,14 +190,22 @@ func runDebugTUI(copyPlaybookPath, relPlaybook string, rest []string, skeleton [
 	// currentItem but nothing ever re-renders that row's text with the
 	// selected style (there is no built-in highlight - see rowText's own
 	// doc comment), so navigation looked like it did nothing at all.
-	d.list.SetChangedFunc(func(index int) { d.rebuildList() })
-	d.rebuildList()
+	// Also where a genuine (user-driven, not rebuildList's own) selection
+	// change clears following - see d.following/d.rebuilding's own doc
+	// comments.
+	d.list.SetChangedFunc(func(index int) {
+		if d.rebuilding {
+			return
+		}
+		d.following = false
+		d.rebuildList()
+	})
 
 	d.bar = tview.NewTextView().SetDynamicColors(true).SetText(debugBarIdle)
 	d.bar.SetTextStyle(uikit.BarStyle)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(header, 1, 0, false).
+		AddItem(d.header, 1, 0, false).
 		AddItem(d.list, 0, 1, true).
 		AddItem(d.bar, 1, 0, false)
 
@@ -151,6 +220,11 @@ func runDebugTUI(copyPlaybookPath, relPlaybook string, rest []string, skeleton [
 	d.pages = tview.NewPages().
 		AddPage("main", flex, true, true).
 		AddPage("vars", varsFlex, true, false)
+
+	// Only now, once d.pages/d.header/d.bar all exist - headerLine (called
+	// from inside rebuildList) needs d.pages.GetInnerRect() for its own
+	// width.
+	d.rebuildList()
 
 	d.help = uikit.NewHelpOverlay(d.app, d.pages)
 
@@ -194,7 +268,12 @@ func (d *debugApp) buildRows(skeleton []runner.ProgressEntry) {
 			lastPlayName = e.Play
 			first = false
 		}
-		task := &playbook.TaskNode{Name: e.Task, Hosts: map[string]playbook.Outcome{}}
+		task := &playbook.TaskNode{
+			Name:    e.Task,
+			Hosts:   map[string]playbook.Outcome{},
+			Raw:     map[string]json.RawMessage{},
+			Ignored: map[string]bool{},
+		}
 		currentPlay.Tasks = append(currentPlay.Tasks, task)
 		d.rows = append(d.rows, &debugRow{task: task})
 		d.navRows = append(d.navRows, uikit.Row{Selected: func() {}}) // non-nil marks this row interactive; the func itself is never called - TreeList's own AddItem(text, nil) activation path is used instead, see rebuildList
@@ -242,6 +321,46 @@ func (d *debugApp) startHeartbeat() {
 	}()
 }
 
+// flatten builds the row list d.list actually shows this call: every
+// entry from d.rows, plus - for each task row with d.expanded[task] true
+// - one sub-row per host that has reported a result for it so far
+// (mirrors uikit.FlattenRows' own t.HostOrder loop: a host with nothing
+// recorded yet has nothing to show). nav runs parallel to flat, same
+// shape as d.navRows, for handleRowSkip's own uikit.NextInteractiveRow
+// call - a host sub-row is always interactive (there's no leaf below it
+// to skip past).
+func (d *debugApp) flatten() (flat []flatEntry, nav []uikit.Row) {
+	for i, r := range d.rows {
+		flat = append(flat, flatEntry{rowIdx: i})
+		nav = append(nav, d.navRows[i])
+		if r.isPlayHeader || !d.expanded[r.task] {
+			continue
+		}
+		for _, h := range d.allHosts {
+			if _, ok := r.task.Hosts[h]; !ok {
+				continue
+			}
+			flat = append(flat, flatEntry{rowIdx: i, host: h})
+			nav = append(nav, uikit.Row{Selected: func() {}})
+		}
+	}
+	return flat, nav
+}
+
+// flatIndexForRow returns flat's own index for rowIdx's task/header row
+// itself (host == ""), or -1 if rowIdx isn't in flat at all - it always
+// is, flatten() never omits a d.rows entry, but rebuildList (the only
+// caller, for its own following-pinned selIdx) is written defensively
+// anyway since d.currentRowIdx can be -1.
+func flatIndexForRow(flat []flatEntry, rowIdx int) int {
+	for i, fe := range flat {
+		if fe.rowIdx == rowIdx && fe.host == "" {
+			return i
+		}
+	}
+	return -1
+}
+
 // rebuildList re-renders every row into d.list, preserving the current
 // selection - the same "Clear then re-AddItem every row" shape tui.go's
 // own rebuild() uses for the identical reason (TreeList has no per-row
@@ -250,66 +369,130 @@ func (d *debugApp) startHeartbeat() {
 // (not cached), the same "called from every heartbeat tick, not just once"
 // reasoning liveSession's own chromeColorName/showElapsed etc. document.
 func (d *debugApp) rebuildList() {
-	selIdx := d.list.GetCurrentItem()
-	if selIdx < 0 {
-		// -1 only before the very first populate (TreeList's own
-		// zero-value/post-Clear state) - AddItem below will default
-		// currentItem to 0 regardless, so render a row as selected to
-		// match rather than rendering no row as selected at all
-		// (confirmed live: left as -1, the very first screen showed no
-		// cursor highlight anywhere). Lands on the first interactive row,
+	d.rebuilding = true
+	defer func() { d.rebuilding = false }()
+
+	flat, nav := d.flatten()
+	d.lastFlat, d.lastNav = flat, nav
+
+	var selIdx int
+	var haveSelIdx bool
+	if d.following && d.currentRowIdx >= 0 {
+		// Pinned to the row currently executing/paused, same as
+		// internal/session's own "following" (CLAUDE.md) - unconditionally
+		// overrides whatever the cursor's own last position was, since
+		// that's the whole point of following.
+		if target := flatIndexForRow(flat, d.currentRowIdx); target != -1 {
+			selIdx, haveSelIdx = target, true
+		}
+	}
+	if !haveSelIdx {
+		selIdx = d.list.GetCurrentItem()
+	}
+	if selIdx < 0 || selIdx >= len(flat) {
+		// Out of range on the very first populate (TreeList's own
+		// zero-value/post-Clear state, -1) or after a collapse shrank the
+		// list out from under a selection that was sitting in the
+		// now-gone host rows - both land on the first interactive row,
 		// skipping a leading play header, same as handleRowSkip does for
 		// every later move - confirmed live: defaulting to literal row 0
 		// put the very first screen's cursor on the play header, the
 		// exact bug handleRowSkip exists to prevent for ordinary
 		// navigation.
-		if first := uikit.NextInteractiveRow(d.navRows, -1, 1); first != -1 {
+		if first := uikit.NextInteractiveRow(nav, -1, 1); first != -1 {
 			selIdx = first
 		} else {
 			selIdx = 0
 		}
 	}
+
+	_, _, width, _ := d.pages.GetInnerRect()
+	d.header.SetText(d.headerLine(width))
+
 	_, _, avail, _ := d.list.GetInnerRect()
-	taskAvail := avail - breakpointPrefixWidth
-	if taskAvail < 0 {
-		taskAvail = 0
-	}
-	layout := uikit.ComputeHostColumnLayout(d.pbState, d.allHosts, taskAvail, false)
+	// No "- breakpointPrefixWidth" reservation here (an earlier version
+	// of this function had one): the breakpoint marker now shares
+	// TaskLabel's own single prefix slot (see rowText's own doc comment)
+	// instead of needing a second one of its own, so avail is exactly
+	// what TaskLabel/ComputeHostColumnLayout already expect - same as
+	// the main live tree's own rebuild().
+	layout := uikit.ComputeHostColumnLayout(d.pbState, d.allHosts, avail, false)
+	durLayout := uikit.ComputeDurationLayout(d.pbState, d.allHosts)
 	frame := uikit.SpinnerAt(time.Since(d.startedAt))
 
 	d.list.Clear()
-	for i := range d.rows {
+	for i, fe := range flat {
 		ii := i
-		d.list.AddItem(d.rowText(ii, ii == selIdx, taskAvail, layout, frame), nil)
+		d.list.AddItem(d.flatRowText(fe, ii == selIdx, avail, layout, durLayout, frame), nil)
 	}
-	if selIdx >= 0 && selIdx < len(d.rows) {
+	if selIdx == d.lastAppliedSelectedIndex {
+		// Same logical selection as last time - just reassert it after
+		// Clear()/AddItem() reset d.list's own currentItem, without
+		// re-clamping the viewport (RestoreCurrentItem's own doc
+		// comment) - what makes mouse-wheel panning survive a heartbeat
+		// tick's own periodic rebuild.
 		d.list.RestoreCurrentItem(selIdx)
+	} else {
+		// A genuine change since the last rebuild - following just moved
+		// the cursor forward, or the fallback above picked a different
+		// row than before - so the viewport must actually scroll to
+		// reveal it (TreeList.SetCurrentItem's own ensureVisible). Safe
+		// from the SetChangedFunc callback re-entering here: d.rebuilding
+		// is still true for this whole call (see top of this function).
+		d.list.SetCurrentItem(selIdx)
+		d.lastAppliedSelectedIndex = selIdx
 	}
 }
 
-// rowText renders one row. TreeList (unlike tview.List) has no built-in
-// per-row highlight at all (confirmed live - without this, there was no
-// visual cursor whatsoever) - tui.go's own rebuild() re-renders whichever
-// row is currently selected with a uniform selected-style variant before
-// ever calling AddItem, "the entire highlighting mechanism"; uikit.
-// TaskLabel/PlayRowText already implement exactly that (and everything
-// else a row needs: hostname-shrinking, the active-task spinner, the
-// right task-line color), so this calls straight into them rather than
-// re-deriving a smaller version - confirmed live to have drifted the
-// first time around (design-docs/DebugMode.md's follow-up entry): wrong
-// task-line color (StandardTextColor instead of TaskTitleColor), no busy
-// indicator at all, hostnames shown as bare dots instead of names, and
-// the selected-row background wrongly swallowing the prefix column along
-// with the title.
+// flatRowText renders one row of flatten's own output: a host sub-row via
+// uikit.HostLabel (the exact function the main live tree's own expanded
+// task rows use), everything else via rowText below.
+func (d *debugApp) flatRowText(fe flatEntry, selected bool, avail int, layout uikit.HostColumnLayout, durLayout uikit.DurationLayout, frame rune) string {
+	if fe.host != "" {
+		return uikit.HostLabel(d.rows[fe.rowIdx].task, fe.host, durLayout, selected)
+	}
+	return d.rowText(fe.rowIdx, selected, avail, layout, frame)
+}
+
+// rowText renders one row from the static skeleton (a play header or a
+// task - never a host sub-row, see flatRowText). TreeList (unlike
+// tview.List) has no built-in per-row highlight at all (confirmed live -
+// without this, there was no visual cursor whatsoever) - tui.go's own
+// rebuild() re-renders whichever row is currently selected with a uniform
+// selected-style variant before ever calling AddItem, "the entire
+// highlighting mechanism"; uikit.TaskLabel/PlayRowText already implement
+// exactly that (and everything else a row needs: hostname-shrinking, the
+// active-task spinner, the right task-line color), so this calls straight
+// into them rather than re-deriving a smaller version - confirmed live to
+// have drifted the first time around (design-docs/DebugMode.md's
+// follow-up entry): wrong task-line color (StandardTextColor instead of
+// TaskTitleColor), no busy indicator at all, hostnames shown as bare dots
+// instead of names, and the selected-row background wrongly swallowing
+// the prefix column along with the title.
 //
-// The breakpoint marker (and, while paused, the "(paused: host)"
-// annotation) are debug mode's own concepts with no equivalent in
-// TaskLabel - composed here as their own segments, each in its own color
-// tag, outside whatever TaskLabel itself returns, so neither one ever
-// inherits the selected-row's gray background the way the old
-// reimplementation's prefix did (TaskLabel's own prefix slot - the
-// spinner/indent - already keeps itself out of that background; see its
-// own doc comment).
+// The breakpoint marker is debug mode's own concept with no equivalent in
+// TaskLabel - passed in as TaskLabel's own marker parameter, which
+// *replaces* its prefix (the spinner/warning/indent slot) rather than
+// adding a second slot of its own, so a task row's total indent under
+// its play header stays exactly TaskIndent's own 2 columns, matching a
+// plain run/rerun/role tree - not 4 (prefix slot plus a second,
+// breakpoint-only one), which an earlier version of this function had:
+// confirmed live, and reported again even after the busy-indicator
+// column itself had already been fixed to match column 0 (design-docs/
+// DebugMode.md's follow-up entries). "" (not armed) lets TaskLabel fall
+// back to its own active/warning/indent decision as normal - only when
+// armed does this ever override it, so an active (spinner) row still
+// shows its spinner even while armed: a window too narrow to matter in
+// practice (ansible-core's own debugger pauses before a task's result
+// can even arrive), and the far more common armed-and-finished case
+// (toggled on, already run past earlier in a `strategy: free`/stepped
+// session) still shows the dot over a ⚠ it might otherwise have earned -
+// an accepted trade-off, the same shape TaskIndent's own doc comment
+// already accepts for spinner-vs-warning. The "(paused: host)"
+// annotation stays a separate trailing segment, in its own color tag,
+// outside whatever TaskLabel returns - it must never inherit the
+// selected-row's gray background, the same reason the marker parameter
+// itself doesn't (see TaskLabel's own doc comment).
 func (d *debugApp) rowText(idx int, selected bool, avail int, layout uikit.HostColumnLayout, frame rune) string {
 	r := d.rows[idx]
 	if r.isPlayHeader {
@@ -320,21 +503,73 @@ func (d *debugApp) rowText(idx int, selected bool, avail int, layout uikit.HostC
 	active := idx == d.currentRowIdx && d.pausedHost == "" && !d.finished
 	paused := idx == d.currentRowIdx && d.pausedHost != ""
 
-	var bp string
+	var marker string
 	if armed {
-		bp = "[" + uikit.ColorTag(playbook.OutcomeFailed) + "]●[-] "
-	} else {
-		bp = "  "
+		marker = "[" + uikit.ColorTag(playbook.OutcomeFailed) + "]●[-] "
 	}
 
-	label := uikit.TaskLabel(r.task, d.allHosts, layout, avail, active, frame, selected, true)
+	label := uikit.TaskLabel(r.task, d.allHosts, layout, avail, active, frame, selected, true, marker)
 
 	var suffix string
 	if paused {
 		suffix = " [" + uikit.AnnotationColor + "](paused: " + tview.Escape(d.pausedHost) + ")[-]"
 	}
 
-	return bp + label + suffix
+	return label + suffix
+}
+
+// headerLine builds the top bar text: "Debug: <playbook>   Hosts: <...>"
+// on the left, flush right the progress percentage (d.tracker - the same
+// skeleton forward-matching algorithm the main live tree's own progress
+// indicator uses, design-docs/ProgressIndicator.md) and a spinner while
+// running (nothing once frozen) - no elapsed mm:ss clock, unlike the main
+// live tree's own top bar: reported live and removed, see this function's
+// own body for why. The right-hand layout otherwise mirrors
+// uikit.ComposeTopBarLine's own, but this is NOT a call to that function:
+// it bakes in a "Filter:" field debug mode has no equivalent of at all
+// (design-docs/Filters.md is scoped to the run/rerun/role live tree
+// only), which would read as a real, broken feature if it showed up here
+// unexplained. Wrapped in the same uikit.ProgressFillLine fill effect the
+// live tree's own top bar uses, so the whole bar doubles as a literal
+// progress bar here too.
+func (d *debugApp) headerLine(width int) string {
+	pos, total := d.tracker.Position()
+	frozen := d.finished
+
+	var prefix string
+	if total > 0 {
+		pct := pos * 100 / total
+		if frozen {
+			pct = 100
+		}
+		prefix = fmt.Sprintf("%d%%  ", pct)
+	}
+	// No elapsed mm:ss clock here, unlike the main live tree's own top
+	// bar: that one only ever exists once a generation is already
+	// running, so its own clock means something the moment it appears.
+	// This TUI exists the whole time the user is setting breakpoints
+	// before pressing Enter/s even once, and sits paused for however
+	// long the user wants between pauses - a clock ticking the entire
+	// time, including before any task has run at all, read as "how long
+	// has this debug session been stuck," not "how long has the
+	// playbook been running" - reported live, confirmed by removing it.
+	var right string
+	if !frozen {
+		right = fmt.Sprintf("%s%c ", prefix, uikit.SpinnerAt(time.Since(d.startedAt)))
+	} else {
+		right = prefix
+	}
+
+	left := fmt.Sprintf(" Debug: %s   Hosts: ", d.relPlaybook)
+	hostsBudget := width - len([]rune(left)) - len([]rune(right))
+	left += uikit.TruncateHostsList(d.allHosts, hostsBudget)
+
+	pad := width - len([]rune(left)) - len([]rune(right))
+	if pad < 1 {
+		pad = 1
+	}
+	line := left + strings.Repeat(" ", pad) + right
+	return uikit.ProgressFillLine(line, pos, total, frozen, uikit.ChromeLiveColor)
 }
 
 func (d *debugApp) setBar(text string) {
@@ -358,19 +593,55 @@ func (d *debugApp) statusBarForState() string {
 }
 
 // toggleBreakpoint arms/disarms the currently selected task row. A no-op
-// on a play header row - there is nothing to arm there.
+// on a play header row or a host sub-row (flatten's own expanded-task
+// rows) - there is nothing to arm on either.
 func (d *debugApp) toggleBreakpoint() {
-	idx := d.list.GetCurrentItem()
-	if idx < 0 || idx >= len(d.rows) || d.rows[idx].isPlayHeader {
+	rowIdx := d.currentTaskRowIdx()
+	if rowIdx < 0 {
 		return
 	}
-	label := taskLabel(d.rows[idx].task.Name)
+	label := taskLabel(d.rows[rowIdx].task.Name)
 	if d.bps.Has(label) {
 		d.bps.Clear(label)
 	} else {
 		d.bps.Set(label)
 	}
 	d.rebuildList()
+}
+
+// toggleExpand shows or hides the currently selected task row's own
+// per-host rows (flatten) - mirrors internal/session's own per-row Enter
+// toggle (uikit/tui_rows.go's `Selected: func() { expanded[t] = !expanded[t] }`),
+// bound to Tab here rather than Enter: this app's own Enter already means
+// "run/continue" (design-docs/DebugMode.md), unlike the main tree's bare
+// Enter, which has no action of its own competing for the key. A no-op on
+// a play header row or a host sub-row, same as toggleBreakpoint.
+func (d *debugApp) toggleExpand() {
+	rowIdx := d.currentTaskRowIdx()
+	if rowIdx < 0 {
+		return
+	}
+	task := d.rows[rowIdx].task
+	d.expanded[task] = !d.expanded[task]
+	d.rebuildList()
+}
+
+// currentTaskRowIdx resolves the cursor (an index into d.lastFlat, the
+// most recently rendered flattened row list - see rebuildList) to its
+// owning task row's own index into d.rows, or -1 if the cursor is
+// currently on a play header or a host sub-row - the one shared guard
+// toggleBreakpoint/toggleExpand both need, now that the cursor no longer
+// indexes directly into d.rows the way it did before flatten() existed.
+func (d *debugApp) currentTaskRowIdx() int {
+	idx := d.list.GetCurrentItem()
+	if idx < 0 || idx >= len(d.lastFlat) {
+		return -1
+	}
+	fe := d.lastFlat[idx]
+	if fe.host != "" || d.rows[fe.rowIdx].isPlayHeader {
+		return -1
+	}
+	return fe.rowIdx
 }
 
 // startOrContinue drives one Start/Continue call in the background
@@ -398,10 +669,26 @@ func (d *debugApp) startOrContinue(mode debugrun.StepMode) {
 				})
 				return
 			}
+			// Published via QueueUpdateDraw right away, before the
+			// blocking RunWithBreakpoints call below - not deferred until
+			// it returns, the way an earlier version of this function
+			// did. That earlier version left d.sess nil (on handleKey's
+			// own event-loop goroutine) for this whole call's duration -
+			// often several real task durations - even though the real
+			// child was already alive. handleKey's own q/Ctrl-C branch
+			// treats d.sess == nil as "nothing to abort yet, quit
+			// outright" (design-docs/DebugMode.md): pressing either
+			// during that window force-quit the whole tangsible process
+			// with the shadow-copy child still running, completely
+			// unsignaled - confirmed live, and exactly the bug report
+			// this fixes ("q/Ctrl-C ends tangsible - not how run mode
+			// works"). Run mode has no equivalent gap: its own child is
+			// already fully spawned and tracked (s.procH) before its TUI
+			// ever appears.
+			d.app.QueueUpdateDraw(func() { d.sess = sess })
 			go d.drainEvents(sess)
 			pause, eof, perr := debugrun.RunWithBreakpoints(sess, d.bps, mode)
 			d.app.QueueUpdateDraw(func() {
-				d.sess = sess
 				d.applyPauseResult(pause, eof, perr)
 			})
 		}()
@@ -512,6 +799,16 @@ func (d *debugApp) applyEvent(ev playbook.RawEvent) {
 			task := d.rows[d.currentRowIdx].task
 			for host, raw := range ev.Hosts {
 				task.Hosts[host] = outcomeFor(ev.Event, raw)
+				// Raw/Ignored, not just Hosts: HostLabel's own detail text
+				// (OutcomeDetailText) and HostColorTag's "ignored, not a
+				// genuine failure" coloring - both already used by this
+				// row's own inline TaskLabel segments - need them too, now
+				// that toggleExpand can also show this host as its own
+				// HostLabel row (flatten).
+				task.Raw[host] = raw
+				if ev.Event == "v2_runner_on_failed" {
+					task.Ignored[host] = playbook.HasIgnoreErrors(raw)
+				}
 				d.recordHost(host)
 			}
 		}
@@ -600,7 +897,11 @@ func (d *debugApp) handleRowSkip(event *tcell.EventKey) bool {
 	default:
 		return false
 	}
-	if next := uikit.NextInteractiveRow(d.navRows, d.list.GetCurrentItem(), delta); next != -1 {
+	if next := uikit.NextInteractiveRow(d.lastNav, d.list.GetCurrentItem(), delta); next != -1 {
+		// A genuine SetCurrentItem call (d.rebuilding is false here, this
+		// runs from the key handler, never from inside rebuildList) is
+		// what clears d.following via the SetChangedFunc callback in
+		// runDebugTUI - no need to do that here too.
 		d.list.SetCurrentItem(next)
 	}
 	return true
@@ -646,6 +947,18 @@ func (d *debugApp) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	case event.Rune() == 'v':
 		d.openVars()
+		return nil
+	case event.Key() == tcell.KeyTab:
+		// Not Enter: Enter already means "run/continue" here (design-
+		// docs/DebugMode.md), unlike the main tree's bare Enter, which
+		// has no action of its own competing for the key.
+		d.toggleExpand()
+		return nil
+	case event.Rune() == 'F':
+		// Resume auto-scroll - mirrors internal/session's own 'F'
+		// exactly (CLAUDE.md "Following": "only F resumes it").
+		d.following = true
+		d.rebuildList()
 		return nil
 	}
 	return event

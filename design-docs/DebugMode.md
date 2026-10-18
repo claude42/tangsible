@@ -384,8 +384,11 @@ selected row's per-host halfBlock color transition (confirmed live) that
 the old bare-dot rendering never had at all. Debug mode's own two
 concepts with no TaskLabel equivalent - the breakpoint marker and the
 "(paused: host)" annotation - are composed as their own segments outside
-whatever `TaskLabel` returns (`breakpointPrefixWidth`), so neither
-inherits the selected-row background either. The busy indicator needed
+whatever `TaskLabel` returns, so neither inherits the selected-row
+background either (the marker's own exact placement - inside `TaskLabel`'s
+own prefix slot, not a second slot of its own next to it - was revisited
+twice more after this round; see the "third round of incidental findings"
+entry below). The busy indicator needed
 one new piece with no prior equivalent in this view: a permanent
 heartbeat ticker (`startHeartbeat`, mirroring `internal/session`'s own
 but simplified - no elapsed clock to freeze, so it never stops, which is
@@ -483,6 +486,101 @@ even though it's not what surfaced the bug here). Guarded by a new test,
 without the fix, by temporarily reverting it and re-running), and
 reconfirmed live afterward: the same kill-tmux-then-restart repro now
 starts cleanly on the second invocation.
+
+**Third round of incidental findings, also fixed:** after the rendering-
+parity pass above, a live side-by-side comparison against `run` turned up
+five more real divergences, all fixed in the same pass:
+
+1. **Busy-indicator column, and (found on a second look, after the first
+   fix) task indent width.** The breakpoint-armed marker (`●`) was
+   concatenated *in front of* whatever `uikit.TaskLabel` returned, pushing
+   its own prefix slot (the spinner/warning/indent) two columns further
+   right than a plain `run`/`rerun`/`role` tree puts it - and, since play
+   header rows (`uikit.PlayRowText`) never got a matching shift, two
+   columns further right than this very same debug tree's own header rows
+   too. First fix: gave `TaskLabel` its own `marker` parameter (`""` for
+   every other caller), inserted *inside* the function, right after its
+   own prefix and before the title - which did put the busy indicator
+   back in column 0, but left a task row's own indent under its play
+   header at 4 columns (prefix slot *plus* a second, marker-only slot
+   next to it), not `TaskIndent`'s own 2 - reported again live even after
+   the column-0 fix, this time as "indentation is still off." Real fix:
+   marker now *replaces* the prefix slot instead of adding a second one
+   next to it (same priority order a plain tree already uses for
+   spinner-vs-warning: active beats marker beats warning beats blank),
+   so a task row's total indent is back to exactly 2 columns, matching a
+   plain tree, with the busy indicator still in column 0 within that same
+   slot. Confirmed live via `cat -A` on a captured pane line, not just by
+   eye: an armed, idle row renders `● ok task` and an unarmed one `
+   changed task` - both exactly 2 columns before the title starts.
+2. **q/Ctrl-C could force-quit tangsible while the child was still alive
+   and unsignaled.** `startOrContinue`'s very first `Spawn` call only
+   published the resulting `*debugrun.Session` into `d.sess` *after* the
+   blocking `RunWithBreakpoints` call returned - which, for a run with no
+   armed breakpoints, is the entire run's duration. `handleKey`'s own
+   q/Ctrl-C branch treats `d.sess == nil` as "nothing to abort yet, quit
+   outright" - so pressing either during that whole window force-quit the
+   real tangsible process while the shadow-copy `ansible-playbook` child
+   (and its own descendants) kept running, completely unsignaled. Fixed
+   by publishing `d.sess` via `QueueUpdateDraw` immediately once `Spawn`
+   succeeds, before the blocking call. Confirmed live via tmux with a
+   deliberately slow task (`command: sleep 5`, no breakpoints armed): `q`
+   mid-run now interrupts the child (bar flips to "finished", no
+   `ansible-playbook`/`sleep` process survives) without quitting
+   tangsible itself, and a second `q` is what actually quits - matching
+   the main tree's own two-stage `q`/Ctrl-C exactly.
+3. **No progress indicator at all** (and, once added, an elapsed clock
+   that didn't belong there). The top bar was a static
+   `" Debug: <playbook> "` string; `d.tracker` (already driving the
+   active-row spinner) was never surfaced as a percentage or fill. Fixed
+   by giving the header its own `headerLine`, composed from the same
+   primitives the main tree's own top bar uses (`uikit.ProgressFillLine`,
+   `SpinnerAt`, `TruncateHostsList`) - deliberately *not* a call to
+   `uikit.ComposeTopBarLine` itself, which bakes in both a `Filter:` field
+   this view has no equivalent of and an elapsed mm:ss clock. The first
+   version of this fix added that clock back in anyway (`uikit.
+   MinutesSeconds`, ticking from `d.startedAt`) - reported live:
+   unlike the main tree, whose own top bar only ever exists once a
+   generation is already running, this TUI exists the whole time the
+   user is still setting breakpoints before pressing Enter/s even once,
+   and sits paused for however long between pauses - a clock ticking the
+   entire time (including before any task has run) read as "how long has
+   this debug session been stuck," not "how long has the playbook been
+   running." Removed; the spinner alone still conveys "this view is
+   alive," without claiming to measure anything.
+4. **No auto-scroll/"following."** Nothing ever moved the cursor as a run
+   advanced past the first screenful of tasks - unlike the main tree's own
+   "following" (`CLAUDE.md`), which pins the cursor to the newest row
+   until the user navigates away. Fixed by adding the same mechanism:
+   `d.following` (default on), cleared by any genuine navigation via a
+   `d.rebuilding` guard around `rebuildList`'s own trailing
+   `SetCurrentItem` call (exactly mirroring `internal/session`'s own
+   `s.rebuilding`/`SetChangedFunc` pair), resumed by `F` (same key, same
+   "only F resumes it" rule).
+5. **Enter didn't expand a task row to show its own hosts.** The debug
+   tree had no per-host rows at all - every host's outcome only ever
+   showed as `TaskLabel`'s own inline, collapsed segment. Enter couldn't
+   be reused for this the way the main tree's own bare Enter is (Enter
+   here already means "run/continue"), so expand/collapse is bound to
+   `Tab` instead. Rows are flattened fresh on every `rebuildList` call
+   (`flatten`, mirroring `uikit.FlattenRows`) rather than kept as a second,
+   cached shape; a host sub-row renders via `uikit.HostLabel` - the exact
+   function the main tree's own expanded task rows use - which needed
+   `applyEvent` to start populating `TaskNode.Raw`/`Ignored` per host (only
+   `Hosts` was populated before), the same two fields `HostLabel`/
+   `HostColorTag` already read for the main tree. `playbook.
+   hasIgnoreErrors` was exported (`HasIgnoreErrors`) for this, rather than
+   duplicated - debug mode's skeleton is static and can't go through
+   `PlaybookState.Apply` the way a plain run does.
+
+Confirmed live via tmux for all five: the busy-indicator column now lines
+up with a plain `run`'s; a deliberately slow, breakpoint-free task
+confirmed q/Ctrl-C's two-stage behavior and left no orphaned process; the
+top bar shows a real percentage and fill that reaches 100% on completion;
+navigating away and back with `F` re-pins the cursor to the paused/active
+row; and `Tab` on a finished task shows its own per-host row, including
+the orange "ignored" color for a `ignore_errors: true` failure. `go vet`/
+`go test ./...` clean across the whole repo.
 
 ## Motivating gap
 
