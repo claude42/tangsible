@@ -249,10 +249,28 @@ func (s *Session) Close() error {
 	return s.cmd.Wait()
 }
 
+// promptCheckTail bounds how much of the accumulated buffer
+// readUntilPrompt re-scans for the prompt on every byte - generously
+// larger than any realistic "[host] TASK: name (debug)> " line, but
+// nowhere near the size of a real query response (Query's own task_vars
+// call: well over 100KB once real facts are gathered).
+const promptCheckTail = 4096
+
 // readUntilPrompt reads raw bytes until promptRe matches the accumulated
 // text (the debugger's next prompt has fully arrived) or the pipe hits
 // EOF (the child exited - eof=true, err nil, since that's the normal way
 // a run ends, not a failure this function reports as one).
+//
+// Matches against only the last promptCheckTail bytes, not the whole
+// buffer - confirmed live as a real, reported bug otherwise: re-running
+// a full regex match (and, before this fix, re-stringifying the entire
+// buffer via buf.String(), itself a full copy) against an ever-growing
+// buffer, once per byte, is O(n) work repeated n times - a Query(
+// "task_vars") response over 100KB (any real host's gathered facts) took
+// ~20 real seconds this way, even though the prompt itself only ever
+// needs to be found right at the buffer's own tail. The match is safe to
+// bound like this because the prompt line itself is always far shorter
+// than promptCheckTail - slicing never cuts into the middle of one.
 func (s *Session) readUntilPrompt() (text string, pause Pause, eof bool, err error) {
 	var buf bytes.Buffer
 	for {
@@ -261,8 +279,12 @@ func (s *Session) readUntilPrompt() (text string, pause Pause, eof bool, err err
 			return buf.String(), Pause{}, true, nil
 		}
 		buf.WriteByte(b)
-		if m := promptRe.FindStringSubmatch(buf.String()); m != nil {
-			return buf.String(), Pause{Host: m[1], Task: m[2]}, false, nil
+		tail := buf.Bytes()
+		if len(tail) > promptCheckTail {
+			tail = tail[len(tail)-promptCheckTail:]
+		}
+		if m := promptRe.FindSubmatch(tail); m != nil {
+			return buf.String(), Pause{Host: string(m[1]), Task: string(m[2])}, false, nil
 		}
 	}
 }
