@@ -414,6 +414,48 @@ Verified live: a `lineinfile` task that actually changes a file's
 content now shows a real unified diff on the Diff tab, same as a plain
 `run` already would.
 
+## Mouse: toggle a breakpoint by clicking a task row's first column (2026-10-18)
+
+**Requested live:** toggle a breakpoint with the mouse, by clicking in a
+task row's own first column - the same column `BreakpointMarkerText`'s
+`●` already occupies, whether or not it's currently showing.
+
+A click anywhere on a task row already activated that row's own
+`Selected` callback (expand/collapse) via `TreeList.MouseHandler`
+(`uikit/treelist.go`) - `uikit.FlattenRows`'s per-row `Selected` closure,
+unaware of debug mode at all. Column-sensitivity (first column vs.
+anywhere else on the same row) had to be decided *before* that normal
+activation, in `liveSession`'s own mouse dispatch
+(`livesession_mouse.go`), not inside `TreeList`/`FlattenRows` - neither
+has (or should gain) any concept of "armed breakpoint."
+
+New `debugTaskAtFirstColumn(x, y)` (`livesession_debug.go`): true only
+when `x` is exactly `s.list`'s own leftmost screen column (from
+`GetInnerRect()`) and the row resolved from `y` (via `s.list.GetOffset()`
+and `s.currentRows`, the exact slice `s.list`'s own rows are built from)
+is a `*playbook.TaskNode` - false for every other column, a play header
+or host row at that position, or a non-debug session. `debugToggleBreakpoint`
+(F9's own body) split into that plus a new `debugToggleBreakpointFor(task)`,
+so the click path can toggle an arbitrary clicked task, not just the
+cursor's current one.
+
+Wired into both tree-click paths - full-screen (`handleTreeMouse`) and
+two-pane (`handleOutputViewMouse`'s split-mode branch,
+`TwoPanedLayout.md`) - checked first, before either path's own
+unconditional fall-through/`MouseHandler()` call that would otherwise
+also fire the row's normal expand/collapse. On a match: toggle, then
+`s.list.SetCurrentItem(index)` to move the cursor there too (matching a
+plain click's own "activate, then select" ordering) - deliberately not
+`TreeList.MouseHandler()`'s own `activate(index)`, which is exactly the
+expand/collapse this is replacing for that one column.
+
+Verified live, with real SGR mouse clicks sent via `tmux` (press+release
+at an exact column/row) rather than only reasoning about the code: arm/
+disarm by clicking column one, a click anywhere else on the same row
+still expands/collapses normally and never disturbs the marker, both in
+full-screen and two-pane mode, and a mouse-armed breakpoint genuinely
+pauses the run exactly like one armed with F9.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

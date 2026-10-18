@@ -156,9 +156,17 @@ func (s *liveSession) handleDebugKey(event *tcell.EventKey) (*tcell.EventKey, bo
 // row, ...). Mirrors a previous, separate debug TUI's own
 // toggleBreakpoint, using currentID (identity, this package's own
 // convention - CLAUDE.md's "Selection is tracked by row identity, not
-// index") instead of a row index.
+// index") instead of a row index. F9's own target - the mouse-click
+// equivalent (handleTreeMouse/handleOutputViewMouse) resolves its own
+// task directly instead, since a click can land on any row, not just
+// the cursor's.
 func (s *liveSession) debugToggleBreakpoint() {
-	task := s.debugCursorTask()
+	s.debugToggleBreakpointFor(s.debugCursorTask())
+}
+
+// debugToggleBreakpointFor is debugToggleBreakpoint's own shared body,
+// parameterized on which task to toggle - a no-op for nil.
+func (s *liveSession) debugToggleBreakpointFor(task *playbook.TaskNode) {
 	if task == nil {
 		return
 	}
@@ -169,6 +177,36 @@ func (s *liveSession) debugToggleBreakpoint() {
 		s.debugBPS.Set(label)
 	}
 	s.rebuild()
+}
+
+// debugTaskAtFirstColumn reports the task row at screen position (x, y) -
+// but only when x is exactly s.list's own leftmost column, where a task
+// row's prefix slot always sits (uikit.TaskIndent/BreakpointMarkerText,
+// tui_layout.go - both exactly one slot wide, whichever of the two is
+// currently showing). nil/false for every other column, a non-task row
+// at that position (a play header, a host row), or a non-debug session.
+// The mouse-click equivalent of F9: requested live, so a breakpoint can
+// be armed/disarmed with a click, without moving the cursor there first.
+// index is the row's own index into s.currentRows (and so into s.list),
+// handed back so a caller can move the cursor there afterward without a
+// second lookup.
+func (s *liveSession) debugTaskAtFirstColumn(x, y int) (task *playbook.TaskNode, index int, ok bool) {
+	if !s.debugMode {
+		return nil, 0, false
+	}
+	rectX, rectY, _, height := s.list.GetInnerRect()
+	if x != rectX || y < rectY || y >= rectY+height {
+		return nil, 0, false
+	}
+	i := s.list.GetOffset() + (y - rectY)
+	if i < 0 || i >= len(s.currentRows) {
+		return nil, 0, false
+	}
+	t, isTask := s.currentRows[i].ID.(*playbook.TaskNode)
+	if !isTask {
+		return nil, 0, false
+	}
+	return t, i, true
 }
 
 // debugCursorTask resolves "the task row the cursor is logically on

@@ -319,6 +319,18 @@ func (s *liveSession) handleOutputViewMouse(event *tcell.EventMouse, action tvie
 			// a click there is *for*).
 			if uikit.InRect(x, y, s.list) {
 				if action == tview.MouseLeftClick {
+					// A click on a task row's own first column toggles
+					// its breakpoint instead of the row's normal expand/
+					// collapse (design-docs/DebugMode.md) - handled
+					// completely here, before the unconditional
+					// MouseHandler call below, which would otherwise also
+					// toggle expand/collapse via the row's own Selected
+					// callback.
+					if task, index, ok := s.debugTaskAtFirstColumn(x, y); ok {
+						s.debugToggleBreakpointFor(task)
+						s.list.SetCurrentItem(index)
+						return nil, action
+					}
 					s.list.MouseHandler()(action, event, func(tview.Primitive) {})
 					return nil, action
 				}
@@ -398,6 +410,22 @@ func (s *liveSession) handleTreeMouse(event *tcell.EventMouse, action tview.Mous
 		// explicitly instead of falling out of that callback the way
 		// keyboard navigation gets it for free.
 		s.following = false
+	case tview.MouseLeftClick:
+		// A click on a task row's own first column toggles its
+		// breakpoint instead of the row's normal expand/collapse
+		// (design-docs/DebugMode.md) - checked, and handled completely,
+		// before falling through to tview's own normal dispatch (which
+		// would otherwise reach s.list.MouseHandler() and also toggle
+		// expand/collapse). SetCurrentItem, not MouseHandler's own
+		// activate-then-select pair: only the cursor-move half, since
+		// the row's own Selected callback (expand/collapse) is
+		// deliberately skipped here.
+		x, y := event.Position()
+		if task, index, ok := s.debugTaskAtFirstColumn(x, y); ok {
+			s.debugToggleBreakpointFor(task)
+			s.list.SetCurrentItem(index)
+			return nil, action
+		}
 	}
 	return event, action
 }

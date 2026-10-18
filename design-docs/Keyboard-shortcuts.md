@@ -536,6 +536,13 @@ collide with:
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
 sketches a `[keys]` config section for these three; not wired up yet).
 
+**Mouse:** a left click on a task row's own first column - exactly
+where the `●` marker above sits, whether or not it's currently showing -
+arms/disarms a breakpoint on that task, instead of the row's normal
+Enter-equivalent expand/collapse. Works in both full-screen and two-pane
+mode, on any task row, not just the one under the cursor; a click
+anywhere else on the row still expands/collapses as usual.
+
 **Auto-open.** Whenever a pause surfaces (an armed breakpoint, or a
 step), the drill-down opens automatically for that exact paused task and
 host - the two-pane/full-screen decision is the same live, terminal-
