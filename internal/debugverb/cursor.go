@@ -70,7 +70,7 @@ type DebugConfig struct {
 // Apply themselves - all of that machinery works unchanged on top of a
 // state built this way; only the write path (Cursor.Apply below) differs
 // from a plain run's.
-func SeedState(skeleton []runner.ProgressEntry) (state *playbook.PlaybookState, nodes []*playbook.TaskNode) {
+func SeedState(skeleton []runner.ProgressEntry) (state *playbook.PlaybookState, nodes []*playbook.TaskNode, nodePlay []*playbook.PlayNode) {
 	state = &playbook.PlaybookState{}
 	var currentPlay *playbook.PlayNode
 	lastPlayName := ""
@@ -82,20 +82,26 @@ func SeedState(skeleton []runner.ProgressEntry) (state *playbook.PlaybookState, 
 			lastPlayName = e.Play
 			first = false
 		}
-		task := &playbook.TaskNode{
-			Name: e.Task,
-			// Hosts/Raw/Ignored initialized (not left nil): written into
-			// directly by Cursor.Apply below, from outside the playbook
-			// package - a nil map panics on write, unlike a nil-map read
-			// elsewhere in this package's own rendering path.
-			Hosts:   map[string]playbook.Outcome{},
-			Raw:     map[string]json.RawMessage{},
-			Ignored: map[string]bool{},
-		}
+		task := newEmptyTaskNode(e.Task, false)
 		currentPlay.Tasks = append(currentPlay.Tasks, task)
 		nodes = append(nodes, task)
+		nodePlay = append(nodePlay, currentPlay)
 	}
-	return state, nodes
+	return state, nodes, nodePlay
+}
+
+// newEmptyTaskNode builds a *TaskNode the same way SeedState's own skeleton
+// loop does, with Hosts/Raw/Ignored initialized (not left nil) - shared
+// with Cursor.insertDynamicTask below, which builds nodes the same shape
+// one at a time instead of all at once from a skeleton.
+func newEmptyTaskNode(name string, isHandler bool) *playbook.TaskNode {
+	return &playbook.TaskNode{
+		Name:      name,
+		IsHandler: isHandler,
+		Hosts:     map[string]playbook.Outcome{},
+		Raw:       map[string]json.RawMessage{},
+		Ignored:   map[string]bool{},
+	}
 }
 
 // Cursor tracks where a live debug session's own jsonl event stream
@@ -105,8 +111,16 @@ func SeedState(skeleton []runner.ProgressEntry) (state *playbook.PlaybookState, 
 // comment).
 type Cursor struct {
 	// Nodes is SeedState's own second return value - never reassigned
-	// after construction.
+	// after construction, and never mutated once a dynamic task has been
+	// inserted somewhere in the middle of it (see insertDynamicTask) -
+	// NodePlay stays its exact index parallel throughout, which an insert
+	// in the middle of Nodes itself would break.
 	Nodes []*playbook.TaskNode
+	// NodePlay is SeedState's own third return value, Nodes' own index
+	// parallel: NodePlay[i] is the *PlayNode that owns Nodes[i]. Only used
+	// to resolve currentPlayNode (below) from a tracker position - never
+	// touched once a dynamic task has been inserted.
+	NodePlay []*playbook.PlayNode
 	// Tracker drives the same skeleton forward-matching the progress bar
 	// already uses (runner.NewProgressTracker(skeleton)) - shared, not a
 	// second instance, so a debug session's progress percentage and its
@@ -124,6 +138,11 @@ type Cursor struct {
 	PathMapping map[string]string
 
 	playName string
+	// currentPlayNode is the *PlayNode the most recent play-start (or
+	// task-start match) resolved to - insertDynamicTask's own anchor for
+	// "which play's own Tasks slice does a newly-discovered task belong
+	// in." nil until the first play-start event arrives.
+	currentPlayNode *playbook.PlayNode
 	// CurrentTask is the task the most recent task-start event resolved
 	// to - nil until the first one arrives. Exported so a caller
 	// (liveSession) can read it directly for chrome/auto-open-drilldown/
@@ -132,10 +151,11 @@ type Cursor struct {
 	CurrentTask *playbook.TaskNode
 }
 
-// NewCursor returns a Cursor ready to track nodes/tracker/pathMapping
-// from the very start of a session (before any event has arrived).
-func NewCursor(nodes []*playbook.TaskNode, tracker *runner.ProgressTracker, pathMapping map[string]string) *Cursor {
-	return &Cursor{Nodes: nodes, Tracker: tracker, PathMapping: pathMapping}
+// NewCursor returns a Cursor ready to track nodes/nodePlay/tracker/
+// pathMapping from the very start of a session (before any event has
+// arrived).
+func NewCursor(nodes []*playbook.TaskNode, nodePlay []*playbook.PlayNode, tracker *runner.ProgressTracker, pathMapping map[string]string) *Cursor {
+	return &Cursor{Nodes: nodes, NodePlay: nodePlay, Tracker: tracker, PathMapping: pathMapping}
 }
 
 // Apply resolves one live jsonl event and, for a terminal outcome event,
@@ -153,12 +173,39 @@ func (c *Cursor) Apply(ev playbook.RawEvent) (recordedHost string, taskChanged b
 		if ev.Play != nil {
 			c.playName = ev.Play.Name
 			c.Tracker.AdvanceToPlay(ev.Play.Name)
+			if idx := c.Tracker.CursorIndex(); idx >= 0 && idx < len(c.NodePlay) {
+				c.currentPlayNode = c.NodePlay[idx]
+			}
 		}
 	case "v2_playbook_on_task_start", "v2_playbook_on_handler_task_start":
 		if ev.Task != nil {
+			prevPos, _ := c.Tracker.Position()
 			c.Tracker.Advance(c.playName, ev.Task.Name, ev.Task.IsHandler)
-			if pos, _ := c.Tracker.Position(); pos > 0 && pos <= len(c.Nodes) {
-				next := c.Nodes[pos-1]
+			pos, _ := c.Tracker.Position()
+			var next *playbook.TaskNode
+			if pos > 0 && pos != prevPos && pos <= len(c.Nodes) {
+				// A genuine match against the predicted skeleton.
+				next = c.Nodes[pos-1]
+				c.currentPlayNode = c.NodePlay[pos-1]
+			} else {
+				// A miss: either a handler (--list-tasks never lists
+				// those at all) or a task that only exists because of a
+				// dynamic include_tasks/include_role, whose own contents
+				// --list-tasks can't enumerate (confirmed live: it
+				// doesn't expand these even for a literal, non-templated
+				// filename - design-docs/DebugMode.md's "Dynamic
+				// includes"). Growing the tree live for it, the same way
+				// a plain run's own PlaybookState.Apply already does for
+				// every task regardless of whether it was predicted, is
+				// what replaces the old behavior of silently
+				// re-attributing this event to whatever task was last
+				// matched - confirmed live as a real, reported bug:
+				// every included task's own result landing on the
+				// include point's own row, overwriting the previous one,
+				// looking like the run was stuck looping through it.
+				next = c.insertDynamicTask(ev.Task)
+			}
+			if next != nil {
 				if next != c.CurrentTask {
 					c.CurrentTask = next
 					taskChanged = true
@@ -210,6 +257,42 @@ func (c *Cursor) Apply(ev playbook.RawEvent) (recordedHost string, taskChanged b
 		}
 	}
 	return recordedHost, taskChanged
+}
+
+// insertDynamicTask creates a brand-new *TaskNode for a task-start event
+// that doesn't match anything in the predicted skeleton (a handler, or a
+// task that only exists because of a dynamic include_tasks/include_role -
+// Apply's own doc comment above), and splices it into c.currentPlayNode's
+// own Tasks immediately after wherever c.CurrentTask currently sits, so it
+// reads in its actual chronological place rather than at the end of the
+// whole play (where it would read as having run after tasks that, in
+// reality, come later). A second, third, ... included task in the same
+// batch each anchor off the previous one this same way, in turn, so the
+// whole batch ends up in the right order and the right place.
+//
+// Returns nil (a no-op) if there's nowhere to anchor the insertion yet -
+// currentPlayNode is nil, meaning no play-start has resolved at all, which
+// would only happen for a malformed event stream.
+func (c *Cursor) insertDynamicTask(ref *playbook.TaskRef) *playbook.TaskNode {
+	if c.currentPlayNode == nil {
+		return nil
+	}
+	task := newEmptyTaskNode(ref.Name, ref.IsHandler)
+
+	tasks := c.currentPlayNode.Tasks
+	insertAt := len(tasks) // CurrentTask not found (e.g. nil): fall back to the end.
+	for i, t := range tasks {
+		if t == c.CurrentTask {
+			insertAt = i + 1
+			break
+		}
+	}
+	tasks = append(tasks, nil)
+	copy(tasks[insertAt+1:], tasks[insertAt:])
+	tasks[insertAt] = task
+	c.currentPlayNode.Tasks = tasks
+
+	return task
 }
 
 // OutcomeFor classifies one host's raw result the same way aggregate.

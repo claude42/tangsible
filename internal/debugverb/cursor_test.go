@@ -53,7 +53,7 @@ func TestSeedState_InsertsOnePlayPerPlayChange(t *testing.T) {
 		{Play: "play one", Task: "task b"},
 		{Play: "play two", Task: "task c"},
 	}
-	state, nodes := SeedState(skeleton)
+	state, nodes, nodePlay := SeedState(skeleton)
 
 	if len(state.Plays) != 2 {
 		t.Fatalf("state.Plays length = %d, want 2", len(state.Plays))
@@ -79,11 +79,20 @@ func TestSeedState_InsertsOnePlayPerPlayChange(t *testing.T) {
 	if nodes[2] != state.Plays[1].Tasks[0] {
 		t.Error("nodes[2] is not the same *TaskNode as state.Plays[1].Tasks[0]")
 	}
+	if len(nodePlay) != 3 {
+		t.Fatalf("nodePlay length = %d, want 3", len(nodePlay))
+	}
+	if nodePlay[0] != state.Plays[0] || nodePlay[1] != state.Plays[0] {
+		t.Error("nodePlay[0]/[1] must both be state.Plays[0] (task a and task b are both play one's)")
+	}
+	if nodePlay[2] != state.Plays[1] {
+		t.Error("nodePlay[2] must be state.Plays[1] (task c is play two's)")
+	}
 }
 
 func TestSeedState_TaskNodesStartWithEmptyOutcomes(t *testing.T) {
 	skeleton := []runner.ProgressEntry{{Play: "p", Task: "t"}}
-	_, nodes := SeedState(skeleton)
+	_, nodes, _ := SeedState(skeleton)
 
 	if nodes[0].Hosts == nil {
 		t.Fatal("Hosts is nil, not an empty map - Cursor.Apply indexes it directly")
@@ -98,8 +107,8 @@ func TestCursor_ApplyResolvesEventsAgainstSkeleton(t *testing.T) {
 		{Play: "p", Task: "task a"},
 		{Play: "p", Task: "task b"},
 	}
-	_, nodes := SeedState(skeleton)
-	c := NewCursor(nodes, runner.NewProgressTracker(skeleton), nil)
+	_, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
 
 	if host, changed := c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}}); host != "" || changed {
 		t.Errorf("play-start: host=%q changed=%v, want \"\", false", host, changed)
@@ -146,8 +155,8 @@ func TestCursor_ApplyResolvesEventsAgainstSkeleton(t *testing.T) {
 
 func TestCursor_ApplyPopulatesHostOrder(t *testing.T) {
 	skeleton := []runner.ProgressEntry{{Play: "p", Task: "t"}}
-	_, nodes := SeedState(skeleton)
-	c := NewCursor(nodes, runner.NewProgressTracker(skeleton), nil)
+	_, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
 	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
 	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "t"}})
 
@@ -173,10 +182,116 @@ func TestCursor_ApplyPopulatesHostOrder(t *testing.T) {
 	}
 }
 
+// TestCursor_ApplyInsertsUnmatchedTasksLiveInPlace: a task-start event for
+// something --list-tasks never predicted - a task spliced in by a dynamic
+// include_tasks/include_role (design-docs/DebugMode.md's "Dynamic
+// includes") - must grow the tree with a brand-new row, inserted right
+// after the task that was current before it, rather than silently
+// re-attributing every such event to that stale task (confirmed live as a
+// real, reported bug before this existed: every included task's own
+// result landing on the include point's own row, overwriting the previous
+// one, looking like the run was stuck looping through it).
+func TestCursor_ApplyInsertsUnmatchedTasksLiveInPlace(t *testing.T) {
+	skeleton := []runner.ProgressEntry{
+		{Play: "p", Task: "before include"},
+		{Play: "p", Task: "the include point"},
+		{Play: "p", Task: "after include"},
+	}
+	state, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
+
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "before include"}})
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "the include point"}})
+
+	// Two tasks inside the included file - neither is in the skeleton at
+	// all, so both must be newly created rows, not aliases of "the
+	// include point" itself.
+	host, changed := c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "included task one"}})
+	if host != "" || !changed {
+		t.Fatalf("included task one: host=%q changed=%v, want \"\", true", host, changed)
+	}
+	includedOne := c.CurrentTask
+	if includedOne == nodes[1] {
+		t.Fatal("included task one must not alias \"the include point\"'s own node")
+	}
+	if includedOne.Name != "included task one" {
+		t.Errorf("includedOne.Name = %q, want %q", includedOne.Name, "included task one")
+	}
+
+	host, changed = c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "included task two"}})
+	if host != "" || !changed {
+		t.Fatalf("included task two: host=%q changed=%v, want \"\", true", host, changed)
+	}
+	includedTwo := c.CurrentTask
+	if includedTwo == includedOne {
+		t.Fatal("included task two must be its own, distinct node from included task one")
+	}
+
+	// Record an outcome for included task two - must land on its own
+	// node, not corrupt "the include point"'s or included task one's.
+	c.Apply(playbook.RawEvent{Event: "v2_runner_on_ok", Hosts: map[string]json.RawMessage{"host1": []byte(`{"changed": false}`)}})
+	if _, recorded := includedTwo.Hosts["host1"]; !recorded {
+		t.Error("included task two's own outcome was not recorded on its own node")
+	}
+	if len(nodes[1].Hosts) != 0 {
+		t.Error("\"the include point\"'s own node must stay untouched by its included tasks' outcomes")
+	}
+
+	// Resuming the real skeleton afterward must still correctly resolve
+	// to "after include", not get stuck on the last included task.
+	host, changed = c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "after include"}})
+	if host != "" || !changed {
+		t.Fatalf("after include: host=%q changed=%v, want \"\", true", host, changed)
+	}
+	if c.CurrentTask != nodes[2] {
+		t.Fatal("CurrentTask must resync to nodes[2] (\"after include\") once the skeleton resumes matching")
+	}
+
+	// Final tree order, within play "p": before include, the include
+	// point, included task one, included task two, after include - the
+	// two dynamically-inserted rows read in their real chronological
+	// place, not appended after everything else.
+	play := state.Plays[0]
+	wantOrder := []string{"before include", "the include point", "included task one", "included task two", "after include"}
+	if len(play.Tasks) != len(wantOrder) {
+		t.Fatalf("play.Tasks length = %d, want %d", len(play.Tasks), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if play.Tasks[i].Name != want {
+			t.Errorf("play.Tasks[%d].Name = %q, want %q", i, play.Tasks[i].Name, want)
+		}
+	}
+}
+
+// TestCursor_ApplyInsertsHandlerTasksLive pins that a handler's task-start
+// (never listed by --list-tasks either, same miss mechanism as a dynamic
+// include) gets the same live-insert treatment, not just include_tasks
+// content specifically.
+func TestCursor_ApplyInsertsHandlerTasksLive(t *testing.T) {
+	skeleton := []runner.ProgressEntry{{Play: "p", Task: "notify something"}}
+	_, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
+
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "notify something"}})
+
+	_, changed := c.Apply(playbook.RawEvent{Event: "v2_playbook_on_handler_task_start", Task: &playbook.TaskRef{Name: "restart service", IsHandler: true}})
+	if !changed {
+		t.Fatal("handler task-start must change CurrentTask to its own new node")
+	}
+	if !c.CurrentTask.IsHandler {
+		t.Error("the dynamically-inserted handler node must itself have IsHandler set")
+	}
+	if c.CurrentTask == nodes[0] {
+		t.Fatal("the handler must not alias the preceding task's own node")
+	}
+}
+
 func TestCursor_ApplyRecordsIgnoredFailures(t *testing.T) {
 	skeleton := []runner.ProgressEntry{{Play: "p", Task: "t"}}
-	_, nodes := SeedState(skeleton)
-	c := NewCursor(nodes, runner.NewProgressTracker(skeleton), nil)
+	_, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
 	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
 	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "t"}})
 

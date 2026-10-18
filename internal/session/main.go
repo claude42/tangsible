@@ -152,13 +152,13 @@ func Main(build BuildInfo) {
 	// task/play identity resolution can't reuse a pre-built skeleton node
 	// at all).
 	var debugPrep debugverb.SessionPrep
-	// debugNodes is debugverb.SeedState's own second return value
-	// (skeleton's index parallel, one *TaskNode per predicted task) -
-	// nil for every other Verb. Stays empty here for now (Stage 2's
-	// checkpoint 1: the predicted tree renders, nothing can run yet);
-	// a later checkpoint threads this into a debugverb.Cursor the
-	// orchestration goroutine drives.
+	// debugNodes/debugNodePlay are debugverb.SeedState's own second/third
+	// return values (skeleton's index parallel: one *TaskNode and its
+	// owning *PlayNode per predicted task) - nil for every other Verb.
+	// Threaded into a debugverb.Cursor below, which the orchestration
+	// goroutine drives.
 	var debugNodes []*pb.TaskNode
+	var debugNodePlay []*pb.PlayNode
 	// spawnPlaybook is what's actually passed to ansible-playbook for this
 	// session's first generation - normally identical to playbook, but set
 	// to a source.TrimPlaybookToPlay copy by "run"'s own "--start-at-play"
@@ -673,7 +673,7 @@ func Main(build BuildInfo) {
 		// for the orchestration goroutine a later checkpoint adds, to
 		// resolve a live event against the exact same nodes this state
 		// already holds.
-		state, debugNodes = debugverb.SeedState(debugPrep.Skeleton)
+		state, debugNodes, debugNodePlay = debugverb.SeedState(debugPrep.Skeleton)
 	}
 	var processDone, quitting atomic.Bool
 	var exitCode atomic.Int32
@@ -769,7 +769,7 @@ func Main(build BuildInfo) {
 		debugCfg = debugverb.DebugConfig{
 			CopyPlaybookPath: debugPrep.CopyPlaybookPath,
 			BPS:              debugrun.NewBreakpointSet(),
-			Cursor:           debugverb.NewCursor(debugNodes, progH.Load(), debugPrep.PathMapping),
+			Cursor:           debugverb.NewCursor(debugNodes, debugNodePlay, progH.Load(), debugPrep.PathMapping),
 		}
 	}
 	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)

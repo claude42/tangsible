@@ -313,6 +313,87 @@ All found from actually using the merged session, not spotted on paper:
    debug state transition, the same way it already did for the tree's
    own bottom bar.
 
+## Stage 2 follow-up round 4: `include_tasks`/`include_role` (2026-10-18)
+
+**Reported live:** with `include_tasks`/`include_role` in the playbook, it
+looked like the run kept going through the including task over and over,
+rather than progressing - not a crash, just visibly wrong.
+
+**Root cause:** confirmed live, not guessed - `ansible-playbook
+--list-tasks` never expands `include_tasks`/`include_role` at all, even
+for a plain literal filename with no templating, loop, or conditional (a
+harder limit than "dynamic targets can't be predicted" - *no* include's
+contents are ever enumerable this way, regardless of how static they
+look). So the skeleton `Cursor` resolves events against has exactly one
+entry for the include point itself, never one for anything inside it.
+`runner.ProgressTracker.Advance`'s own doc comment already says what it
+does on a miss: "the tracker's cursor/matched are left completely
+untouched" - meaning every included task's own task-start event kept
+resolving `Cursor.CurrentTask` back to whatever was last *actually*
+matched (the include point's own row), silently overwriting its outcome
+on every included task, instead of erroring or doing nothing.
+
+This is the exact same mechanism a handler's task-start already hit
+(`ProgressTracker.Advance`'s own doc comment calls a handler's miss
+"fully expected, not evidence of drift" - handlers aren't in the skeleton
+either) - already a latent instance of the same bug, just never reported
+because a handler and the task that happened to precede it rarely has a
+host result worth noticing get silently dropped.
+
+**Considered and rejected:** predicting included tasks up front, the
+"natural-looking" fix, so breakpoints could be armed on them before the
+run starts too - rejected because of the `--list-tasks` limitation above:
+there is no static source of truth for an include's contents to predict
+from, for *any* `include_tasks`/`include_role`, so this would need our
+own recursive YAML parsing, and would still have a hard ceiling (a
+templated path, a data-driven loop count) no static analysis can lift.
+Consistent with "v1 scope" (Phase 1, above): tasks inside an include were
+already explicitly out of scope for prediction, for the same reason.
+
+**Fix:** when `Cursor.Apply`'s task-start case gets a miss (detected by
+comparing `Tracker.Position()` before/after `Advance` - unchanged means
+no match was found), it now calls a new `insertDynamicTask`, which builds
+a fresh `*TaskNode` and splices it into the current play's own `Tasks`
+right after wherever `CurrentTask` currently sits - not appended at the
+end of the play, which would read as having run after tasks that, in
+reality, come later. `CurrentTask` moves to point at it, exactly as a
+genuine skeleton match already would, so every later event for it (its
+own outcome, and - if the included batch itself contains several tasks -
+each subsequent one anchoring off the previous) lands correctly. This is
+the live-growth behavior a plain run's own `PlaybookState.Apply` already
+has for free (`findOrCreateTask` doesn't care whether a task was
+predicted); `Cursor` just needed its own version, since it deliberately
+never calls `Apply` at all (see `SeedState`'s own doc comment).
+
+A newly-inserted task can't have a breakpoint armed on it *before* it
+first appears (it doesn't exist yet) - F9 still works on it reactively,
+once it's visible, like any other task row. Progress-bar percentage
+doesn't move while processing an included batch (none of it counts
+toward the skeleton's own total) and catches up once the real skeleton
+resumes matching afterward - an accepted characteristic of the
+progress indicator's own prediction, not a new gap.
+
+**Known, accepted gap carried forward, not solved here:** under
+`strategy: free`, the same conceptual included task can fire its own
+task-start once per host (`aggregate.go`'s own "Aggregation" notes in
+main `CLAUDE.md` - dynamic includes under `strategy: free` get per-host
+task ids). `findOrCreateTask` resolves that back to one shared row by
+matching on path once id can't be trusted; this fix doesn't replicate
+that - each (host, iteration) combination gets its own row instead of
+one shared one. No data loss or misattribution, just a less-collapsed
+tree than a plain run's equivalent. `strategy: free` was already a
+documented gap for debug mode's progress prediction specifically; this
+extends it slightly rather than introducing a new one.
+
+Verified live: an `include_tasks` with two sub-tasks, both a plain
+invocation and one wrapped in a `loop:` (two full passes through the
+include) - every included task gets its own correctly-ordered row with
+its own correct outcome, the include point's own row stays untouched,
+and the run correctly resyncs to the real skeleton's next task
+afterward. New unit tests: `TestCursor_ApplyInsertsUnmatchedTasksLiveInPlace`,
+`TestCursor_ApplyInsertsHandlerTasksLive` (`internal/debugverb/
+cursor_test.go`).
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

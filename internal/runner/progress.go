@@ -363,3 +363,18 @@ func (t *ProgressTracker) Position() (position, total int) {
 	}
 	return t.matched, len(t.skeleton)
 }
+
+// CursorIndex is the 0-based index of the first not-yet-matched skeleton
+// entry - exposed only for debugverb.Cursor's own dynamic-row bookkeeping
+// (design-docs/DebugMode.md): right after AdvanceToPlay resyncs to a new
+// play, this is exactly that play's own first skeleton index, letting a
+// caller locate "which of my own, index-parallel structures does this play
+// correspond to" without this type needing to know anything about
+// playbook.PlayNode itself. 0 for a nil tracker, same "nothing to report"
+// convention Position() already uses.
+func (t *ProgressTracker) CursorIndex() int {
+	if t == nil {
+		return 0
+	}
+	return t.cursor
+}
