@@ -77,11 +77,28 @@ func (s *liveSession) updateWindowTitle(progressPos, progressTotal int, frozen b
 // one task can be genuinely in flight at once (strategy: free) - under
 // strategy: linear this is never more than one task, the exact same single
 // task the old CurrentTask()-based version tracked.
+//
+// Debug mode additionally keeps the task the debugger is currently
+// driving into spinning for as long as s.debugDriving stays true, even
+// after ansible's own result event already cleared it from InFlight
+// (debugverb.Cursor.Apply's own terminal-event branch) - reported live:
+// the spinner froze the instant the real task finished, even though
+// debugOnPause then spends real time on two more debugger-REPL
+// round-trips (task_vars, then task.register/result._return_data,
+// livesession_debug.go) before the pause actually surfaces.
+// s.debugDriving only goes false once that work is done and the pause
+// is about to render (debugApplyPauseResult), so it's already exactly
+// the right signal - nothing new to track, just one more task folded
+// into the same set.
 func (s *liveSession) activeTasks() map[*playbook.TaskNode]bool {
 	if s.processDone.Load() {
 		return nil
 	}
-	return uikit.TaskSet(s.state.IncompleteTasks())
+	active := uikit.TaskSet(s.state.IncompleteTasks()) // always non-nil
+	if s.debugMode && s.debugDriving && s.debugCursor != nil && s.debugCursor.CurrentTask != nil {
+		active[s.debugCursor.CurrentTask] = true
+	}
+	return active
 }
 
 // revealExpandedTask, called right after a task row's Enter/Space/click

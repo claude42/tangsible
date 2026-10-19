@@ -830,6 +830,45 @@ status-check result, aren't covered by this - `task.register`/`result.
 _return_data` describe one single, synchronous task completion, the only
 shape this round addressed.
 
+## Stage 3 follow-up round 4: spinner froze before a pause actually surfaced (2026-10-19)
+
+Reported live: a task's busy spinner animated only for ansible's own
+real execution time, then froze - even though debug mode then spends
+real additional time (the `task_vars` query, then the `task.register`/
+`result._return_data` queries round 3 above added, all debugger-REPL
+round-trips) before the pause is actually surfaced (tree re-rendered as
+paused, drill-down auto-opened). The gap is exactly `Query(task_vars)`'s
+own cost (`readUntilPrompt`'s O(n) fix, Stage 3 follow-up round 2 above
+- still proportional to how much the debugger's REPL echoes back, which
+grows with the task's own variable count) plus two more round-trips -
+not imagined, and not free.
+
+Root cause: `activeTasks()` (`livesession_rebuild.go`), the set
+`FlattenRows`/`TaskLabel` use to decide which task row gets the spinner
+prefix, is built purely from `playbook.PlaybookState.IncompleteTasks()`
+- membership in a task's own `InFlight` map. In debug mode,
+`debugverb.Cursor.Apply` clears `InFlight` the instant ansible's real
+jsonl result event arrives (a completely separate pipe from the
+debugger REPL) - before `debugOnPause`'s own query work even starts, let
+alone finishes.
+
+Fix: `activeTasks()` additionally marks `s.debugCursor.CurrentTask`
+active for as long as `s.debugDriving` stays true. `debugDriving` was
+already exactly the right signal with no changes needed to its own
+lifecycle - set before the blocking `RunWithBreakpoints`/
+`ContinueWithBreakpoints` call, cleared only in `debugApplyPauseResult`,
+which runs after that call (and so after `debugOnPause`'s queries)
+returns. `debugCursor.CurrentTask` itself is stable across this whole
+window - ansible can't dispatch a next task-start event until the
+debugger resumes, so nothing else could change which task this points
+to in the meantime.
+
+**Verified live**: a `gather_facts: true` fixture (inflating `task_vars`
+enough to make the query gap visible, ~2-3s) showed the spinner
+continuing to animate on `step one` well after every row's host column
+already showed `localhost` (i.e. after the real result events had all
+arrived), stopping only once the run actually finished.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces
