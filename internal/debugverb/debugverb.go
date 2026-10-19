@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
@@ -108,6 +109,24 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		}
 	}
 
+	// --vars-at-stops-only was --all-vars/-a's own old name (design-docs/
+	// DebugMode.md's "Stage 3 follow-up round 9") - rejected explicitly,
+	// the same "usage error" shape --step's own rejection above uses,
+	// rather than silently falling through to extractAllVarsFlag (which
+	// no longer recognizes it) and on into passthroughArgs: an
+	// unrecognized synthetic-looking flag reaching ansible-playbook's own
+	// --list-tasks probe failed with nothing but "probe failed" to show
+	// for it before this (reported live) - confirmed via
+	// BuildProgressSkeletonVerbose's own stderr capture (further below)
+	// that ansible-playbook's real error ("unrecognized arguments: ...")
+	// was there all along, just never surfaced.
+	for _, a := range rest {
+		if a == "--vars-at-stops-only" {
+			fmt.Fprintln(os.Stderr, "tangsible: --vars-at-stops-only was renamed to --all-vars (or -a)")
+			os.Exit(2)
+		}
+	}
+
 	// --all-vars/-a is debug's own synthetic flag (design-docs/
 	// DebugMode.md's "Stage 3 follow-up round 5"/round 9) - never a real
 	// ansible-playbook flag (neither spelling collides with one -
@@ -164,10 +183,14 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 	// cwd, since the copy lives under playbookDir/.tangsible/debug/<runID>,
 	// not necessarily cwd.
 	copyPlaybookPath := filepath.Join(copyDir, relPlaybook)
-	skeleton := runner.BuildProgressSkeleton(copyPlaybookPath, rest)
+	skeleton, probeStderr := runner.BuildProgressSkeletonVerbose(copyPlaybookPath, rest)
 	if len(skeleton) == 0 {
 		copyCleanup()
 		fmt.Fprintln(os.Stderr, "tangsible: couldn't predict this playbook's own task list (--list-tasks probe failed) - nothing to debug")
+		if probeStderr != "" {
+			fmt.Fprintln(os.Stderr, "ansible-playbook said:")
+			fmt.Fprintln(os.Stderr, summarizeProbeStderr(probeStderr))
+		}
 		os.Exit(1)
 	}
 
@@ -199,4 +222,29 @@ func extractAllVarsFlag(args []string) (allVars bool, rest []string) {
 		out = append(out, a)
 	}
 	return allVars, out
+}
+
+// summarizeProbeStderr trims BuildProgressSkeletonVerbose's own raw
+// stderr down to what's actually worth showing: an unrecognized or
+// malformed flag makes ansible-playbook's own argparse print a short
+// usage block and one "ansible-playbook: error: ..." line, immediately
+// followed by its own full --help text - confirmed empirically, well
+// over a hundred lines describing every option that exists, no matter
+// how short the real problem is. That line is cut right after, when
+// present; a failure with no such line (e.g. a YAML syntax error) has no
+// single reliable landmark to cut at, so falls back to a generous line
+// cap instead, rather than risk dumping an equally large, unrelated
+// wall of text for some failure shape never actually seen while writing this.
+func summarizeProbeStderr(stderr string) string {
+	const maxLines = 20
+	lines := strings.Split(stderr, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "ansible-playbook: error:") {
+			return strings.Join(lines[:i+1], "\n")
+		}
+	}
+	if len(lines) > maxLines {
+		return strings.Join(lines[:maxLines], "\n") + "\n... (truncated)"
+	}
+	return stderr
 }

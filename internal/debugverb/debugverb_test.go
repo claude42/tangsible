@@ -15,7 +15,9 @@
 package debugverb
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -74,4 +76,42 @@ func TestExtractAllVarsFlag(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSummarizeProbeStderr(t *testing.T) {
+	t.Run("cuts right after an argparse error line", func(t *testing.T) {
+		stderr := "usage: ansible-playbook ...\n" +
+			"ansible-playbook: error: unrecognized arguments: --some-made-up-flag\n" +
+			" \n" +
+			"usage: ansible-playbook ...\n" +
+			strings.Repeat("some huge --help dump line\n", 200)
+		got := summarizeProbeStderr(stderr)
+		want := "usage: ansible-playbook ...\n" +
+			"ansible-playbook: error: unrecognized arguments: --some-made-up-flag"
+		if got != want {
+			t.Errorf("summarizeProbeStderr(...) = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("short output with no error line passes through unchanged", func(t *testing.T) {
+		stderr := "[ERROR]: YAML parsing failed: While parsing a flow sequence...\nOrigin: /tmp/bad.yml:2:1"
+		if got := summarizeProbeStderr(stderr); got != stderr {
+			t.Errorf("summarizeProbeStderr(%q) = %q, want unchanged", stderr, got)
+		}
+	})
+
+	t.Run("long output with no error line falls back to a line cap", func(t *testing.T) {
+		var lines []string
+		for i := 0; i < 50; i++ {
+			lines = append(lines, fmt.Sprintf("line %d", i))
+		}
+		stderr := strings.Join(lines, "\n")
+		got := summarizeProbeStderr(stderr)
+		if !strings.HasSuffix(got, "... (truncated)") {
+			t.Errorf("summarizeProbeStderr(50 lines) = %q, want a truncation marker", got)
+		}
+		if strings.Count(got, "\n") != 20 {
+			t.Errorf("summarizeProbeStderr(50 lines) kept %d lines, want 20 plus the marker", strings.Count(got, "\n"))
+		}
+	})
 }

@@ -1286,6 +1286,48 @@ man page updated to match.
 support for the panel, and a static `"v: variables"` bottom-bar
 reminder for when the panel is fully hidden.
 
+## Stage 4 follow-up: a stale `--vars-at-stops-only` gave a misleading error (2026-10-19)
+
+Reported live: typing the pre-round-9 flag name (muscle memory) produced
+`tangsible: couldn't predict this playbook's own task list (--list-tasks
+probe failed) - nothing to debug` - true, but useless: since
+`extractAllVarsFlag` no longer recognizes that spelling, it stayed in
+`rest` and reached `ansible-playbook`'s own `--list-tasks --list-hosts`
+probe as an unrecognized argument, which failed for a real, specific
+reason `BuildProgressSkeleton` had never captured in the first place
+(no `cmd.Stderr` at all - any failure, for any reason, just returned
+`nil`).
+
+Two fixes, not one - the specific case and the general one:
+
+- `--vars-at-stops-only` is now rejected explicitly in `PrepareSession`,
+  the same "usage error" shape `--step`'s own rejection already uses,
+  with a direct pointer to the new name: `tangsible: --vars-at-stops-only
+  was renamed to --all-vars (or -a)`.
+- `runner.BuildProgressSkeleton` now has a sibling,
+  `BuildProgressSkeletonVerbose`, which also captures and returns the
+  probe's own stderr (`""` on success) - the plain form still discards
+  it, unchanged for its other two callers (`session/main.go`,
+  `runner/generation.go`), where a failed probe is silently tolerated
+  (no progress bar) and always has been. `PrepareSession` uses the
+  verbose form and prints the real reason - but trimmed, not raw:
+  confirmed live that ansible-playbook's own argparse error for *any*
+  unrecognized flag prints a short usage block and one `ansible-playbook:
+  error: ...` line immediately followed by its own full `--help` text,
+  127+ lines no matter how small the actual problem is.
+  `summarizeProbeStderr` cuts right after that error line when present;
+  a failure shape with no such line (a YAML syntax error, say) falls
+  back to a 20-line cap instead, since there's no single reliable
+  landmark to cut at there.
+
+**Verified**: `TestSummarizeProbeStderr` (`internal/debugverb`) covers
+the cut-at-error-line case, a short no-error-line passthrough, and the
+line-cap fallback; `go build ./... && go vet ./... && go test ./...`
+all pass. Live: `tangsible debug <playbook> --vars-at-stops-only` now
+exits immediately with the rename pointer; an arbitrary unrecognized
+flag (`--some-made-up-flag`) now shows the real usage+error text instead
+of the generic "probe failed" message alone.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

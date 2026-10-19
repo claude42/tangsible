@@ -198,15 +198,29 @@ func ParseListTasksOutput(output string, freeStrategyPlays map[string]bool) []Pr
 // the same - narrow enough (only playbooks actually using those flags)
 // to leave as a known limitation rather than solve up front.
 func BuildProgressSkeleton(playbook string, passthroughArgs []string) []ProgressEntry {
+	entries, _ := BuildProgressSkeletonVerbose(playbook, passthroughArgs)
+	return entries
+}
+
+// BuildProgressSkeletonVerbose is BuildProgressSkeleton's own verbose
+// form - same probe, but also returns the probe's own stderr (trimmed,
+// "" on success) for a caller where a failed probe is fatal
+// (debugverb.PrepareSession) rather than "no progress bar, carry on"
+// like every other caller of the plain form above. Kept as a separate
+// function rather than changing BuildProgressSkeleton's own signature:
+// every other caller treats a failed probe as silently tolerable and
+// has no use for the extra return value.
+func BuildProgressSkeletonVerbose(playbook string, passthroughArgs []string) (entries []ProgressEntry, stderrText string) {
 	args := append([]string{playbook}, passthroughArgs...)
 	args = append(args, "--list-tasks", "--list-hosts")
 	cmd := exec.Command("ansible-playbook", args...)
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil
+		return nil, strings.TrimSpace(stderr.String())
 	}
-	return ParseListTasksOutput(stdout.String(), source.FreeStrategyPlayNames(playbook))
+	return ParseListTasksOutput(stdout.String(), source.FreeStrategyPlayNames(playbook)), ""
 }
 
 // ProgressBaseLookahead bounds how far ahead of the tracker's own cursor
