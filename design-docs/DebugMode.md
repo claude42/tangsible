@@ -643,6 +643,37 @@ task (`command: sleep 8`): the spinner now animates in column one while
 it's running, and disappears once it completes, exactly matching a
 plain run's own tree.
 
+## Stage 3 follow-up round 2: `readUntilPrompt` was O(n^2) (2026-10-18)
+
+**Reported live, right after the previous round shipped:** a single task
+on a single host now took over ten seconds; the whole point of Stage 3
+was that the data was already being collected, not newly fetched slowly.
+
+**Root cause, confirmed with an isolated probe before touching any
+code** (`cmd/perfprobe`, a throwaway timing harness built inside the
+module tree since `internal/...` packages aren't importable from
+outside it, deleted once done): `debugrun.Session.readUntilPrompt`
+re-stringified the *entire* accumulated REPL buffer (`buf.String()`, a
+full copy) and re-ran `promptRe` against it, once per byte received. A
+one-time O(n) prompt check is fine for any response; doing it n times
+over a buffer that grows to n is O(n^2) - and this was always true, just
+never triggered: every caller before the previous round (`Start`/
+`Continue`'s own short prompt lines, the existing test's small targeted
+query) returned responses far too small to multiply into anything
+noticeable. `Query("task_vars")` against a host with facts gathered
+returns 100KB+, which is exactly what the previous round made Stage 3
+call on *every* pause - the probe measured ~20s for one such 112KB
+response.
+
+**Fix:** match only the last 4096 bytes of the buffer (comfortably
+larger than any real `"[host] TASK: name (debug)> "` prompt line, nowhere
+near the size of a real data response), and match bytes directly
+(`FindSubmatch` against `buf.Bytes()`'s tail) instead of copying via
+`buf.String()` first. Confirmed with the same probe (~0.74s for the same
+112KB response afterward), then live in a full tmux debug session: a
+three-task, one-host fixture with facts gathering enabled dropped from
+~41-66s to ~5s wall-clock for a complete run.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces
