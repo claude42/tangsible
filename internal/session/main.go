@@ -770,7 +770,7 @@ func Main(build BuildInfo) {
 			CopyPlaybookPath: debugPrep.CopyPlaybookPath,
 			BPS:              debugrun.NewBreakpointSet(),
 			Cursor:           debugverb.NewCursor(debugNodes, debugNodePlay, progH.Load(), debugPrep.PathMapping),
-			VarsAtStopsOnly:  debugPrep.VarsAtStopsOnly,
+			AllVars:          debugPrep.AllVars,
 		}
 	}
 	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)

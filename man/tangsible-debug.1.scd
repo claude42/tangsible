@@ -6,7 +6,7 @@ tangsible-debug - set breakpoints and step through a playbook
 
 # SYNOPSIS
 
-*tangsible debug* [_playbook.yml_] [--vars-at-stops-only] [_ansible-playbook args_ ...]
+*tangsible debug* [_playbook.yml_] [--all-vars|-a] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -43,16 +43,16 @@ something a later *tangsible rerun* can replay.
 
 # ADDITIONAL OPTIONS
 
-*--vars-at-stops-only*
-	By default, *debug* captures each paused task's own variables for
-	*every* task reached, including one silently resumed past with no
-	breakpoint armed on it, so its Resolved tab works no matter which
+*--all-vars*, *-a*
+	By default, *debug* captures a paused task's own variables only at a
+	pause actually shown to you (an armed breakpoint, a step, or a task
+	failure) - its Resolved tab works for that task, but not yet for one
+	you haven't stopped at. This flag captures every task's own
+	variables instead, including one silently resumed past with no
+	breakpoint armed on it, so the Resolved tab works no matter which
 	task you later navigate back to - at the cost of paying that
 	capture's own real time on every single task, whether or not the run
-	ever actually stops there. This flag captures only at a pause
-	actually shown to you (an armed breakpoint, a step, or a task
-	failure), trading that for a noticeably faster run through everything
-	else.
+	ever actually stops there.
 
 # CONTROLS
 
@@ -84,10 +84,10 @@ Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
 stop), the drill-down
 opens automatically for that exact paused task and host, in whichever of
 full-screen or two-pane mode the terminal's current width calls for. Its
-*Resolved* tab works for *any* task's drill-down, not just the one
-currently paused at - every task's own variables are captured as the run
-reaches it (see *--vars-at-stops-only* above to trade that for speed
-instead) - showing the task's source with every variable reference filled
+*Resolved* tab works for the task currently paused at; with *--all-vars*
+(above), every task's own variables are captured as the run reaches it,
+so the tab works for *any* task's drill-down, not just the one currently
+paused at - showing the task's source with every variable reference filled
 in from its own captured state, including *when:*/*failed_when:*/
 *changed_when:*/*until:* conditions and a *register:* target's own result.
 The raw-output (*o*) view has nothing to show in a debug session, since the

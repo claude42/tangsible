@@ -345,14 +345,16 @@ type liveSession struct {
 	// PrepareSession's own skeleton is seeded (main.go), same lifetime
 	// as state.Plays itself.
 	debugCursor *debugverb.Cursor
-	// debugVarsAtStopsOnly is --vars-at-stops-only (design-docs/
-	// DebugMode.md's "Stage 3 follow-up round 5"): when set, debugOnPause
-	// skips its task_vars/register query for a pause that won't be
-	// surfaced to the user, trading "Resolved tab works for any task" for
-	// not paying that query's own real cost on every task regardless of
-	// whether the session ever actually stops there. False (the default)
-	// keeps today's "every task" behavior unchanged.
-	debugVarsAtStopsOnly bool
+	// debugAllVars is --all-vars/-a (design-docs/DebugMode.md's "Stage 3
+	// follow-up round 5"/round 9): false (the default) is "vars at stops
+	// only" - debugOnPause skips its task_vars/register query for a pause
+	// that won't be surfaced to the user, trading "Resolved tab works for
+	// any task" for not paying that query's own real cost on every task
+	// regardless of whether the session ever actually stops there. Set,
+	// it restores the "every task" behavior (slower, but the Resolved tab
+	// then works for any task you navigate to, not just ones you stopped
+	// at).
+	debugAllVars bool
 	// debugSess is nil until the user's first F5/F10/F11 - see
 	// debugStartOrContinue's own doc comment for why it's published via
 	// QueueUpdateDraw immediately once debugrun.Spawn succeeds, before

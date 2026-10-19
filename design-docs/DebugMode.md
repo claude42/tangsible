@@ -1032,6 +1032,40 @@ the section renders in both the tree's and the drill-down's own help
 overlay during a debug session, and is completely absent for a plain
 `run`.
 
+## Stage 3 follow-up round 9: `--vars-at-stops-only` flipped to `--all-vars`/`-a` (2026-10-19)
+
+Requested: round 6's flag had the default backwards for typical use -
+most sessions want the faster "vars at stops only" behavior, not the
+slower "every task" one, so capturing every task's variables should be
+the opt-in, not the default. Also asked to shorten the flag's own name
+while at it.
+
+Renamed (not just re-spelled) `--vars-at-stops-only` to `--all-vars`,
+also accepting `-a` (neither spelling collides with an `ansible-playbook`
+flag - confirmed against its own `--help` output's short-flag list, same
+check round 1's synthetic flags already passed). Flipped the sense
+throughout rather than just the name: `SessionPrep.VarsAtStopsOnly` →
+`AllVars`, `DebugConfig.VarsAtStopsOnly` → `AllVars`,
+`liveSession.debugVarsAtStopsOnly` → `debugAllVars`,
+`extractVarsAtStopsOnlyFlag` → `extractAllVarsFlag` (now recognizing
+either spelling). `debugOnPause`'s own early-exit
+(`livesession_debug.go`) inverted from `if s.debugVarsAtStopsOnly &&
+!willSurface` to `if !s.debugAllVars && !willSurface` - the zero value
+(flag absent) is now "vars at stops only," matching every other boolean
+synthetic flag in this codebase where the zero value is the common case.
+
+No change needed to `applyPolicy`'s own `willSurface` computation
+(`internal/debugrun/breakpoints.go`) or to how a missing snapshot is
+handled (`showOutput`'s existing "no snapshot, tab stays absent" path) -
+only which side of `willSurface` decides to skip the query changed.
+
+**Verified**: `TestExtractAllVarsFlag` (`internal/debugverb`, renamed
+from `TestExtractVarsAtStopsOnlyFlag`) covers both spellings, repeated
+and combined; `go build ./... && go vet ./... && go test ./...` all
+pass. `completions/tangsible.bash`/`tangsible.fish`, `README.md`,
+`man/tangsible-debug.1.scd` (regenerated via `make man`), and
+`design-docs/Codemap.md` updated to match.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

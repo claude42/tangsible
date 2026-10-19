@@ -113,8 +113,8 @@ const (
 // armed: once applyPolicy's own loop calls Continue again, that pause's
 // data is gone for good, with nothing left to query it from. A caller
 // that only wants that query paid for when a pause will actually be
-// surfaced (design-docs/DebugMode.md's "vars-at-stops-only" option) reads
-// willSurface to decide.
+// surfaced (design-docs/DebugMode.md's "vars at stops only" default, the
+// --all-vars/-a flag opting out of it) reads willSurface to decide.
 func RunWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPause func(Pause, bool)) (Pause, bool, error) {
 	pause, eof, err := sess.Start()
 	return applyPolicy(sess, bps, mode, "", pause, eof, err, onPause)

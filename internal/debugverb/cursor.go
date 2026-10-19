@@ -42,10 +42,10 @@ type DebugConfig struct {
 	// (SeedState's second return value, wrapped - built by main.go right
 	// alongside state itself).
 	Cursor *Cursor
-	// VarsAtStopsOnly is PrepareSession's own --vars-at-stops-only result
-	// (design-docs/DebugMode.md's "Stage 3 follow-up round 5") - see
-	// liveSession.debugVarsAtStopsOnly's own doc comment for what it does.
-	VarsAtStopsOnly bool
+	// AllVars is PrepareSession's own --all-vars/-a result (design-docs/
+	// DebugMode.md's "Stage 3 follow-up round 5"/round 9) - see
+	// liveSession.debugAllVars's own doc comment for what it does.
+	AllVars bool
 }
 
 // SeedState builds a *playbook.PlaybookState directly from skeleton

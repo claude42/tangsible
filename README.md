@@ -252,7 +252,7 @@ It runs the role against `hosts: all`, while normal Ansible options such as
 ## Debugging a playbook (breakpoints)
 
 ```
-tangsible debug [playbook.yml] [--vars-at-stops-only] [ansible-playbook args...]
+tangsible debug [playbook.yml] [--all-vars|-a] [ansible-playbook args...]
 ```
 
 This is the same live tree, two-pane layout, and tabbed drill-down as a
@@ -274,12 +274,13 @@ task and host, with a working Resolved tab - unlike a normal run's own
 captured state, including `when:`/`failed_when:`/`changed_when:`/`until:`
 conditions and a `register:` target's own result.
 
-By default, every task's own variables are captured as it's reached, not
-just the ones you actually stop at, so the Resolved tab works no matter
-which task you later navigate back to - at the cost of that capture's own
-real time on every task, whether or not the run ever stops there.
-`--vars-at-stops-only` captures only at a pause actually shown to you, for
-a noticeably faster run through everything else.
+By default, variables are only captured at a pause actually shown to you
+(an armed breakpoint, a step, or a task failure), so the Resolved tab
+works for that task, not yet for one you haven't stopped at.
+`--all-vars`/`-a` captures every task's own variables as it's reached
+instead, so the Resolved tab works no matter which task you later
+navigate back to - at the cost of that capture's own real time on every
+task, whether or not the run ever stops there.
 
 ## Debugging a Jinja2 template
 

@@ -138,8 +138,8 @@ possible, and `internal/session` (`main.go`'s `VerbDebug` case,
 
 - **debugverb.go** - `PrepareSession`: resolves "tangsible debug"'s own
   arguments (rejects `--step` outright - a second, unhandled pause
-  mechanism; extracts its own `--vars-at-stops-only` via
-  `extractVarsAtStopsOnlyFlag`), builds the shadow copy + `debugger:
+  mechanism; extracts its own `--all-vars`/`-a` via
+  `extractAllVarsFlag`), builds the shadow copy + `debugger:
   always` splice (`internal/debugcopy`), and probes the spliced copy for
   its task skeleton (`runner.BuildProgressSkeleton`) - everything up
   through having a real, spawnable playbook ready, returned as
@@ -156,7 +156,7 @@ possible, and `internal/session` (`main.go`'s `VerbDebug` case,
   `TaskLabel` is a task's own breakpoint-set key (matching the debugger's
   own prompt text); `DebugConfig` bundles everything `internal/session`'s
   `NewLiveTUI` needs from this package (`BPS`, `Cursor`,
-  `VarsAtStopsOnly`, ...) into one parameter.
+  `AllVars`, ...) into one parameter.
 
 ## internal/runner
 
@@ -297,7 +297,7 @@ thin constructor/wiring shell.
     `debugOnPause`/`mergeRegisteredResult` (captures `task_vars`, plus
     the paused task's own `register:` result if it has one, into
     `debugTaskVarsCache` - skipped for a pause `willSurface` says won't
-    be shown when `--vars-at-stops-only` is set), `debugApplyPauseResult`/
+    be shown, unless `--all-vars`/`-a` is set), `debugApplyPauseResult`/
     `debugFinish` (mirrors `runner.RunOneGeneration`'s own "exitCode/
     lastStderr before processDone" ordering), `debugChromeStyle`/
     `debugChromeBg`/`debugRefreshChrome` (the two extra chrome states on

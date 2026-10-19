@@ -12,7 +12,7 @@
 # passes those straight through unchanged - and tangsible's own synthetic
 # flags (--start-at-play/--dialog/--no-dialog/--only-failed/
 # --only-unreachable/--resume-where-failed, rerunargs.go/dialogflag.go;
-# --vars-at-stops-only, internal/debugverb/debugverb.go), each offered only
+# --all-vars/-a, internal/debugverb/debugverb.go), each offered only
 # for the verbs whose own arg parser actually recognizes it
 # (internal/session/main.go).
 
@@ -159,7 +159,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from vault' -l ask-vault-pass -
 # `ansible-playbook --help` at all. Each scoped to exactly the verbs
 # whose own arg parser recognizes it (ExtractStartAtPlay/
 # ExtractDialogFlag/ExtractRerunFlags, internal/session/main.go;
-# extractVarsAtStopsOnlyFlag, internal/debugverb/debugverb.go) -
+# extractAllVarsFlag, internal/debugverb/debugverb.go) -
 # offering a flag a verb would reject as a usage error isn't "good
 # enough," it's actively wrong.
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun' -l start-at-play -x -d 'Start at this play (by name), dropping every earlier one'
@@ -168,4 +168,4 @@ complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l no-dial
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-failed -d 'Limit to hosts that failed last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-unreachable -d 'Limit to hosts that were unreachable last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l resume-where-failed -d 'Start at the first play with a failure, limited to failed hosts'
-complete -c tangsible -n '__fish_seen_subcommand_from debug' -l vars-at-stops-only -d 'Capture variables only at a pause actually shown to you, not every task'
+complete -c tangsible -n '__fish_seen_subcommand_from debug' -s a -l all-vars -d 'Capture variables at every task, not only at a pause actually shown to you'
