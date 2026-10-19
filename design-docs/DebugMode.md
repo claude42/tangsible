@@ -674,6 +674,94 @@ near the size of a real data response), and match bytes directly
 three-task, one-host fixture with facts gathering enabled dropped from
 ~41-66s to ~5s wall-clock for a complete run.
 
+## Stage 3 follow-up round 3: resolving when:/failed_when:/changed_when:/until: (2026-10-19)
+
+**Requested live:** the Resolved tab leaves conditions untouched - ansible
+evaluates `when:`, `failed_when:`, `changed_when:`, and `until:` as bare
+Jinja expressions, never `{{ }}`-wrapped, so `wrapJinjaDefaults`'s own
+`{{ }}`-regex (resolved.go) never finds anything to substitute in them.
+The simplest fix - wrapping the *whole* condition in `{{ }}` and letting
+it render - was considered and rejected: it would collapse `something !=
+0` down to a flat `True`/`False`, throwing away exactly the "which
+operand turned out to be what" detail that makes a condition worth
+reading in the first place. What's wanted instead: resolve only the
+*variable references* within the expression, leaving every operator,
+filter, test, and literal exactly as written - `something != 0` becomes
+`1 != 0`, not `True`.
+
+**Why this needed real Jinja parsing, not another regex.** A regex-based
+identifier substitution (tried first, in exploration, never committed)
+immediately misfires on three ordinary shapes: a filter name (`| default`
+would rewrite `default` itself if it happened to collide with a vars
+key), an `is defined`/`is not` test name, and dotted attribute access
+(`foo.bar.baz` would try to resolve `bar`/`baz` as if they were their own
+free-standing variables). The fix needed the *real* Jinja grammar - which
+means running Jinja's own parser, not reimplementing it. There's no
+Go-native Jinja parser in this codebase (nor vendored), but `jinja2` -
+the same library `ansible-playbook`'s own templating depends on - is
+already present on any machine capable of running this project at all.
+This is this project's first use of `python3` as its own subprocess
+(previously only `ansible-playbook`/`ansible-inventory`/`ansible-config`/
+`ansible-doc` were ever shelled out to) - confirmed no existing seam for
+"run a Python snippet" existed before this.
+
+**The resolver (`resolve_condition.py`, go:embed'd into
+`resolve_condition.go`, run as `python3 -c <script>`):** parses an
+expression with `jinja2.Environment().parse()`, then recursively
+replaces every *maximal pure-data-access subtree* - a bare variable
+reference, or an attribute/item-access chain rooted at one (`x`, `x.y.z`,
+`x['y']`) - with its fully resolved value, provided the whole chain
+resolves against the captured `task_vars` snapshot (same snapshot the
+module-arg resolver already uses) and the result is plain JSON-safe data
+(not, say, a bound method reached via `x.split`). Everything else -
+`Compare`, `And`/`Or`/`Not`, `Filter`, `Test`, `Call`, arithmetic,
+`Concat`, list/dict/tuple literals, the ternary `CondExpr` - is walked
+recursively (so a variable nested inside any of them still gets its own
+chance) but never collapsed itself; only genuine data-access subtrees
+ever become a `Const`. The simplified tree is then rendered back to text
+by a small hand-written unparser covering exactly this grammar subset -
+not a general Jinja-to-source tool, since conditions never need the rest
+of Jinja's grammar (control blocks, macros, `set`). Anything this can't
+handle - a syntax error, an ansible-specific Jinja extension plain
+`jinja2` doesn't know, a reference nothing in the snapshot satisfies - is
+echoed back completely unchanged, the exact same silent-fallback contract
+`wrapJinjaDefaults` already has for an undefined `{{ }}` variable.
+
+**Splicing the result back in (`resolve_condition.go`):**
+`extractTaskConditions` parses a task's raw source text (the same
+`taskSource` blob `resolveTaskValues` already renders) with `yaml.v3`,
+finds every `when`/`failed_when`/`changed_when`/`until` key at the
+task's own top level - a plain scalar or a block list (ansible ANDs list
+items; a flow list or a folded/literal block scalar is left alone, not
+chased further) - and records both its exact original text span (for
+splicing) and its expression(s) (for resolving), using the node's own
+`Line`/`Column` the same way `internal/source`'s own line-slicing
+already does. `resolveConditionsInText` then resolves every expression
+in one batched Python call and replaces each key's original span with
+its resolved rendering (preserving the original's own indentation and
+scalar/list shape) inside the text `resolveTaskValues` already produced
+- safe because Jinja preserves literal text outside `{{ }}`/`{% %}`
+verbatim, so a condition key's own span is guaranteed byte-identical
+between the raw source and the rendered output (the one exception - a
+condition whose own text happens to contain a literal `{{ }}` - just
+silently fails to find its span and is left alone, an even narrower
+version of a gap `wrapJinjaDefaults` already accepts).
+
+**Scope, deliberately not chased further here:** `failed_when:`/
+`changed_when:`/`until:` typically reference the task's own `register:`
+target, which doesn't exist yet in the snapshot captured at the pause
+*before* that task runs - these fall back to unresolved text in
+practice, same as a loop variable or anything else genuinely undefined,
+not a bug to fix, just this mechanism's natural limit. Verified live with
+a three-task fixture (`something: 1`, no facts gathered): a scalar
+`when: something != 0` resolved to `when: 1 != 0`; a list-form `when:`
+mixing a resolvable `something == 1` with an unresolvable
+`ansible_os_family is defined or true` (facts not gathered) resolved the
+first line and left the second exactly as written, both inside one
+correctly-reconstructed list block; a task with no condition at all kept
+showing no Resolved tab when nothing else about it needed resolving
+either - no regression from this on tasks the feature doesn't apply to.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

@@ -313,5 +313,9 @@ func resolveTaskValuesFromSnapshot(taskPath, taskSource, host string, rest []str
 	}
 	snapFile.Close()
 
-	return resolveTaskValues(taskPath, taskSource, host, rest, snapPath)
+	text, err := resolveTaskValues(taskPath, taskSource, host, rest, snapPath)
+	if err != nil {
+		return "", err
+	}
+	return resolveConditionsInText(text, taskSource, snapshot), nil
 }

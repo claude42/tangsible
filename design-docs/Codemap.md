@@ -302,6 +302,14 @@ thin constructor/wiring shell.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`
   task).
+- **resolve_condition.go**/**resolve_condition.py** - resolves the
+  variable references within a task's `when:`/`failed_when:`/
+  `changed_when:`/`until:` conditions (debug mode only, called from
+  `resolveTaskValuesFromSnapshot` above): a real Jinja AST walk (the
+  `jinja2` library ansible itself depends on, run as `python3 -c
+  <go:embed'd script>`), substituting only variable-reference subtrees
+  that fully resolve - every operator/filter/test/literal passes
+  through untouched.
 - **render.go** - plain-text tree dump; unused by the live flow, kept
   as a dependency-free debug aid.
 - **autocomplete.go** - re-run dialog field autocomplete matching

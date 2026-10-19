@@ -572,9 +572,16 @@ never ran at all this session (the run finished before reaching it) has
 nothing captured, so the tab stays absent for it, same as any other
 task with nothing to show - likewise a task with no `{{ }}` expression
 of its own in the first place. Loop variables (`item`) still fall back
-to their own literal text, same as always; variables inside `when:`
-conditions aren't touched by this mechanism at all (it only re-templates
-the task's own `{{ }}` expressions, not conditionals).
+to their own literal text, same as always. `when:`/`failed_when:`/
+`changed_when:`/`until:` conditions get their own, separate resolution
+pass (real Jinja AST parsing, `internal/session/resolve_condition.go`/
+`.py`) that substitutes only the variable references within the
+expression, leaving operators/filters/tests/literals as written
+(`when: something != 0` renders as `when: 1 != 0`, not a flat
+`True`/`False`) - `failed_when:`/`changed_when:`/`until:` typically
+reference the task's own not-yet-registered result, so these usually
+still show unresolved, same graceful fallback as anything else
+undefined.
 
 **Known gaps:** the raw-output (`o`) view has nothing to show (the
 debugger owns the child's stdout for its own prompt text - design-docs/
