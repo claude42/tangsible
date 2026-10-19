@@ -271,7 +271,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// startup dialog until submitRerun's first-ever call flips s.everStarted
 	// true directly, and - new with design-docs/DebugMode.md's "Stage 2" -
 	// always false for "debug"'s own idle startup too (nothing is spawned
-	// until the user's first F5/F10, with no dialog of any kind in between,
+	// until the user's first F5/F10/F11, with no dialog of any kind in between,
 	// unlike every other startWithRerunDialog-true case). A revisit session
 	// opened straight into the re-run dialog ('r' on the s.list) also has
 	// pendingSpawned false, but there a run genuinely *has* happened

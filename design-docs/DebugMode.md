@@ -966,10 +966,56 @@ not just passes vacuously: reverting the regex fix made it fail at the
 timeout a plain hang would otherwise cost every future test run).
 `TestTaskLabel` covers the new `isHandler` parameter. Live-verified in
 tmux: a handler-notifying playbook runs end to end with no breakpoints
-armed (previously hung indefinitely); stepping (F10) onto the handler's
-own pause shows it correctly as the current task, with the same `›`
-paused marker and host coloring as any other task, and F9 arms/disarms a
+armed (previously hung indefinitely); stepping (the step key - F11 as of
+round 8 below, F10 at the time this was verified) onto the handler's own
+pause shows it correctly as the current task, with the same `›` paused
+marker and host coloring as any other task, and F9 arms/disarms a
 breakpoint on it without issue.
+
+## Stage 3 follow-up round 8: F10/F11 split - step vs. skip to next task (2026-10-19)
+
+Requested live: F10 (`debugrun.StepOne`) surfaces *every* pause
+unconditionally, including every other host still left on the current
+task - tedious on a many-host run when only the next task actually
+mattered, not that host's own individual result. Split into two keys:
+F10 now means "skip the rest of this task's hosts, stop at the next
+task's first pause" (new `debugrun.StepNextTask` mode); F11 takes over
+StepOne's own old behavior unchanged.
+
+`StepNextTask` needed one new piece of state `applyPolicy`
+(`internal/debugrun/breakpoints.go`) didn't have before: `fromTask`, the
+task label the caller is already paused at - every further pause gets
+silently resumed past as long as its own task label still matches
+`fromTask`, surfacing unconditionally the instant a different task's
+pause arrives (or `bps.Has` would have surfaced it anyway, or eof).
+Threaded through `ContinueWithBreakpoints`'s own new parameter;
+`RunWithBreakpoints` (the very first `Start()` call, nothing paused at
+yet) always passes `""`, which falls back to behaving exactly like
+`StepOne` there - there's no "current task" to skip past before anything
+has run, so stopping at the very first pause is the only sensible
+reading of "next task" in that case.
+
+On `internal/session`'s own side: a new `liveSession.debugLastPauseTask`
+field holds the most recent real pause's own task label (set in
+`debugApplyPauseResult` alongside `debugPausedHost`), read in
+`debugStartOrContinue` right before spawning the background goroutine
+and passed down as `fromTask` - deliberately the debugger's own REPL-
+stream label, not `debugCursor.CurrentTask` (the jsonl-stream-derived
+`*playbook.TaskNode` `debugOnPause`'s own doc comment already explains
+can't be reliably correlated to every pause in an auto-continued
+sequence).
+
+**Verified**: `TestBreakpoints_StepNextTask_SkipsRemainingHostsOfCurrentTask`
+(`internal/debugrun/breakpoints_test.go`) - a 3-task/2-host fixture,
+confirming each `StepNextTask` call lands on the next task's first host
+regardless of how many hosts remained on the current one, and that the
+very first call (via `RunWithBreakpoints`, nothing paused yet) falls back
+to `StepOne`'s own "stop at the very first pause" behavior. Live-verified
+in tmux with a 3-host, 3-task fixture (`--forks 1` for deterministic
+ordering): F11 stepped hostA → hostB on `step one` as before; F10 from
+hostB skipped hostC entirely and landed directly on `step two`'s own
+hostA, then again straight to `step three`'s hostA - the bottom bar hint
+now reads "F10: next task  F11: step" (idle/paused) accordingly.
 
 ## Status
 

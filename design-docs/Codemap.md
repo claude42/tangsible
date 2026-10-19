@@ -289,8 +289,8 @@ thin constructor/wiring shell.
     its 7 named sub-methods (same per-mode split as the keyboard side).
   - **livesession_debug.go** - everything specific to `debugMode`
     (`design-docs/DebugMode.md`): `handleDebugKey`
-    (F5/F9/F10, `livesession_input.go`'s own dispatcher calls into this
-    one), `debugToggleBreakpoint(For)`/`debugTaskAtFirstColumn` (F9 and
+    (F5/F9/F10/F11, `livesession_input.go`'s own dispatcher calls into
+    this one), `debugToggleBreakpoint(For)`/`debugTaskAtFirstColumn` (F9 and
     its mouse equivalent), `debugStartOrContinue` (the orchestration
     goroutine driving `debugrun.Spawn`/`RunWithBreakpoints`/
     `ContinueWithBreakpoints`, reporting back via `QueueUpdateDraw`),

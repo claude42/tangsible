@@ -31,7 +31,7 @@ the same way the live tree's own progress indicator is (a throwaway
 resolved *include_tasks:*, won't appear in this predicted list even though
 it will genuinely run; see *tangsible*(1)'s own *--list-tasks* caveats. The
 whole predicted tree is visible up front, before anything has run, so
-breakpoints can be armed before the first *F5*/*F10*.
+breakpoints can be armed before the first *F5*/*F10*/*F11*.
 
 *debug* is the exact same live tree UI *tangsible-run*(1) uses, with
 breakpoint/pause state layered on top - not a second, separate screen.
@@ -56,7 +56,7 @@ something a later *tangsible rerun* can replay.
 
 # CONTROLS
 
-Three keys exist only for this verb, on top of everything *tangsible-run*(1)
+Four keys exist only for this verb, on top of everything *tangsible-run*(1)
 already offers:
 
 *F5*
@@ -71,10 +71,17 @@ already offers:
 	the row's usual expand/collapse.
 
 *F10*
-	Step: before a run starts, or while paused, stops at the very next
-	pause unconditionally, armed or not.
+	Next task: before a run starts, or while paused, skips the rest of
+	the current task's remaining hosts and stops unconditionally at the
+	next task's first pause, armed or not.
 
-Whenever a pause surfaces (an armed breakpoint, or a step), the drill-down
+*F11*
+	Step: before a run starts, or while paused, stops at the very next
+	pause unconditionally, armed or not - one host at a time, including
+	every other host still left on the current task.
+
+Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
+stop), the drill-down
 opens automatically for that exact paused task and host, in whichever of
 full-screen or two-pane mode the terminal's current width calls for. Its
 *Resolved* tab works for *any* task's drill-down, not just the one

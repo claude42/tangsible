@@ -511,9 +511,9 @@ task tree is visible up front, before anything has run (seeded from a
 `--list-tasks` skeleton probe, `internal/debugverb.SeedState` - see
 DebugMode.md for why this can't go through `PlaybookState.Apply` the way
 a plain run's tree grows), so breakpoints can be armed before pressing
-F5/F10 even once.
+F5/F10/F11 even once.
 
-Three keys exist only for this verb, with no plain-tree equivalent to
+Four keys exist only for this verb, with no plain-tree equivalent to
 collide with:
 
 * F5               - run: before a run starts, or while paused, resumes
@@ -526,15 +526,30 @@ collide with:
                      TaskLabel`'s own prefix slot (same column the busy
                      indicator uses on a plain run's tree, not a second
                      one of its own)
-* F10              - step: before a run starts, or while paused, stops
-                     at the very next pause unconditionally, armed or
-                     not (this is also "Step Into" from design-docs/
+* F10              - next task (`debugrun.StepNextTask`): before a run
+                     starts, or while paused, auto-continues past every
+                     further pause for the *same* task (every other
+                     host still to come), stopping unconditionally at
+                     the first pause for a *different* task, armed or
+                     not - reported live: F11's own "every pause, no
+                     exceptions" made stepping through a many-host task
+                     tedious when only the next task actually mattered.
+                     Meaningless before anything has run (no "current
+                     task" yet to skip past) - falls back to F11's own
+                     behavior there, stopping at the very first pause.
+* F11              - step (`debugrun.StepOne`): before a run starts, or
+                     while paused, stops at the very next pause
+                     unconditionally, armed or not, one host at a time -
+                     this is also "Step Into" from design-docs/
                      DebugMode.md's own vision - they're the same thing
                      here, since Ansible flattens includes/roles/blocks
-                     into one sequential pause stream)
+                     into one sequential pause stream. F10's own old
+                     binding before this round (design-docs/DebugMode.md's
+                     "Stage 3 follow-up round 8") - moved to F11 to make
+                     room for F10's new meaning above.
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
-sketches a `[keys]` config section for these three; not wired up yet).
+sketches a `[keys]` config section for these four; not wired up yet).
 
 **Mouse:** a left click on a task row's own first column - exactly
 where the `●` marker above sits, whether or not it's currently showing -
@@ -543,11 +558,12 @@ Enter-equivalent expand/collapse. Works in both full-screen and two-pane
 mode, on any task row, not just the one under the cursor; a click
 anywhere else on the row still expands/collapses as usual.
 
-**Auto-open.** Whenever a pause surfaces (an armed breakpoint, or a
-step), the drill-down opens automatically for that exact paused task and
-host - the two-pane/full-screen decision is the same live, terminal-
-width-driven one `design-docs/TwoPanedLayout.md` already describes. If
-the task's expanded (`Enter`) to show its own per-host rows, the exact
+**Auto-open.** Whenever a pause surfaces (an armed breakpoint, a step, or
+a next-task stop), the drill-down opens automatically for that exact
+paused task and host - the two-pane/full-screen decision is the same
+live, terminal-width-driven one `design-docs/TwoPanedLayout.md` already
+describes. If the task's expanded (`Enter`) to show its own per-host
+rows, the exact
 paused host also gets its own marker: a `›` in `chrome_debug_paused`'s
 own color, in `HostLabel`'s own prefix slot (same "one slot, several
 mutually exclusive meanings" shape as the warning glyph it shares that

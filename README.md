@@ -261,10 +261,12 @@ shows every play and task up front (so breakpoints can be armed before
 anything has run), lets you set them directly on the tree, then run or
 step through the playbook: `F5` runs to the next armed breakpoint (or to
 completion with none set), `F9` arms/disarms a breakpoint on the selected
-task (or click its row), and `F10` steps to the very next pause
-regardless of breakpoints. Built on ansible-core's own task debugger
-(`debugger: always`), spliced onto a disposable copy of the playbook's
-directory - the real files on disk are never touched.
+task (or click its row), `F10` skips the rest of the current task's hosts
+and stops at the next task's first one, and `F11` steps to the very next
+pause regardless of breakpoints (host by host, within the same task
+included). Built on ansible-core's own task debugger (`debugger:
+always`), spliced onto a disposable copy of the playbook's directory -
+the real files on disk are never touched.
 
 Whenever a pause surfaces, the drill-down opens automatically for that
 task and host, with a working Resolved tab - unlike a normal run's own
@@ -378,14 +380,15 @@ control, and more).
 
 **Debug mode additions**
 
-The exact same Main tree and Drill-down view above, with three extra keys
+The exact same Main tree and Drill-down view above, with four extra keys
 layered on (no separate "debug view" of its own):
 
 | Key | Action |
 |---|---|
 | `F5` | Run - to the next armed breakpoint, or to completion with none set |
 | `F9` | Arm / disarm a breakpoint on the selected task (or click its row) |
-| `F10` | Step - stop at the very next pause, armed or not |
+| `F10` | Next task - skip the rest of this task's hosts, stop at the next task's first one |
+| `F11` | Step - stop at the very next pause, armed or not (host by host within the same task too) |
 
 **Template view**
 

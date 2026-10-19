@@ -120,7 +120,7 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 	// Both hosts pause on the armed task - the breakpoint is per task
 	// label, not per host, so the second host's own pause on the same
 	// task must also surface, not auto-continue past.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 
 	// task three isn't armed - both hosts' pauses on it auto-continue,
 	// running the rest of the playbook to completion in one call.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,6 +215,70 @@ func TestBreakpoints_OnPause_WillSurfaceTrueForArmedBreakpoint(t *testing.T) {
 	}
 }
 
+// TestBreakpoints_StepNextTask_SkipsRemainingHostsOfCurrentTask is F10's
+// own regression test (reported live: F10/StepOne stepped through every
+// remaining host of the *current* task one at a time, tedious when only
+// the next task actually mattered) - confirms StepNextTask auto-
+// continues past every further pause for fromTask (the task the caller
+// is already paused at), surfacing unconditionally the instant a
+// different task's pause arrives, regardless of the (deliberately empty)
+// breakpoint set.
+func TestBreakpoints_StepNextTask_SkipsRemainingHostsOfCurrentTask(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
+	bps := NewBreakpointSet() // deliberately empty - StepNextTask ignores it
+
+	// RunWithBreakpoints has no "current task" to skip past yet - falls
+	// back to StepOne's own behavior, surfacing the very first pause.
+	pause, eof, err := RunWithBreakpoints(sess, bps, StepNextTask, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected the first pause, got eof")
+	}
+	if pause.Task != "TASK: task one" {
+		t.Fatalf("first pause = %+v, want task one", pause)
+	}
+
+	// Paused at task one/host1 - StepNextTask should skip task one's
+	// second host entirely and land directly on task two's first host.
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected task two's own pause, got eof")
+	}
+	if pause.Task != "TASK: task two" {
+		t.Fatalf("pause after StepNextTask = %+v, want task two (task one's second host skipped)", pause)
+	}
+
+	// And again, from task two to task three.
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected task three's own pause, got eof")
+	}
+	if pause.Task != "TASK: task three" {
+		t.Fatalf("pause after second StepNextTask = %+v, want task three", pause)
+	}
+
+	// task three is the last task - StepNextTask past it runs to eof,
+	// same as StepOne/RunTillBreakpoint would with nothing left armed.
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eof {
+		t.Errorf("expected eof after task three's last host, got pause %+v", pause)
+	}
+}
+
 func TestBreakpoints_StepOne_SurfacesEveryPauseRegardlessOfSet(t *testing.T) {
 	requireAnsiblePlaybook(t)
 	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
@@ -229,7 +293,7 @@ func TestBreakpoints_StepOne_SurfacesEveryPauseRegardlessOfSet(t *testing.T) {
 			t.Fatal(err)
 		}
 		pauses = append(pauses, pause)
-		pause, eof, err = ContinueWithBreakpoints(sess, bps, StepOne, nil)
+		pause, eof, err = ContinueWithBreakpoints(sess, bps, StepOne, "", nil)
 	}
 	if err != nil {
 		t.Fatal(err)

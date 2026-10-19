@@ -26,7 +26,7 @@ import (
 )
 
 // Debug mode (design-docs/DebugMode.md's "Stage 2"): a liveSession with
-// debugMode true gets three new keys (F5/F9/F10 for now - design-docs/
+// debugMode true gets four new keys (F5/F9/F10/F11 for now - design-docs/
 // DebugMode.md's "Stage 1" [keys] config section isn't wired yet) and one
 // background orchestration goroutine, parallel to runner.RunOneGeneration
 // rather than a modification of it - everything else (the tree, two-pane,
@@ -113,20 +113,20 @@ func (s *liveSession) debugRefreshChrome() {
 }
 
 // debugBottomBarHint is appended to the tree's own bottom bar
-// (currentMainBottomBarText) whenever debugMode is true - the F5/F9/F10
-// keys have no existing tree binding to replace, so they're purely
+// (currentMainBottomBarText) whenever debugMode is true - the F5/F9/F10/
+// F11 keys have no existing tree binding to replace, so they're purely
 // additive, and the wording changes with the session's own current phase
 // (mirroring a previous, separate debug TUI's own debugBar* constants).
 func (s *liveSession) debugBottomBarHint() string {
 	switch {
 	case s.processDone.Load() && s.everStarted:
-		return " finished - F5/F9/F10 disabled "
+		return " finished - F5/F9/F10/F11 disabled "
 	case s.debugPausedHost != "":
-		return " F5: continue  F9: breakpoint  F10: step "
+		return " F5: continue  F9: breakpoint  F10: next task  F11: step "
 	case s.debugDriving:
 		return " running... (ctrl-c to interrupt) "
 	default:
-		return " F5: run  F9: breakpoint  F10: step "
+		return " F5: run  F9: breakpoint  F10: next task  F11: step "
 	}
 }
 
@@ -134,10 +134,10 @@ func (s *liveSession) debugBottomBarHint() string {
 // input.go), checked right after handleFilterDialogKey and before the
 // s.viewingStdout branch - early enough that none of the three dialogs
 // can have their own keys stolen, but before the tree/drill-down fork, so
-// these three keys work identically whichever one is frontmost. A no-op
-// (returns handled=false) for every Verb but "debug" - tcell.KeyF5/F9/F10
-// are unclaimed anywhere else in this codebase (confirmed by grep before
-// adopting them), so this never shadows an existing binding.
+// these keys work identically whichever one is frontmost. A no-op
+// (returns handled=false) for every Verb but "debug" - tcell.KeyF5/F9/
+// F10/F11 are unclaimed anywhere else in this codebase (confirmed by grep
+// before adopting them), so this never shadows an existing binding.
 func (s *liveSession) handleDebugKey(event *tcell.EventKey) (*tcell.EventKey, bool) {
 	if !s.debugMode {
 		return nil, false
@@ -147,6 +147,15 @@ func (s *liveSession) handleDebugKey(event *tcell.EventKey) (*tcell.EventKey, bo
 		s.debugStartOrContinue(debugrun.RunTillBreakpoint)
 		return nil, true
 	case tcell.KeyF10:
+		// Reported live: StepOne's own "every pause, armed or not"
+		// stepped through every remaining host of the *current* task one
+		// at a time, which was tedious when only the next task actually
+		// mattered - F10 moved here to mean "skip the rest of this
+		// task's hosts, stop at the next task's first one" instead
+		// (debugrun.StepNextTask), bumping the old F10 behavior to F11.
+		s.debugStartOrContinue(debugrun.StepNextTask)
+		return nil, true
+	case tcell.KeyF11:
 		s.debugStartOrContinue(debugrun.StepOne)
 		return nil, true
 	case tcell.KeyF9:
@@ -309,8 +318,9 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 	}
 
 	sess := s.debugSess
+	fromTask := s.debugLastPauseTask
 	go func() {
-		pause, eof, perr := debugrun.ContinueWithBreakpoints(sess, s.debugBPS, mode, s.debugOnPause(sess))
+		pause, eof, perr := debugrun.ContinueWithBreakpoints(sess, s.debugBPS, mode, fromTask, s.debugOnPause(sess))
 		s.app.QueueUpdateDraw(func() {
 			s.debugApplyPauseResult(pause, eof, perr)
 		})
@@ -448,6 +458,7 @@ func (s *liveSession) debugApplyPauseResult(pause debugrun.Pause, eof bool, err 
 		return
 	}
 	s.debugPausedHost = pause.Host
+	s.debugLastPauseTask = pause.Task
 	s.debugRefreshChrome()
 	if s.debugCursor == nil || s.debugCursor.CurrentTask == nil {
 		s.rebuild()

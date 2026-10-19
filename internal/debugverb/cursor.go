@@ -33,7 +33,7 @@ import (
 // revisit) can reference it too, without importing internal/session.
 type DebugConfig struct {
 	// CopyPlaybookPath is the absolute path into the shadow copy - what
-	// F5/F10 actually spawn (PrepareSession's own CopyPlaybookPath).
+	// F5/F10/F11 actually spawn (PrepareSession's own CopyPlaybookPath).
 	CopyPlaybookPath string
 	// BPS is this session's own armed-breakpoint set.
 	BPS *debugrun.BreakpointSet

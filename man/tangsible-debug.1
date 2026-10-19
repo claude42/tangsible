@@ -38,7 +38,7 @@ the same way the live tree'\&s own progress indicator is (a throwaway
 resolved \fBinclude_tasks:\fR, won'\&t appear in this predicted list even though
 it will genuinely run; see \fBtangsible\fR(1)'\&s own \fB--list-tasks\fR caveats.\& The
 whole predicted tree is visible up front, before anything has run, so
-breakpoints can be armed before the first \fBF5\fR/\fBF10\fR.\&
+breakpoints can be armed before the first \fBF5\fR/\fBF10\fR/\fBF11\fR.\&
 .PP
 \fBdebug\fR is the exact same live tree UI \fBtangsible-run\fR(1) uses, with
 breakpoint/pause state layered on top - not a second, separate screen.\&
@@ -65,7 +65,7 @@ else.\&
 .RE
 .SH CONTROLS
 .PP
-Three keys exist only for this verb, on top of everything \fBtangsible-run\fR(1)
+Four keys exist only for this verb, on top of everything \fBtangsible-run\fR(1)
 already offers:
 .PP
 \fBF5\fR
@@ -85,11 +85,20 @@ the row'\&s usual expand/collapse.\&
 .RE
 \fBF10\fR
 .RS 4
-Step: before a run starts, or while paused, stops at the very next
-pause unconditionally, armed or not.\&
+Next task: before a run starts, or while paused, skips the rest of
+the current task'\&s remaining hosts and stops unconditionally at the
+next task'\&s first pause, armed or not.\&
 .PP
 .RE
-Whenever a pause surfaces (an armed breakpoint, or a step), the drill-down
+\fBF11\fR
+.RS 4
+Step: before a run starts, or while paused, stops at the very next
+pause unconditionally, armed or not - one host at a time, including
+every other host still left on the current task.\&
+.PP
+.RE
+Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
+stop), the drill-down
 opens automatically for that exact paused task and host, in whichever of
 full-screen or two-pane mode the terminal'\&s current width calls for.\& Its
 \fBResolved\fR tab works for \fBany\fR task'\&s drill-down, not just the one

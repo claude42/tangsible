@@ -84,6 +84,19 @@ const (
 	// includes/roles/blocks into the same sequential pause stream Session
 	// exposes - there's no separate "step into" primitive to build.
 	StepOne
+	// StepNextTask auto-continues through every further pause that shares
+	// ContinueWithBreakpoints' own fromTask (i.e. every other host still
+	// to come for the task the caller is currently paused at), surfacing
+	// the first pause for a *different* task unconditionally, armed or
+	// not - "skip the rest of this task's hosts, stop at the next task's
+	// first one" (reported live: StepOne's own "every pause, armed or
+	// not" made stepping through a many-host task tedious when only the
+	// next task actually mattered). Meaningless as RunWithBreakpoints' own
+	// mode (fromTask is always "" there - nothing is paused yet, so
+	// there's no task to skip past) - falls back to behaving exactly like
+	// StepOne in that case, via the same fromTask-mismatch check below
+	// (pause.Task is never the empty string).
+	StepNextTask
 )
 
 // RunWithBreakpoints starts sess and applies mode/bps's policy from its
@@ -104,30 +117,37 @@ const (
 // willSurface to decide.
 func RunWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPause func(Pause, bool)) (Pause, bool, error) {
 	pause, eof, err := sess.Start()
-	return applyPolicy(sess, bps, mode, pause, eof, err, onPause)
+	return applyPolicy(sess, bps, mode, "", pause, eof, err, onPause)
 }
 
 // ContinueWithBreakpoints resumes sess past its current pause and applies
 // the same policy, auto-continuing through any further non-breakpoint
-// pauses under RunTillBreakpoint. onPause: see RunWithBreakpoints.
-func ContinueWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPause func(Pause, bool)) (Pause, bool, error) {
+// pauses under RunTillBreakpoint. fromTask is the task label the caller
+// is currently paused at (Pause.Task, e.g. "TASK: some task name") -
+// meaningful only under StepNextTask, where it's what every further pause
+// is compared against; every other mode ignores it. onPause: see
+// RunWithBreakpoints.
+func ContinueWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, fromTask string, onPause func(Pause, bool)) (Pause, bool, error) {
 	pause, eof, err := sess.Continue()
-	return applyPolicy(sess, bps, mode, pause, eof, err, onPause)
+	return applyPolicy(sess, bps, mode, fromTask, pause, eof, err, onPause)
 }
 
 // applyPolicy is the loop both entry points share: under StepOne the very
 // first pause is always returned as-is; under RunTillBreakpoint, pauses
 // not armed in bps are silently resumed past until an armed one, eof, or
-// an error is reached. onPause fires for every genuine pause (err == nil,
-// !eof) reached along the way, surfaced or not, before the surface/
+// an error is reached; under StepNextTask, pauses whose task still
+// matches fromTask are resumed past the same way, until one for a
+// different task arrives. onPause fires for every genuine pause (err ==
+// nil, !eof) reached along the way, surfaced or not, before the surface/
 // continue decision - called synchronously, on this same goroutine,
 // since the whole point is to let a caller query the REPL (Session.Query)
 // while this exact pause is still the one it's sitting at. willSurface is
 // computed once and reused for both onPause's own parameter and the
 // return decision below, so the two can never disagree.
-func applyPolicy(sess *Session, bps *BreakpointSet, mode StepMode, pause Pause, eof bool, err error, onPause func(Pause, bool)) (Pause, bool, error) {
+func applyPolicy(sess *Session, bps *BreakpointSet, mode StepMode, fromTask string, pause Pause, eof bool, err error, onPause func(Pause, bool)) (Pause, bool, error) {
 	for {
-		willSurface := mode == StepOne || bps.Has(pause.Task)
+		willSurface := mode == StepOne || bps.Has(pause.Task) ||
+			(mode == StepNextTask && pause.Task != fromTask)
 		if err == nil && !eof && onPause != nil {
 			onPause(pause, willSurface)
 		}

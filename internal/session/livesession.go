@@ -330,7 +330,7 @@ type liveSession struct {
 	// the common case from ever touching debug-only state at all).
 	debugMode bool
 	// debugCopyPlaybookPath is the absolute path into the shadow copy
-	// (debugverb.PrepareSession's own CopyPlaybookPath) - what F5/F10
+	// (debugverb.PrepareSession's own CopyPlaybookPath) - what F5/F10/F11
 	// actually spawn, never playbookName/targetPlaybook (the real
 	// playbook - display/sourceIndex/history use that instead).
 	debugCopyPlaybookPath string
@@ -353,7 +353,7 @@ type liveSession struct {
 	// whether the session ever actually stops there. False (the default)
 	// keeps today's "every task" behavior unchanged.
 	debugVarsAtStopsOnly bool
-	// debugSess is nil until the user's first F5/F10 - see
+	// debugSess is nil until the user's first F5/F10/F11 - see
 	// debugStartOrContinue's own doc comment for why it's published via
 	// QueueUpdateDraw immediately once debugrun.Spawn succeeds, before
 	// the blocking call that follows it (the exact race a previous,
@@ -370,6 +370,18 @@ type liveSession struct {
 	// very much still running, just blocked on its own REPL pipe, an
 	// entirely different condition from the process having exited).
 	debugPausedHost string
+	// debugLastPauseTask is the most recent real pause's own task label
+	// (debugrun.Pause.Task, e.g. "TASK: some task name") - "" before
+	// anything has paused at all. F10's own StepNextTask mode
+	// (debugrun/breakpoints.go) needs exactly this: "the task to skip
+	// past" is whatever task the session is paused at *right now*, read
+	// in debugStartOrContinue before the next Continue call even starts.
+	// Kept distinct from debugPausedHost/debugCursor.CurrentTask - this
+	// is the debugger's own REPL-stream label, not the jsonl-stream-
+	// derived *playbook.TaskNode those two track (debugOnPause's own doc
+	// comment explains why the two can't be reliably correlated for
+	// every pause in an auto-continued sequence).
+	debugLastPauseTask string
 	// debugPendingOpenTask/debugPendingOpenHost hold a pause's own
 	// (task, host) when the drill-down can't be auto-opened for it yet -
 	// the debugger's own REPL pause notification and the jsonl event

@@ -427,7 +427,7 @@ func Main(build BuildInfo) {
 		originalArgs = config.ParsedPassthroughArgs{Rest: debugPrep.Rest}
 		// pending stays nil - unlike "run"/"role", nothing is spawned
 		// here: the predicted tree (seeded from debugPrep.Skeleton, after
-		// this switch) is shown idle until the user's first F5/F10
+		// this switch) is shown idle until the user's first F5/F10/F11
 		// (design-docs/DebugMode.md's "Stage 1" chrome states). No
 		// --dialog/--no-dialog support, no invocation-history recording -
 		// a debug session isn't an "invocation" a later bare "tangsible
@@ -760,7 +760,7 @@ func Main(build BuildInfo) {
 	// (pending == nil) - true for "rerun" always, and for "run"/"role"
 	// exactly when showDialog deferred the spawn below. "debug" also
 	// has pending == nil (nothing is spawned until the user's first
-	// F5/F10 - design-docs/DebugMode.md's "Stage 1" chrome states: idle
+	// F5/F10/F11 - design-docs/DebugMode.md's "Stage 1" chrome states: idle
 	// before that, not mid-dialog), but wants no dialog at all, so it's
 	// excluded here rather than let that inference wrongly pop one open.
 	startWithRerunDialog := pending == nil && v != config.VerbDebug
