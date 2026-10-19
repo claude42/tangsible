@@ -185,7 +185,12 @@ var (
 	// unchanged, same as a plain run - only "a Start/Continue/Step call is
 	// actually in flight" and "paused at a breakpoint, or stopped on a
 	// task error" get their own look.
-	ChromeDebugRunningColor = "teal"
+	// "orange", not "yellow": buildChromeStyle's fg is a hardcoded
+	// "white" for every chrome bar (no per-bar override exists), and white
+	// on yellow is nearly unreadable - orange keeps acceptable contrast
+	// while still reading as "active" rather than the other bars' muted
+	// tones.
+	ChromeDebugRunningColor = "orange"
 	ChromeDebugPausedColor  = "maroon"
 )
 

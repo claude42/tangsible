@@ -100,8 +100,9 @@ const TaskIndent = "  "
 // it while a drill-down is open (see SetInputCapture's viewingOutput
 // branch), even though the tree pane itself stays visible and its bottomBar
 // keeps drawing - showing the normal hint text there would advertise keys
-// that currently do nothing.
-const SplitBottomBarText = " Esc: close drill-down to use the tree "
+// that currently do nothing. Left blank rather than naming Esc specifically
+// (dropped per live feedback - not worth the line).
+const SplitBottomBarText = ""
 
 const (
 	// MinTaskTitleName is the floor task.Name's own text is shortened to

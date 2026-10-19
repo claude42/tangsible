@@ -86,7 +86,7 @@ tab_text = "white"
 chrome_live = "navy"        # ordinary live/finished session
 chrome_revisit = "purple"   # tangsible revisit
 chrome_check = "olive"      # a --check (dry run) session
-chrome_debug_running = "teal"   # tangsible debug, a Start/Continue/Step call in flight
+chrome_debug_running = "orange" # tangsible debug, a Start/Continue/Step call in flight
 chrome_debug_paused = "maroon"  # tangsible debug, paused at a breakpoint or a task error
 diff_chrome = "fuchsia"     # tangsible diff
 

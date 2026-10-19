@@ -71,17 +71,21 @@ func (s *liveSession) debugChromeStyle() tcell.Style {
 
 // debugChromeBg is debugChromeStyle's own tcell.Color equivalent, for
 // s.splitDivider.SetBackgroundColor (a plain Box, no tag-based fill to
-// fall back on the way the top/split-header bars have). Mirrors the
-// hardcoded-constant style the rest of this session's own chrome colors
-// already use for this (s.liveChromeBg/s.chromeBg, tui.go) rather than
-// tcell.GetColor(uikit.ChromeDebugRunningColor) - consistent with them,
-// not a new, second derivation style for just these two.
+// fall back on the way the top/split-header bars have). Unlike
+// s.liveChromeBg/s.chromeBg (tui.go) - resolved once at construction,
+// since chrome_live/revisit/check never change for a session's own
+// lifetime - debugDriving/debugPausedHost flip repeatedly within one
+// session, so this reads uikit.ChromeDebugRunningColor/
+// ChromeDebugPausedColor fresh via tcell.GetColor on every call: a
+// config override (or a live edit of the vars themselves, as happened
+// here) must reach the divider exactly as it reaches debugChromeStyle's
+// own uikit.DebugRunningBarStyle/DebugPausedBarStyle.
 func (s *liveSession) debugChromeBg() tcell.Color {
 	switch {
 	case s.debugDriving:
-		return tcell.ColorTeal
+		return tcell.GetColor(uikit.ChromeDebugRunningColor)
 	case s.debugPausedHost != "":
-		return tcell.ColorMaroon
+		return tcell.GetColor(uikit.ChromeDebugPausedColor)
 	default:
 		return s.liveChromeBg
 	}
