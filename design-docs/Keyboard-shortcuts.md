@@ -579,9 +579,16 @@ pass (real Jinja AST parsing, `internal/session/resolve_condition.go`/
 expression, leaving operators/filters/tests/literals as written
 (`when: something != 0` renders as `when: 1 != 0`, not a flat
 `True`/`False`) - `failed_when:`/`changed_when:`/`until:` typically
-reference the task's own not-yet-registered result, so these usually
-still show unresolved, same graceful fallback as anything else
-undefined.
+reference the task's own `register:` result (e.g. `result.rc`), which
+the captured `task_vars` snapshot alone never has (it's a pre-task
+snapshot); the debugger's own scope at that same pause separately
+exposes the just-completed task's result, so it's merged into the
+snapshot too (`mergeRegisteredResult`, `internal/session/
+livesession_debug.go`) and these conditions resolve the same as any
+other. A loop's own per-item `register:` (accumulated into a `results`
+list) and `async:`/`poll:`'s own status-check result aren't covered by
+this and still fall back to unresolved text, same graceful fallback as
+anything else undefined.
 
 **Known gaps:** the raw-output (`o`) view has nothing to show (the
 debugger owns the child's stdout for its own prompt text - design-docs/

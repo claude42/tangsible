@@ -15,6 +15,8 @@
 package session
 
 import (
+	"encoding/json"
+
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/playbook"
@@ -341,10 +343,55 @@ func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause) 
 		if err != nil {
 			return
 		}
+		raw = mergeRegisteredResult(raw, sess)
 		s.app.QueueUpdateDraw(func() {
 			s.debugTaskVarsCache[debugVarsKey{pause.Task, pause.Host}] = raw
 		})
 	}
+}
+
+// mergeRegisteredResult adds the paused task's own register: output into
+// raw's top-level object, if it has one - closing design-docs/
+// DebugMode.md's "Scope, deliberately not chased further here" gap for
+// failed_when:/changed_when:/until: referencing a result.rc-shaped
+// register target. task_vars itself is confirmed (DebugMode.md's
+// 2026-09-27 pivot spike) to be a pre-task snapshot that never reflects
+// this same task's own register: output - but since debugger: always
+// fires *after* the task completes (debug_closure wraps
+// StrategyBase._process_pending_results), the debugger's own scope at
+// that exact same pause separately exposes the completed task and its
+// result (Session.Query's own doc comment) - task.register gives the
+// variable name ansible would store the result under, and
+// result._return_data gives that value, confirmed live both queryable
+// at the same pause task_vars comes from. Leaves raw completely
+// unchanged on any error (no register: on this task, a query failure,
+// unparseable JSON) - the same silent-fallback contract the rest of this
+// cache's consumers already rely on.
+func mergeRegisteredResult(raw json.RawMessage, sess *debugrun.Session) json.RawMessage {
+	regRaw, err := sess.Query("task.register")
+	if err != nil {
+		return raw
+	}
+	var regName string
+	if err := json.Unmarshal(regRaw, &regName); err != nil || regName == "" {
+		return raw
+	}
+
+	resultRaw, err := sess.Query("result._return_data")
+	if err != nil {
+		return raw
+	}
+
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw
+	}
+	obj[regName] = resultRaw
+	merged, err := json.Marshal(obj)
+	if err != nil {
+		return raw
+	}
+	return merged
 }
 
 // debugApplyPauseResult runs on the event-loop goroutine (always called

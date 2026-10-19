@@ -747,13 +747,12 @@ condition whose own text happens to contain a literal `{{ }}` - just
 silently fails to find its span and is left alone, an even narrower
 version of a gap `wrapJinjaDefaults` already accepts).
 
-**Scope, deliberately not chased further here:** `failed_when:`/
-`changed_when:`/`until:` typically reference the task's own `register:`
-target, which doesn't exist yet in the snapshot captured at the pause
-*before* that task runs - these fall back to unresolved text in
-practice, same as a loop variable or anything else genuinely undefined,
-not a bug to fix, just this mechanism's natural limit. Verified live with
-a three-task fixture (`something: 1`, no facts gathered): a scalar
+**Scope, at the time this was written:** `failed_when:`/`changed_when:`/
+`until:` typically reference the task's own `register:` target, which
+doesn't exist in `task_vars` (a pre-task snapshot - see the 2026-09-27
+pivot spike above) - these fell back to unresolved text in practice, same
+as a loop variable or anything else genuinely undefined. Verified live
+with a three-task fixture (`something: 1`, no facts gathered): a scalar
 `when: something != 0` resolved to `when: 1 != 0`; a list-form `when:`
 mixing a resolvable `something == 1` with an unresolvable
 `ansible_os_family is defined or true` (facts not gathered) resolved the
@@ -761,6 +760,75 @@ first line and left the second exactly as written, both inside one
 correctly-reconstructed list block; a task with no condition at all kept
 showing no Resolved tab when nothing else about it needed resolving
 either - no regression from this on tasks the feature doesn't apply to.
+**This gap is closed** - see "Stage 3 follow-up round 4" below.
+
+## Stage 3 follow-up round 4: resolving a task's own register: target too (2026-10-19)
+
+**Requested live:** a real task (`ansible.builtin.command` with
+`register: result`, `delegate_to: localhost`, `failed_when: result.rc not
+in [0, 1, 2]`, `changed_when: result.rc not in [1]`) showed `result.rc`
+completely unresolved in both conditions - round 3's own documented
+"not chased further" gap, immediately hit in practice.
+
+**Why this turned out to be fixable after all.** Round 3's gap analysis
+was right that `task_vars` (the snapshot `debugOnPause`,
+`livesession_debug.go`, already captures via `Session.Query("task_vars")`
+on every pause) never reflects the paused task's own `register:` output -
+confirmed directly, live: `Query("task_vars")` for a `register: result`
+task's own pause doesn't have a `result` key at all. But `debugger:
+always` fires *after* the task completes (`debug_closure` wraps
+`StrategyBase._process_pending_results` - the 2026-09-27 pivot spike,
+above), and the debugger's own scope at that exact same pause separately
+exposes the just-completed task and its result as their own top-level
+names (`Session.Query`'s own doc comment: "task/host/task_vars/
+play_context/result"). `task.register` gives the variable name ansible
+would store the result under (`None` if the task has no `register:` at
+all); `result._return_data` gives that value - both confirmed live,
+queryable at the exact same pause `task_vars` itself comes from, via the
+exact same `Session.Query` round-trip round 3's own module-arg resolve
+already uses, no new mechanism needed:
+
+```
+task.register = "result"
+result._return_data = {"changed": true, "stdout": "", "stderr": "",
+  "rc": 0, "cmd": ["/bin/true"], ...}
+```
+
+**The fix (`mergeRegisteredResult`, `livesession_debug.go`):** right
+after `debugOnPause`'s existing `Query("task_vars")` call, query
+`task.register`; if it's a non-empty string, query `result._return_data`
+and merge `{<register name>: <that value>}` into the snapshot's own
+top-level object before caching it - so `failed_when:`/`changed_when:`
+conditions referencing that task's own `register:` target now resolve
+through the exact same `resolveConditionsInText` path round 3 already
+built, with no changes needed there at all. Two extra `Query` round-trips
+per pause (cheap: `task.register` is a short string; `result.
+_return_data` only runs at all when a task actually registers something),
+same cost class as the existing `task_vars` query. Falls back to the
+snapshot completely unchanged on any error (no `register:` on this task,
+a query failure, unparseable JSON) - the same silent-fallback contract
+every other piece of this mechanism already has.
+
+**Verified live** (`TestMergeRegisteredResult_Live`, and a full tmux
+debug run reproducing the reported task's exact shape): the Resolved tab
+now shows
+
+```
+when: 'charon' != 'localhost'
+register: result
+failed_when: 0 not in [0, 1, 2]
+changed_when: 0 not in [1]
+```
+
+- `result.rc` resolved to `0` in both conditions, alongside `when:`'s own
+unrelated variables resolving exactly as round 3 already handled.
+
+**Still not chased further:** a loop's own per-item `register:` (which
+ansible accumulates into a `results` list across iterations, not a
+single `result._return_data`), and `async:`/`poll:`'s own registered
+status-check result, aren't covered by this - `task.register`/`result.
+_return_data` describe one single, synchronous task completion, the only
+shape this round addressed.
 
 ## Status
 
