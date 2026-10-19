@@ -9,7 +9,7 @@ own package's fourth chrome variant), and four unexported `search*Color`
 vars (`internal/uikit/search.go`), plus `uikit.BackgroundColor` - the
 whole TUI's own base background, pushed into
 `tview.Styles.PrimitiveBackgroundColor` rather than read per-row like
-the other 39. All 40 are overridable from `config.toml`'s `[colors]`
+the other 41. All 42 are overridable from `config.toml`'s `[colors]`
 table, cascading project → global → system
 exactly like every `[general]` key (`internal/config.MergedSettingsConfig`
 - see design-docs/ConfigOptions.md), accepting either a name from tview's
@@ -54,7 +54,7 @@ itself; whatever the user types is just handed onward.
 `diff.DiffChromeColor` → `diff_chrome`. No separate key list is kept
 here: design-docs/Colors.md's own Quick reference table (and its
 "Remaining constants, grouped by value" section) is the single source of
-truth for what each var means and what it's currently set to. The 40
+truth for what each var means and what it's currently set to. The 42
 keys the rule produces:
 
 ```
@@ -77,7 +77,7 @@ search_match_foreground, search_match_background,
 search_current_match_foreground, search_current_match_background
 ```
 
-`background` is different in kind from the other 39: every one of those
+`background` is different in kind from the other 41: every one of those
 is read per-row/per-element by whatever function renders that specific
 thing, but nothing reads `uikit.BackgroundColor` directly - it's the
 whole TUI's own base background (every unstyled cell), and the only key
@@ -139,7 +139,7 @@ config once, not twice.
 
 ### Four resolution paths, matching how each color is actually consumed
 
-Most of the 39 colors above are only ever used as **inline tag
+Most of the 41 colors above are only ever used as **inline tag
 strings** (`fmt.Sprintf("[%s]...[-]", colorName)`) - for these, the
 configured string (or the hardcoded default, if unset) is substituted
 directly wherever the literal sat before this existed. No conversion
@@ -148,16 +148,19 @@ and a `#rrggbb` hex form in that position, so whatever the user typed
 just flows through unchanged.
 
 A handful are used to build real `tcell.Style` values instead
-(`BarStyle`, `ReplayBarStyle`, `CheckBarStyle`, `DiffChromeStyle`,
-`SearchBarStyle`) - these resolve the same configured-or-default string
+(`BarStyle`, `ReplayBarStyle`, `CheckBarStyle`, `DebugRunningBarStyle`,
+`DebugPausedBarStyle`, `DiffChromeStyle`, `SearchBarStyle`) - these
+resolve the same configured-or-default string
 via `tcell.GetColor(value)`, which handles both forms uniformly
 (confirmed directly: `GetColor` resolves both plain names and hex
 strings to a real `tcell.Color`, unlike tview's own tag-parser
 color-name lookup, which only checks a plain name map and handles hex
 through a separate code path). `uikit.buildChromeStyle(fg, bg string)
-tcell.Style` is the one place that actually builds these four -
-`BarStyle`/`ReplayBarStyle`/`CheckBarStyle`'s own package-init
-expressions already call it (so a fresh process with no config at all
+tcell.Style` is the one place that actually builds these six (every one
+above but `DiffChromeStyle`, which is `internal/diff`'s own) -
+`BarStyle`/`ReplayBarStyle`/`CheckBarStyle`/`DebugRunningBarStyle`/
+`DebugPausedBarStyle`/`SearchBarStyle`'s own package-init expressions
+already call it (so a fresh process with no config at all
 still gets today's defaults, same as before this existed), and
 `ApplyColorConfig` (below) calls it again with the resolved values once
 config is read - the two call sites use the identical formula, so
@@ -165,7 +168,7 @@ there's no way for them to silently drift apart the way `SearchBarStyle`
 already had once.
 
 One key, `background`, takes a third path entirely: nothing in this app
-reads `uikit.BackgroundColor` per-row the way the other 39 are read -
+reads `uikit.BackgroundColor` per-row the way the other 41 are read -
 `ApplyColorConfig` instead pushes its resolved value straight into
 `tview.Styles.PrimitiveBackgroundColor` via `tcell.GetColor`, the one
 global tview setting every `tview.Box` (essentially every primitive)
@@ -200,8 +203,9 @@ each one already referenced moved (first from a literal to a `const`,
 then from `const` to `var`).
 
 `uikit.ApplyColorConfig(cfg config.ColorsConfig)` overwrites every var
-this package owns (39 of the 40 keys, including `background`) and rebuilds `BarStyle`/
-`ReplayBarStyle`/`CheckBarStyle`/`SearchBarStyle` from the resolved
+this package owns (41 of the 42 keys, including `background`) and rebuilds `BarStyle`/
+`ReplayBarStyle`/`CheckBarStyle`/`DebugRunningBarStyle`/`DebugPausedBarStyle`/
+`SearchBarStyle` from the resolved
 values. `diff.ApplyColorConfig(cfg config.ColorsConfig)` is `internal/diff`'s
 own one-field equivalent for `DiffChromeColor`/`DiffChromeStyle` - a
 second, separate function (not folded into `uikit.ApplyColorConfig`)
@@ -349,9 +353,9 @@ background color is, if anything, less reliably queryable than that.
 
 `[colors]` itself gains two optional sub-tables, `[colors.dark]` and
 `[colors.light]` (`ColorsConfig.Dark`/`Light`, `internal/config/colorsconfig.go`
-- `map[string]string`, not 39 more `*string` fields each, so there's only
-one 39-name list to maintain), holding the same 39 keys - only the ones
-that actually need to differ by background, not all 39 duplicated in
+- `map[string]string`, not 41 more `*string` fields each, so there's only
+one 41-name list to maintain), holding the same 41 keys - only the ones
+that actually need to differ by background, not all 41 duplicated in
 both. Precedence within `[colors]` becomes: `[colors.<scheme>]`
 (matching whichever `color_scheme` is active) → flat `[colors]`
 (scheme-independent) → hardcoded default. Still merged project → global
@@ -359,7 +363,7 @@ both. Precedence within `[colors]` becomes: `[colors.<scheme>]`
 own `firstNonNil` rule), same mechanism as today, just one more tier to
 check per key before falling through to the next config tier.
 
-`background` is one of the 40 keys this applies to like any other - it
+`background` is one of the 42 keys this applies to like any other - it
 can be set flat, or split via `[colors.dark]`/`[colors.light]`, same as
 every other key. Worth being explicit about what this does and doesn't
 give you: setting `color_scheme = "light"` alone changes nothing about
@@ -391,7 +395,7 @@ TOML, the exact same shape `[colors]` already has - flat keys plus
 optional `[dark]`/`[light]` sub-tables (not nested under a `[colors]`
 key this time, since the whole file already is one) - decoded generically
 into three `map[string]string`s (`Flat`/`Dark`/`Light`) rather than
-`ColorsConfig`'s own named fields, purely to avoid a second 39-name list:
+`ColorsConfig`'s own named fields, purely to avoid a second 41-name list:
 a theme file is load-once, read-only, never round-tripped back to TOML
 the way `SettingsConfig`'s own fields conceptually could be. Goes
 through the identical "Key naming rule" as `[colors]` itself - one key
