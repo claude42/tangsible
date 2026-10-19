@@ -39,7 +39,7 @@ import (
 // just "debug": false whenever debugMode is false, so a plain run's own
 // rendering is completely unaffected.
 func (s *liveSession) debugArmed(t *playbook.TaskNode) bool {
-	return s.debugMode && s.debugBPS.Has(debugverb.TaskLabel(t.Name))
+	return s.debugMode && s.debugBPS.Has(debugverb.TaskLabel(t.Name, t.IsHandler))
 }
 
 // debugIsPaused reports whether (t, host) is the exact pause the
@@ -176,7 +176,7 @@ func (s *liveSession) debugToggleBreakpointFor(task *playbook.TaskNode) {
 	if task == nil {
 		return
 	}
-	label := debugverb.TaskLabel(task.Name)
+	label := debugverb.TaskLabel(task.Name, task.IsHandler)
 	if s.debugBPS.Has(label) {
 		s.debugBPS.Clear(label)
 	} else {

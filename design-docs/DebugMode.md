@@ -925,6 +925,52 @@ with the actual surface/continue decision in both directions;
 `TestExtractVarsAtStopsOnlyFlag` (`internal/debugverb`) covers the flag's
 own extraction.
 
+## Stage 3 follow-up round 7: a handler task hung the whole session (2026-10-19)
+
+Reported live: reaching a handler task froze the session completely - F5/
+F9/F10 all became no-ops, only `q` still worked (the child process itself
+was still alive and reachable, just never progressing).
+
+Root cause: `internal/debugrun`'s `promptRe` (`\[(\S+)\] (TASK: .+?)
+\(debug\)> $`) only ever matched `ansible.playbook.task.Task.__repr__`'s
+own `"TASK: name"` format. `ansible/playbook/handler.py`'s `Handler` (a
+`Task` subclass) overrides `__repr__` to `"HANDLER: name"` instead -
+confirmed live by driving a real `ansible-playbook` child directly over
+plain pipes (no Go involved) and watching the raw bytes: a handler's own
+prompt line reads `[localhost] HANDLER: say hello (debug)> `, which
+`promptRe` never matched at all. The prompt had already arrived in full
+on the pipe; `readUntilPrompt`'s byte-by-byte loop just kept calling
+`ReadByte` waiting for more, which never came, while the child sat
+blocked on its own stdin waiting for the next REPL command that was never
+going to be sent - a genuine two-sided deadlock, not a slow response.
+
+Fixed by widening the regex to `(?:TASK|HANDLER): ` - confirmed this is
+the only other `__repr__` ansible-core's own `Task`/`Handler` classes
+produce (`Task.__repr__` itself also covers a `meta:` task as `"TASK:
+meta (...)"`, already matched). A second, related bug found alongside it:
+`debugverb.TaskLabel` (the breakpoint-set/Resolved-tab-cache key a task
+row builds) always produced `"TASK: " + name`, with no way to ask for the
+`"HANDLER: "` prefix - so even once the hang above is fixed, a breakpoint
+armed on a handler row could never match its own live pause at all
+(always silently auto-continuing past it), and the handler's own Resolved
+tab would never find its captured snapshot. Fixed by giving `TaskLabel`
+an `isHandler bool` parameter, threaded from `*playbook.TaskNode.
+IsHandler` at every call site.
+
+**Verified**: `TestSession_HandlerPauseDoesNotHang`
+(`internal/debugrun/session_test.go`) - a real session against a
+notify-triggered handler, driven through to `eof` inside a 15s
+`withTimeout` guard (confirmed this test actually catches the regression,
+not just passes vacuously: reverting the regex fix made it fail at the
+15s mark with a clear message, not the 10-minute default `go test`
+timeout a plain hang would otherwise cost every future test run).
+`TestTaskLabel` covers the new `isHandler` parameter. Live-verified in
+tmux: a handler-notifying playbook runs end to end with no breakpoints
+armed (previously hung indefinitely); stepping (F10) onto the handler's
+own pause shows it correctly as the current task, with the same `›`
+paused marker and host coloring as any other task, and F9 arms/disarms a
+breakpoint on it without issue.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

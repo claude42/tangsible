@@ -42,8 +42,11 @@ func TestOutcomeFor(t *testing.T) {
 }
 
 func TestTaskLabel(t *testing.T) {
-	if got, want := TaskLabel("deploy app"), "TASK: deploy app"; got != want {
-		t.Errorf("TaskLabel(%q) = %q, want %q", "deploy app", got, want)
+	if got, want := TaskLabel("deploy app", false), "TASK: deploy app"; got != want {
+		t.Errorf("TaskLabel(%q, false) = %q, want %q", "deploy app", got, want)
+	}
+	if got, want := TaskLabel("restart service", true), "HANDLER: restart service"; got != want {
+		t.Errorf("TaskLabel(%q, true) = %q, want %q", "restart service", got, want)
 	}
 }
 

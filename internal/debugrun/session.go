@@ -46,9 +46,17 @@ type Pause struct {
 }
 
 // promptRe matches ansible-core's own debugger prompt
-// (ansible/plugins/strategy/__init__.py's Debugger class: "[%s] %s (debug)> "),
-// confirmed live across every spike in design-docs/DebugMode.md.
-var promptRe = regexp.MustCompile(`\[(\S+)\] (TASK: .+?) \(debug\)> $`)
+// (ansible/plugins/strategy/__init__.py's Debugger class: "[%s] %s (debug)> ",
+// where %s is str(task) - Task.__repr__ gives "TASK: name" ("TASK: meta
+// (...)" for a meta task), but ansible/playbook/handler.py's Handler
+// class, a Task subclass, overrides __repr__ to "HANDLER: name" instead),
+// confirmed live across every spike in design-docs/DebugMode.md, plus a
+// real, reported hang this second alternative fixes: a handler's own
+// prompt line never matched TASK-only promptRe at all, so readUntilPrompt
+// kept blocking on ReadByte forever - the prompt had already fully
+// arrived, just never recognized - while the child sat waiting on stdin
+// for a command that was never going to be sent in response.
+var promptRe = regexp.MustCompile(`\[(\S+)\] ((?:TASK|HANDLER): .+?) \(debug\)> $`)
 
 // Session drives one ansible-playbook invocation against copyDir/playbook
 // (a shadow copy already spliced via internal/debugcopy.SpliceDebuggerAlways).

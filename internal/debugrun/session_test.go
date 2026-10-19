@@ -256,3 +256,116 @@ func TestSession_RelativePassthroughPathResolvesAgainstCallersCwd(t *testing.T) 
 		t.Errorf("pause host = %q, want host1", pause.Host)
 	}
 }
+
+// withTimeout runs fn in its own goroutine and fails the test fast (rather
+// than waiting out go test's own default 10-minute timeout) if it doesn't
+// return within d - specifically for a case like
+// TestSession_HandlerPauseDoesNotHang below, where the exact failure mode
+// under test *is* readUntilPrompt blocking forever: a plain t.Fatal from
+// inside fn would never itself run if fn never returns.
+func withTimeout(t *testing.T, d time.Duration, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("timed out after %s - likely readUntilPrompt stuck waiting for a prompt that already arrived but didn't match promptRe", d)
+	}
+}
+
+// TestSession_HandlerPauseDoesNotHang is a regression test for a real,
+// reported hang: ansible/playbook/handler.go's Handler (a Task subclass)
+// overrides __repr__ to "HANDLER: name" rather than Task's own "TASK:
+// name" - promptRe only ever matched the latter, so a handler's own
+// debugger prompt (confirmed live: "[localhost] HANDLER: say hello
+// (debug)> ") never matched at all. The prompt had already fully arrived
+// on the pipe; readUntilPrompt just kept calling ReadByte waiting for
+// more, which never came, while the child sat blocked on its own stdin
+// waiting for the next REPL command - a genuine deadlock, not a slow
+// response, and still "stuck" for as long as the session lives (q/Ctrl-C
+// works because that's a signal to the child, not a response to this
+// blocked read).
+func TestSession_HandlerPauseDoesNotHang(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	proj := t.TempDir()
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	playbook := `- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: step one
+      command: echo one
+      notify: say hello
+
+    - name: step two
+      command: echo two
+  handlers:
+    - name: say hello
+      command: echo hello from handler
+`
+	if err := os.WriteFile(playbookPath, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := source.ListTaskLocations(playbookPath)
+	if len(locs) != 3 {
+		t.Fatalf("expected 3 task locations (2 tasks + 1 handler), got %d: %+v", len(locs), locs)
+	}
+
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", "localhost,"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	var pauses []Pause
+	withTimeout(t, 15*time.Second, func() {
+		pause, eof, err := sess.Start()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for !eof {
+			pauses = append(pauses, pause)
+			pause, eof, err = sess.Continue()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+
+	// Notified handlers run after every regular task in the play, not
+	// right after the task that notified them - step one, step two, then
+	// the handler, in that order.
+	if len(pauses) != 3 {
+		t.Fatalf("expected 3 pauses (step one, step two, handler), got %d: %+v", len(pauses), pauses)
+	}
+	var sawHandler bool
+	for _, p := range pauses {
+		if strings.HasPrefix(p.Task, "HANDLER: ") {
+			sawHandler = true
+		}
+	}
+	if !sawHandler {
+		t.Errorf("no pause had a HANDLER: prefix: %+v", pauses)
+	}
+}

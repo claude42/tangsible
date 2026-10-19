@@ -350,7 +350,16 @@ func OutcomeFor(eventName string, raw json.RawMessage) playbook.Outcome {
 // TaskLabel is a task row's own breakpoint-set key, matching the
 // debugger's own prompt text exactly (internal/debugrun's promptRe) -
 // design-docs/DebugMode.md's accepted limitation: two tasks sharing an
-// exact name alias to the same breakpoint.
-func TaskLabel(taskName string) string {
+// exact name alias to the same breakpoint. isHandler must agree with the
+// live Pause.Task this is compared against: ansible/playbook/handler.py's
+// Handler (a Task subclass) overrides __repr__ to "HANDLER: name" rather
+// than Task's own "TASK: name" - getting this wrong doesn't just mis-key
+// one cache lookup, it means a breakpoint armed on a handler row can
+// never match its own live pause at all, always silently auto-continuing
+// past it.
+func TaskLabel(taskName string, isHandler bool) string {
+	if isHandler {
+		return "HANDLER: " + taskName
+	}
 	return "TASK: " + taskName
 }
