@@ -65,7 +65,7 @@ ever actually stops there.\&
 .RE
 .SH CONTROLS
 .PP
-Four keys exist only for this verb, on top of everything \fBtangsible-run\fR(1)
+Five keys exist only for this verb, on top of everything \fBtangsible-run\fR(1)
 already offers:
 .PP
 \fBF5\fR
@@ -95,6 +95,21 @@ next task'\&s first pause, armed or not.\&
 Step: before a run starts, or while paused, stops at the very next
 pause unconditionally, armed or not - one host at a time, including
 every other host still left on the current task.\&
+.PP
+.RE
+\fBv\fR
+.RS 4
+Open the variable watch explorer: a text field with live autocomplete
+(name and current value, from whichever host/task is currently
+selected) for adding a watched expression - a bare name, or a
+dotted/bracket-index path into one, like \fBfoo.\&bar\fR or \fBfoo[0]\fR.\& Enter
+adds the typed or highlighted expression; \fBUp\fR/\fBDown\fR with an empty
+field selects a watched row instead (\fBDelete\fR removes it); \fBEsc\fR is
+staged - closes a suggestion list, then clears the field, then closes
+the explorer (or deselects a row, then closes).\& Watched values
+re-evaluate live as you navigate to a different host/task, and stay
+visible, greyed out, once you close the explorer; one that can'\&t
+currently be resolved shows struck through rather than as an error.\&
 .PP
 .RE
 Whenever a pause surfaces (an armed breakpoint, a step, or a next-task

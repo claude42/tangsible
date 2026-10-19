@@ -302,6 +302,30 @@ thin constructor/wiring shell.
     lastStderr before processDone" ordering), `debugChromeStyle`/
     `debugChromeBg`/`debugRefreshChrome` (the two extra chrome states on
     top of the four plain-run ones).
+  - **livesession_watch.go** (+ `_test.go` is `debugwatch_eval_test.go`
+    below, not this file) - `watchPanel`, design-docs/DebugMode.md's
+    "Stage 4" variable watch explorer: `newWatchPanel`/`render`/`height`
+    (the panel's own two tview primitives, inserted as a new trailing
+    Flex item in `s.flex`/`s.outputFlex`/`s.outputBody` - never
+    `s.treeBody`, the spec's own "bottom of the right pane" scope),
+    `watchCurrentSnapshot` (reuses `showOutputWithOrigin`'s own
+    `debugTaskVarsCache` lookup for whatever host/task is currently
+    selected, not fixed to wherever a watch was added),
+    `watchCandidates`/`watchMatchCandidates` (autocomplete, formatted
+    `"name = value"` since tview's native drop-down has no second
+    column), `handleWatchKey`/`handleWatchOpenKey` (the `v`-opens/
+    modal-while-open key state machine, including the Esc-staging rules
+    design-docs/DebugMode.md's own UX section spells out).
+- **debugwatch_eval.go** (+ `_test.go`) - `parseWatchExpr`/
+  `evaluateWatchExpr`, a tiny hand-written grammar/evaluator (not
+  `resolve_condition.py`'s jinja2-AST mechanism, deliberately: that
+  one's "echo back unchanged on any failure" contract can't distinguish
+  "doesn't parse" from "doesn't resolve," which the watch panel's own
+  reject/unavailable/resolved 3-way split needs) for a bare name or a
+  dotted/bracket-index path (`foo.bar`, `foo[0]`) against a captured
+  `task_vars` snapshot - pure, no `tview` import, pulled out of
+  `livesession_watch.go` for the same "testable in isolation" reason
+  `uikit.FilteredMatch` is its own file.
 - **recap.go** - the post-run recap summary section.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`

@@ -513,7 +513,7 @@ DebugMode.md for why this can't go through `PlaybookState.Apply` the way
 a plain run's tree grows), so breakpoints can be armed before pressing
 F5/F10/F11 even once.
 
-Four keys exist only for this verb, with no plain-tree equivalent to
+Five keys exist only for this verb, with no plain-tree equivalent to
 collide with:
 
 * F5               - run: before a run starts, or while paused, resumes
@@ -547,9 +547,26 @@ collide with:
                      binding before this round (design-docs/DebugMode.md's
                      "Stage 3 follow-up round 8") - moved to F11 to make
                      room for F10's new meaning above.
+* v                - open the variable watch explorer (design-docs/
+                     DebugMode.md's "Stage 4"): a text field at the
+                     bottom of the tree or drill-down pane, with live
+                     autocomplete (name + current value, from the
+                     currently selected host/task's own captured
+                     variables) for adding a watched expression - a bare
+                     name, or a dotted/bracket-index path into one
+                     (`foo.bar`, `foo[0]`). Enter adds the typed/picked
+                     expression; Up/Down with an empty field selects a
+                     watched row instead, Delete removes it; Esc is
+                     staged (close the drop-down, then clear the field,
+                     then close the explorer - or deselect a row, then
+                     close). Watched values re-evaluate live as the tree
+                     selection moves, staying visible (greyed out) once
+                     the explorer itself is closed; a value that can't
+                     currently be resolved renders struck through rather
+                     than as an error.
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
-sketches a `[keys]` config section for these four; not wired up yet).
+sketches a `[keys]` config section for these; not wired up yet).
 
 **Mouse:** a left click on a task row's own first column - exactly
 where the `●` marker above sits, whether or not it's currently showing -

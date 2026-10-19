@@ -23,19 +23,142 @@
   * single stepping (Shortcut: F10)
   * running until hitting a break point (Shortcut: F5)
   * looking at variables (see below)
-* What's really new, a variable explorer
-  * when pressing a keyboard shortcut (Shortcut still TBD), a modal dialog shall open
-  * it contains a text field
-  * the user an enter a variable name
-  * text field autocompletes during typing. What's special: it autocomples
-    both the variable name as well as its contents. So already while typing,
-    the user sees both names + contents.
-  * When the user wants to watch a variable, they can press enter in the
-    dialog.
-  * Watch variables and their contents will be continuously visualized at the
-    bottom of the drill down view (so they will eat a variable amount of
-    vertical space from the drill down view depending on how many variables
-    are being watched.
+
+## UI details variable explorer
+
+I have put some more thoughts about the variable explorer and took some
+inspiration from tools like fzf and some chat clients. I have tried to add
+visualizations to my description. This is just meant for illustration the
+final TUI can use different visualizations / symbols where sensible.
+
+* When no variables are being watched, nothing is displayed
+
+* When the user presses `v`, a text input field appears (here in this text
+  visualized by ">". The bottom line changes. We are now in variable explorer
+  mode. ESC brings us back to normal.
+
+  When in two-pane mode this opens at the bottom of the right pane. In
+  one-pane mode this opens at the bottom.
+
+ > 
+ Type variable name · ESC exit
+
+* When the user starts typing, the characters will appear in new_var_color.
+  In addition a popup box will appear with potential autocompletions. The
+  autocompletion shows both the variable name as well as the current value.
+  The autocompletion will only show variables which are not yet being
+  watched. When searching for complex variables (lists, dicts), there will be
+  no autocomplete (at least in v1), the user will have to input the full
+  name, e.g. foo[0] or foo.bar
+
+  The user can use cursor up/down to select on of the autocompletions and
+  press Enter to add it to the list of watched variables.  The bottom chrome
+  line get's updated to reflect the available keyboard shortcuts. (Note: ▶ is
+  used here as an illustration, in tangsible inverting the entry would be
+  more consistent)
+
+ ┌ Available variables ─────────┐
+ │ ▶ sometext = "something"     │
+ │   somebool = true            │
+ └──────────────────────────────┘
+ > som
+ Enter: add  ↑↓: select · ESC: back
+
+* After the user pressed enter, the variable is added to the list of watch
+  variables. The watched variables are rendered in the standard color.
+
+ Watched variables
+ sometext = "something"
+
+ > 
+ Type variable name  ↑↓: select  ESC: back
+
+ * When more are added it might look like this
+
+ Watched variables
+ sometext = "something"
+ foo      = 27
+ bar      = true
+
+ > 
+ Type variable name  ↑↓: select  ESC: back
+
+ * To remove a variable from the watch list, the user uses cursor up/down
+   (without typing something beforehand) to move the cursor to the variable
+   they want to remove and then presses Delete. Again, the bottom chrome bar
+   is updated to reflect the possible shortcuts. (Note: ▶ is used here as an
+   illustration, in tangsible inverting the entry would be more consistent)
+
+
+ Watched variables
+ sometext = "something"
+▶foo      = 27
+ bar      = true
+
+ > 
+ ↑↓: select  Delete: remove variable  ESC: back
+
+ * As written above, the user can leave the variable explorer with ESC. If
+   there are still any variables being watched, these variables (and their
+   values) shall still be displayed when the variable explorer mode is left -
+   but in a grey color (pick a suitable color from the already defined
+   colors).
+
+## Stage 4 UX decisions: scope, colors, Esc staging (2026-10-19)
+
+Resolved while reviewing the variable explorer writeup above - the
+"Architecture decision" section right below predates this writeup and
+should be read as superseded wherever the two conflict (e.g. it calls
+this a "modal"; it isn't one).
+
+**Scope and "unavailable."** A watched expression is evaluated against
+whichever host/task is currently selected, re-evaluating live as the
+cursor moves - not fixed to the host/task that was active when it was
+added. Three different reasons a value can't be shown right now (wrong
+host/task context for this expression; no captured snapshot for this
+task because `--all-vars` wasn't given; a syntactically valid path that
+just doesn't resolve, e.g. an out-of-range index or a key that doesn't
+exist) all render identically as "unavailable" - the user can't tell
+these apart anyway, and doesn't need to. Rendered as the fourth color
+below plus strike-through (available via tview's existing tag syntax,
+`[color::S]`, backed by `tcell.AttrStrikeThrough` - no new rendering
+mechanism needed; terminal support for the escape sequence varies, but
+no more than other things tangsible already leans on: OSC 52 clipboard,
+OSC 9/777/99 notifications, true color).
+
+**Four colors.** Normal/resolved text: `StandardTextColor` (the existing
+default body text color, no change needed). Panel deactivated but still
+showing watched values (ESC leaves the explorer): `NothingReportedColor`
+(already grey). A variable being typed, not yet added:
+`KeyHighlightColor` (already green). Unavailable (above):
+`IgnoredColor` (orange/saddlebrown) - chosen over `OutcomeSkippedColor`
+for the closer connotation to existing `ignore_errors` usage ("not a
+problem, just nothing to act on here"). No new `uikit.*Color`/config key
+needed for any of the four.
+
+**Accepting vs. rejecting typed text.** Raw typed text is always
+accepted on Enter, even with no autocomplete match and even for a
+variable not yet defined anywhere (watching ahead of a task that will
+define it later is a real use case) - except a genuine syntax error
+(not a plain dotted/bracket-index chain), which is rejected outright.
+How exactly that accept/reject check is implemented (a client-side shape
+check before ever evaluating it, vs. a small variant of
+`resolve_condition.py` that returns an explicit ok/error per expression,
+reusing `resolveConditionExprs`'s existing Jinja2-AST-based evaluator
+rather than a new hand-rolled path walker) is deferred to Stage 4 itself,
+not decided here. Enter on an empty input field is a no-op. A rejected
+Enter is shown via the same transient bottom-bar status mechanism the
+drill-down's `y`-copy status already uses (`livesession_tabsearch.go`) -
+superseding the normal bottom bar momentarily, then clearing itself -
+rather than a new UI affordance.
+
+**Esc staging**, confirmed as fully covered by the two described cases:
+(a) typing with autocomplete open: Esc closes the autocomplete, Esc
+again clears the input text, Esc again closes the explorer - collapsing
+a stage that doesn't apply (e.g. no autocomplete open because there were
+no matches) rather than requiring a keypress that would otherwise do
+nothing; (b) a watched variable selected (Delete removes it): Esc
+deselects back to the input field, Esc again closes the explorer.
 
 ## Architecture decision (2026-10-18): fold into `liveSession`, not a second TUI
 
@@ -1065,6 +1188,103 @@ and combined; `go build ./... && go vet ./... && go test ./...` all
 pass. `completions/tangsible.bash`/`tangsible.fish`, `README.md`,
 `man/tangsible-debug.1.scd` (regenerated via `make man`), and
 `design-docs/Codemap.md` updated to match.
+
+## Stage 4: implemented - the variable watch explorer (2026-10-19)
+
+The UX spec above ("UI details variable explorer"/"Stage 4 UX
+decisions") is now built, following the implementation plan worked out
+beforehand (three parallel research passes - layout/transient-status
+patterns, autocomplete/debug-state, expression evaluation - then a
+design pass, then independent verification against the real source
+before writing code). Full design detail lives in those two sections
+above and isn't repeated here; this entry covers what actually landed
+and what was learned building it.
+
+**New**: `internal/session/debugwatch_eval.go` (+ `_test.go`) -
+`parseWatchExpr`/`evaluateWatchExpr`, a small hand-written grammar
+(`IDENT ('.' IDENT | '[' INDEX ']' | '[' STRING ']')*`, no filters/
+operators/calls) and resolver against a flat JSON snapshot, returning a
+clean reject/unavailable/resolved tri-state - deliberately not
+`resolve_condition.go`'s existing jinja2-backed mechanism, whose "always
+echo back unchanged on any failure" contract can't make that
+distinction (confirmed by direct tracing during the design pass: a
+genuinely undefined root and a plain parse error both produce output
+`== input`). `internal/session/livesession_watch.go` - `watchPanel`
+(mirrors `rerunFieldSync`/`tabSearchPanel`'s "genuinely separable
+sub-struct" shape), its two tview primitives (a `TextView` for the
+watched list/hint, an `InputField` for typing), `watchCurrentSnapshot`
+(reuses `showOutputWithOrigin`'s own `debugTaskVarsCache` lookup
+pattern for whatever host/task is currently selected - a bare task/play/
+recap row selection, with no single host to resolve against, is always
+"unavailable"), `watchCandidates`/`watchMatchCandidates` (autocomplete,
+formatted `"name = value"` since tview's native drop-down has no second
+column - confirmed against tview's own source), and
+`handleWatchKey`/`handleWatchOpenKey` (`v` opens it, then it's modal
+while open, same as the rerun/filter/search dialogs). `outputFlex`/
+`outputBody` (`tui.go`) were promoted from local vars to `liveSession`
+fields so `rebuild()` could `ResizeItem` the new panel into all three
+of `s.flex`/`s.outputFlex`/`s.outputBody` (never `s.treeBody` - two-
+pane's tree/left side never shows this panel, per the spec's own
+"bottom of the right pane" wording).
+
+**Two real bugs found and fixed during live tmux verification, neither
+caught by `go vet`/unit tests**:
+
+- tview's inline tag convention is *lowercase letter sets an attribute,
+  uppercase clears it* (confirmed directly in `rivo/tview`'s own
+  `strings.go`: a lowercase flag ORs the bit in, anything else - including
+  the same letter uppercased - ANDs it back out). The first version of
+  `watchPanel.render` used `[orange::S]` for the "unavailable" strike-
+  through, which is a silent no-op (clears a bit that was never set) -
+  caught only by actually looking for the `ESC[9m` escape code in a
+  `capture-pane -e` single-line snapshot, exactly per `design-docs/
+  TESTING.md`'s own warning that attribute changes don't always show up
+  the way you'd expect across lines. Fixed to lowercase `s`, matching
+  every other attribute tag already in this codebase (`::b]` for bold).
+- Esc's "close just the autocomplete drop-down" case initially only set
+  `watchPanel.acDismissed` and swallowed the event - which updates this
+  package's *own* bookkeeping (used for `Up`/`Down`/`Enter` routing) but
+  never touches tview's `InputField`'s own internal `autocompleteList`
+  field, which is what `Draw()` actually checks to decide whether to
+  keep rendering the drop-down. Confirmed live: the drop-down stayed
+  visible after the "first" Esc. Fixed by forwarding that one case's
+  real event to `InputField.InputHandler()` (which does clear its own
+  internal field on a real `KeyEscape`, confirmed in `inputfield.go`)
+  instead of swallowing it - the same thing `rerunFieldSync`'s own
+  Escape handling already relies on tview to do natively, just reached
+  by direct `InputHandler()` forwarding here instead of a passed-through
+  `SetInputCapture` event, since this field sits too deep in nested
+  Flex/Pages for normal focus-driven dispatch to reach at all (the exact
+  `tabSearchPanel.handleComposingKey` gotcha, CLAUDE.md's own tview/
+  tcell section).
+
+**Verified live in tmux**, one-pane tree, one-pane drill-down, and
+two-pane split, all three: panel fully invisible (zero height) with
+nothing watched and the explorer closed, in a plain `run` session as
+much as an untouched debug one; `v` opens/closes correctly from every
+context; typing shows the autocomplete drop-down (name = value,
+excluding already-watched names and non-scalar values) without
+previewing a navigated-to suggestion into the field; picking a
+suggestion (`Enter`/click-equivalent) both fills the field and commits
+it in one step; a manually-typed valid path resolves or renders
+unavailable (struck through, orange) correctly against the selected
+host/task's own captured snapshot; a genuine syntax error is rejected
+with a transient status message (reusing the drill-down's own
+`y`-copy-status mechanism) and leaves the typed text in place; `Up`/
+`Down` with a non-empty, non-matching field is ignored; `Up`/`Down`
+with an empty field selects/deselects a watched row, `Delete` removes
+the selected one; closing the explorer leaves watched values visible
+and grey, still re-evaluating live as the tree selection moves; the
+full Esc-staging matrix (both branches) behaves exactly as specified.
+`go build ./... && go vet ./... && go test ./...` and `gofmt -l
+internal/` all clean (aside from the one pre-existing, unrelated
+`recap_rowtext_test.go` gofmt flag). `CLAUDE.md`, `design-docs/
+Codemap.md`, `design-docs/Keyboard-shortcuts.md`, `README.md`, and the
+man page updated to match.
+
+**Deferred, not attempted here** (per the implementation plan): mouse
+support for the panel, and a static `"v: variables"` bottom-bar
+reminder for when the panel is fully hidden.
 
 ## Status
 

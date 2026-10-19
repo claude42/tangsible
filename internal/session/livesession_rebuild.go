@@ -367,6 +367,25 @@ func (s *liveSession) rebuild() {
 		}
 	}
 
+	// design-docs/DebugMode.md's "Stage 4" variable watch explorer -
+	// re-rendered and resized every rebuild() regardless of which page is
+	// frontmost (same "resize the other pages' layout too, harmlessly"
+	// reasoning s.splitBody.ResizeItem above already relies on), since
+	// that's what makes "re-evaluated live while navigating" free: a
+	// watched value only ever changes because the surrounding selection
+	// changed, and every navigation already calls rebuild(). A no-op for
+	// every non-debug Verb (s.watch.entries/open can only ever become
+	// non-zero/true via handleWatchKey, itself gated on s.debugMode).
+	s.watch.render(func(expr string) watchResult {
+		snapshot, _ := s.watch.currentSnapshot()
+		return evaluateWatchExpr(expr, snapshot)
+	}, s.watchAutocompleteOpenNow())
+	watchListH, watchInputH := s.watch.height()
+	watchTotal := watchListH + watchInputH
+	s.flex.ResizeItem(s.watch.flex, watchTotal, 0)
+	s.outputFlex.ResizeItem(s.watch.flex, watchTotal, 0)
+	s.outputBody.ResizeItem(s.watch.flex, watchTotal, 0)
+
 	if s.viewingStdout {
 		// The raw-output view (livesession_stdout.go): new lines first,
 		// then the top bar, whose text reports what was just appended or

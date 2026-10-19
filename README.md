@@ -282,6 +282,14 @@ instead, so the Resolved tab works no matter which task you later
 navigate back to - at the cost of that capture's own real time on every
 task, whether or not the run ever stops there.
 
+`v` opens a variable watch explorer: a text field with live autocomplete
+(name and current value, from whichever host/task is currently selected)
+for adding a watched expression - a bare name, or a dotted/bracket-index
+path into one, like `foo.bar` or `foo[0]`. Watched values stay visible
+and re-evaluate live as you navigate to a different host/task, greyed
+out once you close the explorer with Esc; one that can't currently be
+resolved shows struck through rather than as an error.
+
 ## Debugging a Jinja2 template
 
 Debugging a template properly means rendering it through Ansible's own
@@ -381,7 +389,7 @@ control, and more).
 
 **Debug mode additions**
 
-The exact same Main tree and Drill-down view above, with four extra keys
+The exact same Main tree and Drill-down view above, with five extra keys
 layered on (no separate "debug view" of its own):
 
 | Key | Action |
@@ -390,6 +398,7 @@ layered on (no separate "debug view" of its own):
 | `F9` | Arm / disarm a breakpoint on the selected task (or click its row) |
 | `F10` | Next task - skip the rest of this task's hosts, stop at the next task's first one |
 | `F11` | Step - stop at the very next pause, armed or not (host by host within the same task too) |
+| `v` | Open the variable watch explorer |
 
 **Template view**
 

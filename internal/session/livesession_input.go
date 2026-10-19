@@ -63,6 +63,9 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if result, handled := s.handleDebugKey(event); handled {
 		return result
 	}
+	if result, handled := s.handleWatchKey(event); handled {
+		return result
+	}
 	if s.viewingStdout {
 		// Before handleGlobalQuit (q backs out here, like the drill-
 		// down's own q) and translateKeyAlias (navigation must also stop

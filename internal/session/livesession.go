@@ -234,6 +234,8 @@ type liveSession struct {
 	// itself).
 	bottomBar        *tview.TextView
 	flex             *tview.Flex
+	outputFlex       *tview.Flex
+	outputBody       *tview.Flex
 	splitFlex        *tview.Flex
 	splitBody        *tview.Flex
 	treeBody         *tview.Flex
@@ -306,6 +308,15 @@ type liveSession struct {
 	// the rest of this struct (livesession_tabsearch.go), unlike
 	// everything else still listed above.
 	search *tabSearchPanel
+
+	// watch is design-docs/DebugMode.md's "Stage 4" variable watch
+	// explorer (livesession_watch.go) - genuinely separable the same way
+	// search/rerunFields are, debug-mode only but always constructed
+	// (same "always exists, inert without debugMode" convention as
+	// debugBPS/debugCursor below) so every call site can stay a plain,
+	// unconditional method call gated on s.debugMode rather than a nil
+	// check.
+	watch *watchPanel
 
 	// --- raw-output view ('o', livesession_stdout.go) ---
 	stdoutView      *tview.TextView

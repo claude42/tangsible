@@ -288,10 +288,18 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   can be armed before anything runs), and `debugverb.Cursor` resolves
   each live event against it - deliberately never through
   `PlaybookState.Apply`, which can't reuse those pre-built nodes at all
-  once a real run starts. F5/F9/F10 run/toggle-breakpoint/step
-  (`livesession_debug.go`); two extra chrome colors
+  once a real run starts. F5/F9/F10/F11 run/toggle-breakpoint/next-task/
+  step (`livesession_debug.go`); two extra chrome colors
   (`chrome_debug_running`/`chrome_debug_paused`) mark a session actually
-  running vs. paused, on top of the four other chrome states.
+  running vs. paused, on top of the four other chrome states. `v` opens
+  a persistent variable watch explorer (`livesession_watch.go`,
+  `debugwatch_eval.go`) - a text field with live autocomplete (name +
+  current value, sourced from the selected host/task's own captured
+  `task_vars`) for adding a watched expression (a bare name, or a
+  dotted/bracket-index path like `foo.bar`/`foo[0]` - a tiny hand-written
+  grammar, not full Jinja), re-evaluated live as the tree selection
+  moves, rendered unavailable (not an error) for an expression that
+  doesn't currently resolve.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):
@@ -309,7 +317,7 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   `role` (`--step` crashes, a bare `pause:` is skipped); become/vault
   password prompts work because they happen before the TUI. `debug`
   (`DebugMode.md`) is the dedicated way to drive ansible-core's own task
-  debugger instead, via its own F5/F9/F10 keys - it rejects ansible-
+  debugger instead, via its own F5/F9/F10/F11/v keys - it rejects ansible-
   playbook's own `--step` outright (a second, unhandled pause mechanism,
   `debugverb.PrepareSession`).
 - `strategy: free` is supported (`StrategyFree.md`); a globally configured

@@ -56,7 +56,7 @@ something a later *tangsible rerun* can replay.
 
 # CONTROLS
 
-Four keys exist only for this verb, on top of everything *tangsible-run*(1)
+Five keys exist only for this verb, on top of everything *tangsible-run*(1)
 already offers:
 
 *F5*
@@ -79,6 +79,19 @@ already offers:
 	Step: before a run starts, or while paused, stops at the very next
 	pause unconditionally, armed or not - one host at a time, including
 	every other host still left on the current task.
+
+*v*
+	Open the variable watch explorer: a text field with live autocomplete
+	(name and current value, from whichever host/task is currently
+	selected) for adding a watched expression - a bare name, or a
+	dotted/bracket-index path into one, like *foo.bar* or *foo[0]*. Enter
+	adds the typed or highlighted expression; *Up*/*Down* with an empty
+	field selects a watched row instead (*Delete* removes it); *Esc* is
+	staged - closes a suggestion list, then clears the field, then closes
+	the explorer (or deselects a row, then closes). Watched values
+	re-evaluate live as you navigate to a different host/task, and stay
+	visible, greyed out, once you close the explorer; one that can't
+	currently be resolved shows struck through rather than as an error.
 
 Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
 stop), the drill-down

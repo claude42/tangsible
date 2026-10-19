@@ -422,6 +422,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// session, same as s.searchInput above.
 	s.search = newTabSearchPanel(s.app, s.outputTabs, s.outputBottomBar, s.list, s.outputBottomBarNormalStyle)
 
+	// s.watch (design-docs/DebugMode.md's "Stage 4", livesession_watch.go)
+	// - built unconditionally the same way s.search is, inert until
+	// s.debugMode gates handleWatchKey's own 'v' binding.
+	s.watch = newWatchPanel(s.app, s.watchCurrentSnapshot)
+	s.watch.input.SetAutocompleteFunc(s.watchMatchCandidatesFunc).
+		SetAutocompletedFunc(s.watchAutocompleted)
+
 	// The raw-output view ('o', livesession_stdout.go) - its own page,
 	// own bars, and its own search panel over its one TextView.
 	s.stdoutView = tview.NewTextView().SetDynamicColors(true) // wraps, like a terminal
@@ -440,10 +447,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		AddItem(s.stdoutView, 0, 1, true).
 		AddItem(s.stdoutSearch.footer, 1, 0, false)
 
-	outputFlex := tview.NewFlex().
+	s.outputFlex = tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(s.outputTopBar, 1, 0, false).
 		AddItem(s.outputTabs.Primitive(), 0, 1, true).
+		AddItem(s.watch.flex, 0, 0, false).
 		AddItem(s.search.footer, 1, 0, false)
 
 	// s.splitHeader replaces s.topBar/s.outputTopBar entirely for the duration
@@ -706,6 +714,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		SetDirection(tview.FlexRow).
 		AddItem(s.topBar, 1, 0, false).
 		AddItem(s.list, 0, 1, true).
+		AddItem(s.watch.flex, 0, 0, false).
 		AddItem(s.bottomBar, 1, 0, false)
 
 	// s.filterFlex wraps s.filterDialog's own A/C/F menu together with a real,
@@ -764,8 +773,9 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.treeBody = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(s.list, 0, 1, true).
 		AddItem(s.bottomBar, 1, 0, false)
-	outputBody := tview.NewFlex().SetDirection(tview.FlexRow).
+	s.outputBody = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(s.outputTabs.Primitive(), 0, 1, true).
+		AddItem(s.watch.flex, 0, 0, false).
 		AddItem(s.search.footer, 1, 0, false)
 
 	// s.splitBody is the two-pane row itself - s.treeBody alongside
@@ -777,7 +787,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.splitBody = tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(s.treeBody, uikit.SplitMinTreeWidth, 0, false).
 		AddItem(s.splitDivider, uikit.SplitDividerWidth, 0, false).
-		AddItem(outputBody, 0, 1, true)
+		AddItem(s.outputBody, 0, 1, true)
 
 	// s.splitFlex is design-docs/TwoPanedLayout.md's two-pane drill-down:
 	// s.splitHeader (a single bar spanning the terminal's true full width -
@@ -807,7 +817,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		AddItem(s.splitBody, 0, 1, true)
 
 	s.pages.AddPage("main", s.flex, true, true)
-	s.pages.AddPage("output", outputFlex, true, false)
+	s.pages.AddPage("output", s.outputFlex, true, false)
 	s.pages.AddPage("split", s.splitFlex, true, false)
 	s.pages.AddPage("stdout", stdoutFlex, true, false)
 	s.pages.AddPage("filter", uikit.CenteredModal(s.filterFlex, 46, 11), true, false)
