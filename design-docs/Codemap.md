@@ -84,7 +84,7 @@ package reads.
 ## internal/debugcopy
 
 Debug mode's shadow-copy primitive (`design-docs/DebugMode.md`'s M0 build
-step) - headless, no verb/TUI wiring yet.
+step) - headless, consumed by `internal/debugverb.PrepareSession`.
 
 - **shadowcopy.go** - `BuildShadowCopy`: a disposable, hardlinked copy of
   a playbook's whole directory tree under `.tangsible/debug/<RunID>/`, so
@@ -98,9 +98,10 @@ step) - headless, no verb/TUI wiring yet.
 ## internal/debugrun
 
 Debug mode's live process driver (`design-docs/DebugMode.md`'s M1 build
-step) - headless, no verb/TUI wiring yet; the two previous primitives
-(`internal/debugcopy`, `internal/source.ListTaskLocations`) feed it a
-spliced shadow copy to run.
+step) - headless; the two previous primitives (`internal/debugcopy`,
+`internal/source.ListTaskLocations`) feed it a spliced shadow copy to
+run, and `internal/session`'s own orchestration goroutine
+(`livesession_debug.go`'s `debugStartOrContinue`) drives it.
 
 - **session.go** - `Session`/`Spawn`: runs one `ansible-playbook`
   invocation against a shadow copy, with the bundled jsonl callback wired
@@ -108,66 +109,54 @@ spliced shadow copy to run.
   ansible-core's own built-in task debugger driven synchronously over a
   second pipe pair (`Start`/`Continue`/`Query`) - plain pipes, not a pty;
   `Query` sidesteps parsing the debugger's native Python-repr output by
-  having the query itself print JSON.
+  having the query itself print JSON. `Session.Process()` exposes the
+  real child `*os.Process` - stored straight into `liveSession`'s own
+  `procH` the moment `Spawn` succeeds, so q/Ctrl-C reaches it through the
+  exact same generic path a plain run's own child already uses, no
+  debug-specific signal handling needed at all.
 - **breakpoints.go** - M2: `BreakpointSet` (live-togglable, mutex-guarded
   set of armed task labels) and `StepMode`, consumed by
   `RunWithBreakpoints`/`ContinueWithBreakpoints` to decide, per `Pause`,
-  whether to surface it or auto-`Continue` past it - still headless, no
-  verb/TUI wiring.
-- `Session.Signal` (session.go, M3) - forwards a signal to the child, for
-  `internal/debugverb`'s own Ctrl-C/q handling.
+  whether to surface it or auto-`Continue` past it - `onPause`'s own
+  `willSurface` parameter is that exact decision, passed down so a caller
+  (`internal/session`'s `debugOnPause`) doesn't have to recompute it with
+  no access to `bps`/`mode` of its own (`design-docs/DebugMode.md`'s
+  "Stage 3 follow-up round 6").
 
 ## internal/debugverb
 
-The "debug" verb (`design-docs/DebugMode.md`'s M3 build step) - its own
-standalone TUI (own small struct/constructor), not `internal/session`'s
-`liveSession`/`NewLiveTUI`: that machinery's 30+ constructor parameters
-and cross-cutting dialogs (rerun, revisit, two-pane drill-down, filter/
-search, recap) don't apply to a debug session, so this is a separate,
-smaller construct instead, following the same "one package per standalone
-verb" pattern `internal/role`/`internal/template`/`internal/host` already
-use. Reuses, deliberately: the same jsonl event stream/decoding
-(`runner.ScanEvents`, `playbook.RawEvent`/`DecodeHostResult`), the same
-outcome/color vocabulary (`playbook.Outcome`, `uikit.ColorTag`), the same
-`--list-tasks --list-hosts` skeleton/forward-matching machinery the live
-run's own progress indicator already uses (`runner.
-BuildProgressSkeleton`/`ProgressTracker`) - repurposed here to build the
-pre-run tree itself and to resolve which row a live event or debugger
-pause belongs to, despite task names repeating - and, since a first pass
-at this view's own row rendering was found (live, by the user) to have
-drifted from the main tree's (wrong colors, dots instead of hostnames, no
-busy indicator, cursor could rest on a play header), the exact row-
-rendering functions the main tree calls too: `uikit.TaskLabel`/
-`PlayRowText`/`ComputeHostColumnLayout`/`NextInteractiveRow`. Each
-`debugRow` wraps a real `*playbook.TaskNode`/`*playbook.PlayNode`
-(populated directly from the skeleton, not via `PlaybookState.Apply`)
-purely so these can be called unmodified - see `DebugMode.md`'s
-2026-10-15 follow-up entry.
+The "debug" verb's own headless glue (`design-docs/DebugMode.md`'s
+"Architecture decision (2026-10-18)" and its "Stage 2" plan) - no
+`tview`/`tcell`/`uikit` dependency at all, same boundary
+`internal/debugcopy`/`internal/debugrun` already keep. `debug` used to be
+a second, standalone TUI of its own (M3: its own `debugApp`/`tui.go`/
+`helptables.go`, since removed); it's now built as an ordinary
+`internal/session` `liveSession` instead, with breakpoint/pause state
+layered on top - this package is exactly the glue that makes that
+possible, and `internal/session` (`main.go`'s `VerbDebug` case,
+`livesession_debug.go`) is its only caller.
 
-- **debugverb.go** - `RunDebugVerb`: arg parsing (simpler than `run`'s -
-  no `--start-at-play`, no re-run dialog, no history recording), builds
-  the shadow copy + splice (`internal/debugcopy`), probes the spliced
-  copy for its task skeleton (`runner.BuildProgressSkeleton`), rejects
-  `--step` outright (would hang - a structurally different, unhandled
-  pause point), and hands off to the TUI.
-- **tui.go** - `debugApp`: the pre-run/live tree (breakpoint markers,
-  live per-host outcome coloring, current-pause highlighting), driving
-  `debugrun.Session`/`BreakpointSet` from a background goroutine per
-  keypress (`startOrContinue`/`openVars`), reporting back via
-  `app.QueueUpdateDraw` - the same "kick off eagerly, update via
-  QueueUpdateDraw once done" pattern `internal/host`'s own tab fetches
-  use, which keeps every mutation on tview's single event-loop goroutine
-  even though the actual session I/O happens elsewhere. `applyEvent`
-  resolves a live event's (play, task) against the skeleton via a
-  `runner.ProgressTracker`, the same name-collision-safe algorithm the
-  live run's own progress bar uses. `startHeartbeat` is a permanent
-  `uikit.SpinnerInterval` ticker driving the busy-indicator's animation
-  and live terminal-resize reactivity, mirroring `internal/session`'s own
-  heartbeat (simplified: never stops, guarded by a `quitting` atomic
-  bool).
-- **helptables.go** - the debug view's help table and bottom bars; `t`
-  (not `b`) arms/disarms a breakpoint - confirmed live that `b` is
-  already `uikit.TranslateNavAlias`'s own Page-Up alias.
+- **debugverb.go** - `PrepareSession`: resolves "tangsible debug"'s own
+  arguments (rejects `--step` outright - a second, unhandled pause
+  mechanism; extracts its own `--vars-at-stops-only` via
+  `extractVarsAtStopsOnlyFlag`), builds the shadow copy + `debugger:
+  always` splice (`internal/debugcopy`), and probes the spliced copy for
+  its task skeleton (`runner.BuildProgressSkeleton`) - everything up
+  through having a real, spawnable playbook ready, returned as
+  `SessionPrep` for `internal/session` to build a `liveSession` around.
+- **cursor.go** - `SeedState` pre-builds the whole predicted
+  `*playbook.PlaybookState` directly from `PrepareSession`'s own skeleton
+  (so breakpoints can be armed before anything has run) - deliberately
+  never through `PlaybookState.Apply`, which can't reuse those pre-built
+  nodes at all once a real run starts (see its own doc comment for why
+  not). `Cursor.Apply` resolves each live jsonl event against that same
+  skeleton-seeded state instead, via the same name-collision-safe
+  `runner.ProgressTracker` forward-matching the progress bar already
+  uses, writing straight into the right pre-built `*playbook.TaskNode`.
+  `TaskLabel` is a task's own breakpoint-set key (matching the debugger's
+  own prompt text); `DebugConfig` bundles everything `internal/session`'s
+  `NewLiveTUI` needs from this package (`BPS`, `Cursor`,
+  `VarsAtStopsOnly`, ...) into one parameter.
 
 ## internal/runner
 
@@ -298,6 +287,21 @@ thin constructor/wiring shell.
     shortcuts" section for the tier breakdown).
   - **livesession_mouse.go** - `handleMouse`, the mouse dispatcher, and
     its 7 named sub-methods (same per-mode split as the keyboard side).
+  - **livesession_debug.go** - everything specific to `debugMode`
+    (`design-docs/DebugMode.md`): `handleDebugKey`
+    (F5/F9/F10, `livesession_input.go`'s own dispatcher calls into this
+    one), `debugToggleBreakpoint(For)`/`debugTaskAtFirstColumn` (F9 and
+    its mouse equivalent), `debugStartOrContinue` (the orchestration
+    goroutine driving `debugrun.Spawn`/`RunWithBreakpoints`/
+    `ContinueWithBreakpoints`, reporting back via `QueueUpdateDraw`),
+    `debugOnPause`/`mergeRegisteredResult` (captures `task_vars`, plus
+    the paused task's own `register:` result if it has one, into
+    `debugTaskVarsCache` - skipped for a pause `willSurface` says won't
+    be shown when `--vars-at-stops-only` is set), `debugApplyPauseResult`/
+    `debugFinish` (mirrors `runner.RunOneGeneration`'s own "exitCode/
+    lastStderr before processDone" ordering), `debugChromeStyle`/
+    `debugChromeBg`/`debugRefreshChrome` (the two extra chrome states on
+    top of the four plain-run ones).
 - **recap.go** - the post-run recap summary section.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`

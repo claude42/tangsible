@@ -255,17 +255,22 @@ It runs the role against `hosts: all`, while normal Ansible options such as
 tangsible debug [playbook.yml] [--vars-at-stops-only] [ansible-playbook args...]
 ```
 
-Shows every play and task up front, lets you set breakpoints directly on
-the tree, then run or step through the playbook - pausing at each armed
-breakpoint (or every task, while stepping) to inspect that task's own
-variables. Built on ansible-core's own task debugger (`debugger: always`),
-spliced onto a disposable copy of the playbook's directory - the real
-files on disk are never touched.
+This is the same live tree, two-pane layout, and tabbed drill-down as a
+normal run - not a separate screen - with breakpoints layered on top. It
+shows every play and task up front (so breakpoints can be armed before
+anything has run), lets you set them directly on the tree, then run or
+step through the playbook: `F5` runs to the next armed breakpoint (or to
+completion with none set), `F9` arms/disarms a breakpoint on the selected
+task (or click its row), and `F10` steps to the very next pause
+regardless of breakpoints. Built on ansible-core's own task debugger
+(`debugger: always`), spliced onto a disposable copy of the playbook's
+directory - the real files on disk are never touched.
 
-Press `t` to arm/disarm a breakpoint on the selected task, `enter` to run
-to the next one (or to completion, with none set), `s` to step one task at
-a time regardless of breakpoints, and `v` to view the currently paused
-task's own variables.
+Whenever a pause surfaces, the drill-down opens automatically for that
+task and host, with a working Resolved tab - unlike a normal run's own
+(disabled) one, it fills in every variable reference from that task's own
+captured state, including `when:`/`failed_when:`/`changed_when:`/`until:`
+conditions and a `register:` target's own result.
 
 By default, every task's own variables are captured as it's reached, not
 just the ones you actually stop at, so the Resolved tab works no matter
@@ -371,16 +376,16 @@ control, and more).
 | `?`/`F1` | Help: all of this view's shortcuts |
 | `Esc`/`Enter` | Close, back to the tree |
 
-**Debug view**
+**Debug mode additions**
+
+The exact same Main tree and Drill-down view above, with three extra keys
+layered on (no separate "debug view" of its own):
 
 | Key | Action |
 |---|---|
-| `t` | Arm / disarm a breakpoint on the selected task |
-| `Enter` | Run - to the next armed breakpoint, or to completion with none set |
-| `s` | Step - stop at the very next task, armed or not |
-| `v` | View the currently paused task's own variables |
-| `?`/`F1` | Help: all of the debug view's shortcuts |
-| `q`/`Ctrl-C` | Interrupt the run, or quit once it's finished |
+| `F5` | Run - to the next armed breakpoint, or to completion with none set |
+| `F9` | Arm / disarm a breakpoint on the selected task (or click its row) |
+| `F10` | Step - stop at the very next pause, armed or not |
 
 **Template view**
 
