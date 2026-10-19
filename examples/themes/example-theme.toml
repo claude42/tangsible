@@ -41,6 +41,8 @@ tab_text = "white"
 chrome_live = "navy"
 chrome_revisit = "purple"
 chrome_check = "olive"
+chrome_debug_running = "orange"
+chrome_debug_paused = "maroon"
 diff_chrome = "fuchsia"
 
 selected_row_text = "#1a1a1a"
