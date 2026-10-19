@@ -91,13 +91,18 @@ const (
 // onPause, if non-nil, is called for *every* pause reached along the way
 // - including one silently resumed past under RunTillBreakpoint, never
 // otherwise visible to a caller at all - before the policy decides
-// whether to surface it or continue past it. design-docs/DebugMode.md's
-// "Resolved Variables tab, every task" - this is the only way a caller
-// can ever query a pause's own task_vars (Session.Query) for a task
-// whose breakpoint isn't armed: once applyPolicy's own loop calls
-// Continue again, that pause's data is gone for good, with nothing left
-// to query it from.
-func RunWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPause func(Pause)) (Pause, bool, error) {
+// whether to surface it or continue past it; its own willSurface
+// parameter is that exact decision (true for the pause this call is
+// about to return), computed and passed down rather than left for onPause
+// to recompute itself - design-docs/DebugMode.md's "Resolved Variables
+// tab, every task" - this is the only way a caller can ever query a
+// pause's own task_vars (Session.Query) for a task whose breakpoint isn't
+// armed: once applyPolicy's own loop calls Continue again, that pause's
+// data is gone for good, with nothing left to query it from. A caller
+// that only wants that query paid for when a pause will actually be
+// surfaced (design-docs/DebugMode.md's "vars-at-stops-only" option) reads
+// willSurface to decide.
+func RunWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPause func(Pause, bool)) (Pause, bool, error) {
 	pause, eof, err := sess.Start()
 	return applyPolicy(sess, bps, mode, pause, eof, err, onPause)
 }
@@ -105,7 +110,7 @@ func RunWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPaus
 // ContinueWithBreakpoints resumes sess past its current pause and applies
 // the same policy, auto-continuing through any further non-breakpoint
 // pauses under RunTillBreakpoint. onPause: see RunWithBreakpoints.
-func ContinueWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPause func(Pause)) (Pause, bool, error) {
+func ContinueWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, onPause func(Pause, bool)) (Pause, bool, error) {
 	pause, eof, err := sess.Continue()
 	return applyPolicy(sess, bps, mode, pause, eof, err, onPause)
 }
@@ -117,13 +122,16 @@ func ContinueWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, o
 // !eof) reached along the way, surfaced or not, before the surface/
 // continue decision - called synchronously, on this same goroutine,
 // since the whole point is to let a caller query the REPL (Session.Query)
-// while this exact pause is still the one it's sitting at.
-func applyPolicy(sess *Session, bps *BreakpointSet, mode StepMode, pause Pause, eof bool, err error, onPause func(Pause)) (Pause, bool, error) {
+// while this exact pause is still the one it's sitting at. willSurface is
+// computed once and reused for both onPause's own parameter and the
+// return decision below, so the two can never disagree.
+func applyPolicy(sess *Session, bps *BreakpointSet, mode StepMode, pause Pause, eof bool, err error, onPause func(Pause, bool)) (Pause, bool, error) {
 	for {
+		willSurface := mode == StepOne || bps.Has(pause.Task)
 		if err == nil && !eof && onPause != nil {
-			onPause(pause)
+			onPause(pause, willSurface)
 		}
-		if err != nil || eof || mode == StepOne || bps.Has(pause.Task) {
+		if err != nil || eof || willSurface {
 			return pause, eof, err
 		}
 		pause, eof, err = sess.Continue()

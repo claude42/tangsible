@@ -162,8 +162,11 @@ func TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause(t *testing.T) {
 	bps := NewBreakpointSet() // deliberately empty
 
 	var seen []Pause
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, func(p Pause) {
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, func(p Pause, willSurface bool) {
 		seen = append(seen, p)
+		if willSurface {
+			t.Errorf("onPause got willSurface=true for %+v, want false - bps is empty and mode is RunTillBreakpoint", p)
+		}
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +176,42 @@ func TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause(t *testing.T) {
 	}
 	if len(seen) != 6 {
 		t.Fatalf("onPause fired %d times, want 6 (3 tasks x 2 hosts): %+v", len(seen), seen)
+	}
+}
+
+// TestBreakpoints_OnPause_WillSurfaceTrueForArmedBreakpoint confirms
+// willSurface agrees with the actual surface/continue decision in the
+// one case TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause
+// doesn't cover: a pause whose task *is* armed - the pause onPause is
+// called for last, and the one RunWithBreakpoints itself then returns.
+func TestBreakpoints_OnPause_WillSurfaceTrueForArmedBreakpoint(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
+	bps := NewBreakpointSet()
+	bps.Set("TASK: task two")
+
+	var willSurfaceSeen []bool
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, func(p Pause, willSurface bool) {
+		willSurfaceSeen = append(willSurfaceSeen, willSurface)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatalf("expected a surfaced pause at the armed breakpoint, got eof")
+	}
+	if pause.Task != "TASK: task two" {
+		t.Fatalf("surfaced pause = %+v, want TASK: task two", pause)
+	}
+	if len(willSurfaceSeen) == 0 || !willSurfaceSeen[len(willSurfaceSeen)-1] {
+		t.Fatalf("willSurface for the final (returned) pause = %v, want true: %v", willSurfaceSeen[len(willSurfaceSeen)-1], willSurfaceSeen)
+	}
+	for _, v := range willSurfaceSeen[:len(willSurfaceSeen)-1] {
+		if v {
+			t.Errorf("willSurface = true for a pause before the armed one, want false: %v", willSurfaceSeen)
+		}
 	}
 }
 

@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-debug" "1" "2026-10-15" "Tangsible" "Tangsible Manual"
+.TH "tangsible-debug" "1" "2026-10-19" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-debug - set breakpoints and step through a playbook
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible debug\fR [\fIplaybook.\&yml\fR] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible debug\fR [\fIplaybook.\&yml\fR] [--vars-at-stops-only] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -43,6 +43,21 @@ tree - with no rerun dialog, no two-pane drill-down, and no recorded run
 history; a debug session is not something a later \fBtangsible rerun\fR can
 replay.\&
 .PP
+.SH ADDITIONAL OPTIONS
+.PP
+\fB--vars-at-stops-only\fR
+.RS 4
+By default, \fBdebug\fR captures each paused task'\&s own variables for
+\fBevery\fR task reached, including one silently resumed past with no
+breakpoint armed on it, so its Resolved tab works no matter which
+task you later navigate back to - at the cost of paying that
+capture'\&s own real time on every single task, whether or not the run
+ever actually stops there.\& This flag captures only at a pause
+actually shown to you (an armed breakpoint, a step, or a task
+failure), trading that for a noticeably faster run through everything
+else.\&
+.PP
+.RE
 .SH CONTROLS
 .PP
 Before the run starts, move the cursor and press \fBt\fR to arm or disarm a

@@ -319,14 +319,23 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 
 // debugOnPause returns applyPolicy's own onPause callback (debugrun/
 // breakpoints.go) for sess: queries task_vars for *every* pause it's
-// given - including one silently continued past under RunTillBreakpoint,
-// never otherwise surfaced to this package at all - design-docs/
-// DebugMode.md's "Resolved Variables tab, every task." Runs on
-// debugStartOrContinue's own background goroutine (the same one blocked
-// inside RunWithBreakpoints/ContinueWithBreakpoints calling this), so
-// Query's blocking pipe round-trip never touches the event-loop
-// goroutine at all; only the cache write below is QueueUpdateDraw-
-// wrapped.
+// given by default - including one silently continued past under
+// RunTillBreakpoint, never otherwise surfaced to this package at all -
+// design-docs/DebugMode.md's "Resolved Variables tab, every task." Runs
+// on debugStartOrContinue's own background goroutine (the same one
+// blocked inside RunWithBreakpoints/ContinueWithBreakpoints calling
+// this), so Query's blocking pipe round-trip never touches the
+// event-loop goroutine at all; only the cache write below is
+// QueueUpdateDraw-wrapped.
+//
+// When s.debugVarsAtStopsOnly is set (--vars-at-stops-only,
+// design-docs/DebugMode.md's "Stage 3 follow-up round 5"), skips the
+// query entirely for a pause applyPolicy says won't be surfaced -
+// trading "Resolved tab works for any task you navigate to" for not
+// paying the query's own real cost (its dominant one: design-docs/
+// DebugMode.md's O(n^2) readUntilPrompt investigation, ~0.74s for one
+// gather_facts-sized task_vars) on every single task whether or not the
+// session ever actually stops there.
 //
 // Keyed by (pause.Task, pause.Host) - the debugger's own task label and
 // host, not resolveKey{*playbook.TaskNode, string} - deliberately: this
@@ -341,8 +350,11 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 // based ambiguity breakpoints themselves already do (debugverb.
 // TaskLabel's own doc comment: two tasks sharing an exact name alias to
 // the same breakpoint) - a known, pre-existing limitation, not a new one.
-func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause) {
-	return func(pause debugrun.Pause) {
+func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause, bool) {
+	return func(pause debugrun.Pause, willSurface bool) {
+		if s.debugVarsAtStopsOnly && !willSurface {
+			return
+		}
 		raw, err := sess.Query("task_vars")
 		if err != nil {
 			return

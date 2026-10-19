@@ -830,7 +830,7 @@ status-check result, aren't covered by this - `task.register`/`result.
 _return_data` describe one single, synchronous task completion, the only
 shape this round addressed.
 
-## Stage 3 follow-up round 4: spinner froze before a pause actually surfaced (2026-10-19)
+## Stage 3 follow-up round 5: spinner froze before a pause actually surfaced (2026-10-19)
 
 Reported live: a task's busy spinner animated only for ansible's own
 real execution time, then froze - even though debug mode then spends
@@ -868,6 +868,62 @@ enough to make the query gap visible, ~2-3s) showed the spinner
 continuing to animate on `step one` well after every row's host column
 already showed `localhost` (i.e. after the real result events had all
 arrived), stopping only once the run actually finished.
+
+## Stage 3 follow-up round 6: `--vars-at-stops-only` (2026-10-19)
+
+Reported live: debug mode is noticeably slower overall than a plain run,
+beyond just the per-pause gap round 5 above made visible - as expected
+given the extra machinery, but the user asked whether capturing
+variables for *every* task (not just the ones actually stopped at) was
+a significant, avoidable part of it.
+
+Confirmed yes: `debugOnPause` (`livesession_debug.go`) runs its
+`task_vars` query - and, since round 4, `task.register`/
+`result._return_data` too - for every single pause `applyPolicy`
+(`internal/debugrun/breakpoints.go`) reaches, including one silently
+resumed past with no breakpoint armed on it at all. This is deliberate,
+not an oversight (round "Resolved tab for every task" - a much older
+entry than the numbering above, see git history for `9afb7ff`): it's the
+only way the Resolved tab can work for a task you navigate back to
+later, one that was never itself a breakpoint stop. But it means every
+task in the playbook pays `Query(task_vars)`'s own real cost (round 2's
+own profiling: ~0.74s for one gather_facts-sized response, scaling with
+the task's own variable count) regardless of whether the session ever
+actually stops there - for a playbook with few or no breakpoints armed,
+that's most or all of its tasks.
+
+`applyPolicy` already computes, once per pause, exactly the
+surface-or-continue decision this needed: `mode == StepOne ||
+bps.Has(pause.Task)`. Threaded through as a new `willSurface` parameter
+on `onPause` (`RunWithBreakpoints`/`ContinueWithBreakpoints`'s own
+signature, now `func(Pause, bool)`) rather than letting each caller
+recompute it - the one call site (`debugOnPause`) can't recompute it
+itself anyway, since it has no access to `bps`/`mode` from inside the
+closure `debugStartOrContinue` builds.
+
+New flag `--vars-at-stops-only` (`internal/debugverb`'s own synthetic
+flag, `extractVarsAtStopsOnlyFlag`, stripped before `rest` reaches
+anything else - same shape as `config.ExtractRerunFlags`): when set,
+`debugOnPause` returns immediately for a pause `willSurface` says won't
+be shown, skipping its query work entirely. Default is unset (today's
+"every task" behavior, unchanged) - this trades the Resolved tab's own
+"works for any task" guarantee for speed, which should stay an explicit
+opt-in rather than a surprise.
+
+No change needed to how a missing snapshot is handled: `showOutput`
+(`livesession_output.go`) already treats "no `task_vars` snapshot for
+this (task, host)" as "nothing to resolve, tab stays absent" - exactly
+what a task skipped under `--vars-at-stops-only` looks like, no
+different from a task that genuinely never paused at all (e.g. one
+ansible-core's debugger never gets a chance to splice `debugger: always`
+onto).
+
+**Verified**: `TestBreakpoints_OnPause_WillSurfaceTrueForArmedBreakpoint`/
+`TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause`
+(`internal/debugrun/breakpoints_test.go`) confirm `willSurface` agrees
+with the actual surface/continue decision in both directions;
+`TestExtractVarsAtStopsOnlyFlag` (`internal/debugverb`) covers the flag's
+own extraction.
 
 ## Status
 

@@ -222,6 +222,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.debugCopyPlaybookPath = debugCfg.CopyPlaybookPath
 	s.debugBPS = debugCfg.BPS
 	s.debugCursor = debugCfg.Cursor
+	s.debugVarsAtStopsOnly = debugCfg.VarsAtStopsOnly
 	s.lastTitlePercent = -1 // sentinel: no percentage ever written to the
 	// window title yet (0 is a real, reachable value at the very start of
 	// a run) - see updateWindowTitle.

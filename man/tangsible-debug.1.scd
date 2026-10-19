@@ -6,7 +6,7 @@ tangsible-debug - set breakpoints and step through a playbook
 
 # SYNOPSIS
 
-*tangsible debug* [_playbook.yml_] [_ansible-playbook args_ ...]
+*tangsible debug* [_playbook.yml_] [--vars-at-stops-only] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -35,6 +35,19 @@ This is a separate, standalone screen - not *tangsible-run*(1)'s own live
 tree - with no rerun dialog, no two-pane drill-down, and no recorded run
 history; a debug session is not something a later *tangsible rerun* can
 replay.
+
+# ADDITIONAL OPTIONS
+
+*--vars-at-stops-only*
+	By default, *debug* captures each paused task's own variables for
+	*every* task reached, including one silently resumed past with no
+	breakpoint armed on it, so its Resolved tab works no matter which
+	task you later navigate back to - at the cost of paying that
+	capture's own real time on every single task, whether or not the run
+	ever actually stops there. This flag captures only at a pause
+	actually shown to you (an armed breakpoint, a step, or a task
+	failure), trading that for a noticeably faster run through everything
+	else.
 
 # CONTROLS
 

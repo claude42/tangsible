@@ -252,7 +252,7 @@ It runs the role against `hosts: all`, while normal Ansible options such as
 ## Debugging a playbook (breakpoints)
 
 ```
-tangsible debug [playbook.yml] [ansible-playbook args...]
+tangsible debug [playbook.yml] [--vars-at-stops-only] [ansible-playbook args...]
 ```
 
 Shows every play and task up front, lets you set breakpoints directly on
@@ -266,6 +266,13 @@ Press `t` to arm/disarm a breakpoint on the selected task, `enter` to run
 to the next one (or to completion, with none set), `s` to step one task at
 a time regardless of breakpoints, and `v` to view the currently paused
 task's own variables.
+
+By default, every task's own variables are captured as it's reached, not
+just the ones you actually stop at, so the Resolved tab works no matter
+which task you later navigate back to - at the cost of that capture's own
+real time on every task, whether or not the run ever stops there.
+`--vars-at-stops-only` captures only at a pause actually shown to you, for
+a noticeably faster run through everything else.
 
 ## Debugging a Jinja2 template
 

@@ -45,13 +45,17 @@ type SessionPrep struct {
 	// Playbook is the real playbook's own absolute path - what display/
 	// sourceIndex/invocation-history code should use, never CopyPlaybookPath.
 	Playbook string
-	// Rest is the passthrough ansible-playbook args, --step already
-	// rejected and stripped of nothing else - debug has no synthetic
-	// flags of its own to extract (no --start-at-play, no --dialog, no
-	// rerun-only flags; design-docs/DebugMode.md's own "no history
-	// recording" decision also means there's no rerun dialog to pre-fill
-	// from).
+	// Rest is the passthrough ansible-playbook args, --step and
+	// --vars-at-stops-only already rejected/extracted and stripped -
+	// debug has no other synthetic flags of its own (no --start-at-play,
+	// no --dialog, no rerun-only flags; design-docs/DebugMode.md's own
+	// "no history recording" decision also means there's no rerun dialog
+	// to pre-fill from).
 	Rest []string
+	// VarsAtStopsOnly is --vars-at-stops-only's own result - see
+	// liveSession.debugVarsAtStopsOnly's own doc comment (internal/
+	// session/livesession.go) for what it does.
+	VarsAtStopsOnly bool
 	// CopyPlaybookPath is the absolute path into the shadow copy - what
 	// actually gets spawned (internal/debugrun.Spawn).
 	CopyPlaybookPath string
@@ -104,6 +108,12 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 			os.Exit(2)
 		}
 	}
+
+	// --vars-at-stops-only is debug's own synthetic flag (design-docs/
+	// DebugMode.md's "Stage 3 follow-up round 5") - never a real
+	// ansible-playbook flag, so extracted and stripped here, same
+	// reasoning as --start-at-play/--dialog elsewhere (internal/config).
+	varsAtStopsOnly, rest := extractVarsAtStopsOnlyFlag(rest)
 
 	absPlaybook, err := filepath.Abs(playbookArg)
 	if err != nil {
@@ -163,8 +173,30 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 	return SessionPrep{
 		Playbook:         absPlaybook,
 		Rest:             rest,
+		VarsAtStopsOnly:  varsAtStopsOnly,
 		CopyPlaybookPath: copyPlaybookPath,
 		Skeleton:         skeleton,
 		PathMapping:      pathMapping,
 	}, copyCleanup
+}
+
+// extractVarsAtStopsOnlyFlag pulls a bare "--vars-at-stops-only" out of
+// args, reporting whether it was present and returning the remainder
+// with every occurrence removed - the same "synthetic flag, strip before
+// anything else ever sees it" shape config.ExtractRerunFlags already uses
+// for --only-failed/--only-unreachable/--resume-where-failed, just for
+// this verb's own single flag instead of living in internal/config
+// alongside those (this one is debug-only, same as --step's own rejection
+// just above - not shared by any other verb).
+func extractVarsAtStopsOnlyFlag(args []string) (varsAtStopsOnly bool, rest []string) {
+	const flag = "--vars-at-stops-only"
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == flag {
+			varsAtStopsOnly = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return varsAtStopsOnly, out
 }
