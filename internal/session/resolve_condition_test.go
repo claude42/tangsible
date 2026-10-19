@@ -17,6 +17,7 @@ package session
 import (
 	"encoding/json"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -186,5 +187,52 @@ func TestResolveConditionsInTextNoConditions(t *testing.T) {
 	text := "- name: foo\n  command: bar\n"
 	if got := resolveConditionsInText(text, text, nil); got != text {
 		t.Errorf("resolveConditionsInText with no conditions = %q, want unchanged %q", got, text)
+	}
+}
+
+// TestResolveConditionsInTextWhenIsLastKeyWithTrailingComments is a
+// regression test for a real bug: a when: with no sibling key after it
+// (the ordinary case - it's usually the task's last key) used to pull
+// everything through end of taskSource into its own block, including
+// unrelated trailing commented-out tasks. One of those comments here
+// contains its own {{ unison_master }}, independently substituted by
+// resolveTaskValues' own {{ }}-regex mechanism before
+// resolveConditionsInText ever runs - so the old, too-wide block no
+// longer matched anywhere in text, and the splice silently failed,
+// leaving "when: unison_master == inventory_hostname" completely
+// unresolved even though both its own variables were resolvable.
+func TestResolveConditionsInTextWhenIsLastKeyWithTrailingComments(t *testing.T) {
+	requirePython3Jinja(t)
+
+	taskSource := "- name: Install uniall on unison master\n" +
+		"  ansible.builtin.copy:\n" +
+		"    src: uniall\n" +
+		"    dest: /usr/local/sbin/uniall\n" +
+		"  when: unison_master == inventory_hostname\n" +
+		"\n" +
+		"# - name: Print note\n" +
+		"#  ansible.builtin.debug:\n" +
+		"#    msg: \"from {{ unison_master }}.\"\n"
+
+	// Mirrors what resolveTaskValues itself would have already done to
+	// the trailing comment's own {{ }} expression, before
+	// resolveConditionsInText ever sees the text - the exact
+	// precondition that exposed the bug.
+	text := strings.Replace(taskSource, "{{ unison_master }}", "charon", 1)
+
+	snapshot, err := json.Marshal(map[string]interface{}{
+		"unison_master":      "charon",
+		"inventory_hostname": "charon",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := resolveConditionsInText(text, taskSource, snapshot)
+	if !strings.Contains(got, "when: 'charon' == 'charon'") {
+		t.Errorf("resolveConditionsInText = %q, want it to contain the resolved when: line", got)
+	}
+	if !strings.Contains(got, "from charon.") {
+		t.Errorf("resolveConditionsInText = %q, want the earlier {{ }} substitution left intact", got)
 	}
 }

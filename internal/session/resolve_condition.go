@@ -102,10 +102,37 @@ func extractTaskConditions(taskSource string) []taskCondition {
 		if !slices.Contains(conditionKeys, key.Value) {
 			continue
 		}
+		// endLine is derived strictly from the value's own extent, never
+		// from "the next sibling key, or else end of taskSource" - a
+		// condition key with no sibling after it (the common case: when:/
+		// failed_when:/etc. is usually the task's last key) would
+		// otherwise swallow everything through end of taskSource into
+		// block, including unrelated trailing comments. Confirmed live as
+		// a real bug: a trailing commented-out task containing its own
+		// {{ some_var }} gets that substituted by the unrelated {{ }}-
+		// regex resolve pass elsewhere in resolveTaskValues, so block (cut
+		// from the untouched original) no longer matches anywhere in the
+		// already-rendered text - the splice below silently finds nothing,
+		// leaving the condition completely unresolved even though its own
+		// variables were perfectly resolvable.
 		startLine := key.Line
-		endLine := len(lines) + 1
-		if i+2 < len(root.Content) {
-			endLine = root.Content[i+2].Line
+		endLine := startLine + 1
+		switch val.Kind {
+		case yaml.ScalarNode:
+			if (val.Style & (yaml.LiteralStyle | yaml.FoldedStyle)) != 0 {
+				// A block scalar's value spans lines past val.Line with no
+				// end position exposed by yaml.Node - not safe to bound,
+				// so left alone entirely (same "not chased further"
+				// tolerance as a flow list, below).
+				continue
+			}
+			if val.Line+1 > endLine {
+				endLine = val.Line + 1
+			}
+		case yaml.SequenceNode:
+			if len(val.Content) > 0 {
+				endLine = val.Content[len(val.Content)-1].Line + 1
+			}
 		}
 		if startLine < 1 || startLine > len(lines) || endLine > len(lines)+1 {
 			continue
