@@ -1017,6 +1017,21 @@ hostB skipped hostC entirely and landed directly on `step two`'s own
 hostA, then again straight to `step three`'s hostA - the bottom bar hint
 now reads "F10: next task  F11: step" (idle/paused) accordingly.
 
+**Follow-up:** the `?`/F1 help overlay never actually documented F5/F9/
+F10 at all - `helptables.go`'s `treeHelp`/`outputHelp` had no entries for
+them, a gap predating this round entirely (CLAUDE.md's "Help + bottom
+bars" invariant: "changing a binding means updating both there" - this
+had never been done even once). Closed alongside the F10/F11 split:
+both `treeHelp` and `outputHelp` get a new "Debug mode" section (F5/F9/
+F10/F11, one line each), hidden together outside a debug session via a
+new `helpIDDebug` entry ID - the hide function itself renamed from
+`treeHelpHidden` to `helpEntryHidden` (it was never actually tree-
+specific; `outputHelp`'s own `Open` call previously passed `nil`, i.e.
+no entries could be conditionally hidden there at all). Verified live:
+the section renders in both the tree's and the drill-down's own help
+overlay during a debug session, and is completely absent for a plain
+`run`.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

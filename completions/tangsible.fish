@@ -139,8 +139,9 @@ complete -c tangsible -n $__tangsible_has_verb -l list-tasks -d 'List tasks that
 complete -c tangsible -n $__tangsible_has_verb -l list-tags -d 'List all available tags'
 # --step is excluded for debug specifically, unlike every other flag
 # above offered via $__tangsible_has_verb: debug rejects it outright
-# (RunDebugVerb) rather than let it hang - its own breakpoint mechanism,
-# not ansible-playbook's --step, is what pauses a debug run.
+# (debugverb.PrepareSession) rather than let it hang - its own
+# breakpoint mechanism, not ansible-playbook's --step, is what pauses a
+# debug run.
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun role template host hosts revisit' -l step -d 'Confirm each task before running it'
 complete -c tangsible -n $__tangsible_has_verb -l start-at-task -x -d 'Start the playbook at this task name'
 

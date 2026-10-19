@@ -41,8 +41,9 @@ _tangsible_ap_flags="-h --help --version -v --verbose \
 --syntax-check --list-tasks --list-tags --step --start-at-task"
 
 # Same as $_tangsible_ap_flags, minus --step - debug rejects --step
-# outright (RunDebugVerb) rather than let it hang: its own breakpoint
-# mechanism, not ansible-playbook's --step, is what pauses a debug run.
+# outright (debugverb.PrepareSession) rather than let it hang: its own
+# breakpoint mechanism, not ansible-playbook's --step, is what pauses a
+# debug run.
 _tangsible_ap_flags_no_step=${_tangsible_ap_flags/--step/}
 
 # Flags whose value is a path on disk.

@@ -24,15 +24,16 @@ import "code.aw.net/claude/tangsible/internal/uikit"
 // livesession_mouse.go, and with design-docs/Keyboard-shortcuts.md, which
 // stays the long-form reference.
 
-// Entry IDs a session can hide depending on context (treeHelpHidden).
+// Entry IDs a session can hide depending on context (helpEntryHidden).
 const (
 	helpIDRerun   = "rerun"   // no requestRerun wired
 	helpIDRevisit = "revisit" // only in a revisit session
+	helpIDDebug   = "debug"   // only in a debug session
 )
 
 // treeBar is the tree view's bottom bar. currentMainBottomBarText drops
 // "r: re-run" when nothing can rerun and appends the revisit and check-mode
-// notes - the same contexts treeHelpHidden covers for the help dialog.
+// notes - the same contexts helpEntryHidden covers for the help dialog.
 const treeBar = " ?: help  f: filter  /: search  o: output  r: re-run  q: quit "
 
 var treeHelp = uikit.HelpScreen{
@@ -59,6 +60,12 @@ var treeHelp = uikit.HelpScreen{
 			{Keys: "r", Desc: "Re-run, optionally with other tags/hosts or from a given play (once the run has finished)", ID: helpIDRerun},
 			{Keys: "d", Desc: "Compare this run with a previous one (once the run has finished)"},
 		}},
+		{Title: "Debug mode", Entries: []uikit.HelpEntry{
+			{Keys: "F5", Desc: "Run - to the next armed breakpoint, or to completion with none set", ID: helpIDDebug},
+			{Keys: "F9", Desc: "Arm / disarm a breakpoint on the selected task (or click its row)", ID: helpIDDebug},
+			{Keys: "F10", Desc: "Next task - skip the rest of this task's hosts, stop at the next task's first one", ID: helpIDDebug},
+			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
+		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},
 			{Keys: "Esc", Desc: "Back to the list of previous runs", ID: helpIDRevisit},
@@ -71,14 +78,20 @@ var treeHelp = uikit.HelpScreen{
 	},
 }
 
-// treeHelpHidden drops the entries that don't apply to this session - the
-// same conditions the key handlers themselves check.
-func (s *liveSession) treeHelpHidden(id string) bool {
+// helpEntryHidden drops the entries that don't apply to this session - the
+// same conditions the key handlers themselves check. Shared by treeHelp
+// and outputHelp (passed as both HelpOverlay.Open calls' own hide
+// parameter) since F5/F9/F10/F11 work identically whichever of the two is
+// frontmost (handleDebugKey's own doc comment) - nothing here is actually
+// tree-specific despite the historical name.
+func (s *liveSession) helpEntryHidden(id string) bool {
 	switch id {
 	case helpIDRerun:
 		return s.requestRerun == nil
 	case helpIDRevisit:
 		return !s.revisitActive
+	case helpIDDebug:
+		return !s.debugMode
 	}
 	return false
 }
@@ -104,6 +117,12 @@ var outputHelp = uikit.HelpScreen{
 			{Keys: "/", Desc: "Search this tab's text"},
 			{Keys: "y", Desc: "Copy this tab's text to the clipboard"},
 			{Keys: "e", Desc: "Open the task's source file in $VISUAL / $EDITOR"},
+		}},
+		{Title: "Debug mode", Entries: []uikit.HelpEntry{
+			{Keys: "F5", Desc: "Run - to the next armed breakpoint, or to completion with none set", ID: helpIDDebug},
+			{Keys: "F9", Desc: "Arm / disarm a breakpoint on the selected task (or click its row)", ID: helpIDDebug},
+			{Keys: "F10", Desc: "Next task - skip the rest of this task's hosts, stop at the next task's first one", ID: helpIDDebug},
+			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},

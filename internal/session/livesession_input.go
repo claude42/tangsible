@@ -422,7 +422,7 @@ func (s *liveSession) handleOutputViewKey(event *tcell.EventKey) *tcell.EventKey
 		s.search.open()
 		return nil
 	case uikit.IsHelpKey(event):
-		s.help.Open(outputHelp, nil)
+		s.help.Open(outputHelp, s.helpEntryHidden)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 		s.outputBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
@@ -471,7 +471,7 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 		s.jumpingToEnd = false
 		return nil
 	case uikit.IsHelpKey(event):
-		s.help.Open(treeHelp, s.treeHelpHidden)
+		s.help.Open(treeHelp, s.helpEntryHidden)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'o':
 		// The raw-output view (livesession_stdout.go) - available while
