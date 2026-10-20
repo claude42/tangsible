@@ -288,7 +288,9 @@ for adding a watched expression - a bare name, or a dotted/bracket-index
 path into one, like `foo.bar` or `foo[0]`. Watched values stay visible
 and re-evaluate live as you navigate to a different host/task, greyed
 out once you close the explorer with Esc; one that can't currently be
-resolved shows struck through rather than as an error.
+resolved shows as `<undefined>` rather than as an error. The explorer's
+own bottom-of-screen keyboard hints replace the usual ones while it's
+open, and it's colored like the rest of the debug chrome.
 
 ## Debugging a Jinja2 template
 

@@ -1329,6 +1329,87 @@ an arbitrary unrecognized flag like `--some-made-up-flag`) now shows the
 real usage+error text instead of the generic "probe failed" message
 alone.
 
+## Stage 4 follow-up round 2: drop unavailable's own styling, chrome-colored panel, bottom-bar hints, nav/delete fixes (2026-10-20)
+
+Five small changes requested after trying the explorer live, all in
+`internal/session/livesession_watch.go` unless noted:
+
+- **Unavailable rendering simplified.** The "Four colors" decision above
+  gave unavailable its own color (`IgnoredColor`) plus strike-through.
+  Dropped: a rejected, out-of-context, and merely-doesn't-resolve-yet
+  expression all now render identically as `<undefined>`, in whatever
+  color the row would use anyway (`StandardTextColor` while open,
+  `NothingReportedColor` once the explorer closes) - one fewer color to
+  explain, and a plain, ASCII-safe placeholder instead of leaning on
+  strike-through support that varies by terminal. `formatWatchValue`
+  replaces the old `renderValuePlain`, now used for both the open and
+  closed states (they'd already converged on "just show the value or a
+  placeholder" - only the surrounding color differed).
+- **Chrome-colored panel**, tried live per request: `watchPanel.render`
+  now takes a `chromeBg tcell.Color` (the caller passes
+  `s.debugChromeBg()`, already existing - orange/maroon while debug-
+  running/paused, otherwise whatever a plain `run` uses) and paints it
+  onto both the list `TextView` and the input field (`SetBackgroundColor`
+  on both, plus `SetFieldBackgroundColor` for the field's own typed-text
+  rectangle) - read fresh every `render()` call, so it tracks a live
+  running/paused flip the same way the rest of the chrome does. The
+  autocomplete drop-down's own colors (`uikit.StyleAutocomplete`) were
+  left alone - a separate, temporary overlay, not "the panel" itself.
+- **Bottom-bar hints, not a separate line.** The hint line used to be the
+  panel's own trailing `TextView` row (the "Stage 4: implemented" entry
+  above). Moved to whichever bottom chrome bar is already on screen -
+  `s.bottomBar` for the tree page, `s.outputBottomBar` for the drill-
+  down/split page, the same `s.viewingOutput` switch `watchShowRejected`
+  already used - replacing its normal text while the explorer is open and
+  restoring it the instant the explorer closes (new
+  `watchSyncBottomBar`, called at every watch-key transition that
+  changes what the hint should say, deliberately *not* called from
+  `rebuild()` itself: unlike `s.watch.render()`, these two bars aren't
+  otherwise touched on every `rebuild()` pass, which is what lets the
+  drill-down's own `y`-copy-status message survive an unrelated
+  heartbeat-driven redraw - doing this from `rebuild()` instead would
+  have clobbered that message, and the explorer's own rejected-expression
+  status right after it's shown). Safe to treat as unconditional since
+  the explorer is fully modal while open - nothing else can be triggering
+  a competing message in the meantime. `height()`'s old "+2 for a blank
+  separator and the hint line" is gone with it.
+- **Two small, real bugs**, both found by exercising the panel live, not
+  reported in advance:
+  - `Up` with nothing selected and an empty input field did nothing at
+    all, forever - the existing clamp (`watchClamp(selected+delta, -1,
+    len-1)`) pins `-1 + -1` straight back to `-1`. `Down` from the same
+    state correctly landed on the list's head (`0`) only because `-1 + 1`
+    happens to already be a valid, in-range index. Fixed with one special
+    case: `Up` from "nothing selected" jumps straight to the last entry
+    instead of going through the clamp - which, with no entries at all,
+    still correctly stays a no-op (`len(w.entries)-1` is `-1` exactly
+    when there's nothing to select, so no extra guard was needed).
+    Elsewhere the existing "no wraparound" clamp is unchanged.
+  - `Delete` was the only key that removed a selected watched row;
+    `Backspace` did nothing. Added `tcell.KeyBackspace`/
+    `tcell.KeyBackspace2` alongside `tcell.KeyDelete` in that one branch -
+    but only when a row is actually selected; with nothing selected,
+    `Backspace`/`Backspace2` still forward to the input field as before
+    (ordinary text editing), while a bare `Delete` keeps being a no-op
+    there, unchanged.
+
+**Verified live in tmux**: `<undefined>` with no strike-through escape
+code (confirmed via `capture-pane -e -p`, which needs the `-p` flag to
+actually emit color codes with a `-S`/`-E` range - a tmux quirk hit
+again this round, not new to this codebase); the panel's own background
+showing a non-default color (confirmed in one-pane tree, one-pane
+drill-down, and two-pane split - split mode's left/tree pane keeps its
+own unrelated `SplitBottomBarText` untouched, only the right pane's
+`outputBottomBar` carries the hint); the bottom bar swapping to the
+watch hint on open and reverting to the session's normal hint (including
+the debug F5/F9/F10/F11 one) on close; `Up` from no selection jumping to
+the last entry, `Down` from no selection still landing on the first;
+both `Delete` and `Backspace` removing a selected row. `go build ./... &&
+go vet ./... && go test ./...` and `gofmt -l internal/` clean (aside
+from the one pre-existing, unrelated `recap_rowtext_test.go` flag).
+`README.md`, `design-docs/Keyboard-shortcuts.md`, and the man page
+updated to match.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

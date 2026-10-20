@@ -86,12 +86,17 @@ already offers:
 	selected) for adding a watched expression - a bare name, or a
 	dotted/bracket-index path into one, like *foo.bar* or *foo[0]*. Enter
 	adds the typed or highlighted expression; *Up*/*Down* with an empty
-	field selects a watched row instead (*Delete* removes it); *Esc* is
-	staged - closes a suggestion list, then clears the field, then closes
-	the explorer (or deselects a row, then closes). Watched values
-	re-evaluate live as you navigate to a different host/task, and stay
-	visible, greyed out, once you close the explorer; one that can't
-	currently be resolved shows struck through rather than as an error.
+	field selects a watched row instead (jumping straight to the last
+	entry on *Up*, the first on *Down*, from no selection); *Delete* or
+	*Backspace* removes the selected one. *Esc* is staged - closes a
+	suggestion list, then clears the field, then closes the explorer (or
+	deselects a row, then closes). Watched values re-evaluate live as you
+	navigate to a different host/task, and stay visible, greyed out, once
+	you close the explorer; one that can't currently be resolved shows as
+	*<undefined>* rather than as an error. While open, the explorer's own
+	key hints replace the usual ones at the bottom of the screen,
+	reverting the moment it closes; the whole panel is colored like the
+	rest of the session's own chrome.
 
 Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
 stop), the drill-down

@@ -84,7 +84,11 @@ func newWatchPanel(app *tview.Application, currentSnapshot func() (json.RawMessa
 // height reports how many rows the heading+entries block and the input
 // row each need right now - 0,0 when there's nothing watched and the
 // explorer is closed, which is what keeps the panel fully invisible
-// (zero-height Flex items) in that state.
+// (zero-height Flex items) in that state. The hint line that used to
+// live here moved to whichever bottom chrome bar is already visible
+// (watchSyncBottomBar) - "look like part of the chrome" (the follow-up
+// round that moved it) reads oddly with a second, separate hint line of
+// its own right above it.
 func (w *watchPanel) height() (listH, inputH int) {
 	if len(w.entries) == 0 && !w.open {
 		return 0, 0
@@ -93,20 +97,19 @@ func (w *watchPanel) height() (listH, inputH int) {
 		listH = 1 + len(w.entries) // heading + one row per entry
 	}
 	if w.open {
-		listH += 2 // blank separator + hint line
 		inputH = 1
 	}
 	return listH, inputH
 }
 
-// watchHint returns the bottom hint line's own text for the panel's
-// current sub-state - Esc staging (design-docs/DebugMode.md's "Stage 4
-// UX decisions") is reflected here so the visible hint always matches
-// what Esc will actually do next.
+// watchHint returns the bottom chrome bar's own text while the explorer
+// is open (watchSyncBottomBar) - Esc staging (design-docs/DebugMode.md's
+// "Stage 4 UX decisions") is reflected here so the visible hint always
+// matches what Esc will actually do next.
 func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 	switch {
 	case w.selected != -1:
-		return "↑↓: select  Delete: remove variable  Esc: back"
+		return "↑↓: select  Delete/Backspace: remove variable  Esc: back"
 	case autocompleteOpen:
 		return "Enter: add  ↑↓: select  Esc: close suggestions"
 	case w.input.GetText() != "":
@@ -120,8 +123,14 @@ func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 // Flex items to match. evaluate is injected (rather than a direct
 // evaluateWatchExpr/currentSnapshot call) purely so render stays a plain
 // function of its inputs - called from rebuild() with a closure over the
-// live snapshot lookup.
-func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool) {
+// live snapshot lookup. chromeBg paints the whole panel (list and input,
+// border-to-border) the session's own current chrome color (orange/
+// maroon while debug-running/paused, otherwise whatever a plain `run`
+// would use) - a follow-up round's "try making it look like part of the
+// chrome" request, read fresh every render the same reason
+// debugChromeBg itself is (running/paused flips repeatedly within one
+// session).
+func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeBg tcell.Color) {
 	var b strings.Builder
 	if len(w.entries) > 0 {
 		fmt.Fprintf(&b, "[%s::b]Watched variables[-:-:-]\n", uikit.StandardTextColor)
@@ -131,49 +140,40 @@ func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen 
 				cursor = "▶"
 			}
 			line := fmt.Sprintf("%s %s", cursor, tview.Escape(e.expr))
+			// Deactivated (explorer closed, still showing watched
+			// values) renders the whole block grey, collapsing the
+			// resolved/unavailable distinction (an existing Stage 4 UX
+			// decision, unaffected by the follow-up that dropped
+			// unavailable's own separate color/strike-through below).
+			color := uikit.StandardTextColor
 			if !w.open {
-				// Deactivated but still showing watched values - the
-				// whole block renders grey, collapsing the resolved/
-				// unavailable distinction (Stage 4 UX decision).
-				fmt.Fprintf(&b, "[%s::-]%s = %s[-::-]\n", uikit.NothingReportedColor, line, w.renderValuePlain(evaluate(e.expr)))
-				continue
+				color = uikit.NothingReportedColor
 			}
-			switch res := evaluate(e.expr); res.kind {
-			case watchResolved:
-				fmt.Fprintf(&b, "[%s::-]%s = %s[-::-]\n", uikit.StandardTextColor, line, tview.Escape(formatWatchScalar(res.value)))
-			default: // watchUnavailable (watchRejected never reaches a stored entry)
-				// Lowercase 's' - tview's tag convention is lowercase
-				// *sets* an attribute, uppercase *clears* it (confirmed
-				// against strings.go's own parseTag); an uppercase 'S'
-				// here would silently be a no-op, never striking through
-				// anything.
-				fmt.Fprintf(&b, "[%s::s]%s = unavailable[-::-]\n", uikit.IgnoredColor, line)
-			}
+			fmt.Fprintf(&b, "[%s::-]%s = %s[-::-]\n", color, line, formatWatchValue(evaluate(e.expr)))
 		}
-	}
-	if w.open {
-		if len(w.entries) > 0 {
-			b.WriteString("\n")
-		}
-		fmt.Fprintf(&b, "[%s::-]%s[-:-:-]\n", uikit.StandardTextColor, w.watchHint(autocompleteOpen))
 	}
 	w.list.SetText(b.String())
+	w.list.SetBackgroundColor(chromeBg)
+	w.input.SetBackgroundColor(chromeBg)
+	w.input.SetFieldBackgroundColor(chromeBg)
 
 	listH, inputH := w.height()
 	w.flex.ResizeItem(w.list, listH, 0)
 	w.flex.ResizeItem(w.input, inputH, 0)
 }
 
-// renderValuePlain is render's own helper for the deactivated (grey)
-// state, where resolved/unavailable/rejected all look identical - only
-// a resolved value has real text to show; anything else renders as the
-// same "unavailable" placeholder the active state uses for its own
-// unavailable rows.
-func (w *watchPanel) renderValuePlain(res watchResult) string {
+// formatWatchValue is render's own per-entry value formatter - a
+// resolved value renders as itself; a rejected, unavailable, or
+// out-of-context expression all render identically as the literal
+// placeholder below (a follow-up round's "drop unavailable's own
+// special rendering - no strike-through, no different color" request:
+// the three cases were already visually indistinguishable in meaning,
+// so now they're indistinguishable in rendering too, not just color).
+func formatWatchValue(res watchResult) string {
 	if res.kind == watchResolved {
 		return tview.Escape(formatWatchScalar(res.value))
 	}
-	return "unavailable"
+	return "<undefined>"
 }
 
 // commitExpr adds expr (already trimmed and confirmed non-empty by the
@@ -305,8 +305,9 @@ func (s *liveSession) watchAutocompleted(text string, index, source int) bool {
 // watchShowRejected shows a transient "rejected" status, reusing the
 // drill-down's own 'y'-copy-status mechanism (livesession_tabsearch.go):
 // a direct SetText with no timer, superseded by whatever next
-// legitimately changes that same bar (every other watch-panel key ends
-// in s.rebuild(), which never touches these bars itself).
+// legitimately changes that same bar - deliberately not followed by
+// watchSyncBottomBar (every other watch-key branch is), so this message
+// isn't immediately clobbered by it.
 func (s *liveSession) watchShowRejected(expr string) {
 	msg := fmt.Sprintf(" Not a valid expression: %s ", tview.Escape(expr))
 	if s.viewingOutput {
@@ -315,6 +316,41 @@ func (s *liveSession) watchShowRejected(expr string) {
 	} else {
 		s.bottomBar.SetTextStyle(s.debugChromeStyle())
 		s.bottomBar.SetText(msg)
+	}
+}
+
+// watchSyncBottomBar keeps whichever bottom chrome bar is currently
+// visible (s.bottomBar for the tree page, s.outputBottomBar for the
+// drill-down/split page - same s.viewingOutput switch watchShowRejected
+// just above already uses) in sync with the explorer's own state: its
+// own key hints while open (a follow-up round's "render the explorer's
+// own shortcuts in the bottom chrome line instead of a separate hint row"
+// request), restored to its normal text the instant it closes.
+// Deliberately not done from rebuild() itself the way s.watch.render()
+// is - these two bars aren't otherwise touched on every rebuild() pass (a
+// 'y' copy-status or search-composing message on s.outputBottomBar is
+// meant to survive exactly that kind of unrelated redraw, the existing
+// "set once, superseded only by the next legitimate change" idiom) -
+// called explicitly instead, at each watch-key transition that actually
+// changes what the hint should say; safe to do unconditionally there
+// since the explorer is fully modal while open, so neither of those other
+// transient messages can be triggered in the meantime.
+func (s *liveSession) watchSyncBottomBar() {
+	hint := " " + s.watch.watchHint(s.watchAutocompleteOpenNow()) + " "
+	if s.viewingOutput {
+		s.outputBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
+		if s.watch.open {
+			s.outputBottomBar.SetText(hint)
+		} else {
+			s.outputBottomBar.SetText(outputBar)
+		}
+		return
+	}
+	s.bottomBar.SetTextStyle(s.debugChromeStyle())
+	if s.watch.open {
+		s.bottomBar.SetText(hint)
+	} else {
+		s.bottomBar.SetText(s.currentMainBottomBarText())
 	}
 }
 
@@ -346,6 +382,7 @@ func (s *liveSession) handleWatchKey(event *tcell.EventKey) (*tcell.EventKey, bo
 		// tview's own focus-driven routing).
 		s.app.SetFocus(s.watch.input)
 		s.rebuild()
+		s.watchSyncBottomBar()
 		return nil, true
 	}
 	return s.handleWatchOpenKey(event), true
@@ -368,6 +405,7 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 		case w.selected != -1:
 			w.selected = -1
 			s.rebuild()
+			s.watchSyncBottomBar()
 			return nil
 		case s.watchAutocompleteOpenNow():
 			// Forwarded, not swallowed: tview's own InputField.InputHandler
@@ -389,6 +427,7 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 			w.selected = -1
 		}
 		s.rebuild()
+		s.watchSyncBottomBar()
 		return nil
 
 	case tcell.KeyEnter:
@@ -407,16 +446,31 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 			return nil
 		}
 		s.rebuild()
+		s.watchSyncBottomBar()
 		return nil
 
 	case tcell.KeyUp, tcell.KeyDown:
 		if w.input.GetText() == "" {
-			delta := -1
-			if event.Key() == tcell.KeyDown {
-				delta = 1
+			if w.selected == -1 && event.Key() == tcell.KeyUp {
+				// Reported live: the clamp below pinned this at -1
+				// forever (lo=-1, delta=-1 from an already-at-lo
+				// selected), so Up never did anything from "nothing
+				// selected" - only Down (which lands on 0, the head of
+				// the list) worked. Jumping straight to the last entry
+				// here is the one exception to the "no wraparound"
+				// clamp below: len(w.entries)-1 is -1 when there's
+				// nothing to select, so this stays a no-op in that case
+				// too, with no extra guard needed.
+				w.selected = len(w.entries) - 1
+			} else {
+				delta := -1
+				if event.Key() == tcell.KeyDown {
+					delta = 1
+				}
+				w.selected = watchClamp(w.selected+delta, -1, len(w.entries)-1)
 			}
-			w.selected = watchClamp(w.selected+delta, -1, len(w.entries)-1)
 			s.rebuild()
+			s.watchSyncBottomBar()
 			return nil
 		}
 		if s.watchAutocompleteOpenNow() {
@@ -424,20 +478,30 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 		}
 		return nil // non-empty input, zero matches: ignored per spec
 
-	case tcell.KeyDelete:
+	case tcell.KeyDelete, tcell.KeyBackspace, tcell.KeyBackspace2:
 		if w.selected == -1 {
-			return nil // no meaning while typing
+			if event.Key() == tcell.KeyDelete {
+				return nil // no meaning while typing
+			}
+			return s.watchForwardToInput(event) // Backspace/Backspace2 edit the field as usual
 		}
+		// A follow-up round asked for Backspace to remove the selected
+		// entry too, not just Delete - a plain, unlabeled "Delete" key
+		// doesn't exist on every keyboard (notably Mac laptops, where the
+		// labeled "delete" key sends Backspace), and there's nothing else
+		// for Backspace to do once a row - not the input field - is what's
+		// selected.
 		w.entries = append(w.entries[:w.selected], w.entries[w.selected+1:]...)
 		if w.selected >= len(w.entries) {
 			w.selected = len(w.entries) - 1
 		}
 		s.rebuild()
+		s.watchSyncBottomBar()
 		return nil
 
 	default:
 		if w.selected != -1 {
-			return nil // only Up/Down/Delete/Esc mean anything with a row selected
+			return nil // only Up/Down/Delete/Backspace/Esc mean anything with a row selected
 		}
 		return s.watchForwardToInput(event)
 	}
@@ -448,6 +512,7 @@ func (s *liveSession) watchForwardToInput(event *tcell.EventKey) *tcell.EventKey
 		handler(event, func(p tview.Primitive) { s.app.SetFocus(p) })
 	}
 	s.rebuild()
+	s.watchSyncBottomBar()
 	return nil
 }
 

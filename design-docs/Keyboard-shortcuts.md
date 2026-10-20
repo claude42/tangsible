@@ -556,14 +556,20 @@ collide with:
                      name, or a dotted/bracket-index path into one
                      (`foo.bar`, `foo[0]`). Enter adds the typed/picked
                      expression; Up/Down with an empty field selects a
-                     watched row instead, Delete removes it; Esc is
-                     staged (close the drop-down, then clear the field,
-                     then close the explorer - or deselect a row, then
-                     close). Watched values re-evaluate live as the tree
-                     selection moves, staying visible (greyed out) once
-                     the explorer itself is closed; a value that can't
-                     currently be resolved renders struck through rather
-                     than as an error.
+                     watched row instead (wrapping straight to the last
+                     entry from no selection on Up, the first on Down),
+                     Delete or Backspace removes it; Esc is staged (close
+                     the drop-down, then clear the field, then close the
+                     explorer - or deselect a row, then close). Watched
+                     values re-evaluate live as the tree selection moves,
+                     staying visible (greyed out) once the explorer itself
+                     is closed; a value that can't currently be resolved
+                     renders as `<undefined>` rather than as an error.
+                     While open, the explorer's own key hints replace the
+                     tree's/drill-down's normal bottom bar, reverting the
+                     moment it closes - and the whole panel (not just the
+                     text) is colored like the rest of the session's own
+                     chrome.
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
 sketches a `[keys]` config section for these; not wired up yet).

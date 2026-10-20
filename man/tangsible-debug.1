@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-debug" "1" "2026-10-19" "Tangsible" "Tangsible Manual"
+.TH "tangsible-debug" "1" "2026-10-20" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -104,12 +104,17 @@ Open the variable watch explorer: a text field with live autocomplete
 selected) for adding a watched expression - a bare name, or a
 dotted/bracket-index path into one, like \fBfoo.\&bar\fR or \fBfoo[0]\fR.\& Enter
 adds the typed or highlighted expression; \fBUp\fR/\fBDown\fR with an empty
-field selects a watched row instead (\fBDelete\fR removes it); \fBEsc\fR is
-staged - closes a suggestion list, then clears the field, then closes
-the explorer (or deselects a row, then closes).\& Watched values
-re-evaluate live as you navigate to a different host/task, and stay
-visible, greyed out, once you close the explorer; one that can'\&t
-currently be resolved shows struck through rather than as an error.\&
+field selects a watched row instead (jumping straight to the last
+entry on \fBUp\fR, the first on \fBDown\fR, from no selection); \fBDelete\fR or
+\fBBackspace\fR removes the selected one.\& \fBEsc\fR is staged - closes a
+suggestion list, then clears the field, then closes the explorer (or
+deselects a row, then closes).\& Watched values re-evaluate live as you
+navigate to a different host/task, and stay visible, greyed out, once
+you close the explorer; one that can'\&t currently be resolved shows as
+\fB<undefined>\fR rather than as an error.\& While open, the explorer'\&s own
+key hints replace the usual ones at the bottom of the screen,
+reverting the moment it closes; the whole panel is colored like the
+rest of the session'\&s own chrome.\&
 .PP
 .RE
 Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
