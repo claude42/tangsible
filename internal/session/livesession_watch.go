@@ -404,6 +404,20 @@ func (s *liveSession) handleWatchKey(event *tcell.EventKey) (*tcell.EventKey, bo
 		// keys are still forwarded manually below, not relied on from
 		// tview's own focus-driven routing).
 		s.app.SetFocus(s.watch.input)
+		// Blur the drill-down's own tabs explicitly - once they've ever
+		// held real focus (e.g. the user pressed Tab at some point),
+		// uikit.TabbedPane's own p.pages keeps reporting HasFocus() true
+		// forever after (TabbedPane.Blur's own doc comment), regardless
+		// of SetFocus above. Left alone, that stuck flag makes
+		// tview.Flex.Draw treat *two* siblings (the tabs and watch.flex)
+		// as "the focused one," both deferred - and since Go's defer
+		// stack unwinds LIFO, the tabs (the earlier sibling, so the
+		// first one registered) then draws *last*, painting over the
+		// autocomplete drop-down everywhere the two overlap. Confirmed
+		// live as the reported "popup's upper rows look clipped" bug:
+		// only the drop-down's one row that shares no space with the
+		// tabs (right above the input field) survived.
+		s.outputTabs.Blur()
 		s.rebuild()
 		s.watchSyncBottomBar()
 		return nil, true

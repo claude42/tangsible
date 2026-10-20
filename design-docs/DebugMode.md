@@ -1504,6 +1504,73 @@ report:
 `recap_rowtext_test.go` flag); live in tmux, `v` on a totally fresh
 session immediately shows the heading above the (empty) input field.
 
+## Stage 4 follow-up round 5: the "clipped" autocomplete drop-down - root cause found
+
+The round 4 autocomplete investigation above concluded "likely not a
+regression" based on testing with few enough candidates that the
+drop-down never needed more room than the panel itself had. Revisited
+after a better repro: open the explorer in the drill-down/split page
+(not the plain tree page) and type a prefix matching *several*
+candidates (`--all-vars`, paused, prefix `a` matches all 7 `ansible_*`
+vars) - only the drop-down's *last* row (right above the input field)
+ever rendered; every row above it stayed blank, and navigating up into
+them made the cursor vanish while the entry remained selectable (Enter
+still added it) - exactly the user's own description, down to "the
+upper end is somehow clipped."
+
+Root-caused by temporarily vendoring a locally-patched copy of
+`rivo/tview` (via a throwaway `go.mod` replace directive, reverted
+before finishing - never part of any commit) and instrumenting
+`InputField.Draw`/`List.Draw`/`Flex.Draw` directly: the drop-down's own
+`screen.SetContent` calls were confirmed correct immediately after
+drawing (read back via `screen.GetContent`), so the content was right
+the instant it was written - something else overwrote it afterward,
+every time, only when `s.outputTabs` (the drill-down's `TabbedPane`) sat
+above the watch panel in the same `Flex`. The `Flex.Draw` trace named
+it directly: `*tview.Pages` (the tabs' own internal page switcher)
+logged as `DEFERRED (hasFocus)` right alongside the input field - two
+siblings both reporting `HasFocus() == true` at once, when only the
+watch input should.
+
+This is `uikit.TabbedPane`'s own already-documented "stuck focus" bug
+(`Clear`'s doc comment, `design-docs/ErrorOutput.md`): once `p.pages`
+has ever genuinely held focus (e.g. the user pressed Tab once), it
+reports `HasFocus() == true` forever after, regardless of where
+`Application.SetFocus` actually points - previously only ever fixed at
+the one call site that mattered before this feature existed
+(`closeOutput`'s own `s.outputTabs.Clear()`). Opening the watch explorer
+is a *second* way focus moves away from the tabs that nothing cleared
+it for. With two "focused" siblings in the same `Flex`, `Flex.Draw`'s
+"draw whichever child reports focus *last*" rule (so the real focused
+item always paints over its siblings) applies to *both* - and since Go
+unwinds `defer` LIFO, the earlier-registered one (the tabs, always
+listed before the watch panel in every parent `Flex`) ends up drawn
+dead last, painting over the drop-down wherever the two overlap. The
+drop-down's own geometry (`InputField.Draw`'s "drop up when there's no
+room below," confirmed necessary here since the panel always sits
+directly above the one-row bottom bar) made that overlap large -
+everywhere the tabs' own rect extended, which is most of it; only the
+row the tabs' rect doesn't reach (immediately above the input field)
+survived.
+
+Fix: new `uikit.TabbedPane.Blur()` - the same two calls `Clear` already
+makes (`p.pages.Blur()`, `p.root.Blur()`) factored out as their own
+method, for a caller that wants to clear the stuck flag *without*
+tearing down the tabs' own content (`Clear`'s contract). Called from
+`handleWatchKey` right alongside the existing `s.app.SetFocus(s.watch.input)`
+when the explorer opens.
+
+**Verified**: 6/6 and 4/4 clean runs (one-pane drill-down and two-pane
+split respectively) with a 7-candidate prefix that reproduced the bug
+on every single attempt before the fix (previously confirmed flaky-but-
+frequent on both the pre- and post-round-4 code, not something any
+earlier round introduced); `Tab` still switches the drill-down's own
+active tab correctly after opening and closing the watch explorer once
+(confirming `Blur()` doesn't regress ordinary tab switching). `go build
+./... && go vet ./... && go test ./...` and `gofmt -l internal/` clean
+(aside from the one pre-existing, unrelated `recap_rowtext_test.go`
+flag).
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

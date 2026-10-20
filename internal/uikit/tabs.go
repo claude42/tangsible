@@ -158,6 +158,34 @@ func (p *TabbedPane) Clear() {
 	}
 	p.names = nil
 	p.active = 0
+	p.Blur()
+}
+
+// Blur force-clears this pane's own stuck-focus state (see Clear's own
+// doc comment for the full story: once p.pages has ever been focused, it
+// keeps reporting HasFocus() true forever after, regardless of where
+// Application.SetFocus actually points now) without touching its tab
+// content at all - for a caller that's moving focus elsewhere while
+// still wanting the tabs' own content to stay visible underneath,
+// unlike Clear's "leave this pane as if never used" contract.
+//
+// Needed, not just nice to have: tview.Flex.Draw defers drawing whichever
+// child HasFocus() reports true until every other child has already
+// drawn, so exactly one "stuck" tabs pane can draw at the *end* of its
+// parent's own Draw instead of the start - confirmed live, a debug
+// session's variable watch explorer (SetFocus on its own input field,
+// livesession_watch.go) opened while the drill-down's tabs had ever once
+// held real focus: both the tabs and the input field's own Draw ended up
+// deferred, and Go's defer stack unwinds LIFO, so the tabs (registered
+// first, since it's the earlier sibling) drew *last*, painting over the
+// watch explorer's own autocomplete drop-down everywhere it overlapped
+// the tabs' own rect - only the row the drop-down shares with nothing
+// else (the one right above the input field) stayed visible, mimicking
+// the drop-down getting "clipped" at the top. Blurring the tabs the same
+// way opening the watch explorer already blurs everything else it
+// steals focus from restores the single-focused-child invariant
+// Flex.Draw's own deferral logic assumes.
+func (p *TabbedPane) Blur() {
 	p.pages.Blur()
 	p.root.Blur()
 }
