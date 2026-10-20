@@ -376,10 +376,25 @@ func (s *liveSession) rebuild() {
 	// changed, and every navigation already calls rebuild(). A no-op for
 	// every non-debug Verb (s.watch.entries/open can only ever become
 	// non-zero/true via handleWatchKey, itself gated on s.debugMode).
+	//
+	// watchWidth is the panel's own current column count - totalWidth
+	// itself for the tree-only/output-single-pane cases (the panel is a
+	// full-width Flex item of s.flex/s.outputFlex there, same as
+	// s.topBar/s.outputTopBar), or the split output pane's own narrower
+	// share once s.splitMode (s.outputBody's own "whatever's left after
+	// the tree pane and the divider" width, the same arithmetic
+	// s.splitBody's own AddItem calls already use) - needed so the
+	// headline's own chrome-colored background can be padded out to the
+	// panel's full width rather than stopping right after the literal
+	// text (watchPanel.render's own doc comment).
+	watchWidth := totalWidth
+	if s.splitMode {
+		watchWidth = totalWidth - uikit.SplitTreeWidth(totalWidth) - uikit.SplitDividerWidth
+	}
 	s.watch.render(func(expr string) watchResult {
 		snapshot, _ := s.watch.currentSnapshot()
 		return evaluateWatchExpr(expr, snapshot)
-	}, s.watchAutocompleteOpenNow(), s.chromeColorName())
+	}, s.watchAutocompleteOpenNow(), s.chromeColorName(), watchWidth)
 	watchListH, watchInputH := s.watch.height()
 	watchTotal := watchListH + watchInputH
 	s.flex.ResizeItem(s.watch.flex, watchTotal, 0)

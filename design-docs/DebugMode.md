@@ -1448,6 +1448,62 @@ entries keep their own normal background. `go build ./... && go vet
 ./... && go test ./...` clean; `gofmt -l internal/` shows only the one
 pre-existing, unrelated `recap_rowtext_test.go` flag.
 
+## Stage 4 follow-up round 4: always show the heading, fill the whole line (2026-10-20)
+
+Two fixes, plus a likely-not-a-bug clarified while investigating a third
+report:
+
+- **Heading now shown the whole time the explorer is open**, not just
+  once at least one variable is watched. Reported live as "I press `v`
+  and see the text field but not 'Watched variables'" - correct: before
+  this round, `watchPanel.render`/`height` both gated the heading on
+  `len(w.entries) > 0`, so a freshly opened explorer with nothing
+  watched yet genuinely had no heading to show. Both now key off `w.open
+  || len(w.entries) > 0` instead, so the heading acts as a permanent
+  panel title for as long as the explorer is open, heading or no
+  watches.
+- **Chrome color now fills the whole headline row**, not just the
+  literal `"Watched variables"` text - round 3's own tag only colors the
+  runes actually present in the string, the same reason
+  `ComposeTopBarLine`/`s.outputTopBar`'s own plain text get padded to the
+  full terminal width before their own fill tags are applied
+  (`livesession_rebuild.go`). `render` now takes the panel's own current
+  width too (`rebuild()`'s new `watchWidth` - `totalWidth` itself in the
+  tree-only/output-single-pane cases, or the split output pane's own
+  narrower share, the same arithmetic `s.splitBody`'s own `AddItem` calls
+  already use) and pads the heading out to it before wrapping the tag
+  around it. Confirmed correct via a throwaway unit test rather than
+  `tmux capture-pane` this round - capture-pane trims trailing whitespace
+  off every captured line regardless of its own color/attributes, so a
+  padded-but-still-blank tail is invisible to that tool no matter how
+  it's invoked; `watchPanel.render`'s own output string
+  (`w.list.GetText(false)`) was checked directly instead, confirming the
+  padding spaces land *inside* the `[white:<name>:b]...[-:-:-]` tag span
+  as intended.
+- **"No autocomplete popup appears anymore" - investigated, likely not a
+  regression.** Reproduced extensively live (both one-at-a-time and
+  batched `tmux send-keys`, paused mid-task with `--all-vars`, idle
+  before any run, and a plain `F5` straight through with no breakpoint
+  armed and no `--all-vars`) and the autocomplete drop-down worked
+  correctly in every case where a captured snapshot actually existed for
+  the current host/task context - confirmed via `watchCandidates`'s own
+  source, unchanged across every round so far. It showed nothing only
+  when there was genuinely no snapshot to suggest from yet: before any
+  run has started, or after a plain run finished with no breakpoint ever
+  armed and no `--all-vars` - `testdata/outcomes.yml`'s own one failing
+  task is `ignore_errors`-wrapped, so it doesn't auto-surface a pause
+  either (`uikit.GenuineFailure`'s own predicate), meaning a bare `F5`
+  with nothing else set up captures nothing at all, anywhere, by design.
+  This matches "by default, variables are only captured at a pause
+  actually shown to you" (the man page's own `--all-vars` paragraph) -
+  not confirmed as an actual bug; flagged back to the user rather than
+  guess-fixed further.
+
+**Verified**: `go build ./... && go vet ./... && go test ./...` and
+`gofmt -l internal/` clean (aside from the one pre-existing, unrelated
+`recap_rowtext_test.go` flag); live in tmux, `v` on a totally fresh
+session immediately shows the heading above the (empty) input field.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

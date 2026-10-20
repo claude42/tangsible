@@ -88,14 +88,19 @@ func newWatchPanel(app *tview.Application, currentSnapshot func() (json.RawMessa
 // live here moved to whichever bottom chrome bar is already visible
 // (watchSyncBottomBar) - "look like part of the chrome" (the follow-up
 // round that moved it) reads oddly with a second, separate hint line of
-// its own right above it.
+// its own right above it. The heading itself counts even with zero
+// entries as long as the explorer is open (render's own condition,
+// mirrored here) - a follow-up round's report that opening a fresh
+// explorer showed the input field but no "Watched variables" heading at
+// all: previously the heading was gated on len(w.entries) > 0 alone, so
+// it simply didn't exist yet the first time the panel opened with
+// nothing watched - now it's a permanent panel title, shown the whole
+// time the explorer is open.
 func (w *watchPanel) height() (listH, inputH int) {
 	if len(w.entries) == 0 && !w.open {
 		return 0, 0
 	}
-	if len(w.entries) > 0 {
-		listH = 1 + len(w.entries) // heading + one row per entry
-	}
+	listH = 1 + len(w.entries) // heading + one row per entry
 	if w.open {
 		inputH = 1
 	}
@@ -123,10 +128,10 @@ func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 // Flex items to match. evaluate is injected (rather than a direct
 // evaluateWatchExpr/currentSnapshot call) purely so render stays a plain
 // function of its inputs - called from rebuild() with a closure over the
-// live snapshot lookup. chromeColorName paints just the "Watched
-// variables" headline with the session's own current chrome color
-// (orange/maroon while debug-running/paused, otherwise whatever a plain
-// `run` would use) as its background - a tag-name string (the same one
+// live snapshot lookup. chromeColorName paints the "Watched variables"
+// headline with the session's own current chrome color (orange/maroon
+// while debug-running/paused, otherwise whatever a plain `run` would
+// use) as its background - a tag-name string (the same one
 // chromeColorName/debugChromeBg's own callers already use for the top/
 // split bars' progress-fill tags), not a tcell.Color, since this goes
 // straight into an inline `[fg:bg]` tag, not a Box's own
@@ -134,16 +139,27 @@ func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 // the entries and the input field) this way; tried live and reverted -
 // only the headline keeps it now, the watched rows and the input field
 // render with their own normal colors again, same as before that round.
-func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeColorName string) {
+// width is the panel's own current column count (the caller already
+// knows it - whichever of totalWidth/the split output pane's own share
+// currently applies) - the headline is padded out to it before the tag
+// wraps it, so the chrome color fills the whole line instead of just the
+// literal text run (tags only color the runes actually present, the
+// same reason ComposeTopBarLine/s.outputTopBar's own plain text get
+// padded before their fill tags, elsewhere in this file's siblings).
+func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeColorName string, width int) {
 	var b strings.Builder
-	if len(w.entries) > 0 {
+	if w.open || len(w.entries) > 0 {
+		heading := "Watched variables"
+		if gap := width - len([]rune(heading)); gap > 0 {
+			heading += strings.Repeat(" ", gap)
+		}
 		// "white" fg, not uikit.StandardTextColor - the same fixed
 		// foreground every other chrome-colored bar in this codebase uses
 		// against these particular background colors (buildChromeStyle's
 		// own callers), chosen because they're saturated/dark enough that
 		// a theme's own (possibly light) standard_text could easily stop
 		// contrasting against them.
-		fmt.Fprintf(&b, "[white:%s:b]Watched variables[-:-:-]\n", chromeColorName)
+		fmt.Fprintf(&b, "[white:%s:b]%s[-:-:-]\n", chromeColorName, heading)
 		for i, e := range w.entries {
 			cursor := " "
 			if i == w.selected {
