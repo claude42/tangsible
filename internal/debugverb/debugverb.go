@@ -109,24 +109,6 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		}
 	}
 
-	// --vars-at-stops-only was --all-vars/-a's own old name (design-docs/
-	// DebugMode.md's "Stage 3 follow-up round 9") - rejected explicitly,
-	// the same "usage error" shape --step's own rejection above uses,
-	// rather than silently falling through to extractAllVarsFlag (which
-	// no longer recognizes it) and on into passthroughArgs: an
-	// unrecognized synthetic-looking flag reaching ansible-playbook's own
-	// --list-tasks probe failed with nothing but "probe failed" to show
-	// for it before this (reported live) - confirmed via
-	// BuildProgressSkeletonVerbose's own stderr capture (further below)
-	// that ansible-playbook's real error ("unrecognized arguments: ...")
-	// was there all along, just never surfaced.
-	for _, a := range rest {
-		if a == "--vars-at-stops-only" {
-			fmt.Fprintln(os.Stderr, "tangsible: --vars-at-stops-only was renamed to --all-vars (or -a)")
-			os.Exit(2)
-		}
-	}
-
 	// --all-vars/-a is debug's own synthetic flag (design-docs/
 	// DebugMode.md's "Stage 3 follow-up round 5"/round 9) - never a real
 	// ansible-playbook flag (neither spelling collides with one -
