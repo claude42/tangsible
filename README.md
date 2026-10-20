@@ -290,7 +290,8 @@ and re-evaluate live as you navigate to a different host/task, greyed
 out once you close the explorer with Esc; one that can't currently be
 resolved shows as `<undefined>` rather than as an error. The explorer's
 own bottom-of-screen keyboard hints replace the usual ones while it's
-open, and it's colored like the rest of the debug chrome.
+open, and its "Watched variables" headline is colored like the rest of
+the debug chrome.
 
 ## Debugging a Jinja2 template
 

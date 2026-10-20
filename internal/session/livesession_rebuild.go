@@ -379,7 +379,7 @@ func (s *liveSession) rebuild() {
 	s.watch.render(func(expr string) watchResult {
 		snapshot, _ := s.watch.currentSnapshot()
 		return evaluateWatchExpr(expr, snapshot)
-	}, s.watchAutocompleteOpenNow(), s.debugChromeBg())
+	}, s.watchAutocompleteOpenNow(), s.chromeColorName())
 	watchListH, watchInputH := s.watch.height()
 	watchTotal := watchListH + watchInputH
 	s.flex.ResizeItem(s.watch.flex, watchTotal, 0)

@@ -95,8 +95,9 @@ already offers:
 	you close the explorer; one that can't currently be resolved shows as
 	*<undefined>* rather than as an error. While open, the explorer's own
 	key hints replace the usual ones at the bottom of the screen,
-	reverting the moment it closes; the whole panel is colored like the
-	rest of the session's own chrome.
+	reverting the moment it closes; its own "Watched variables" headline
+	(not the entries or the input field) is colored like the rest of the
+	session's own chrome.
 
 Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
 stop), the drill-down

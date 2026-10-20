@@ -1410,6 +1410,44 @@ from the one pre-existing, unrelated `recap_rowtext_test.go` flag).
 `README.md`, `design-docs/Keyboard-shortcuts.md`, and the man page
 updated to match.
 
+## Stage 4 follow-up round 3: chrome color on the headline only (2026-10-20)
+
+Round 2's "paint the whole panel with the chrome background" was tried
+live and only half-liked: reverted for the entries and the input field
+(back to their normal colors - `uikit.StandardTextColor`/
+`NothingReportedColor` text on the default background, and
+`uikit.StyleInputField`'s own control colors, exactly as before round
+2), kept for just the `"Watched variables"` headline.
+
+`watchPanel.render` no longer calls `SetBackgroundColor`/
+`SetFieldBackgroundColor` on `w.list`/`w.input` at all - instead the
+headline line itself carries an inline `[white:<name>:b]...[-:-:-]` tag,
+`<name>` being a tag-compatible color *name* string, not a `tcell.Color`:
+the call site (`rebuild()`) now passes `s.chromeColorName()` (already
+existed, used elsewhere for the top/split bars' own progress-fill tags)
+instead of `s.debugChromeBg()`. Foreground is a literal `"white"`, not
+`uikit.StandardTextColor` - matching `buildChromeStyle`'s own existing
+convention for every other chrome-colored bar in this codebase
+(`BarStyle`/`DebugRunningBarStyle`/...): these background colors are
+fixed and reliably dark/saturated, but a theme's own `standard_text`
+isn't guaranteed to contrast against them (a light theme's dark
+`standard_text` on a navy background, say), so a fixed `"white"` is the
+one safe choice, the same reasoning that's kept those other bars off
+`standard_text` all along.
+
+**Verified live in tmux**, paused mid-debug (maroon chrome) in two-pane
+split: the headline shows bold white text with a maroon background
+(confirmed via a clean single-line `capture-pane -e -p -S n -E n`, not
+the whole-screen form - `-e`'s own cross-row attribute carryover makes a
+multi-line capture easy to misread, as `design-docs/TESTING.md` already
+warns); the watched entry row right below it renders on the normal
+(black/default) background, not maroon; the input field's own background
+is the normal control background, not maroon either; closing the
+explorer still leaves the headline chrome-colored while the (now grey)
+entries keep their own normal background. `go build ./... && go vet
+./... && go test ./...` clean; `gofmt -l internal/` shows only the one
+pre-existing, unrelated `recap_rowtext_test.go` flag.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

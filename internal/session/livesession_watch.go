@@ -123,17 +123,27 @@ func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 // Flex items to match. evaluate is injected (rather than a direct
 // evaluateWatchExpr/currentSnapshot call) purely so render stays a plain
 // function of its inputs - called from rebuild() with a closure over the
-// live snapshot lookup. chromeBg paints the whole panel (list and input,
-// border-to-border) the session's own current chrome color (orange/
-// maroon while debug-running/paused, otherwise whatever a plain `run`
-// would use) - a follow-up round's "try making it look like part of the
-// chrome" request, read fresh every render the same reason
-// debugChromeBg itself is (running/paused flips repeatedly within one
-// session).
-func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeBg tcell.Color) {
+// live snapshot lookup. chromeColorName paints just the "Watched
+// variables" headline with the session's own current chrome color
+// (orange/maroon while debug-running/paused, otherwise whatever a plain
+// `run` would use) as its background - a tag-name string (the same one
+// chromeColorName/debugChromeBg's own callers already use for the top/
+// split bars' progress-fill tags), not a tcell.Color, since this goes
+// straight into an inline `[fg:bg]` tag, not a Box's own
+// SetBackgroundColor. An earlier round painted the whole panel (including
+// the entries and the input field) this way; tried live and reverted -
+// only the headline keeps it now, the watched rows and the input field
+// render with their own normal colors again, same as before that round.
+func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeColorName string) {
 	var b strings.Builder
 	if len(w.entries) > 0 {
-		fmt.Fprintf(&b, "[%s::b]Watched variables[-:-:-]\n", uikit.StandardTextColor)
+		// "white" fg, not uikit.StandardTextColor - the same fixed
+		// foreground every other chrome-colored bar in this codebase uses
+		// against these particular background colors (buildChromeStyle's
+		// own callers), chosen because they're saturated/dark enough that
+		// a theme's own (possibly light) standard_text could easily stop
+		// contrasting against them.
+		fmt.Fprintf(&b, "[white:%s:b]Watched variables[-:-:-]\n", chromeColorName)
 		for i, e := range w.entries {
 			cursor := " "
 			if i == w.selected {
@@ -153,9 +163,6 @@ func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen 
 		}
 	}
 	w.list.SetText(b.String())
-	w.list.SetBackgroundColor(chromeBg)
-	w.input.SetBackgroundColor(chromeBg)
-	w.input.SetFieldBackgroundColor(chromeBg)
 
 	listH, inputH := w.height()
 	w.flex.ResizeItem(w.list, listH, 0)

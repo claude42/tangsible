@@ -567,9 +567,10 @@ collide with:
                      renders as `<undefined>` rather than as an error.
                      While open, the explorer's own key hints replace the
                      tree's/drill-down's normal bottom bar, reverting the
-                     moment it closes - and the whole panel (not just the
-                     text) is colored like the rest of the session's own
-                     chrome.
+                     moment it closes - and its own "Watched variables"
+                     headline (only the headline, not the entries or the
+                     input field) is colored like the rest of the
+                     session's own chrome.
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
 sketches a `[keys]` config section for these; not wired up yet).
