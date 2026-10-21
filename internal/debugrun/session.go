@@ -198,6 +198,43 @@ func (s *Session) Continue() (pause Pause, eof bool, err error) {
 	return pause, eof, err
 }
 
+// Redo sends the debugger's own "redo" command, which re-queues the
+// exact task/host currently paused at - not the Go-level task identity,
+// ansible-core's own in-memory Task object, rewound via iterator.
+// set_state_for_host (plugins/strategy/__init__.py's debug_closure,
+// confirmed directly against installed ansible-core source) - and blocks
+// until the next debugger pause, or the child exits. That next pause is
+// NOT guaranteed to be a re-pause of the redone task/host: debug_closure
+// drains one batch of already-completed results at a time (the same
+// batching an ordinary Continue already exposes - see breakpoints.go's
+// StepNextTask doc comment), and do_redo's own re-queue doesn't reorder
+// that batch - it only requeues this host and recurses once, which
+// confirmed live finds nothing ready yet (the redone run needs real
+// wall-clock time), so a still-pending *different* host's own pause for
+// the same task surfaces first if one exists. The redone pause itself
+// only resurfaces once that batch fully drains (TestSession_Redo_
+// MultiHostInterleaving demonstrates this end to end) - exactly like
+// calling Continue() repeatedly already behaves for any other pending
+// pause, nothing new to handle on the caller's side.
+//
+// Because debug_closure's own redo path calls _queue_task directly
+// rather than going through linear.py's run() loop, it never re-fires
+// v2_playbook_on_task_start (only _queue_task's own v2_runner_on_start,
+// then the usual terminal event) - confirmed by reading _queue_task
+// itself, not assumed - which is exactly why no caller-side event/cursor
+// handling needs to change to support this: once the redone pause does
+// arrive, its own terminal event just overwrites that host's existing
+// outcome in place, the same map write design-docs/DebugMode.md
+// documents debugverb.Cursor.Apply already does for any repeated host
+// result.
+func (s *Session) Redo() (pause Pause, eof bool, err error) {
+	if _, werr := io.WriteString(s.replW, "r\n"); werr != nil {
+		return Pause{}, false, werr
+	}
+	_, pause, eof, err = s.readUntilPrompt()
+	return pause, eof, err
+}
+
 // Query evaluates expr against the currently paused task's own debugger
 // scope (task/host/task_vars/play_context/result - ansible-core's own
 // debugger globals) and returns its JSON-encoded result, without

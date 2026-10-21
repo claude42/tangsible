@@ -304,6 +304,127 @@ func TestBreakpoints_StepOne_SurfacesEveryPauseRegardlessOfSet(t *testing.T) {
 	}
 }
 
+// TestRedoUntilTarget_DrainsInterleavedPauseSilently is the real
+// regression test for the "redo jumped to an unrelated host" complaint:
+// confirms RedoUntilTarget's whole reason to exist - when another host's
+// own (never redone) pause for the same task is already pending (forks=1
+// with two hosts, same as TestSession_Redo_MultiHostInterleaving -
+// reliably reproduces the interleaving), it's silently driven past
+// (onPause called for it with willSurface=false - no reason for a caller
+// to query/cache it the way a shown pause would be) rather than returned
+// to the caller, and the function only returns once the exact (task,
+// host) pair just redone resurfaces.
+func TestRedoUntilTarget_DrainsInterleavedPauseSilently(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
+	bps := NewBreakpointSet()
+	bps.Set("TASK: task one")
+
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected the first pause, got eof")
+	}
+	if pause.Task != "TASK: task one" || pause.Host != "host1" {
+		t.Fatalf("first pause = %+v, want task one/host1 (forks=1)", pause)
+	}
+
+	var seen []Pause
+	var willSurfaceSeen []bool
+	redone, eof, err := RedoUntilTarget(sess, pause.Task, pause.Host, func(p Pause, willSurface bool) {
+		seen = append(seen, p)
+		willSurfaceSeen = append(willSurfaceSeen, willSurface)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected the redone pause, got eof")
+	}
+	if redone.Task != pause.Task || redone.Host != pause.Host {
+		t.Fatalf("RedoUntilTarget returned %+v, want the exact target %+v - the interleaved host2 pause should have been drained silently, not returned", redone, pause)
+	}
+
+	if len(seen) != 2 {
+		t.Fatalf("onPause fired %d times, want exactly 2 (the drained host2 pause, then the redone host1 one): %+v", len(seen), seen)
+	}
+	if seen[0].Host != "host2" || willSurfaceSeen[0] {
+		t.Errorf("first onPause call = %+v (willSurface=%v), want host2 with willSurface=false (drained silently)", seen[0], willSurfaceSeen[0])
+	}
+	if seen[1].Host != "host1" || !willSurfaceSeen[1] {
+		t.Errorf("second onPause call = %+v (willSurface=%v), want host1 with willSurface=true (the actual redo result)", seen[1], willSurfaceSeen[1])
+	}
+}
+
+// TestRedoUntilTarget_NoInterleaving_ReturnsImmediately confirms the
+// common case (nothing else pending) needs no draining at all - onPause
+// fires exactly once, for the redone pause itself.
+func TestRedoUntilTarget_NoInterleaving_ReturnsImmediately(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	// A single-host fixture - never anything else to interleave with.
+	proj := t.TempDir()
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	if err := os.WriteFile(playbookPath, []byte(`- hosts: all
+  gather_facts: false
+  tasks:
+    - name: only task
+      command: echo hi
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locs := source.ListTaskLocations(playbookPath)
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	inventory := filepath.Join(repoRoot(t), "testdata", "multihost-inventory.ini")
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", inventory, "--limit", "host1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sess.Close() })
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	pause, eof, err := sess.Start()
+	if err != nil || eof {
+		t.Fatalf("Start: pause=%+v eof=%v err=%v", pause, eof, err)
+	}
+
+	var seen []Pause
+	redone, eof, err := RedoUntilTarget(sess, pause.Task, pause.Host, func(p Pause, willSurface bool) {
+		seen = append(seen, p)
+		if !willSurface {
+			t.Errorf("onPause got willSurface=false for %+v, want true - nothing should need draining here", p)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected the redone pause, got eof")
+	}
+	if redone.Task != pause.Task || redone.Host != pause.Host {
+		t.Errorf("redo pause = %+v, want the exact same task/host as %+v", redone, pause)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("onPause fired %d times, want exactly 1: %+v", len(seen), seen)
+	}
+}
+
 func TestBreakpointSet_ClearDisarms(t *testing.T) {
 	bps := NewBreakpointSet()
 	bps.Set("TASK: x")

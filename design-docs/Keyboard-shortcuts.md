@@ -513,7 +513,7 @@ DebugMode.md for why this can't go through `PlaybookState.Apply` the way
 a plain run's tree grows), so breakpoints can be armed before pressing
 F5/F10/F11 even once.
 
-Five keys exist only for this verb, with no plain-tree equivalent to
+Six keys exist only for this verb, with no plain-tree equivalent to
 collide with:
 
 * F5               - run: before a run starts, or while paused, resumes
@@ -547,6 +547,38 @@ collide with:
                      binding before this round (design-docs/DebugMode.md's
                      "Stage 3 follow-up round 8") - moved to F11 to make
                      room for F10's new meaning above.
+* F12              - redo (`debugrun.RedoUntilTarget`, design-docs/
+                     DebugMode.md's "redo" follow-up): only meaningful
+                     while genuinely paused (a no-op before the first F5/
+                     F10/F11, and once the run has finished) - re-queues
+                     ansible-core's own in-memory task object for the
+                     exact host currently paused at, re-running it from
+                     scratch, and waits for that exact (task, host)
+                     result to reappear before returning control, even
+                     though ansible-core's own next pause after a redo
+                     isn't guaranteed to be a re-pause of that host at
+                     all: if another host's own result for the same task
+                     was already pending (confirmed live - the common
+                     case under a low `--forks` count, where a whole
+                     batch of hosts typically finishes before the first
+                     one is ever paused on), ansible-core would otherwise
+                     show *that* host's pause next instead. Two earlier
+                     rounds tried surfacing that interleaved pause
+                     plainly (as an ordinary pause) and separately
+                     guarding a second F12 press until the redone one
+                     caught up - technically correct, but reported live,
+                     twice, as still-confusing behavior (the tree visibly
+                     jumping to a host nobody asked to look at, and once,
+                     a second F12 press before that guard existed
+                     silently redoing the wrong host instead, compounding
+                     into an indefinite back-and-forth). F12 now drains
+                     any such interleaved pause silently in the
+                     background instead of showing it at all - the tree
+                     never visibly moves off the host being redone; that
+                     other host's own result, its outcome overwritten in
+                     place rather than duplicated, still shows up
+                     normally the next time you navigate to it or
+                     step/continue onto it yourself.
 * v                - open the variable watch explorer (design-docs/
                      DebugMode.md's "Stage 4"): a text field at the
                      bottom of the tree or drill-down pane, with live

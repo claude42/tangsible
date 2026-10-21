@@ -1817,6 +1817,271 @@ absent). `go build ./... && go vet ./... && go test -count=1 ./...` and
 `gofmt -l internal/` clean (aside from the one pre-existing, unrelated
 `recap_rowtext_test.go` flag).
 
+## Stage 4 follow-up round 9: redo - F12 re-runs the paused task/host (2026-10-21)
+
+A follow-up to a discussion about going further than breakpoints/step -
+could debug mode also let the user jump to an arbitrary position, skip a
+task, or rewind to repeat one? Scoped by reading ansible-core's own
+`Debugger` class directly (`plugins/strategy/__init__.py`, installed
+2.19.11): exactly five REPL commands exist - `quit`/`continue`/`redo`/
+`update_task`/`pprint` - no seek/skip/jump primitive exists at all,
+structurally, since the strategy's own task iterator is never exposed to
+the REPL (`Debugger.__init__`'s own `self.scope` holds only `task`/
+`host`/`task_vars`/`play_context`/`result`). `redo` is the one piece of
+this family ansible-core already supports, so this round wires it up;
+arbitrary jump/skip remain out of scope (no hook exists to build them on,
+and `debugger: always` fires only *after* a task runs, not before).
+
+**What `redo` actually does**, confirmed directly against installed
+source rather than assumed: `do_redo` rolls back `iterator`'s own state
+for the paused host (`set_state_for_host`) and calls `_queue_task` again
+for the exact same in-memory `Task` object/host - not a Go-level,
+path-based identity, ansible-core's own object. Critically, `_queue_task`
+only ever fires `v2_runner_on_start` (confirmed by reading it), never
+`v2_playbook_on_task_start` - that callback is only fired by `linear.py`'s
+own `run()` loop, which a redo never re-enters. This is why wiring this
+up needed **zero changes** to `internal/debugverb`/`internal/playbook`:
+`debugverb.Cursor.Apply`'s task-start branch (and `runner.ProgressTracker`'s
+monotonic cursor) are never touched by a redo at all - `CurrentTask` stays
+pointed at the same node, and the redone task's own terminal event just
+overwrites that host's existing outcome in the same `Hosts`/`Raw` map
+entries, in place, the same write `Apply` already does for any ordinary
+result. The recap, built from those same maps, comes out correct for
+free too - no double-counting to guard against.
+
+**A genuine wrinkle, found empirically, not assumed:** the pause
+immediately following a redo is *not* guaranteed to be a re-pause of the
+redone host. `debug_closure` drains one batch of already-completed
+results at a time (`for result in results: ... while result.
+needs_debugger(...): ...`); `do_redo`'s own recursive re-check
+(`debug_closure(func)(self, iterator, one_pass)`) typically finds
+nothing ready yet - the redone run needs real wall-clock time - so the
+outer loop falls through to the *next* result already in that same
+batch, if one exists (a different host's own pause for the same task,
+never redone). Reproduced live with `--forks 1` and two hosts (forks=1
+means the per-step queueing loop itself blocks until each host's worker
+exits before queueing the next, so by the time the *first* host's own
+pause fires, every host in that step has typically already finished
+running - both results are sitting in the same pending batch): pressing
+F12 while paused on host1 immediately surfaced host2's own first-run
+pause instead (unrelated, never redone); only continuing past that
+(F11) finally surfaced host1's own redone result, its outcome flipped
+from Failed to Changed in the exact same row. This isn't a bug to work
+around - every pause along the way is handled by the exact same generic
+pause-handling code (`debugApplyPauseResult`) any other pause already
+is, which never assumes a pause is the one it asked for - it's simply
+not instant when another host's result for the same task is already
+pending, the same batching `F10`/`StepNextTask`'s own test already
+relies on for an *ordinary* Continue.
+
+**Implementation**, three small, independent layers:
+- `internal/debugrun/session.go`: `Session.Redo()`, a near-verbatim copy
+  of `Continue()` (`io.WriteString(s.replW, "r\n")`, then
+  `readUntilPrompt`) - `readUntilPrompt` needed no changes at all, a
+  redo's own pause just takes longer to arrive, exactly like any slow
+  task already does for `Continue()`.
+- `internal/debugrun/breakpoints.go`: `RedoWithBreakpoints`, deliberately
+  *not* routed through `applyPolicy`/`StepMode` - `StepNextTask`'s own
+  "same task label as `fromTask` means keep going" rule would silently
+  swallow the one pause a caller who just pressed redo most wants to
+  see. Always surfaces whatever pause comes back (`willSurface` always
+  true), once.
+- `internal/session/livesession_debug.go`: `debugRedo()` (bound to the
+  new `F12`, the next slot after F5/F9/F10/F11, confirmed unclaimed by
+  grep before adopting it), mirroring `debugStartOrContinue`'s own
+  "session already exists" branch but calling `RedoWithBreakpoints`
+  instead of `ContinueWithBreakpoints`. Guarded to a no-op unless
+  genuinely paused (`s.debugPausedHost != ""`) - unlike F9, which
+  targets the cursor's own row regardless of pause state, redo only
+  means something relative to the pause itself. Everything downstream -
+  `debugApplyPauseResult`, the auto-open-drilldown logic, `debugOnPause`'s
+  task_vars query/cache, `debugLastPauseTask` - reused completely
+  unchanged; a redo's own surfaced pause looks to that code exactly like
+  any other one.
+
+**Verified**: new live tests in `internal/debugrun`
+(`TestSession_Redo` - single host, a marker-file side effect proves the
+task genuinely re-executed, not a cached pause re-shown;
+`TestSession_Redo_MultiHostInterleaving` - two hosts, demonstrates and
+locks down the batching wrinkle above end to end;
+`TestRedoWithBreakpoints_AlwaysSurfaces`) plus live tmux verification of
+the full TUI flow (F11 to pause on host1, F12 to redo it, confirming
+host2's pause surfaces first exactly as predicted, then F11 again to
+drain it and watch host1's own row flip from Failed to Changed in
+place, then F5 to finish and confirm the recap counts come out correct
+with no double-counting). `go build ./... && go vet ./... && go test
+-count=1 ./...` and `gofmt -l internal/` clean (same one pre-existing,
+unrelated `recap_rowtext_test.go` flag as round 8). Doc/completions
+housekeeping: `Keyboard-shortcuts.md`, `README.md`,
+`man/tangsible-debug.1.scd` (+ regenerated `.1`) all updated; no
+`completions/` change needed (F12 is a TUI key, not a CLI flag).
+
+**Not pursued further**: arbitrary jump/skip (#1/#2 of the original
+three-part idea) remain structurally blocked - no pre-execution hook
+exists for ansible-core's own debugger to attach to, and the strategy's
+task iterator is never exposed to the REPL at all. Reframing those as
+tangsible-level features (a respawn-based "restart from here" building on
+`StartWithPlay.md`'s own pre-flight trimmed-copy mechanism; "stop
+auto-continuing so I notice this task" as a UX change rather than a new
+pause point) was discussed but not scoped or authorized.
+
+## Stage 4 follow-up round 10: redo compounded instead of settling with 2 hosts (2026-10-21)
+
+**Superseded by round 11, below**: the fix in this round (a "pending
+redo" guard, disabling F12 until the interleaved pause drains) was
+technically correct but didn't address the actual complaint - the tree
+still visibly jumped to a host nobody asked to look at. Kept here as the
+reasoning trail; round 11 replaces `debugRedo`'s own approach entirely.
+
+Reported live, with an exact repro: breakpoint armed on a task, F5 stops
+at host `hades`, drill-down confirms it. F12 - jumps to `shunya` instead
+(round 9's own documented interleaving wrinkle, expected). But then: F12
+again - jumps *back* to `hades`. Again - `shunya`. Again - `hades`. An
+oscillation that never settled, not the "surfaces once, then catches up"
+behavior round 9 described and tested.
+
+**Root cause, confirmed by reproducing with an incrementing-counter
+task** (not just exists/doesn't-exist, so every single pause's own
+execution count is distinguishable): `debugRedo()` always redid *whatever
+pause was currently shown* - with no way to tell "a pause I explicitly
+asked to redo" apart from "a pause that fell through to this host/task
+merely because it was next in the interleaved batch, nothing to do with
+what I pressed F12 for." So the *second* F12 press, made while looking at
+shunya's own never-redone pause (shown only as a side effect of redoing
+hades), silently launched a brand new redo *of shunya* - not a retry of
+hades. Confirmed directly: the counter for the host shown at that moment
+incremented on literally every press, in both directions - round 9's
+"settles once drained" claim held only for a single interleaved pause;
+with a confused user pressing F12 repeatedly in response to each
+surprising jump, every press launches another genuine redo on whichever
+host happens to be visible, and with two hosts whose task takes
+similar wall-clock time, nothing ever naturally breaks the cycle.
+
+**Fix**: track *what redo is actually pending* instead of trusting "the
+currently shown pause" (`debugPendingRedoTask`/`debugPendingRedoHost`,
+`internal/session/livesession.go`). `debugRedo()` captures
+`(s.debugLastPauseTask, s.debugPausedHost)` - the pause about to be
+redone - before launching, and is now a no-op while one is already
+pending; `debugApplyPauseResult` clears it once the surfaced pause
+matches that exact (task, host) pair, or once a pause for a *different*
+task arrives (the one other legitimate way the wait ends - e.g. F10/
+StepNextTask silently stepping past it without ever surfacing that exact
+pause here) - kept set only while still draining other hosts of the
+*same* task, the one genuine "still waiting" state. `debugBottomBarHint`
+now shows `" redo pending for <host> - F5/F10/F11: continue (F12
+disabled until it surfaces) "` while this is set, so the user has a
+reason not to keep pressing F12 rather than discovering by trial that it
+now does nothing.
+
+**Verified** live in tmux, reproducing the user's exact sequence with an
+incrementing-counter fixture: F5 to pause on hades (count=1, both hosts
+already ran once). F12 - jumps to shunya (count=1, untouched), hades
+still count=1 (its redo in flight). F12 *again* - confirmed a true no-op
+this time: still showing shunya, counts unchanged on both hosts, bottom
+bar reading the new pending-redo hint. F11 to drain shunya's pause -
+surfaces hades's own redo, now count=2, hint reverts to the normal F12-
+enabled one. F12 again (nothing pending now) - redoes hades cleanly to
+count=3 with no interleaving this time (nothing left pending for shunya).
+F5 to finish: recap shows `hades: changed=3` / `shunya: changed=3`
+(one more "changed" than the counter's own redo count, from the fixture's
+own `before task`/`after task` - no double-counting, no corruption).
+`go build ./... && go vet ./... && go test -count=1 ./...` and `gofmt -l
+internal/` clean (same one pre-existing, unrelated flag). Doc updates:
+`Keyboard-shortcuts.md`, `README.md`, `man/tangsible-debug.1.scd` (+
+regenerated `.1`), `helptables.go`'s own F12 row.
+
+**Follow-up same day**: reported live again, with a fresh repro -
+breakpoint armed, F5 pauses on `zen`, F12 (logs confirm `zen` reruns,
+tree jumps to `shunya` - expected), F12 again (no-op, as intended), then
+F10 - "executes again for host zen!". Re-verified with the same
+timestamped-counter fixture: F10 produced *no* new log line at all - the
+`zen` redo had already finished in the background (real wall-clock time
+had simply passed while deciding what to press next), and F10 only
+*revealed* that already-completed result, exactly as F5/F11 already do.
+Not a new execution, not a new bug - this `go test`-confirmed mechanism
+working as designed, just reached via a key the pending-redo hint hadn't
+mentioned yet (it said "F5: continue F11: step", omitting F10). Fixed
+the hint text (above) to read "F5/F10/F11: continue" instead. Separately
+noted, pre-existing and unrelated to redo: F10/StepNextTask's own "skip
+this task's remaining hosts" is moot whenever a breakpoint stays armed
+on that exact task - `applyPolicy`'s `willSurface` OR's in `bps.Has(pause.
+Task)` unconditionally (`internal/debugrun/breakpoints.go`), so an armed
+breakpoint always surfaces every pause for its task regardless of
+StepNextTask's own skip logic, same as RunTillBreakpoint would.
+
+## Stage 4 follow-up round 11: redo should never visibly leave the redone host (2026-10-21)
+
+Pushed back on round 10's own fix, correctly: "this is a bug" - a
+technically-correct explanation of *why* the tree jumps to an unrelated
+host doesn't make the jump itself acceptable. The actual expectation:
+press F12 on `zen`, wait, see `zen`'s own new result - never be shown
+`shunya` at all along the way, regardless of what ansible-core's own
+batching happens to do internally.
+
+**Design change**: `internal/debugrun/breakpoints.go`'s `RedoWithBreakpoints`
+(wrote exactly one `"r\n"`, returned whatever pause came back) is
+replaced by `RedoUntilTarget(sess, targetTask, targetHost, onPause)` -
+the caller (`debugRedo`, `internal/session/livesession_debug.go`)
+captures the (task, host) pair it's about to redo *before* issuing it;
+the function sends the redo, then - if the pause that comes back belongs
+to the *same task* but a *different* host (the interleaving wrinkle
+rounds 9/10 already diagnosed) - keeps silently calling plain `Continue`
+on it, looping, until either the exact target pause resurfaces or a
+pause for a genuinely different task arrives (the rare case the target
+was somehow never seen again). Only that one final pause is ever handed
+back to `debugApplyPauseResult` - the tree/drilldown never visibly moves
+during the chase (`s.debugDriving` alone already covers the whole
+duration with the existing "running..." bottom-bar state, exactly like
+any other debug key - no new UI state needed at all, letting round 10's
+own `debugPendingRedoTask`/`Host` fields, bottom-bar case, and
+`debugApplyPauseResult` clearing logic all be removed outright, net
+simpler than before despite doing more).
+
+**What's actually given up**: the silently-drained host's own pause -
+e.g. `shunya`'s first-ever stop at this same armed breakpoint - never
+gets its own interactive moment *during this one redo chase*. Its
+result is still recorded faithfully (the tree/recap reflect it exactly
+as before; `onPause` still fires for it, just with `willSurface=false`,
+so it's cached under `--all-vars` same as any other not-shown pause) -
+only the chance to pause and inspect/redo *it specifically*, right at
+that moment, is lost. An ordinary F5/F10/F11 afterward (or navigating
+there directly) still works completely normally, armed breakpoint or
+not - this only ever affects the one pause driven past mid-chase.
+Judged an acceptable, well-contained trade: redo is a narrow, deliberate
+action ("show me this host's new result, nothing else right now"), not
+a general stepping mechanism - a user who wants to inspect every host
+one at a time already has F5 for that.
+
+**Verified** live in tmux with the same incrementing-counter/timestamped-
+log fixture (two hosts, breakpoint armed): F5 pauses on `zen` (count=1).
+F12 - tree stays on `zen` throughout (confirmed via repeated
+`capture-pane` snapshots during the wait, not just before/after), lands
+on count=2 directly - no visible `shunya` detour at all. Log confirms
+`shunya` never re-executed (still count=1 the whole time - its own
+original result, never touched). F12 again - same, count=3, still never
+leaving `zen`. Manually navigating to `shunya` afterward shows its own
+untouched count=1 result, intact. F5 to finish: recap shows
+`zen: changed=3` / `shunya: changed=3` (`before task`/`after task` adding
+the fixture's own "+2" baseline), same correct no-double-counting outcome
+as round 10's own end-to-end check. New/updated tests in
+`internal/debugrun`: `TestRedoUntilTarget_DrainsInterleavedPauseSilently`
+(the real regression test for this complaint - forks=1/two-host fixture,
+confirms the interleaved host's pause is driven past with
+`willSurface=false` and never returned) and
+`TestRedoUntilTarget_NoInterleaving_ReturnsImmediately` (the common case
+needs no draining at all) replace the now-removed
+`TestRedoWithBreakpoints_AlwaysSurfaces`; `TestSession_Redo`/
+`TestSession_Redo_MultiHostInterleaving` (the raw `Session.Redo`/
+`Continue` primitives, one layer below `RedoUntilTarget`) are untouched -
+they document the underlying ansible-core mechanism `RedoUntilTarget` is
+built to paper over, still true regardless of this round's own fix.
+`go build ./... && go vet ./... && go test -count=1 ./...` and `gofmt -l
+internal/` clean (same one pre-existing, unrelated flag). Doc updates:
+`Keyboard-shortcuts.md`, `README.md`, `man/tangsible-debug.1.scd` (+
+regenerated `.1`), `helptables.go`'s own F12 row - all rewritten to drop
+any mention of a visible jump or a disabled F12, since neither exists
+anymore.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

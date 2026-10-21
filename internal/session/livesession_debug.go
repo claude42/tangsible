@@ -121,9 +121,9 @@ func (s *liveSession) debugRefreshChrome() {
 func (s *liveSession) debugBottomBarHint() string {
 	switch {
 	case s.processDone.Load() && s.everStarted:
-		return " finished - F5/F9/F10/F11 disabled "
+		return " finished - F5/F9/F10/F11/F12 disabled "
 	case s.debugPausedHost != "":
-		return " F5: continue  F9: breakpoint  F10: next task  F11: step "
+		return " F5: continue  F9: breakpoint  F10: next task  F11: step  F12: redo "
 	case s.debugDriving:
 		return " running... (ctrl-c to interrupt) "
 	default:
@@ -137,8 +137,8 @@ func (s *liveSession) debugBottomBarHint() string {
 // can have their own keys stolen, but before the tree/drill-down fork, so
 // these keys work identically whichever one is frontmost. A no-op
 // (returns handled=false) for every Verb but "debug" - tcell.KeyF5/F9/
-// F10/F11 are unclaimed anywhere else in this codebase (confirmed by grep
-// before adopting them), so this never shadows an existing binding.
+// F10/F11/F12 are unclaimed anywhere else in this codebase (confirmed by
+// grep before adopting them), so this never shadows an existing binding.
 func (s *liveSession) handleDebugKey(event *tcell.EventKey) (*tcell.EventKey, bool) {
 	if !s.debugMode {
 		return nil, false
@@ -161,6 +161,9 @@ func (s *liveSession) handleDebugKey(event *tcell.EventKey) (*tcell.EventKey, bo
 		return nil, true
 	case tcell.KeyF9:
 		s.debugToggleBreakpoint()
+		return nil, true
+	case tcell.KeyF12:
+		s.debugRedo()
 		return nil, true
 	}
 	return nil, false
@@ -322,6 +325,50 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 	fromTask := s.debugLastPauseTask
 	go func() {
 		pause, eof, perr := debugrun.ContinueWithBreakpoints(sess, s.debugBPS, mode, fromTask, s.debugOnPause(sess))
+		s.app.QueueUpdateDraw(func() {
+			s.debugApplyPauseResult(pause, eof, perr)
+		})
+	}()
+}
+
+// debugRedo drives one redo-and-wait call in the background (F12) -
+// re-running the exact task/host the debugger is currently paused at,
+// and showing nothing else until that exact result is back. A no-op
+// unless genuinely paused (s.debugPausedHost != "") - unlike F9, which
+// operates on the cursor's own row regardless of pause state, redo only
+// means something relative to the pause itself, so there's nothing to
+// redo before F5 has ever been pressed or after the session has already
+// finished (debugSess == nil covers both). s.debugDriving (already set
+// for the goroutine's whole duration, same as every other debug key)
+// already guards against a second F12/F5/F10/F11 press interfering while
+// this runs - nothing extra needed for that.
+//
+// Calls debugrun.RedoUntilTarget, not a plain Redo - design-docs/
+// DebugMode.md's "redo" follow-up (rounds 9-11): Session.Redo's own next
+// pause is not reliably a re-pause of the redone host at all (confirmed
+// live, internal/debugrun's TestSession_Redo_MultiHostInterleaving) - a
+// still-pending different host sharing the same task can surface first.
+// Two earlier rounds tried surfacing that interleaved pause plainly and
+// separately guarding a second F12 press - technically correct, but
+// reported live, twice, as still-confusing behavior: the tree visibly
+// jumped to a host the user never asked to look at, mid-redo.
+// RedoUntilTarget instead drains any such interleaved pause silently in
+// the same background call (see its own doc comment, debugrun/
+// breakpoints.go) - debugApplyPauseResult, reused completely unchanged,
+// only ever sees the one pause actually worth showing: a genuine
+// re-pause of the redone task/host, or - rare - a pause for a *different*
+// task if the target was somehow never seen again.
+func (s *liveSession) debugRedo() {
+	if s.debugDriving || s.debugSess == nil || s.debugPausedHost == "" {
+		return
+	}
+	targetTask, targetHost := s.debugLastPauseTask, s.debugPausedHost
+	s.debugDriving = true
+	s.debugRefreshChrome()
+
+	sess := s.debugSess
+	go func() {
+		pause, eof, perr := debugrun.RedoUntilTarget(sess, targetTask, targetHost, s.debugOnPause(sess))
 		s.app.QueueUpdateDraw(func() {
 			s.debugApplyPauseResult(pause, eof, perr)
 		})

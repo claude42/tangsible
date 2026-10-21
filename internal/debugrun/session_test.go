@@ -16,6 +16,7 @@ package debugrun
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,6 +255,250 @@ func TestSession_RelativePassthroughPathResolvesAgainstCallersCwd(t *testing.T) 
 	}
 	if pause.Host != "host1" {
 		t.Errorf("pause host = %q, want host1", pause.Host)
+	}
+}
+
+// TestSession_Redo confirms Session.Redo (ansible-core's own debugger
+// "redo" command, design-docs/DebugMode.md's "redo" follow-up) re-queues
+// and re-pauses on the exact same task/host, not a different one - and
+// uses a task whose own outcome depends on an external side effect (a
+// marker file its first execution itself creates) so a flipped result on
+// the second pause can only mean the task genuinely re-executed, not that
+// the debugger just re-showed a cached pause.
+func TestSession_Redo(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	proj := t.TempDir()
+	marker := filepath.Join(proj, "marker")
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	playbook := fmt.Sprintf(`- hosts: all
+  gather_facts: false
+  tasks:
+    - name: flaky task
+      shell: "test -f '%s' && echo exists || (touch '%s'; echo missing)"
+      register: result
+      failed_when: "'missing' in result.stdout"
+`, marker, marker)
+	if err := os.WriteFile(playbookPath, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := source.ListTaskLocations(playbookPath)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 task location, got %d: %+v", len(locs), locs)
+	}
+
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", "localhost,", "-c", "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	pause, eof, err := sess.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("session ended before the first debug pause")
+	}
+	if pause.Task != "TASK: flaky task" {
+		t.Fatalf("first pause = %+v, want TASK: flaky task", pause)
+	}
+
+	raw, err := sess.Query("result.is_failed()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var firstFailed bool
+	if err := json.Unmarshal(raw, &firstFailed); err != nil {
+		t.Fatal(err)
+	}
+	if !firstFailed {
+		t.Fatalf("expected the first run to fail (marker file didn't exist yet), got failed=%v", firstFailed)
+	}
+
+	redone, eof, err := sess.Redo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected a second pause on the redone task, got eof")
+	}
+	if redone.Task != pause.Task || redone.Host != pause.Host {
+		t.Errorf("redo pause = %+v, want the exact same task/host as %+v", redone, pause)
+	}
+
+	raw, err = sess.Query("result.is_failed()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secondFailed bool
+	if err := json.Unmarshal(raw, &secondFailed); err != nil {
+		t.Fatal(err)
+	}
+	if secondFailed {
+		t.Error("expected the redone run to succeed (marker file now exists), got failed=true")
+	}
+
+	if _, eof, err := sess.Continue(); err != nil {
+		t.Fatal(err)
+	} else if !eof {
+		t.Error("expected eof after continuing past the redone task's own pause")
+	}
+}
+
+// TestSession_Redo_MultiHostInterleaving documents a real wrinkle
+// discovered empirically while implementing this: Redo's own next pause
+// is NOT guaranteed to be the redone task/host - only the raw "next
+// prompt that happens to arrive" (exactly Continue's own contract).
+// With forks=1 and two hosts, by the time the first host's own pause
+// fires, ansible-core's _queue_task has typically already finished
+// running every host in this same lockstep batch (the queueing for-loop
+// itself blocks on worker-slot reuse until each host's worker exits), so
+// both hosts' results are already sitting in the same pending-results
+// list debug_closure iterates one at a time - do_redo's own re-queue
+// doesn't retroactively reorder that list; it only requeues host1 and
+// recurses once (plugins/strategy/__init__.py's debug_closure,
+// `_processed_results.extend(debug_closure(func)(self, iterator,
+// one_pass))`), which - confirmed live - finds nothing ready yet (the
+// redone host1 needs real wall-clock time to re-execute), so the OUTER
+// loop falls through to host2's own already-pending, never-redone pause
+// next. The redone host1 only resurfaces once that batch fully drains
+// and the main strategy loop calls _process_pending_results again - i.e.
+// after an ordinary Continue() past host2.
+//
+// This isn't a bug to work around: every pause along the way (including
+// host2's genuinely unrelated one) is handled by the exact same generic
+// pause-handling code any other pause is (internal/session's
+// debugApplyPauseResult never assumes a pause is the one it asked for),
+// so nothing breaks - it's simply not instant when other hosts' results
+// for the same task are already pending, the same "one host at a time,
+// in whatever order the batch drains" characteristic StepNextTask's own
+// test already relies on for an *ordinary* Continue. Documented here so
+// a future change to debugRedo's own UI-facing comments/behavior isn't
+// made on the wrong assumption.
+func TestSession_Redo_MultiHostInterleaving(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	proj := t.TempDir()
+	markerDir := t.TempDir()
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	playbook := fmt.Sprintf(`- hosts: all
+  gather_facts: false
+  tasks:
+    - name: flaky task
+      shell: "test -f '%s/{{ inventory_hostname }}' && echo exists || (touch '%s/{{ inventory_hostname }}'; echo missing)"
+      register: result
+      failed_when: "'missing' in result.stdout"
+`, markerDir, markerDir)
+	if err := os.WriteFile(playbookPath, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := source.ListTaskLocations(playbookPath)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 task location, got %d: %+v", len(locs), locs)
+	}
+
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	inventory := filepath.Join(repoRoot(t), "testdata", "multihost-inventory.ini")
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", inventory, "--forks", "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	isFailed := func() bool {
+		t.Helper()
+		raw, err := sess.Query("result.is_failed()")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var failed bool
+		if err := json.Unmarshal(raw, &failed); err != nil {
+			t.Fatal(err)
+		}
+		return failed
+	}
+
+	pause, eof, err := sess.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("session ended before the first debug pause")
+	}
+	if pause.Host != "host1" {
+		t.Fatalf("first pause = %+v, want host1 (forks=1)", pause)
+	}
+	if !isFailed() {
+		t.Fatal("expected host1's first run to fail (its own marker didn't exist yet)")
+	}
+
+	// Redo host1 - but host2's own pause (already pending from the same
+	// batch, never redone) surfaces first, exactly like an ordinary
+	// Continue would have - not a re-pause of host1.
+	next, eof, err := sess.Redo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected host2's own pending pause, got eof")
+	}
+	if next.Host != "host2" {
+		t.Fatalf("pause right after redoing host1 = %+v, want host2 (its own pending, never-redone pause) - if this starts failing, the batching/interleaving behavior this test documents may have changed", next)
+	}
+	if !isFailed() {
+		t.Fatal("expected host2's own first run to fail too (its own marker didn't exist yet either) - host2 was never redone")
+	}
+
+	// Only now, once host2's own pending pause has been drained via an
+	// ordinary Continue, does host1's redone result finally surface.
+	redone, eof, err := sess.Continue()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected the redone host1 pause, got eof")
+	}
+	if redone.Host != "host1" {
+		t.Fatalf("pause after draining host2 = %+v, want host1 (the redo finally catching up)", redone)
+	}
+	if isFailed() {
+		t.Error("expected the redone host1 run to succeed this time (its marker now exists)")
+	}
+
+	if _, eof, err := sess.Continue(); err != nil {
+		t.Fatal(err)
+	} else if !eof {
+		t.Error("expected eof - nothing left pending after the redone host1 pause")
 	}
 }
 

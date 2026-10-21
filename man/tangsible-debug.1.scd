@@ -31,7 +31,7 @@ the same way the live tree's own progress indicator is (a throwaway
 resolved *include_tasks:*, won't appear in this predicted list even though
 it will genuinely run; see *tangsible*(1)'s own *--list-tasks* caveats. The
 whole predicted tree is visible up front, before anything has run, so
-breakpoints can be armed before the first *F5*/*F10*/*F11*.
+breakpoints can be armed before the first *F5*/*F10*/*F11*/*F12*.
 
 *debug* is the exact same live tree UI *tangsible-run*(1) uses, with
 breakpoint/pause state layered on top - not a second, separate screen.
@@ -56,7 +56,7 @@ something a later *tangsible rerun* can replay.
 
 # CONTROLS
 
-Five keys exist only for this verb, on top of everything *tangsible-run*(1)
+Six keys exist only for this verb, on top of everything *tangsible-run*(1)
 already offers:
 
 *F5*
@@ -79,6 +79,16 @@ already offers:
 	Step: before a run starts, or while paused, stops at the very next
 	pause unconditionally, armed or not - one host at a time, including
 	every other host still left on the current task.
+
+*F12*
+	Redo: only meaningful while genuinely paused (a no-op otherwise).
+	Re-runs the exact task/host currently paused at from scratch, and
+	waits for that exact result - even if another host's own pending
+	result for the same task would otherwise surface first, it's drained
+	in the background rather than shown, so the view never jumps away
+	from the host you asked to redo. That other host's own result, its
+	outcome overwritten in place rather than duplicated, still shows up
+	normally the next time you navigate to or step/continue onto it.
 
 *v*
 	Open the variable watch explorer: a text field with live autocomplete

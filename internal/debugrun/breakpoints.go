@@ -132,6 +132,56 @@ func ContinueWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, f
 	return applyPolicy(sess, bps, mode, fromTask, pause, eof, err, onPause)
 }
 
+// RedoUntilTarget resumes sess via its own Redo (not Continue), then -
+// unlike a plain Continue/Step call - silently drives straight past any
+// further pause for the *same* task but a *different* host (targetHost,
+// targetTask identify the pause just redone, read by the caller before
+// issuing the redo) via ordinary Continue calls, until the redone pause
+// itself resurfaces or a pause for a genuinely different task arrives.
+//
+// This exists because Session.Redo's own next pause is NOT reliably a
+// re-pause of the redone host at all: with another host's result for
+// the same task already pending in the same batch, that one surfaces
+// first (TestSession_Redo_MultiHostInterleaving, session_test.go) -
+// reported live, twice, as confusing, unacceptable behavior: pressing
+// redo on host A and being shown host B's own unrelated, never-redone
+// pause instead, with no way to tell the two apart from the UI alone.
+// Earlier rounds tried surfacing that interleaved pause plainly (an
+// ordinary pause, nothing hidden) and separately disabling a second F12
+// press until the redone one caught up - technically correct, but it
+// didn't fix the actual complaint: the tree still visibly, confusingly
+// jumped to a host the caller never asked to look at. This version
+// doesn't show the interleaved pause to the caller at all: it only
+// means the caller never gets a chance to interactively stop at that
+// other host's own breakpoint pause *this one time* (an ordinary,
+// future Continue/Step call would still stop there as usual, armed
+// breakpoint or not - this only ever affects the one pause being driven
+// past while chasing a specific redo). onPause still fires for every
+// pause encountered (so task_vars can still be cached for it under
+// --all-vars, same as any other not-shown-to-the-caller pause) -
+// willSurface is true only for the one ultimately returned (a genuine
+// re-pause of targetTask/targetHost, or a different task entirely if the
+// target was somehow never seen again - e.g. consumed some other way -
+// false for every interleaved one silently driven past.
+func RedoUntilTarget(sess *Session, targetTask, targetHost string, onPause func(Pause, bool)) (Pause, bool, error) {
+	pause, eof, err := sess.Redo()
+	for {
+		if err != nil || eof {
+			return pause, eof, err
+		}
+		if pause.Task == targetTask && pause.Host == targetHost || pause.Task != targetTask {
+			if onPause != nil {
+				onPause(pause, true)
+			}
+			return pause, eof, err
+		}
+		if onPause != nil {
+			onPause(pause, false)
+		}
+		pause, eof, err = sess.Continue()
+	}
+}
+
 // applyPolicy is the loop both entry points share: under StepOne the very
 // first pause is always returned as-is; under RunTillBreakpoint, pauses
 // not armed in bps are silently resumed past until an armed one, eof, or
