@@ -46,6 +46,10 @@ type DebugConfig struct {
 	// DebugMode.md's "Stage 3 follow-up round 5"/round 9) - see
 	// liveSession.debugAllVars's own doc comment for what it does.
 	AllVars bool
+	// PlaybookDir/CopyDir are SessionPrep's own fields of the same name -
+	// see there for why internal/session needs both.
+	PlaybookDir string
+	CopyDir     string
 }
 
 // SeedState builds a *playbook.PlaybookState directly from skeleton

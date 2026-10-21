@@ -345,6 +345,15 @@ type liveSession struct {
 	// actually spawn, never playbookName/targetPlaybook (the real
 	// playbook - display/sourceIndex/history use that instead).
 	debugCopyPlaybookPath string
+	// debugPlaybookDir/debugCopyDir are debugverb.DebugConfig's own
+	// PlaybookDir/CopyDir - the real project tree and the shadow copy's
+	// own root, respectively. Used by debugUnfakeShadowPaths
+	// (livesession_debug.go) to rewrite the shadow copy's own path back
+	// to the user's real one wherever it leaks into a captured task_vars
+	// snapshot (role_path, playbook_dir, etc. - design-docs/DebugMode.md's
+	// "faked paths" follow-up). Both empty for every non-debug Verb.
+	debugPlaybookDir string
+	debugCopyDir     string
 	// debugBPS is this session's own armed-breakpoint set (F9 toggles
 	// it) - keyed by debugverb.TaskLabel(task.Name), the debugger's own
 	// prompt text, the only identity a Pause carries (internal/debugrun).

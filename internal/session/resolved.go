@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -136,28 +137,40 @@ func jinjaStringLiteral(s string) string {
 // error wrapJinjaDefaults couldn't save (see its own doc comment) is
 // reported the same way, since from the caller's point of view both just
 // mean "show this error instead of a resolved result."
-func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVarsFile string) (string, error) {
+//
+// realPlaybookDir, if non-empty, replaces every occurrence of this call's
+// own throwaway tmpDir (below) in the rendered result - the stub playbook
+// this builds always lives in its own disposable temp directory, which
+// ansible-core reports right back as that stub's own playbook_dir/
+// inventory_dir if a task's source happens to reference either (neither
+// is overridable via extraVarsFile's own --extra-vars, confirmed live -
+// see debugUnfakeShadowPaths' own doc comment, livesession_debug.go, for
+// role_path/inventory_dir/inventory_file, which *are* overridable and so
+// need no help here). debug mode's own resolveTaskValuesFromSnapshot
+// (below) is the only caller that ever sets this, to the user's real
+// project directory - empty for a plain run, no behavior change there.
+func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVarsFile, realPlaybookDir string) (string, error) {
 	wrapped := wrapJinjaDefaults(taskSource)
 
-	tplFile, err := os.CreateTemp("", "tangsible-resolve-*.j2")
+	// One shared, unique-per-call directory for every file this builds,
+	// rather than three independently-named temp files scattered directly
+	// in the bare OS temp dir (os.TempDir(), e.g. "/tmp") - needed so
+	// realPlaybookDir's own replace above has a long, call-specific string
+	// to match against, not something as short and generic as "/tmp"
+	// itself, which could just as easily appear in a task's own,
+	// completely unrelated rendered content and get mangled by mistake.
+	tmpDir, err := os.MkdirTemp("", "tangsible-resolve-*")
 	if err != nil {
 		return "", err
 	}
-	tplPath := tplFile.Name()
-	defer os.Remove(tplPath)
-	if _, err := tplFile.WriteString(wrapped); err != nil {
-		tplFile.Close()
-		return "", err
-	}
-	tplFile.Close()
+	defer os.RemoveAll(tmpDir)
 
-	outFile, err := os.CreateTemp("", "tangsible-resolve-out-*")
-	if err != nil {
+	tplPath := filepath.Join(tmpDir, "task.j2")
+	if err := os.WriteFile(tplPath, []byte(wrapped), 0o600); err != nil {
 		return "", err
 	}
-	outputPath := outFile.Name()
-	outFile.Close()
-	defer os.Remove(outputPath)
+
+	outputPath := filepath.Join(tmpDir, "output")
 
 	// taskPath is "<absolute file>:<line>" (events.go's own shape) -
 	// RoleVarsFiles expects a plain path, so the trailing ":<line>" is
@@ -206,17 +219,10 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 	fmt.Fprintf(&b, "        src: %s\n", tplPath)
 	fmt.Fprintf(&b, "        dest: %s\n", outputPath)
 
-	stubFile, err := os.CreateTemp("", "tangsible-resolve-stub-*.yml")
-	if err != nil {
+	stubPath := filepath.Join(tmpDir, "stub.yml")
+	if err := os.WriteFile(stubPath, []byte(b.String()), 0o600); err != nil {
 		return "", err
 	}
-	stubPath := stubFile.Name()
-	defer os.Remove(stubPath)
-	if _, err := stubFile.WriteString(b.String()); err != nil {
-		stubFile.Close()
-		return "", err
-	}
-	stubFile.Close()
 
 	pluginEnv, err := runner.CallbackPluginEnv()
 	if err != nil {
@@ -283,7 +289,11 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 	if err != nil {
 		return "", fmt.Errorf("resolve task reported success but the rendered file couldn't be read: %w", err)
 	}
-	return string(content), nil
+	text := string(content)
+	if realPlaybookDir != "" {
+		text = strings.ReplaceAll(text, tmpDir, realPlaybookDir)
+	}
+	return text, nil
 }
 
 // resolveTaskValuesFromSnapshot is resolveTaskValues' own debug-mode
@@ -300,7 +310,15 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 // unchanged (importantly -i, so the stub's own "hosts: host" line can
 // still resolve against the real inventory) - only the variable *values*
 // come from the snapshot, not the targeting.
-func resolveTaskValuesFromSnapshot(taskPath, taskSource, host string, rest []string, snapshot json.RawMessage) (string, error) {
+//
+// playbookDir is passed straight through to resolveTaskValues' own
+// realPlaybookDir parameter - the one magic variable (playbook_dir
+// itself) debugUnfakeShadowPaths' own snapshot-rewrite can't reach for
+// this tab, since ansible-core injects it unconditionally for every
+// play, never overridable via the snapshot's own --extra-vars (see
+// resolveTaskValues' own doc comment, and debugUnfakeShadowPaths',
+// livesession_debug.go, for the fuller story).
+func resolveTaskValuesFromSnapshot(taskPath, taskSource, host string, rest []string, snapshot json.RawMessage, playbookDir string) (string, error) {
 	snapFile, err := os.CreateTemp("", "tangsible-resolve-snapshot-*.json")
 	if err != nil {
 		return "", err
@@ -313,7 +331,7 @@ func resolveTaskValuesFromSnapshot(taskPath, taskSource, host string, rest []str
 	}
 	snapFile.Close()
 
-	text, err := resolveTaskValues(taskPath, taskSource, host, rest, snapPath)
+	text, err := resolveTaskValues(taskPath, taskSource, host, rest, snapPath, playbookDir)
 	if err != nil {
 		return "", err
 	}

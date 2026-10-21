@@ -107,3 +107,50 @@ func TestMergeRegisteredResult_Live(t *testing.T) {
 		t.Errorf("result.rc = %d, want 0", result.RC)
 	}
 }
+
+// TestDebugUnfakeShadowPaths covers the rewrite that keeps the shadow
+// copy's own location from leaking into the watch explorer/Resolved tab
+// as a confusing path (design-docs/DebugMode.md's "faked paths" follow-
+// up) - pure enough (just two liveSession fields, no real debug session
+// needed) to table-drive directly, unlike TestMergeRegisteredResult_Live
+// above.
+func TestDebugUnfakeShadowPaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		copyDir    string
+		playbook   string
+		raw        string
+		wantResult string
+	}{
+		{
+			name:       "rewrites every occurrence",
+			copyDir:    "/proj/.tangsible/debug/run1",
+			playbook:   "/proj",
+			raw:        `{"role_path":"/proj/.tangsible/debug/run1/roles/foo","playbook_dir":"/proj/.tangsible/debug/run1"}`,
+			wantResult: `{"role_path":"/proj/roles/foo","playbook_dir":"/proj"}`,
+		},
+		{
+			name:       "no occurrence is a no-op",
+			copyDir:    "/proj/.tangsible/debug/run1",
+			playbook:   "/proj",
+			raw:        `{"some_var":"unrelated value"}`,
+			wantResult: `{"some_var":"unrelated value"}`,
+		},
+		{
+			name:       "empty copyDir/playbookDir (non-debug Verb shape) is a no-op",
+			copyDir:    "",
+			playbook:   "",
+			raw:        `{"role_path":"/proj/.tangsible/debug/run1/roles/foo"}`,
+			wantResult: `{"role_path":"/proj/.tangsible/debug/run1/roles/foo"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &liveSession{debugCopyDir: tt.copyDir, debugPlaybookDir: tt.playbook}
+			got := s.debugUnfakeShadowPaths(json.RawMessage(tt.raw))
+			if string(got) != tt.wantResult {
+				t.Errorf("debugUnfakeShadowPaths(%s) = %s, want %s", tt.raw, got, tt.wantResult)
+			}
+		})
+	}
+}

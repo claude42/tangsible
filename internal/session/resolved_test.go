@@ -15,6 +15,7 @@
 package session
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -94,5 +95,46 @@ func TestWrapJinjaDefaultsFallbackRoundTrips(t *testing.T) {
 	got := wrapJinjaDefaults(source)
 	if !strings.Contains(got, `\"y\"`) {
 		t.Errorf("wrapJinjaDefaults(%q) = %q, want the embedded fallback to contain an escaped \\\"y\\\"", source, got)
+	}
+}
+
+// TestResolveTaskValues_RealPlaybookDir_Live confirms resolveTaskValues'
+// own realPlaybookDir rewrite - design-docs/DebugMode.md's "faked paths"
+// follow-up: playbook_dir is the one magic variable
+// debugUnfakeShadowPaths' own snapshot-level rewrite can't reach for the
+// Resolved tab (ansible-core injects it unconditionally, never
+// overridable via the stub's own --extra-vars - confirmed in the spike
+// this follows from), so a task referencing it in its own source needs
+// this second, output-side fix instead. requireAnsiblePlaybook is
+// defined in livesession_debug_test.go, same package.
+func TestResolveTaskValues_RealPlaybookDir_Live(t *testing.T) {
+	requireAnsiblePlaybook(t)
+
+	repoRoot, err := filepath.Abs("../../")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot, "callback"))
+
+	taskSource := "{{ playbook_dir }}\n"
+	rest := []string{"-i", "localhost,"}
+
+	withoutFix, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, "", "")
+	if err != nil {
+		t.Fatalf("resolveTaskValues (no realPlaybookDir): %v", err)
+	}
+	if !strings.Contains(withoutFix, "tangsible-resolve-") {
+		t.Fatalf("resolveTaskValues (no realPlaybookDir) = %q, want it to show the stub's own throwaway temp dir unchanged (sanity check on the test's own assumption)", withoutFix)
+	}
+
+	withFix, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, "", "/my/real/project")
+	if err != nil {
+		t.Fatalf("resolveTaskValues (realPlaybookDir set): %v", err)
+	}
+	if !strings.Contains(withFix, "/my/real/project") {
+		t.Errorf("resolveTaskValues (realPlaybookDir set) = %q, want it to contain /my/real/project", withFix)
+	}
+	if strings.Contains(withFix, "tangsible-resolve-") {
+		t.Errorf("resolveTaskValues (realPlaybookDir set) = %q, want the stub's own temp dir fully replaced", withFix)
 	}
 }

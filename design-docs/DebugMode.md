@@ -1721,6 +1721,102 @@ build ./... && go vet ./... && go test -count=1 ./...` and `gofmt -l
 internal/` clean (aside from the one pre-existing, unrelated
 `recap_rowtext_test.go` flag).
 
+## Stage 4 follow-up round 8: faked paths - hiding the shadow copy from the watch explorer/Resolved tab (2026-10-21)
+
+Reported live: debug mode actually runs `ansible-playbook` against a
+disposable hardlink shadow copy
+(`<playbookDir>/.tangsible/debug/<runID>/` - `internal/debugcopy.
+BuildShadowCopy`), so magic variables like `role_path`/`playbook_dir`/
+`inventory_dir`/`inventory_file` genuinely, correctly reflect *that*
+copy's own location - which reads as a confusing, unexpected path to a
+user who never asked to see it and just wants to know "where is this,
+really."
+
+**Spike first** (the user's own ask, before committing to an approach):
+would `--extra-vars` let us just fake these values for display, and if
+so, where would that actually need to happen? Built a throwaway
+playbook+role spike (never committed) mirroring `resolveTaskValues`'
+own stub shape (`internal/session/resolved.go`) exactly - a flat
+`tasks:` list, `delegate_to: localhost`/`connection: local`, rendering
+`ansible.builtin.template` with a real `--extra-vars @file` override -
+and found a three-way split, not one answer:
+- **`role_path`**: overridable. The stub never runs inside a real
+  `roles:` play at all, so ansible-core never sets its own value for it
+  in that context in the first place - confirmed by contrast with a
+  second spike where the same var *was* set inside a genuine role,
+  where ansible-core's own value won outright regardless of extra-vars.
+- **`inventory_dir`/`inventory_file`**: also overridable, confirmed with
+  a real `-i <file>` inventory (not just the implicit `localhost,`) by
+  diffing an overridden run against the real baseline - somewhat
+  surprising, since ansible-core does compute real values for both by
+  default; extra-vars still wins over them regardless.
+- **`playbook_dir`**: *not* overridable, under every case tested.
+  ansible-core injects it unconditionally, last, no matter what's in
+  extra-vars.
+
+Net effect: two small, independent fixes, not one plus a redesign.
+
+**Fix 1 - the input side** (`livesession_debug.go`'s new
+`debugUnfakeShadowPaths`): a plain, unconditional `bytes.ReplaceAll` of
+the shadow copy's own root (now threaded all the way from `debugverb.
+PrepareSession`'s existing `playbookDir`/`copyDir` locals, through
+`SessionPrep`/`DebugConfig`/`liveSession`'s own `debugPlaybookDir`/
+`debugCopyDir` fields - the exact same wiring path `PathMapping` already
+takes) back to the real project tree, applied once, to the raw
+`task_vars` JSON right before it enters `s.debugTaskVarsCache`. No per-
+variable-name logic, no line-shift math the way `debugcopy.
+BuildPathMapping`'s own task-location mapping needs (that one exists
+only because `debugger: always` splicing shifts line numbers; a bare
+directory path carries none) - `BuildShadowCopy`'s own hardlink walk
+guarantees every file in the copy sits at the exact same relative path
+it has in the real tree, so the copy's root is always just the real
+root plus one fixed extra prefix. This fixes the watch explorer
+outright (it reads this cache directly), and - via the Resolved tab's
+own `resolveTaskValuesFromSnapshot`, which feeds this same now-rewritten
+snapshot in as `--extra-vars @file` - `role_path`/`inventory_dir`/
+`inventory_file` references inside a task's own source too, for free.
+Deliberately not scoped to any particular variable name: a derived
+value (e.g. a `register:`ed command's own captured stdout, merged in by
+the existing `mergeRegisteredResult` right before this runs) that
+happens to contain the shadow path gets fixed the same blunt way.
+
+**Fix 2 - the output side**, `playbook_dir` only (`resolved.go`'s
+`resolveTaskValues`, new `realPlaybookDir` parameter): since extra-vars
+can't reach it, a task referencing `{{ playbook_dir }}` in its own
+source needs the stub's own *rendered output* text fixed instead.
+Caught one real risk while implementing this, not anticipated at spike
+time: the stub's three temp files (`tplPath`/`outputPath`/`stubPath`)
+each used their own independent `os.CreateTemp("", pattern)` call,
+landing directly in the bare OS temp dir (`os.TempDir()`, typically
+`/tmp`) - so `filepath.Dir(stubPath)` was just `/tmp` itself, far too
+short and generic a string to blindly substring-replace in arbitrary
+rendered content (a task legitimately referencing some unrelated
+`/tmp/...` path of its own would get mangled too). Fixed by first
+giving the whole stub one shared, call-unique directory
+(`os.MkdirTemp`, holding all three files) - the same "make the target
+string long/unique enough that a blunt replace is actually safe"
+reasoning Fix 1's own `copyDir` already relies on - and only then
+replacing that directory's own path with the real `playbookDir` in the
+final rendered text. `resolveTaskValuesFromSnapshot` passes
+`s.debugPlaybookDir` through as this new parameter; the plain-run
+caller (`resolvedTabEnabled`, currently `false`, so dormant either way)
+passes `""` - no behavior change there.
+
+**Verified** live in tmux end to end: a role task referencing
+`{{ role_path }}` in its own `dest:`, paused with `--all-vars`,
+watching `role_path`/`playbook_dir`/`inventory_dir`/`inventory_file` all
+showed the real project path, not the shadow copy, in the watch
+explorer; the same task's own Resolved tab showed the real path too. A
+second task referencing `{{ playbook_dir }}` directly in both `content:`
+and `dest:` - the one case Fix 1 alone can't reach - also showed the
+real project path in its Resolved tab once Fix 2 was in place. New unit
+tests: `TestDebugUnfakeShadowPaths` (table-driven, pure) and
+`TestResolveTaskValues_RealPlaybookDir_Live` (spawns a real stub render,
+confirms the temp dir is genuinely replaced, not just coincidentally
+absent). `go build ./... && go vet ./... && go test -count=1 ./...` and
+`gofmt -l internal/` clean (aside from the one pre-existing, unrelated
+`recap_rowtext_test.go` flag).
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

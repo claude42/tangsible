@@ -125,9 +125,9 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 			var text string
 			var err error
 			if s.debugMode {
-				text, err = resolveTaskValuesFromSnapshot(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, snapshot)
+				text, err = resolveTaskValuesFromSnapshot(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, snapshot, s.debugPlaybookDir)
 			} else {
-				text, err = resolveTaskValues(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, "")
+				text, err = resolveTaskValues(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, "", "")
 			}
 			result := uikit.ResolvedRender{}
 			if err != nil {

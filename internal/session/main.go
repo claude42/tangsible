@@ -771,6 +771,8 @@ func Main(build BuildInfo) {
 			BPS:              debugrun.NewBreakpointSet(),
 			Cursor:           debugverb.NewCursor(debugNodes, debugNodePlay, progH.Load(), debugPrep.PathMapping),
 			AllVars:          debugPrep.AllVars,
+			PlaybookDir:      debugPrep.PlaybookDir,
+			CopyDir:          debugPrep.CopyDir,
 		}
 	}
 	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)

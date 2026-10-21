@@ -70,6 +70,19 @@ type SessionPrep struct {
 	// from the real tree and so has no entries for the copy's own,
 	// line-shifted paths at all.
 	PathMapping map[string]string
+	// PlaybookDir/CopyDir are the same two directories BuildShadowCopy was
+	// given/returned - kept here (unlike playbookDir/copyDir, the plain
+	// locals PrepareSession already computes for its own use below) so
+	// internal/session can rewrite the shadow copy's own path back to the
+	// user's real one wherever it leaks into a captured task_vars
+	// snapshot's own string values - design-docs/DebugMode.md's "shadow
+	// copy path leaks into magic variables" follow-up. Every file in the
+	// copy sits at the exact same relative path it has in the original
+	// tree (BuildShadowCopy's own hardlink walk), so this is always a
+	// plain, unconditional prefix swap - no per-variable-name logic, no
+	// line-shift math like PathMapping above needs.
+	PlaybookDir string
+	CopyDir     string
 }
 
 // PrepareSession resolves "tangsible debug [<playbook.yml>] [ansible-
@@ -183,6 +196,8 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		CopyPlaybookPath: copyPlaybookPath,
 		Skeleton:         skeleton,
 		PathMapping:      pathMapping,
+		PlaybookDir:      playbookDir,
+		CopyDir:          copyDir,
 	}, copyCleanup
 }
 

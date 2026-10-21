@@ -15,6 +15,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 
 	"code.aw.net/claude/tangsible/internal/debugrun"
@@ -371,6 +372,7 @@ func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause, 
 			return
 		}
 		raw = mergeRegisteredResult(raw, sess)
+		raw = s.debugUnfakeShadowPaths(raw)
 		s.app.QueueUpdateDraw(func() {
 			s.debugTaskVarsCache[debugVarsKey{pause.Task, pause.Host}] = raw
 		})
@@ -419,6 +421,45 @@ func mergeRegisteredResult(raw json.RawMessage, sess *debugrun.Session) json.Raw
 		return raw
 	}
 	return merged
+}
+
+// debugUnfakeShadowPaths rewrites every occurrence of the shadow copy's
+// own root (s.debugCopyDir) in raw back to the user's real project tree
+// (s.debugPlaybookDir) - design-docs/DebugMode.md's "faked paths" follow-
+// up: debug mode actually runs ansible-playbook against a disposable
+// hardlink shadow copy (internal/debugcopy.BuildShadowCopy), so magic
+// variables like role_path/playbook_dir genuinely, correctly reflect
+// that copy's own location - which reads as a confusing, unexpected path
+// to a user who never asked to see it. A plain, unconditional substring
+// replace is enough and nothing more is needed: BuildShadowCopy's own
+// hardlink walk gives every file in the copy the exact same relative
+// path it has in the real tree, so copyDir is always just playbookDir's
+// own string plus a fixed extra prefix - no per-variable-name logic, no
+// line-shift math the way debugcopy.BuildPathMapping's task-location
+// mapping needs (that one exists only because splicing shifts line
+// numbers; a bare directory path carries none). Applied once, here, to
+// the raw JSON bytes before they ever enter s.debugTaskVarsCache, so
+// every consumer (the watch explorer, and - via the Resolved tab's own
+// --extra-vars-fed stub render, resolveTaskValuesFromSnapshot - any
+// task referencing role_path/inventory_dir/inventory_file in its own
+// source) sees the rewritten value for free, with nothing further to
+// change at any of those call sites. Deliberately not scoped to any
+// particular variable name: a derived value (e.g. a register:ed
+// command's own captured stdout, merged in by mergeRegisteredResult just
+// above) that happens to contain the shadow path gets fixed the same
+// way. playbook_dir itself is the one magic variable this can't reach
+// inside the Resolved tab specifically - ansible-core injects it
+// unconditionally for every play, never overridable via --extra-vars
+// (confirmed live), so a task referencing it there needs
+// resolveTaskValues' own separate, output-side fix instead (resolved.go).
+// A no-op whenever either string is empty (every non-debug Verb, and
+// bytes.ReplaceAll's own special "insert between every byte" behavior
+// for an empty old value makes that guard required, not just tidy).
+func (s *liveSession) debugUnfakeShadowPaths(raw json.RawMessage) json.RawMessage {
+	if s.debugCopyDir == "" || s.debugPlaybookDir == "" {
+		return raw
+	}
+	return bytes.ReplaceAll(raw, []byte(s.debugCopyDir), []byte(s.debugPlaybookDir))
 }
 
 // debugApplyPauseResult runs on the event-loop goroutine (always called
