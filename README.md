@@ -288,10 +288,14 @@ for adding a watched expression - a bare name, or a dotted/bracket-index
 path into one, like `foo.bar` or `foo[0]`. Watched values stay visible
 and re-evaluate live as you navigate to a different host/task, greyed
 out once you close the explorer with Esc; one that can't currently be
-resolved shows as `<undefined>` rather than as an error. The explorer's
-own bottom-of-screen keyboard hints replace the usual ones while it's
-open, and its "Watched variables" headline is colored like the rest of
-the debug chrome.
+resolved shows as `<undefined>` rather than as an error; the headline
+itself reads "Watched variables (unavailable)" instead whenever nothing
+was captured for the current host/task at all. The explorer's own
+bottom-of-screen keyboard hints replace the usual ones while it's open,
+and its "Watched variables" headline is colored like the rest of the
+debug chrome. Page Up/Down, Home/End, and Tab still scroll the screen
+and switch drill-down tabs while the explorer is open - only the plain
+arrow keys are claimed by the explorer itself.
 
 ## Debugging a Jinja2 template
 

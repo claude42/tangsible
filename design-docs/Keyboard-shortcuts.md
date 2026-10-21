@@ -569,8 +569,21 @@ collide with:
                      tree's/drill-down's normal bottom bar, reverting the
                      moment it closes - and its own "Watched variables"
                      headline (only the headline, not the entries or the
-                     input field) is colored like the rest of the
-                     session's own chrome.
+                     input field, indented one column like every row
+                     below it) is colored like the rest of the session's
+                     own chrome; it reads "Watched variables
+                     (unavailable)" instead whenever the currently
+                     selected host/task has no captured variables at all
+                     (never paused there, and `--all-vars` wasn't passed)
+                     - as opposed to one particular watched expression
+                     simply not resolving. The explorer stays otherwise
+                     modal while open, with one carve-out: Page Up/Down,
+                     Home/End, and Tab/Backtab keep reaching whatever's
+                     behind the panel (scrolling the tree/drill-down
+                     content, switching the drill-down's own tabs)
+                     instead of being swallowed by it - deliberately not
+                     the plain arrow keys, which stay claimed by the
+                     explorer's own Up/Down/Left/Right above.
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
 sketches a `[keys]` config section for these; not wired up yet).

@@ -146,10 +146,25 @@ func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 // literal text run (tags only color the runes actually present, the
 // same reason ComposeTopBarLine/s.outputTopBar's own plain text get
 // padded before their fill tags, elsewhere in this file's siblings).
-func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeColorName string, width int) {
+// snapshotAvailable is watchCurrentSnapshot's own second return value -
+// false means the current host/task has no captured task_vars at all
+// (the run hasn't paused there, and --all-vars wasn't passed, so nothing
+// was ever captured to evaluate against), as opposed to a single watched
+// expression simply not resolving against a snapshot that does exist.
+// The heading says so explicitly rather than leaving every single row to
+// separately render "<undefined>" with no explanation why.
+func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeColorName string, width int, snapshotAvailable bool) {
 	var b strings.Builder
 	if w.open || len(w.entries) > 0 {
-		heading := "Watched variables"
+		// Leading space on both the heading and every entry row below -
+		// requested live: the panel's own text sat flush against the
+		// left edge, one column tighter than everything else in this
+		// app's chrome (the top/split bars' own text, the tree's own
+		// row labels) ever does.
+		heading := " Watched variables"
+		if !snapshotAvailable {
+			heading += " (unavailable)"
+		}
 		if gap := width - len([]rune(heading)); gap > 0 {
 			heading += strings.Repeat(" ", gap)
 		}
@@ -165,7 +180,7 @@ func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen 
 			if i == w.selected {
 				cursor = "▶"
 			}
-			line := fmt.Sprintf("%s %s", cursor, tview.Escape(e.expr))
+			line := fmt.Sprintf(" %s %s", cursor, tview.Escape(e.expr))
 			// Deactivated (explorer closed, still showing watched
 			// values) renders the whole block grey, collapsing the
 			// resolved/unavailable distinction (an existing Stage 4 UX
@@ -422,7 +437,69 @@ func (s *liveSession) handleWatchKey(event *tcell.EventKey) (*tcell.EventKey, bo
 		s.watchSyncBottomBar()
 		return nil, true
 	}
+	if s.watchForwardPassthrough(event) {
+		return nil, true
+	}
 	return s.handleWatchOpenKey(event), true
+}
+
+// watchForwardPassthrough is the explorer's one deliberate carve-out from
+// being otherwise fully modal while open: page-content navigation (Page
+// Up/Down, Home/End - never the plain arrow keys, which the explorer's
+// own Up/Down/Left/Right already claim for its own list/field navigation)
+// and Tab/Backtab (switching the drill-down's own tabs) must keep
+// reaching whatever's behind the panel, requested live. The trouble is
+// that s.app.SetFocus(s.watch.input) (handleWatchKey, above) means
+// tview's own focus-based dispatch would otherwise deliver an
+// unclaimed key straight to the watch input instead of to the tree/tab
+// content that would normally have focus - so these are forwarded
+// explicitly to the right widget's own InputHandler, bypassing the input
+// field entirely, rather than merely left unclaimed here. Reports true
+// (always "handled," even when there's nothing to forward to, e.g. Tab
+// with no drill-down open) so the caller never falls through to
+// handleWatchOpenKey's own default case, which would otherwise type
+// these keys into the field.
+func (s *liveSession) watchForwardPassthrough(event *tcell.EventKey) bool {
+	switch event.Key() {
+	case tcell.KeyTab:
+		if s.viewingOutput {
+			s.outputTabs.Next()
+			s.rebuild()
+		}
+	case tcell.KeyBacktab:
+		if s.viewingOutput {
+			s.outputTabs.Prev()
+			s.rebuild()
+		}
+	case tcell.KeyPgUp, tcell.KeyPgDn, tcell.KeyHome, tcell.KeyEnd:
+		var target tview.Primitive
+		if s.viewingOutput {
+			if tv, ok := s.outputTabs.ActiveTextView(); ok {
+				target = tv
+			}
+		} else {
+			target = s.list
+		}
+		if target != nil {
+			if handler := target.InputHandler(); handler != nil {
+				// s.list's own InputHandler (the tree case) triggers its
+				// changed-callback synchronously, which calls s.rebuild()
+				// itself - same as any other tree navigation key. That
+				// rebuild() (like the two explicit ones above) would
+				// otherwise wipe the watch explorer's own bottom-bar hint
+				// back to its normal text (rebuild's own
+				// s.bottomBar.SetText(...) for the plain-tree/non-split
+				// case), since it has no idea the explorer is still open -
+				// watchSyncBottomBar below, after the switch, re-asserts
+				// it regardless of which branch actually ran.
+				handler(event, func(p tview.Primitive) { s.app.SetFocus(p) })
+			}
+		}
+	default:
+		return false
+	}
+	s.watchSyncBottomBar()
+	return true
 }
 
 // handleWatchOpenKey is the explorer's own key state machine while open -

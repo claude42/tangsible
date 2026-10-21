@@ -93,11 +93,15 @@ already offers:
 	deselects a row, then closes). Watched values re-evaluate live as you
 	navigate to a different host/task, and stay visible, greyed out, once
 	you close the explorer; one that can't currently be resolved shows as
-	*<undefined>* rather than as an error. While open, the explorer's own
-	key hints replace the usual ones at the bottom of the screen,
-	reverting the moment it closes; its own "Watched variables" headline
-	(not the entries or the input field) is colored like the rest of the
-	session's own chrome.
+	*<undefined>* rather than as an error, and the headline itself reads
+	"Watched variables (unavailable)" instead whenever nothing was
+	captured for the current host/task at all. While open, the
+	explorer's own key hints replace the usual ones at the bottom of the
+	screen, reverting the moment it closes; its own "Watched variables"
+	headline (not the entries or the input field) is colored like the
+	rest of the session's own chrome. *Page Up*/*Page Down*, *Home*/*End*,
+	and *Tab* still reach the screen/tabs behind the explorer while it's
+	open - only the plain arrow keys are claimed by the explorer itself.
 
 Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
 stop), the drill-down

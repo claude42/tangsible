@@ -391,10 +391,11 @@ func (s *liveSession) rebuild() {
 	if s.splitMode {
 		watchWidth = totalWidth - uikit.SplitTreeWidth(totalWidth) - uikit.SplitDividerWidth
 	}
+	_, watchSnapshotOK := s.watch.currentSnapshot()
 	s.watch.render(func(expr string) watchResult {
 		snapshot, _ := s.watch.currentSnapshot()
 		return evaluateWatchExpr(expr, snapshot)
-	}, s.watchAutocompleteOpenNow(), s.chromeColorName(), watchWidth)
+	}, s.watchAutocompleteOpenNow(), s.chromeColorName(), watchWidth, watchSnapshotOK)
 	watchListH, watchInputH := s.watch.height()
 	watchTotal := watchListH + watchInputH
 	s.flex.ResizeItem(s.watch.flex, watchTotal, 0)

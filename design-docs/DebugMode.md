@@ -1571,6 +1571,103 @@ active tab correctly after opening and closing the watch explorer once
 (aside from the one pre-existing, unrelated `recap_rowtext_test.go`
 flag).
 
+## Stage 4 follow-up round 6: one-column indent, "(unavailable)" headline, content navigation passthrough (2026-10-21)
+
+Three more requested changes:
+
+1. **One-column indent.** The heading and every watched row sat flush
+   against the panel's own left edge, one column tighter than the rest
+   of this app's chrome ever does. `watchPanel.render` now prepends a
+   leading space to both the heading string (before the chrome-color
+   padding is computed, so the background fill still reaches the full
+   `width`) and each entry's own `cursor` line - a one-line change in
+   each of the two `fmt.Sprintf`/literal-string spots, nothing else
+   about the layout moves.
+
+2. **"Watched variables (unavailable)" headline.** A watched expression
+   that doesn't resolve already rendered as `<undefined>` (round 2's
+   "drop unavailable's own styling" change), but gave no reason why -
+   and for a task that never paused and wasn't captured with
+   `--all-vars`, *every* row says `<undefined>` with nothing to
+   distinguish "this one variable doesn't exist" from "nothing was ever
+   captured here at all." `render` gained a `snapshotAvailable bool`
+   parameter - `rebuild()`'s own call site now calls
+   `s.watch.currentSnapshot()` once up front (the same lookup already
+   injected into `evaluate`'s own closure) purely for its second, `ok`
+   return value, and passes that through. `false` appends `"
+   (unavailable)"` to the heading text, before the width-padding
+   happens.
+
+3. **Content-navigation passthrough.** The explorer was fully modal
+   while open (by design, round 1 of this whole feature) - every key
+   went to `handleWatchOpenKey`. Requested live: Page Up/Down, Home/End
+   (explicitly *not* the plain arrow keys, which the explorer's own
+   Up/Down/Left/Right already claim) and Tab/Backtab should keep
+   reaching whatever's behind the panel, so the user can still scroll
+   the tree/drill-down content and switch the drill-down's own tabs
+   while the explorer stays open.
+
+   The complication: `s.app.SetFocus(s.watch.input)` (needed since round
+   1, for the autocomplete drop-down to draw at all) means tview's own
+   focus-based dispatch would otherwise deliver any key this app's own
+   code doesn't explicitly claim straight to the watch input instead of
+   to whatever would normally have focus (`s.list` in the plain tree,
+   the drill-down's active tab content otherwise) - unlike the *closed*
+   case, where these keys already just worked by falling through
+   `handleKey`'s whole dispatch chain unclaimed and landing on whichever
+   widget tview itself considers focused. So this can't be done by
+   simply returning "not handled" from `handleWatchKey` for these keys -
+   a new `watchForwardPassthrough`, checked right before
+   `handleWatchOpenKey` takes over, forwards each one explicitly:
+   - `Tab`/`Backtab`: `s.outputTabs.Next()`/`Prev()` directly (the exact
+     calls `handleOutputViewKey` itself makes), only while
+     `s.viewingOutput` - a no-op in the plain tree, same as today
+     without the explorer open at all (nothing there currently binds
+     Tab to anything).
+   - `PgUp`/`PgDn`/`Home`/`End`: forwarded straight to the right
+     widget's own `InputHandler()` - `s.list` in the plain tree,
+     or the drill-down's active tab content (`uikit.TabbedPane.
+     ActiveTextView()`, already existed for `Search.md`'s own tab-
+     position-driven controller) while `s.viewingOutput` - rather than
+     relying on tview's focus-based routing at all, the same "route
+     around tview instead of fighting it" call `tabSearchPanel.
+     handleComposingKey`/`watchForwardToInput` already make for fields
+     nested this deep.
+
+   One snag caught live during verification, not anticipated in the
+   plan: `s.list`'s own `InputHandler` (forwarded to for the plain-tree
+   case) fires its `SetChangedFunc` callback synchronously on a genuine
+   selection change, which itself calls `s.rebuild()` - and `rebuild()`'s
+   own split/non-split branches unconditionally reset
+   `s.bottomBar`/`s.outputBottomBar`'s text to their *normal* hint,
+   with no idea the watch explorer is still open. The explicit
+   `s.outputTabs.Next()`/`Prev()` branches have the identical problem
+   (they call `s.rebuild()` themselves, for the same reason). Caught by
+   live tmux verification: pressing `Tab` while the explorer was open
+   correctly switched tabs, but silently reverted the bottom bar from
+   the explorer's own hint text back to the drill-down's normal one -
+   still open, just suddenly showing the wrong hint. Fixed by having
+   `watchForwardPassthrough` call `s.watchSyncBottomBar()` once itself,
+   unconditionally, right before returning `true` - cheap and correct
+   regardless of whether a `rebuild()` actually happened along the way.
+
+**Verified** live in tmux, both the plain tree and a multi-host
+drill-down (`testdata/multihost.yml`): `Home`/`End` move the tree's own
+cursor (confirmed via the selected-row's reverse-video styling moving to
+the first/last row) while the explorer stays open and showing its own
+hint; `Tab` switches the drill-down's active tab (confirmed both via the
+tab header's own active-tab styling and the content pane's text
+changing) with the bottom bar still correctly showing the explorer's own
+hint throughout, not the drill-down's normal one; typing in the watch
+input still works immediately afterward (focus never left it). The
+one-column indent and the "(unavailable)" headline were both confirmed
+by reading the rendered `TextView` text back via `tmux capture-pane`
+(column positions compared against the bottom-bar hint's own
+already-existing one-space indent) rather than visually, same reasoning
+as round 3's own width-padding check. `go build ./... && go vet ./... &&
+go test -count=1 ./...` and `gofmt -l internal/` clean (aside from the
+one pre-existing, unrelated `recap_rowtext_test.go` flag).
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces
