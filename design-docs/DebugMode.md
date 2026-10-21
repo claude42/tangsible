@@ -1668,6 +1668,59 @@ as round 3's own width-padding check. `go build ./... && go vet ./... &&
 go test -count=1 ./...` and `gofmt -l internal/` clean (aside from the
 one pre-existing, unrelated `recap_rowtext_test.go` flag).
 
+## Stage 4 follow-up round 7: closing the explorer from the bare tree stranded focus (2026-10-21)
+
+Reported live, a precise repro: select a host row in the plain tree
+(never opening the drill-down first), press `v`, then `Esc` to close
+the explorer, then `Enter` on that (or any other) host row - nothing
+happens, repeatably, until a *mouse* click on a host row opens the
+drill-down, after which `Enter` starts working again too. Opening the
+drill-down first, then `v`, then `Esc` (closing the explorer, still in
+the drill-down), then a second `Esc` (closing the drill-down itself),
+then `Enter` - worked fine throughout.
+
+Root cause: `handleWatchKey`'s own `s.app.SetFocus(s.watch.input)`
+(needed since the feature's very first round, for the autocomplete
+drop-down to draw at all) never gets undone on its own. `Enter` on a
+host row isn't one of this app's own explicitly-handled keys at all
+(`handleTreeKey`'s switch has no `KeyEnter` case) - like every other key
+this app's own `handleKey` dispatcher doesn't itself claim, it falls all
+the way through unclaimed and tview's own `Application` delivers it to
+whichever primitive currently `HasFocus()` is true, which is where
+`s.list`'s own row-activation (`TreeList.InputHandler`'s `KeyEnter`
+case, wired to each row's `Selected` closure) actually lives. Closing
+the explorer from the bare tree left focus stuck on the now fully
+invisible `s.watch.input` - `Enter` still "worked" in the sense that it
+reached *something*, just not `s.list`, so nothing visible happened.
+The reason going through the drill-down first masked it: `closeOutput`
+(`livesession_output.go`) already unconditionally calls
+`s.app.SetFocus(s.list)` on its own way out, for an unrelated, long-
+standing reason (closing *any* dialog/search/etc. that stole focus
+restores it to `s.list` - the one app-wide default every such feature
+already follows, confirmed by grep: `livesession_filter.go`'s
+`closeDialogs`, `livesession_output.go`'s `closeOutput`, and even
+`newTabSearchPanel`'s own `focus` parameter - passed `s.list` even for
+the *output* tab's own in-tab search bar) - so the second `Esc` papered
+over the watch explorer's own missing restore, as an unrelated side
+effect. And why a mouse click "fixed" it: `uikit.TreeList`'s own
+`MouseHandler` (unlike `Enter`'s pure focus-based dispatch) explicitly
+calls `setFocus(t)` as part of handling the click itself, which is
+exactly the one line the explorer's own close path was missing.
+
+Fix: the one branch in `handleWatchOpenKey`'s `KeyEscape` case that sets
+`w.open = false` (the explorer's only actual close transition - every
+other `Esc` sub-case either deselects a row, closes the autocomplete
+drop-down, or clears the field, none of which give up focus) now also
+calls `s.app.SetFocus(s.list)`, the same restore every other transient
+focus-stealer in this app already performs on close.
+
+**Verified** live in tmux, the exact reported repro: select a host row
+in the plain tree, `v`, `Esc`, `Enter` - the drill-down now opens
+immediately, with no drill-down/mouse-click detour needed first. `go
+build ./... && go vet ./... && go test -count=1 ./...` and `gofmt -l
+internal/` clean (aside from the one pre-existing, unrelated
+`recap_rowtext_test.go` flag).
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

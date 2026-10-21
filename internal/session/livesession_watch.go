@@ -539,6 +539,22 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 		default:
 			w.open = false
 			w.selected = -1
+			// Restore keyboard focus to s.list - the one app-wide default
+			// every other transient focus-stealer (the filter/search/
+			// rerun dialogs, the output tab search bar) already restores
+			// it to on close (livesession_filter.go's closeDialogs,
+			// livesession_output.go's closeOutput, both
+			// s.app.SetFocus(s.list)). Opening the explorer
+			// (handleWatchKey, above) moves focus onto s.watch.input and
+			// never gets it back on its own - reported live: closing the
+			// explorer without ever having opened/closed the drill-down
+			// in between (that path's own closeOutput happens to paper
+			// over this) left focus stranded on the now-invisible input,
+			// so Enter on a host row - like every other key this app
+			// doesn't itself intercept, only reaching whatever currently
+			// HasFocus() - silently went nowhere instead of reaching
+			// s.list's own row-activation handler.
+			s.app.SetFocus(s.list)
 		}
 		s.rebuild()
 		s.watchSyncBottomBar()
