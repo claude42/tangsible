@@ -502,6 +502,213 @@ func TestSession_Redo_MultiHostInterleaving(t *testing.T) {
 	}
 }
 
+// TestExtractErrorLine is a plain, no-ansible-playbook-needed unit test
+// for extractErrorLine's own per-line scan.
+func TestExtractErrorLine(t *testing.T) {
+	cases := []struct {
+		name     string
+		text     string
+		wantLine string
+		wantOK   bool
+	}{
+		{"no error", "some noise\n0\n", "", false},
+		{"one error line", "noise before\n***TypeError:'bad'\nmore noise\n", "***TypeError:'bad'", true},
+		{"first of several wins", "***NameError:'x'\n***ValueError:'y'\n", "***NameError:'x'", true},
+		{"empty text", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			line, ok := extractErrorLine(c.text)
+			if ok != c.wantOK || line != c.wantLine {
+				t.Errorf("extractErrorLine(%q) = (%q, %v), want (%q, %v)", c.text, line, ok, c.wantLine, c.wantOK)
+			}
+		})
+	}
+}
+
+// TestSession_Set confirms Session.Set (design-docs/DebugMode.md's "Stage
+// 5") genuinely mutates task_vars for the task actually being reached
+// next, not just for the debugger's own read-back of the same pause - the
+// marker-file-dependent task itself (same shape TestSession_Redo uses) is
+// deliberately made to depend on the set variable's own value via
+// failed_when, so a flipped outcome can only mean the real exec reached
+// the live child process's own task_vars, not some local bookkeeping.
+func TestSession_Set(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	proj := t.TempDir()
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	playbook := `- hosts: all
+  gather_facts: false
+  tasks:
+    - name: flaky task
+      set_fact:
+        outcome_var: "bad"
+
+    - name: depends on outcome_var
+      command: "echo {{ outcome_var }}"
+      register: result
+      failed_when: "outcome_var != 'good'"
+`
+	if err := os.WriteFile(playbookPath, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := source.ListTaskLocations(playbookPath)
+	if len(locs) != 2 {
+		t.Fatalf("expected 2 task locations, got %d: %+v", len(locs), locs)
+	}
+
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", "localhost,", "-c", "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	pause, eof, err := sess.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("session ended before the first debug pause")
+	}
+	if pause.Task != "TASK: flaky task" {
+		t.Fatalf("first pause = %+v, want TASK: flaky task", pause)
+	}
+
+	pause, eof, err = sess.Continue()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("session ended before the second debug pause")
+	}
+	if pause.Task != "TASK: depends on outcome_var" {
+		t.Fatalf("second pause = %+v, want TASK: depends on outcome_var", pause)
+	}
+
+	if err := sess.Set("task_vars['outcome_var']", "'good'"); err != nil {
+		t.Fatalf("Set failed: %v", err)
+	}
+
+	pause, eof, err = sess.Redo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof {
+		t.Fatal("expected a re-pause of the redone task, got eof")
+	}
+	if pause.Task != "TASK: depends on outcome_var" {
+		t.Fatalf("redo pause = %+v, want the same task", pause)
+	}
+
+	raw, err := sess.Query("result.is_failed()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed bool
+	if err := json.Unmarshal(raw, &failed); err != nil {
+		t.Fatal(err)
+	}
+	if failed {
+		t.Error("expected the redone task to succeed with outcome_var set to 'good', but it failed")
+	}
+
+	if _, eof, err := sess.Continue(); err != nil {
+		t.Fatal(err)
+	} else if !eof {
+		t.Error("expected eof after continuing past the redone task's own pause")
+	}
+}
+
+// TestSession_Set_Failure confirms a failed assignment (an undefined
+// name on the right-hand side, so the exec itself raises a NameError)
+// reports a non-nil error carrying the exception text, and - just as
+// important - that the REPL session is still fully usable afterward:
+// default()'s own except handler swallows the re-raise it triggers, so
+// nothing about the pipe or the debugger's own prompt state is left
+// corrupted by one failed statement.
+func TestSession_Set_Failure(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	proj := t.TempDir()
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	playbook := `- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: only task
+      command: echo hi
+`
+	if err := os.WriteFile(playbookPath, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := source.ListTaskLocations(playbookPath)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 task location, got %d: %+v", len(locs), locs)
+	}
+
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", "localhost,"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	if _, eof, err := sess.Start(); err != nil {
+		t.Fatal(err)
+	} else if eof {
+		t.Fatal("session ended before the first debug pause")
+	}
+
+	err = sess.Set("task_vars['outcome_var']", "this_name_does_not_exist_anywhere")
+	if err == nil {
+		t.Fatal("expected Set to fail assigning an undefined right-hand side, got nil error")
+	}
+	if !strings.Contains(err.Error(), "NameError") {
+		t.Errorf("Set error = %q, want it to mention NameError", err.Error())
+	}
+
+	// The session must still be usable: a plain Query and a Continue to
+	// completion both need to keep working after one failed exec.
+	if _, qerr := sess.Query("1 + 1"); qerr != nil {
+		t.Errorf("Query after a failed Set = %v, want it to still work", qerr)
+	}
+	if _, eof, cerr := sess.Continue(); cerr != nil {
+		t.Fatal(cerr)
+	} else if !eof {
+		t.Error("expected eof after continuing past the only task")
+	}
+}
+
 // withTimeout runs fn in its own goroutine and fails the test fast (rather
 // than waiting out go test's own default 10-minute timeout) if it doesn't
 // return within d - specifically for a case like

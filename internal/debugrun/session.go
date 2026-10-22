@@ -235,6 +235,52 @@ func (s *Session) Redo() (pause Pause, eof bool, err error) {
 	return pause, eof, err
 }
 
+// Set executes "target = value" against the currently paused task's own
+// debugger scope, design-docs/DebugMode.md's "Stage 5" - a write-twin of
+// Query above, through a different command entirely. target is expected
+// to be a task_vars[...] chain (session.watchSetTarget, internal/session/
+// debugwatch_eval.go builds it); value is forwarded completely verbatim,
+// exactly as typed - no value-type picker, Stage 5's own decision.
+//
+// Confirmed directly against the installed ansible-core source
+// (plugins/strategy/__init__.py's Debugger class): self.scope['task_vars']
+// is the exact live dict _queue_task hands to a redo/continue, so an
+// assignment into it genuinely changes what the next redo/continue sees -
+// not a side channel of its own. Unlike Query's "p print(...)" form
+// (do_pprint/do_p), a bare "task_vars[...] = value" line has no leading
+// command word cmd.Cmd recognizes (parseline stops at '[', right after
+// "task_vars", which isn't an identchar - no do_task_vars method exists),
+// so it falls through to default(line) -> execute(line) ->
+// exec(compile(args+'\n', ..., 'single'), globals(), self.scope) with the
+// entire line, genuinely executing the assignment. On success, nothing
+// precedes the next prompt. On failure, execute's own except handler
+// prints exactly one "***ExcType:repr(exc)" line (the same pattern do_
+// pprint's own evaluate() already uses, which Query already relies on
+// indirectly) before re-raising; default() swallows that re-raise
+// silently, so the REPL stays usable for the next command either way -
+// confirmed live, not just read from source (TestSession_Set_Failure).
+//
+// Never advances the pause (no command here moves _queue_task) - the very
+// next prompt is for the exact same host/task, so readUntilPrompt needs no
+// change to keep finding it correctly.
+func (s *Session) Set(target, value string) error {
+	stmt := target + " = " + value + "\n"
+	if _, werr := io.WriteString(s.replW, stmt); werr != nil {
+		return werr
+	}
+	text, _, eof, err := s.readUntilPrompt()
+	if err != nil {
+		return err
+	}
+	if eof {
+		return fmt.Errorf("debugrun: process exited while awaiting an assignment result")
+	}
+	if line, failed := extractErrorLine(text); failed {
+		return fmt.Errorf("%s", strings.TrimPrefix(line, "***"))
+	}
+	return nil
+}
+
 // Query evaluates expr against the currently paused task's own debugger
 // scope (task/host/task_vars/play_context/result - ansible-core's own
 // debugger globals) and returns its JSON-encoded result, without
@@ -347,4 +393,19 @@ func extractJSONLine(text string) (json.RawMessage, error) {
 		}
 	}
 	return nil, fmt.Errorf("debugrun: no JSON line found in query response: %q", text)
+}
+
+// extractErrorLine mirrors extractJSONLine's own per-line-scan shape, for
+// Set's own failure signal instead of Query's success one: a response
+// with nothing to find has no error at all (the normal case - Set's own
+// doc comment), a line starting with "***" is the one execute()'s own
+// except handler printed when the assignment itself raised.
+func extractErrorLine(text string) (line string, found bool) {
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimRight(l, "\r")
+		if strings.HasPrefix(l, "***") {
+			return l, true
+		}
+	}
+	return "", false
 }

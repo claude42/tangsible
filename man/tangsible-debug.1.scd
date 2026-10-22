@@ -113,6 +113,18 @@ already offers:
 	and *Tab* still reach the screen/tabs behind the explorer while it's
 	open - only the plain arrow keys are claimed by the explorer itself.
 
+	The same field also sets a variable: type *expr = value* instead (e.g.
+	*outcome_var = 'good'*) and it's written straight into the paused
+	task's own live variables - *value* is forwarded exactly as typed, as
+	raw Python (a quoted string, a number, *true*/*false*, ...), taking
+	effect on the very next redo/continue/step. Only valid while the
+	current selection is exactly the host/task the debugger is paused at
+	right now - there's nothing to write into once that pause has moved
+	on - and rejected otherwise, with the typed text kept so it can be
+	fixed. A successful set marks the row *(just set)* until the next
+	real pause, after which it's indistinguishable from any other watched
+	value again.
+
 Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
 stop), the drill-down
 opens automatically for that exact paused task and host, in whichever of
@@ -133,10 +145,13 @@ two-stage behavior *tangsible-run*(1) already has.
 # LIMITATIONS
 
 Deliberately out of scope for now: Step Out (ansible-core has no real call
-stack to step out of), modifying a variable's value, and *--step* (rejected
-outright - it would pause the child for a second, unrelated reason *debug*
-doesn't know how to drive; *debug*'s own breakpoints are what pause a run).
-Two tasks sharing the exact same name alias to the same breakpoint.
+stack to step out of), and *--step* (rejected outright - it would pause
+the child for a second, unrelated reason *debug* doesn't know how to
+drive; *debug*'s own breakpoints are what pause a run). A variable can
+only be set as a scalar (a non-scalar value can still be assigned, but
+then renders as *<undefined>*, the same as any other non-scalar watched
+value). Two tasks sharing the exact same name alias to the same
+breakpoint.
 
 # EXIT STATUS
 

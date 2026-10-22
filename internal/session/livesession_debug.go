@@ -24,6 +24,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 )
 
 // Debug mode (design-docs/DebugMode.md's "Stage 2"): a liveSession with
@@ -414,16 +415,82 @@ func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause, 
 		if !s.debugAllVars && !willSurface {
 			return
 		}
-		raw, err := sess.Query("task_vars")
-		if err != nil {
+		raw, ok := s.debugCaptureSnapshot(sess)
+		if !ok {
 			return
 		}
-		raw = mergeRegisteredResult(raw, sess)
-		raw = s.debugUnfakeShadowPaths(raw)
 		s.app.QueueUpdateDraw(func() {
 			s.debugTaskVarsCache[debugVarsKey{pause.Task, pause.Host}] = raw
 		})
 	}
+}
+
+// debugCaptureSnapshot runs the three-step task_vars capture sequence
+// (Query + mergeRegisteredResult + debugUnfakeShadowPaths) - factored out
+// of debugOnPause so debugSetWatch's own post-assignment refresh
+// (design-docs/DebugMode.md's "Stage 5") can reuse it exactly, instead of
+// duplicating it. ok=false on any query failure, the same silent-fallback
+// contract debugOnPause's own inline version already had.
+func (s *liveSession) debugCaptureSnapshot(sess *debugrun.Session) (json.RawMessage, bool) {
+	raw, err := sess.Query("task_vars")
+	if err != nil {
+		return nil, false
+	}
+	raw = mergeRegisteredResult(raw, sess)
+	raw = s.debugUnfakeShadowPaths(raw)
+	return raw, true
+}
+
+// debugSetWatch performs design-docs/DebugMode.md's "Stage 5" set action
+// for the watch panel's "expr = value" form: target/value have already
+// been validated and resolved against the live pause by watchAttemptSet
+// (livesession_watch.go) - this only drives the actual REPL round-trip,
+// mirroring debugRedo's own shape exactly (background goroutine,
+// s.debugDriving as the shared reentrancy guard every other debug key
+// already uses, QueueUpdateDraw to report back). Returns false - without
+// touching the REPL at all - when it isn't actually free right now, so
+// the caller knows not to clear the input field.
+//
+// On success, re-runs debugCaptureSnapshot to refresh the cache entry for
+// this exact pause: Session.Set's own mutation lands in the live
+// debugger's task_vars dict, not in s.debugTaskVarsCache, which is only
+// ever a snapshot copy taken at Query time - without this refresh the
+// panel would keep showing the stale, pre-set value until the next real
+// pause happened to recapture it.
+func (s *liveSession) debugSetWatch(expr, target, value string) bool {
+	if s.debugDriving || s.debugSess == nil {
+		s.watchShowStatus("Not paused here - can't set a variable")
+		return false
+	}
+	sess := s.debugSess
+	label, host := s.debugLastPauseTask, s.debugPausedHost
+	s.debugDriving = true
+	s.debugRefreshChrome()
+
+	go func() {
+		setErr := sess.Set(target, value)
+		var raw json.RawMessage
+		var ok bool
+		if setErr == nil {
+			raw, ok = s.debugCaptureSnapshot(sess)
+		}
+		s.app.QueueUpdateDraw(func() {
+			s.debugDriving = false
+			s.debugRefreshChrome()
+			if setErr != nil {
+				s.watchShowStatus("Assignment failed: " + tview.Escape(setErr.Error()))
+				s.rebuild()
+				return
+			}
+			if ok {
+				s.debugTaskVarsCache[debugVarsKey{label, host}] = raw
+			}
+			s.watch.markJustSet(expr)
+			s.rebuild()
+			s.watchSyncBottomBar()
+		})
+	}()
+	return true
 }
 
 // mergeRegisteredResult adds the paused task's own register: output into
@@ -532,6 +599,7 @@ func (s *liveSession) debugUnfakeShadowPaths(raw json.RawMessage) json.RawMessag
 // the job once it does.
 func (s *liveSession) debugApplyPauseResult(pause debugrun.Pause, eof bool, err error) {
 	s.debugDriving = false
+	s.watch.clearJustSet() // Stage 5: the live pause is about to change either way
 	if err != nil {
 		s.everStarted = true
 		s.processDone.Store(true)
@@ -589,6 +657,7 @@ func (s *liveSession) debugFinish() {
 	if s.processDone.Load() {
 		return
 	}
+	s.watch.clearJustSet() // reached directly by debugDrainEvents too, not only via debugApplyPauseResult
 	s.debugPausedHost = ""
 	s.debugPendingOpenTask, s.debugPendingOpenHost = nil, ""
 	s.everStarted = true

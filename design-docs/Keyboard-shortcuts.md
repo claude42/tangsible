@@ -615,7 +615,22 @@ collide with:
                      content, switching the drill-down's own tabs)
                      instead of being swallowed by it - deliberately not
                      the plain arrow keys, which stay claimed by the
-                     explorer's own Up/Down/Left/Right above.
+                     explorer's own Up/Down/Left/Right above. The same
+                     field also sets a variable (design-docs/DebugMode.md's
+                     "Stage 5"): `expr = value` instead of a bare
+                     expression - `expr` validated the same way a watch
+                     expression is, `value` forwarded completely verbatim
+                     as raw Python (no type picker: `5` is an int, `"foo"`
+                     a string), written straight into the paused task's own
+                     live `task_vars`, taking effect on the very next
+                     redo/continue/step. Only valid while the current
+                     selection is exactly the host/task the debugger is
+                     paused at right now (`task_vars` only exists for that
+                     one live pause) - rejected otherwise, with the typed
+                     text kept in place for correcting. A successful set
+                     marks the row `(just set)` until the live pause moves
+                     on, after which it renders identically to any other
+                     watched row again.
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
 sketches a `[keys]` config section for these; not wired up yet).

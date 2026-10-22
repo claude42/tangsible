@@ -300,6 +300,16 @@ debug chrome. Page Up/Down, Home/End, and Tab still scroll the screen
 and switch drill-down tabs while the explorer is open - only the plain
 arrow keys are claimed by the explorer itself.
 
+The same field also sets a variable: type `expr = value` instead (e.g.
+`outcome_var = 'good'`) and it's written straight into the paused task's
+own live variables, taking effect on the very next redo/continue/step -
+`value` is forwarded exactly as typed, as raw Python (a quoted string, a
+number, `true`/`false`, ...). Only valid while you're looking at exactly
+the host/task the debugger is currently paused at (there's nothing to
+write into once that pause has moved on); anywhere else it's rejected
+and your typed text is kept so you can fix it. A successful set marks
+the row `(just set)` until the next real pause.
+
 ## Debugging a Jinja2 template
 
 Debugging a template properly means rendering it through Ansible's own

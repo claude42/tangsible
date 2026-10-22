@@ -32,6 +32,7 @@ package session
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 )
 
 type watchAccessorKind int
@@ -151,6 +152,66 @@ func isIdentStart(c rune) bool {
 
 func isIdentCont(c rune) bool {
 	return isIdentStart(c) || (c >= '0' && c <= '9')
+}
+
+// splitWatchSetAssignment recognizes the watch panel's "expr = value"
+// form (design-docs/DebugMode.md's "Stage 5"): the first '=' that isn't
+// part of a two-character comparison operator ('==', '!=', '<=', '>=').
+// parseWatchExpr's own grammar has no operator production at all, so expr
+// can never legally contain '=' - making the first qualifying '=' an
+// unambiguous split point even when value itself contains a later
+// comparison (e.g. "x = 1 == 2" splits into "x" / "1 == 2"). Both sides
+// are trimmed; expr's own grammar validity and value's own non-emptiness
+// are the caller's concern (watchAttemptSet, livesession_watch.go), not
+// this function's - it only ever reports where the split is, if one
+// exists at all.
+func splitWatchSetAssignment(text string) (expr, value string, ok bool) {
+	r := []rune(text)
+	for i := 0; i < len(r); i++ {
+		if r[i] != '=' {
+			continue
+		}
+		if i+1 < len(r) && r[i+1] == '=' {
+			i++ // skip both characters of "=="
+			continue
+		}
+		if i > 0 {
+			switch r[i-1] {
+			case '!', '<', '>', '=':
+				continue
+			}
+		}
+		return strings.TrimSpace(string(r[:i])), strings.TrimSpace(string(r[i+1:])), true
+	}
+	return "", "", false
+}
+
+// watchSetTarget renders ast as the Python assignment target reading from
+// task_vars in the debugger's own live scope - e.g. task_vars['foo']
+// ['bar'][0] for foo.bar[0]. Every accessor becomes bracket-key syntax,
+// even a dotted (.name) one: task_vars and its nested values are plain
+// Python dicts in that scope, not objects with attributes -
+// applyWatchAccessor already treats watchAccessorField and
+// watchAccessorKey identically (both a map lookup) for exactly this
+// reason. strconv.Quote's double-quote escaping is valid Python
+// string-literal syntax for ordinary names/keys, the same reuse
+// formatWatchScalar already relies on for a resolved string value.
+func watchSetTarget(ast watchExpr) string {
+	var b strings.Builder
+	b.WriteString("task_vars[")
+	b.WriteString(strconv.Quote(ast.root))
+	b.WriteByte(']')
+	for _, acc := range ast.accessors {
+		b.WriteByte('[')
+		switch acc.kind {
+		case watchAccessorIndex:
+			b.WriteString(strconv.Itoa(acc.index))
+		case watchAccessorField, watchAccessorKey:
+			b.WriteString(strconv.Quote(acc.name))
+		}
+		b.WriteByte(']')
+	}
+	return b.String()
 }
 
 type watchResultKind int

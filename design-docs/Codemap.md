@@ -289,17 +289,23 @@ thin constructor/wiring shell.
     its 7 named sub-methods (same per-mode split as the keyboard side).
   - **livesession_debug.go** - everything specific to `debugMode`
     (`design-docs/DebugMode.md`): `handleDebugKey`
-    (F5/F9/F10/F11, `livesession_input.go`'s own dispatcher calls into
+    (F5/F9/F10/F11/F12, `livesession_input.go`'s own dispatcher calls into
     this one), `debugToggleBreakpoint(For)`/`debugTaskAtFirstColumn` (F9 and
     its mouse equivalent), `debugStartOrContinue` (the orchestration
     goroutine driving `debugrun.Spawn`/`RunWithBreakpoints`/
     `ContinueWithBreakpoints`, reporting back via `QueueUpdateDraw`),
-    `debugOnPause`/`mergeRegisteredResult` (captures `task_vars`, plus
-    the paused task's own `register:` result if it has one, into
-    `debugTaskVarsCache` - skipped for a pause `willSurface` says won't
-    be shown, unless `--all-vars`/`-a` is set), `debugApplyPauseResult`/
+    `debugRedo` (F12, drives `debugrun.RedoUntilTarget`),
+    `debugOnPause`/`debugCaptureSnapshot`/`mergeRegisteredResult`
+    (captures `task_vars`, plus the paused task's own `register:` result
+    if it has one, into `debugTaskVarsCache` - skipped for a pause
+    `willSurface` says won't be shown, unless `--all-vars`/`-a` is set),
+    `debugSetWatch` ("Stage 5," the watch panel's `expr = value` action -
+    same `debugDriving`-guarded background-goroutine shape as
+    `debugRedo`, re-running `debugCaptureSnapshot` on success to refresh
+    the cache with the newly-set value), `debugApplyPauseResult`/
     `debugFinish` (mirrors `runner.RunOneGeneration`'s own "exitCode/
-    lastStderr before processDone" ordering), `debugChromeStyle`/
+    lastStderr before processDone" ordering; also where the watch panel's
+    own `justSet` marker is cleared), `debugChromeStyle`/
     `debugChromeBg`/`debugRefreshChrome` (the two extra chrome states on
     top of the four plain-run ones).
   - **livesession_watch.go** (+ `_test.go` is `debugwatch_eval_test.go`
@@ -308,14 +314,18 @@ thin constructor/wiring shell.
     (the panel's own two tview primitives, inserted as a new trailing
     Flex item in `s.flex`/`s.outputFlex`/`s.outputBody` - never
     `s.treeBody`, the spec's own "bottom of the right pane" scope),
-    `watchCurrentSnapshot` (reuses `showOutputWithOrigin`'s own
-    `debugTaskVarsCache` lookup for whatever host/task is currently
-    selected, not fixed to wherever a watch was added),
-    `watchCandidates`/`watchMatchCandidates` (autocomplete, formatted
-    `"name = value"` since tview's native drop-down has no second
-    column), `handleWatchKey`/`handleWatchOpenKey` (the `v`-opens/
+    `watchCurrentTaskHost`/`watchCurrentSnapshot` (reuses
+    `showOutputWithOrigin`'s own `debugTaskVarsCache` lookup for whatever
+    host/task is currently selected, not fixed to wherever a watch was
+    added), `watchCandidates`/`watchMatchCandidates` (autocomplete,
+    formatted `"name = value"` since tview's native drop-down has no
+    second column), `handleWatchKey`/`handleWatchOpenKey` (the `v`-opens/
     modal-while-open key state machine, including the Esc-staging rules
-    design-docs/DebugMode.md's own UX section spells out).
+    design-docs/DebugMode.md's own UX section spells out),
+    `watchAttemptSet`/`markJustSet`/`clearJustSet` ("Stage 5": the
+    `expr = value` gate - requires `debugIsPaused` against
+    `watchCurrentTaskHost`'s own resolution - and the `(just set)` row
+    marker).
 - **debugwatch_eval.go** (+ `_test.go`) - `parseWatchExpr`/
   `evaluateWatchExpr`, a tiny hand-written grammar/evaluator (not
   `resolve_condition.py`'s jinja2-AST mechanism, deliberately: that
@@ -325,7 +335,11 @@ thin constructor/wiring shell.
   dotted/bracket-index path (`foo.bar`, `foo[0]`) against a captured
   `task_vars` snapshot - pure, no `tview` import, pulled out of
   `livesession_watch.go` for the same "testable in isolation" reason
-  `uikit.FilteredMatch` is its own file.
+  `uikit.FilteredMatch` is its own file. Also `splitWatchSetAssignment`/
+  `watchSetTarget` (design-docs/DebugMode.md's "Stage 5"): recognizing the
+  watch panel's `expr = value` form and rendering a parsed `watchExpr` as
+  the Python assignment target `internal/debugrun.Session.Set` writes
+  into the live debugger's `task_vars`.
 - **recap.go** - the post-run recap summary section.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`

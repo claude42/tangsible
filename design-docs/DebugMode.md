@@ -2082,6 +2082,158 @@ regenerated `.1`), `helptables.go`'s own F12 row - all rewritten to drop
 any mention of a visible jump or a disabled F12, since neither exists
 anymore.
 
+## Stage 5 UX decision: modifying a variable (2026-10-21)
+
+The one piece of the original variable-explorer idea left unbuilt
+(called out as out of scope in `man/tangsible-debug.1.scd`'s own
+LIMITATIONS section: "modifying a variable's value"). Decided as a
+concept pass, nothing implemented yet - mirrors how Stage 4's own UX was
+settled ("Stage 4 UX decisions" above) before its implementation.
+
+**Feasibility, confirmed against the installed ansible-core source
+(`/usr/lib/python3/dist-packages/ansible/plugins/strategy/__init__.py`,
+`class Debugger`)**: `do_update_task` only re-templates the task's own
+args from `task._ds` - not this. But anything typed at the REPL that
+isn't a known command falls through to `default()` -> `execute()` ->
+`exec(code, globals(), self.scope)`, where `self.scope['task_vars']` is
+the exact live dict `_queue_task` hands to a redo/continue. So
+`task_vars['foo'] = 5` typed there genuinely mutates the paused task's
+own variables for whatever runs next - this is the write-twin of the
+read `Session.Query` already does (`p print(json.dumps(expr))`, aliasing
+`do_pprint` - same `self.scope`). No new ansible-core capability needed;
+a failed assignment leaves a `***ExcType:'message'` line before the next
+prompt, the same failure signal `do_pprint` already produces, so errors
+are detectable without new plumbing either.
+
+**The constraint that shapes the design**: `task_vars` is only live and
+mutable for the exact host/task the debugger is *currently* stopped at.
+The watch panel's existing read-side design deliberately shows values
+for whatever you've navigated to, including a host that already
+finished (from `debugTaskVarsCache`) - but there's nothing to write into
+once a pause is gone. So "set" is gated the same way F12 redo already
+is: only meaningful while the current tree selection *is* the live
+pause (`s.debugPausedHost`/paused task); anywhere else, rejected.
+
+**Decided**:
+- **Syntax**: the watch panel's existing single input field grows a
+  second form. `expr` still adds/updates a watched row, unchanged.
+  `expr = value` is a set: `expr` validated with the existing
+  `parseWatchExpr` grammar (dotted/bracket-index chains only), `value`
+  forwarded to the debugger verbatim as the typed text, no value-type
+  picker - `5` is an int, `"foo"` a string, exactly like typing the two
+  at the real REPL would be. On success, immediately re-`Query`s that
+  same expression so the row shows the live value, not the stale
+  snapshot captured at pause time. Rejected (wrong context, or a bad
+  assignment per the `***` signal above) the same way a syntax error
+  already is - the existing transient bottom-bar message.
+- **Scope**: scalar targets only for v1, matching the watch display's
+  own existing scalar-only rule (a non-scalar result already renders
+  "unavailable" rather than showing anything) - no new corner case.
+- **Confirmation**: fire-and-forget, like F9/F12 - no confirmation
+  dialog before committing.
+- **Visual marker** (not asked about directly, decided here): a row you
+  just set is worth distinguishing from one merely reflecting ansible's
+  own computed value, but only for as long as that distinction is still
+  true - the moment you redo/continue from that exact pause, the next
+  pause's captured snapshot is genuinely-computed again either way (the
+  override either took effect in a real execution, or the frame moved
+  on and the override no longer applies to anything). So no new
+  persistent state: a per-entry "just set, not yet re-paused" marker,
+  cleared the instant the live pause changes, is enough - it only needs
+  to survive exactly the window where confusion would be possible.
+
+**Deferred to the actual implementation pass**, not decided here (same
+framing Stage 4's own UX-decisions section used): the exact wire format
+for the "set" command/assignment-target construction from a parsed
+`watchExpr`, the specific bottom-bar wording for both rejection cases,
+and the marker's concrete rendering (a color/tag vs. a text suffix like
+the existing "(unavailable)" headline treatment).
+
+## Stage 5: implemented - setting a variable (2026-10-21)
+
+Built exactly as the UX decision above settled, with every deferred item
+resolved along the way:
+
+**`internal/debugrun/session.go`**: `Session.Set(target, value string)
+error` - a sibling to `Query`/`Redo`/`Continue`, writing `target = value\n`
+and reading via the existing `readUntilPrompt`. `extractErrorLine` mirrors
+`extractJSONLine`'s own per-line scan, looking for the `***ExcType:...`
+line `execute()`'s own except handler prints on a failed assignment
+(confirmed again live during implementation, not just read from source:
+`TestSession_Set_Failure` sends an undefined right-hand side, gets a
+`NameError`-bearing error back, and confirms the session is still fully
+usable afterward - a plain `Query`/`Continue` both still work). No change
+needed to `readUntilPrompt`/`promptRe` at all: the assignment never moves
+the pause, so the very next prompt is always for the exact same host/task.
+
+**`internal/session/debugwatch_eval.go`**: `splitWatchSetAssignment`
+recognizes the watch panel's `expr = value` form - the first `=` that
+isn't part of `==`/`!=`/`<=`/`>=`, which is unambiguous since
+`parseWatchExpr`'s own grammar has no operator production at all, so
+`expr` itself can never legally contain `=`. `watchSetTarget` renders a
+parsed `watchExpr` as the Python assignment target reading from
+`task_vars` - e.g. `task_vars['foo']['bar'][0]` for `foo.bar[0]` -
+deliberately translating *every* accessor to bracket-key syntax, even a
+dotted one: `task_vars` and its nested values are plain Python dicts in
+the live debugger scope, not objects with attributes, the same reason
+`applyWatchAccessor` already treats a dotted and a bracket-key accessor
+identically (both a map lookup).
+
+**The gate** (`watchAttemptSet`, `internal/session/livesession_watch.go`):
+syntax-checks `expr`, rejects an empty `value`, then requires
+`s.debugIsPaused(task, host)` against `watchCurrentTaskHost()`'s own
+resolution (factored out of `watchCurrentSnapshot`, which now just calls
+it) - `task_vars` only exists for the debugger's exact current pause, so
+navigating elsewhere (an already-finished host, or before any pause at
+all) rejects with "Not paused here - can't set a variable," leaving the
+typed text in place, same convention a plain syntax-error rejection
+already follows.
+
+**The action** (`debugSetWatch`, `internal/session/livesession_debug.go`)
+mirrors `debugRedo`'s exact shape: the same `s.debugDriving` reentrancy
+guard F5/F9/F10/F11/F12 already share (this codebase's one universal "only
+one in-flight REPL command at a time" guard), a background goroutine doing
+the blocking `Session.Set` call and then - only on success - re-running
+the three-step `task_vars` capture (`debugCaptureSnapshot`, factored out
+of `debugOnPause` so both share it) to refresh `s.debugTaskVarsCache`,
+since `Set`'s own mutation lands in the live debugger's dict, not in that
+cache. `QueueUpdateDraw` applies whichever outcome happened: a failure
+shows "Assignment failed: <exception text>" and changes nothing else; a
+success writes the cache, marks the entry `justSet`, and rebuilds.
+
+**The marker**: `watchEntry.justSet`, set by `markJustSet` (flags an
+existing row, or adds one for a set target not yet watched) and cleared by
+`clearJustSet`, called from both `debugApplyPauseResult` (every new pause)
+and `debugFinish` - rendered as a plain `" (just set)"` suffix on the
+value, same convention as the existing `"(unavailable)"` headline suffix,
+no new color, resolving the one item the UX decision left open.
+
+**Verified live in tmux**: paused at a failing task (`failed_when:
+outcome_var != 'good'`, `outcome_var` freshly `set_fact`'d to `"bad"`),
+`v`, typed `outcome_var = 'good'`, Enter - row immediately showed
+`outcome_var = "good" (just set)`, field cleared. F12 (redo): task flipped
+from Failed to Changed. F5 to completion: "Playbook completed
+successfully," recap `failed=0`, later tasks referencing `outcome_var` saw
+the new value - confirming the mutation reaches `_queue_task` for real,
+not just the debugger's own read-back (the same thing `TestSession_Set`
+checks headlessly). Navigated away after the run finished and attempted
+another set: rejected with "Not paused here...", text retained, explorer
+stayed open. A plain `foo == 1` (double-equals) still falls through to the
+unchanged Stage 4 rejection path ("Not a valid expression: foo == 1") -
+confirms no regression in the existing add-a-watch syntax.
+`go build ./... && go vet ./... && go test -count=1 ./...` and `gofmt -l
+internal/` clean (same one pre-existing, unrelated `recap_rowtext_test.go`
+flag every prior round has noted). New tests: `TestSession_Set`/
+`TestSession_Set_Failure`/`TestExtractErrorLine` (`internal/debugrun`),
+`TestSplitWatchSetAssignment`/`TestWatchSetTarget` (`internal/session`).
+Doc updates: `README.md`, `man/tangsible-debug.1.scd` (+ regenerated `.1`,
+also removing "modifying a variable's value" from LIMITATIONS - this is
+exactly the gap it closes), `design-docs/Keyboard-shortcuts.md`,
+`helptables.go`'s `v` row, `design-docs/Codemap.md`, and `CLAUDE.md`'s
+Debug bullet (which also picked up a pre-existing, unrelated fix in the
+same pass: it and the Scope section both still said "F5/F9/F10/F11/v
+keys," omitting F12/redo entirely).
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

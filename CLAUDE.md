@@ -288,8 +288,8 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   can be armed before anything runs), and `debugverb.Cursor` resolves
   each live event against it - deliberately never through
   `PlaybookState.Apply`, which can't reuse those pre-built nodes at all
-  once a real run starts. F5/F9/F10/F11 run/toggle-breakpoint/next-task/
-  step (`livesession_debug.go`); two extra chrome colors
+  once a real run starts. F5/F9/F10/F11/F12 run/toggle-breakpoint/
+  next-task/step/redo (`livesession_debug.go`); two extra chrome colors
   (`chrome_debug_running`/`chrome_debug_paused`) mark a session actually
   running vs. paused, on top of the four other chrome states. `v` opens
   a persistent variable watch explorer (`livesession_watch.go`,
@@ -299,7 +299,12 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   dotted/bracket-index path like `foo.bar`/`foo[0]` - a tiny hand-written
   grammar, not full Jinja), re-evaluated live as the tree selection
   moves, rendered unavailable (not an error) for an expression that
-  doesn't currently resolve.
+  doesn't currently resolve. The same field also *sets* one: `expr =
+  value` writes `value` (forwarded verbatim, as raw Python) straight into
+  the paused task's own live `task_vars`, taking effect on the very next
+  redo/continue/step - only valid while the current selection is exactly
+  the live pause (`debugIsPaused`), since that's the only task/host
+  `task_vars` exists for right now.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):
@@ -317,9 +322,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   `role` (`--step` crashes, a bare `pause:` is skipped); become/vault
   password prompts work because they happen before the TUI. `debug`
   (`DebugMode.md`) is the dedicated way to drive ansible-core's own task
-  debugger instead, via its own F5/F9/F10/F11/v keys - it rejects ansible-
-  playbook's own `--step` outright (a second, unhandled pause mechanism,
-  `debugverb.PrepareSession`).
+  debugger instead, via its own F5/F9/F10/F11/F12/v keys - it rejects
+  ansible-playbook's own `--step` outright (a second, unhandled pause
+  mechanism, `debugverb.PrepareSession`).
 - `strategy: free` is supported (`StrategyFree.md`); a globally configured
   `free` isn't seen by the progress probe.
 - No execution environments / ansible-runner; only a subset of

@@ -114,3 +114,63 @@ func TestFormatWatchScalar(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitWatchSetAssignment(t *testing.T) {
+	cases := []struct {
+		name      string
+		text      string
+		wantExpr  string
+		wantValue string
+		wantOK    bool
+	}{
+		{"plain assignment", "foo = 5", "foo", "5", true},
+		{"no spaces", "foo=5", "foo", "5", true},
+		{"path target", `foo.bar[0] = "x"`, "foo.bar[0]", `"x"`, true},
+		{"value contains ==", "x = 1 == 2", "x", "1 == 2", true},
+		{"double equals is not assignment", "foo == 1", "", "", false},
+		{"not-equals is not assignment", "foo != bar", "", "", false},
+		{"le is not assignment", "foo <= 5", "", "", false},
+		{"ge is not assignment", "foo >= 5", "", "", false},
+		{"empty expr", "=5", "", "5", true},
+		{"empty value", "foo=", "foo", "", true},
+		{"empty value with space", "foo = ", "foo", "", true},
+		{"no equals at all", "foo", "", "", false},
+		{"empty text", "", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			expr, value, ok := splitWatchSetAssignment(c.text)
+			if ok != c.wantOK || expr != c.wantExpr || value != c.wantValue {
+				t.Errorf("splitWatchSetAssignment(%q) = (%q, %q, %v), want (%q, %q, %v)",
+					c.text, expr, value, ok, c.wantExpr, c.wantValue, c.wantOK)
+			}
+		})
+	}
+}
+
+func TestWatchSetTarget(t *testing.T) {
+	cases := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{"root only", "foo", `task_vars["foo"]`},
+		{"dotted field", "foo.bar", `task_vars["foo"]["bar"]`},
+		{"index", "foo[0]", `task_vars["foo"][0]`},
+		{"negative index", "foo[-1]", `task_vars["foo"][-1]`},
+		{"bracket key", `foo['bar']`, `task_vars["foo"]["bar"]`},
+		{"mixed chain", `foo.bar[0]['baz']`, `task_vars["foo"]["bar"][0]["baz"]`},
+		{"key with single quote", `foo["it's"]`, `task_vars["foo"]["it's"]`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ast, ok := parseWatchExpr(c.expr)
+			if !ok {
+				t.Fatalf("parseWatchExpr(%q) failed to parse", c.expr)
+			}
+			if got := watchSetTarget(ast); got != c.want {
+				t.Errorf("watchSetTarget(%q) = %q, want %q", c.expr, got, c.want)
+			}
+		})
+	}
+}

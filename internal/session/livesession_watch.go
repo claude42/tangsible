@@ -35,6 +35,13 @@ import (
 // UX decisions).
 type watchEntry struct {
 	expr string
+
+	// justSet is design-docs/DebugMode.md's "Stage 5" marker: true from a
+	// successful set of this expr until the live pause moves on
+	// (clearJustSet, called from debugApplyPauseResult/debugFinish) - it
+	// only ever needs to survive exactly the window where the row's value
+	// could be confused with ansible's own genuinely-computed one.
+	justSet bool
 }
 
 // watchPanel is design-docs/DebugMode.md's "Stage 4" variable watch
@@ -190,7 +197,13 @@ func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen 
 			if !w.open {
 				color = uikit.NothingReportedColor
 			}
-			fmt.Fprintf(&b, "[%s::-]%s = %s[-::-]\n", color, line, formatWatchValue(evaluate(e.expr)))
+			valueText := formatWatchValue(evaluate(e.expr))
+			if e.justSet {
+				// Stage 5: a plain-text suffix, same convention as the
+				// headline's own "(unavailable)" - no new color.
+				valueText += " (just set)"
+			}
+			fmt.Fprintf(&b, "[%s::-]%s = %s[-::-]\n", color, line, valueText)
 		}
 	}
 	w.list.SetText(b.String())
@@ -228,25 +241,61 @@ func (w *watchPanel) commitExpr(expr string) bool {
 	return true
 }
 
+// markJustSet flags the entry matching expr (a prior successful set of an
+// already-watched variable), or appends a new one with the flag already
+// set - a set of an expr not yet watched still needs a row to show its
+// newly-confirmed value in, design-docs/DebugMode.md's "Stage 5".
+func (w *watchPanel) markJustSet(expr string) {
+	for i := range w.entries {
+		if w.entries[i].expr == expr {
+			w.entries[i].justSet = true
+			return
+		}
+	}
+	w.entries = append(w.entries, watchEntry{expr: expr, justSet: true})
+}
+
+// clearJustSet drops every entry's marker - called wherever the live
+// pause changes (debugApplyPauseResult/debugFinish), per the Stage 5
+// decision: once that happens, the next captured snapshot is genuinely-
+// computed again either way, so there's nothing left to distinguish.
+func (w *watchPanel) clearJustSet() {
+	for i := range w.entries {
+		w.entries[i].justSet = false
+	}
+}
+
 // --- liveSession-level glue: candidate source, snapshot lookup, keys ---
 
-// watchCurrentSnapshot resolves "whatever host/task is currently
-// selected" to its captured task_vars snapshot, reusing
-// showOutputWithOrigin's own confirmed lookup pattern
+// watchCurrentTaskHost resolves "whatever host/task is currently
+// selected", reusing showOutputWithOrigin's own confirmed lookup pattern
 // (livesession_output.go) rather than a new one. A play/bare-task/recap
 // row selection (no single host to resolve against) is always
-// "unavailable" - the simplest, most consistent v1 behavior.
-func (s *liveSession) watchCurrentSnapshot() (json.RawMessage, bool) {
-	var task *playbook.TaskNode
-	var host string
+// "unavailable". Shared by watchCurrentSnapshot (the read side) and
+// design-docs/DebugMode.md's "Stage 5" set-gate (watchAttemptSet), which
+// additionally requires this to be the exact live pause (debugIsPaused),
+// not just any host/task that happens to have a captured snapshot.
+func (s *liveSession) watchCurrentTaskHost() (task *playbook.TaskNode, host string, ok bool) {
 	if s.viewingOutput {
 		task, host = s.outputTask, s.outputHost
-	} else if hostRow, ok := s.currentID.(uikit.HostRowID); ok {
+	} else if hostRow, hrOk := s.currentID.(uikit.HostRowID); hrOk {
 		task, host = hostRow.Task, hostRow.Host
 	} else {
-		return nil, false
+		return nil, "", false
 	}
 	if task == nil {
+		return nil, "", false
+	}
+	return task, host, true
+}
+
+// watchCurrentSnapshot resolves watchCurrentTaskHost's own target to its
+// captured task_vars snapshot - the simplest, most consistent v1
+// behavior for anything watchCurrentTaskHost itself already calls
+// "unavailable."
+func (s *liveSession) watchCurrentSnapshot() (json.RawMessage, bool) {
+	task, host, ok := s.watchCurrentTaskHost()
+	if !ok {
 		return nil, false
 	}
 	snap, ok := s.debugTaskVarsCache[debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}]
@@ -340,21 +389,64 @@ func (s *liveSession) watchAutocompleted(text string, index, source int) bool {
 	return true
 }
 
-// watchShowRejected shows a transient "rejected" status, reusing the
+// watchShowStatus shows a transient status message, reusing the
 // drill-down's own 'y'-copy-status mechanism (livesession_tabsearch.go):
 // a direct SetText with no timer, superseded by whatever next
 // legitimately changes that same bar - deliberately not followed by
-// watchSyncBottomBar (every other watch-key branch is), so this message
-// isn't immediately clobbered by it.
-func (s *liveSession) watchShowRejected(expr string) {
-	msg := fmt.Sprintf(" Not a valid expression: %s ", tview.Escape(expr))
+// watchSyncBottomBar (every other watch-key branch is), so the message
+// isn't immediately clobbered by it. msg should already be fully
+// tview-escaped by the caller (every caller embeds external text: a typed
+// expression, a Python exception message, ...).
+func (s *liveSession) watchShowStatus(msg string) {
+	text := " " + msg + " "
 	if s.viewingOutput {
 		s.outputBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
-		s.outputBottomBar.SetText(msg)
+		s.outputBottomBar.SetText(text)
 	} else {
 		s.bottomBar.SetTextStyle(s.debugChromeStyle())
-		s.bottomBar.SetText(msg)
+		s.bottomBar.SetText(text)
 	}
+}
+
+// watchShowRejected is watchShowStatus's own wrapper for a plain syntax
+// error - the original, Stage 4 message.
+func (s *liveSession) watchShowRejected(expr string) {
+	s.watchShowStatus(fmt.Sprintf("Not a valid expression: %s", tview.Escape(expr)))
+}
+
+// watchAttemptSet is handleWatchOpenKey's own Enter-time handler for the
+// watch panel's "expr = value" form (design-docs/DebugMode.md's "Stage
+// 5"). Every contextual check happens synchronously here, before the REPL
+// is ever touched: expr's own grammar, a non-empty value, and - critically
+// - that the current selection *is* the exact live pause (debugIsPaused),
+// since task_vars is only live/mutable for that one pause. A rejection
+// here leaves the typed text in place, same convention a plain syntax
+// error already follows; the field is only cleared once debugSetWatch
+// confirms it actually dispatched the request - not unconditionally here,
+// since debugSetWatch's own debugDriving/debugSess guard can still
+// legitimately say no even after every check here passed (e.g. an
+// unrelated F5/F10/F11/F12 is already mid-flight) - clearing the field
+// regardless would silently discard what the user typed on exactly that
+// race.
+func (s *liveSession) watchAttemptSet(expr, value string) {
+	ast, ok := parseWatchExpr(expr)
+	if !ok {
+		s.watchShowRejected(expr)
+		return
+	}
+	if value == "" {
+		s.watchShowStatus(fmt.Sprintf("Nothing to set %s to", tview.Escape(expr)))
+		return
+	}
+	task, host, ok := s.watchCurrentTaskHost()
+	if !ok || !s.debugIsPaused(task, host) {
+		s.watchShowStatus("Not paused here - can't set a variable")
+		return
+	}
+	if !s.debugSetWatch(expr, watchSetTarget(ast), value) {
+		return // debugSetWatch already showed its own status
+	}
+	s.watch.input.SetText("")
 }
 
 // watchSyncBottomBar keeps whichever bottom chrome bar is currently
@@ -570,6 +662,10 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 		text := strings.TrimSpace(w.input.GetText())
 		if text == "" {
 			return nil // Enter on an empty field is a no-op
+		}
+		if exprPart, valuePart, isSet := splitWatchSetAssignment(text); isSet {
+			s.watchAttemptSet(exprPart, valuePart)
+			return nil
 		}
 		if !w.commitExpr(text) {
 			s.watchShowRejected(text)
