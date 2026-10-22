@@ -28,7 +28,7 @@ import (
 )
 
 // Debug mode (design-docs/DebugMode.md's "Stage 2"): a liveSession with
-// debugMode true gets four new keys (F5/F9/F10/F11 for now - design-docs/
+// debugMode true gets new keys (F5/F9/F10/F11/F12/v - design-docs/
 // DebugMode.md's "Stage 1" [keys] config section isn't wired yet) and one
 // background orchestration goroutine, parallel to runner.RunOneGeneration
 // rather than a modification of it - everything else (the tree, two-pane,
@@ -116,7 +116,7 @@ func (s *liveSession) debugRefreshChrome() {
 
 // debugBottomBarHint is appended to the tree's own bottom bar
 // (currentMainBottomBarText) whenever debugMode is true - the F5/F9/F10/
-// F11 keys have no existing tree binding to replace, so they're purely
+// F11/F12 keys have no existing tree binding to replace, so they're purely
 // additive, and the wording changes with the session's own current phase
 // (mirroring a previous, separate debug TUI's own debugBar* constants).
 func (s *liveSession) debugBottomBarHint() string {

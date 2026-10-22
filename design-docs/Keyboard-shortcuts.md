@@ -589,7 +589,9 @@ collide with:
                      (`foo.bar`, `foo[0]`). Enter adds the typed/picked
                      expression; Up/Down with an empty field selects a
                      watched row instead (wrapping straight to the last
-                     entry from no selection on Up, the first on Down),
+                     entry from no selection on Up, the first on Down -
+                     and symmetrically, Down past the last entry wraps
+                     back to the input, same as Up past the first),
                      Delete or Backspace removes it; Esc is staged (close
                      the drop-down, then clear the field, then close the
                      explorer - or deselect a row, then close). Watched

@@ -97,7 +97,9 @@ already offers:
 	dotted/bracket-index path into one, like *foo.bar* or *foo[0]*. Enter
 	adds the typed or highlighted expression; *Up*/*Down* with an empty
 	field selects a watched row instead (jumping straight to the last
-	entry on *Up*, the first on *Down*, from no selection); *Delete* or
+	entry on *Up*, the first on *Down*, from no selection - and
+	symmetrically, *Down* past the last entry wraps back to the input,
+	same as *Up* past the first); *Delete* or
 	*Backspace* removes the selected one. *Esc* is staged - closes a
 	suggestion list, then clears the field, then closes the explorer (or
 	deselects a row, then closes). Watched values re-evaluate live as you

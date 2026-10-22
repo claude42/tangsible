@@ -2234,6 +2234,27 @@ Debug bullet (which also picked up a pre-existing, unrelated fix in the
 same pass: it and the Scope section both still said "F5/F9/F10/F11/v
 keys," omitting F12/redo entirely).
 
+## Stage 5 follow-up: Down past the last watched row wraps to the input (2026-10-22)
+
+Reported live: Up from the input field already wrapped to the last watched
+row (the one `watchClamp` exception documented inline), but Down from that
+same last row just clamped there instead of mirroring it - no way back to
+the input except Esc. Fixed in `handleWatchOpenKey`
+(`internal/session/livesession_watch.go`): a new `case w.selected ==
+len(w.entries)-1 && event.Key() == tcell.KeyDown` sets `w.selected = -1`,
+a direct mirror of the existing `case w.selected == -1 && event.Key() ==
+tcell.KeyUp` above it. Verified live in tmux: Up from the input selects the
+last entry; Down from that last entry returns to the input; Down from the
+input still selects the first entry and Up from the first entry still
+returns to the input (no regression in either pre-existing wrap). `go build
+./... && go vet ./... && go test -count=1 ./internal/session/...` and
+`gofmt -l internal/session/livesession_watch.go` clean. Doc updates:
+`README.md`'s `v` row (also picked up the still-missing Stage 5 set-syntax
+wording in the same pass), `design-docs/Keyboard-shortcuts.md`,
+`man/tangsible-debug.1.scd` (+ regenerated `.1`), and two stale comments in
+`livesession_debug.go` that still said "four new keys"/"F5/F9/F10/F11" with
+no F12.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

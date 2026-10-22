@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-debug" "1" "2026-10-21" "Tangsible" "Tangsible Manual"
+.TH "tangsible-debug" "1" "2026-10-22" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -117,7 +117,9 @@ selected) for adding a watched expression - a bare name, or a
 dotted/bracket-index path into one, like \fBfoo.\&bar\fR or \fBfoo[0]\fR.\& Enter
 adds the typed or highlighted expression; \fBUp\fR/\fBDown\fR with an empty
 field selects a watched row instead (jumping straight to the last
-entry on \fBUp\fR, the first on \fBDown\fR, from no selection); \fBDelete\fR or
+entry on \fBUp\fR, the first on \fBDown\fR, from no selection - and
+symmetrically, \fBDown\fR past the last entry wraps back to the input,
+same as \fBUp\fR past the first); \fBDelete\fR or
 \fBBackspace\fR removes the selected one.\& \fBEsc\fR is staged - closes a
 suggestion list, then clears the field, then closes the explorer (or
 deselects a row, then closes).\& Watched values re-evaluate live as you

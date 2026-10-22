@@ -419,7 +419,7 @@ layered on (no separate "debug view" of its own):
 | `F10` | Next task - skip the rest of this task's hosts, stop at the next task's first one |
 | `F11` | Step - stop at the very next pause, armed or not (host by host within the same task too) |
 | `F12` | Redo - re-run the task/host currently paused at, waiting for that exact result |
-| `v` | Open the variable watch explorer |
+| `v` | Open the variable watch explorer (type `expr = value` to set one) |
 
 **Template view**
 
