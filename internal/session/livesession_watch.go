@@ -677,7 +677,8 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 
 	case tcell.KeyUp, tcell.KeyDown:
 		if w.input.GetText() == "" {
-			if w.selected == -1 && event.Key() == tcell.KeyUp {
+			switch {
+			case w.selected == -1 && event.Key() == tcell.KeyUp:
 				// Reported live: the clamp below pinned this at -1
 				// forever (lo=-1, delta=-1 from an already-at-lo
 				// selected), so Up never did anything from "nothing
@@ -688,7 +689,12 @@ func (s *liveSession) handleWatchOpenKey(event *tcell.EventKey) *tcell.EventKey 
 				// nothing to select, so this stays a no-op in that case
 				// too, with no extra guard needed.
 				w.selected = len(w.entries) - 1
-			} else {
+			case w.selected == len(w.entries)-1 && event.Key() == tcell.KeyDown:
+				// Mirror image of the case above: Down past the last
+				// entry returns to the input, matching the symmetric
+				// expectation Up already satisfies going the other way.
+				w.selected = -1
+			default:
 				delta := -1
 				if event.Key() == tcell.KeyDown {
 					delta = 1
