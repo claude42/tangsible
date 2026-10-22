@@ -192,8 +192,8 @@ func TestRecapHostRowTextUnselected(t *testing.T) {
 	// by whether it's zero (gray) or not (its outcome color).
 	for _, want := range []string{
 		"[silver]web1  : [-]", // hostname padded out to w.Host=5, plus the " : " separator - also standard_text, not left to reset to the terminal default
-		"[green]ok=12[-]",       // non-zero -> outcome color
-		"[gray]skipped=0[-]",    // zero -> NothingReportedColor
+		"[green]ok=12[-]",     // non-zero -> outcome color
+		"[gray]skipped=0[-]",  // zero -> NothingReportedColor
 		"[gray]changed=0[-]",
 		"[gray]unreachable=0[-]",
 		"[red]failed=1[-]", // non-zero -> outcome color
