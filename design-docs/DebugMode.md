@@ -2282,6 +2282,36 @@ cache run's "Gathering Facts" now reads first, before both of its play's
 real tasks, through to completion. `go build ./... && go vet ./... && go
 test -count=1 ./...` and `gofmt -l internal/` clean.
 
+## Known gap: `ansible.builtin.meta` tasks never pause, so the Resolved tab stays absent for them (2026-10-23)
+
+Reported live: the Resolved tab never appeared for a `meta: end_host`
+guard-clause task (a common idiom - "bail out of this host if some
+earlier `register:`'s own condition isn't met"), even with `--all-vars`.
+Confirmed directly, live, this isn't a bug in anything tangsible owns:
+`debugger: always` splices onto a `meta` task's own YAML exactly like
+any other (`SpliceDebuggerAlways` has no special case for it), but
+ansible-core handles every `meta` action - `end_host`, `noop`, `end_play`,
+`clear_facts`, `clear_host_errors`, `flush_handlers`, `refresh_inventory`,
+`reset_connection` - through its own strategy-plugin-internal dispatch,
+never through the normal `TaskExecutor` result path `debug_closure`
+wraps (the 2026-09-27 pivot spike, above) - so the debugger simply never
+stops for one, confirmed both for a triggered and a skipped `meta: end_
+host`. Confirmed, separately, that an ordinary task skipped by its own
+`when:` *does* still pause normally - this is specific to `meta`, not to
+being skipped.
+
+Since `debugOnPause`'s own capture is strictly tied to a real debugger
+pause, there's no live scope to query for a `meta` task at all, ever -
+`--all-vars`'s own "every task's own variables, as the run reaches it"
+has nothing to reach for this one. A heuristic fallback (borrow the same
+host's nearest *earlier* captured snapshot) was considered and explicitly
+declined: it would resolve the common case, but could just as easily
+show stale values past a `meta: clear_facts` sitting in between - judged
+not worth that silent-wrongness risk for what's otherwise a purely
+cosmetic gap (the tab simply stays absent, same as any task that never
+ran). Recorded here as a known, accepted limitation instead - not
+planned to be revisited unless the tradeoff above changes.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces
