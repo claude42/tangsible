@@ -139,6 +139,40 @@ Reuses most of `template.go`'s existing plumbing directly:
   actually about *this* task's own source being re-rendered, it's about a
   different, unrelated field ansible itself doesn't echo back.
 
+## Bug fixed (2026-10-22): the real run's own --tags could break the stub
+
+Reported live in a debug session run with `-t <tags> -l <limit> -a`: the
+Resolved tab, for a task whose source didn't reference anything unusual,
+showed a totally unrelated ansible warning text instead of a resolved
+value or a real error. Root cause: `resolveTaskValues`'s one-task stub
+playbook (`internal/session/resolved.go`) forwards the current
+generation's own passthrough args straight through to the extra
+`ansible-playbook` invocation that backs this tab - for `run`/`role`,
+those args already go through `config.ParsePassthroughArgs`, which
+extracts `-t`/`--tags`/`--skip-tags`/`-l`/`--limit` into their own fields
+before the rest is used anywhere; debug mode's own args
+(`debugverb.PrepareSession`'s `Rest`) never go through that function at
+all, since the real debug run must keep them to honor the user's own
+task targeting. The stub's one task is untagged, so an active `--tags`
+that doesn't match it makes ansible skip it silently - no
+`v2_runner_on_*` event at all - and `resolveTaskValues`'s own `raw == nil`
+fallback then surfaced whatever happened to be sitting on stderr as if it
+were the real failure (here, a cosmetic `[WARNING]: Found variable using
+reserved name 'environment'.`; reproduced locally, the same codepath
+surfaced an unrelated, already-`ignore_unreachable`-swallowed Gathering
+Facts SSH failure instead - confirming the bug is generic to whatever
+happens to be on stderr, not specific to either message). Fixed by
+stripping `-t`/`--tags`/`--skip-tags`/`-l`/`--limit` from `rest`
+unconditionally at the top of `resolveTaskValues` itself, rather than
+trusting each caller to have already done so - covers both
+`resolveTaskValues`'s direct callers and `resolveTaskValuesFromSnapshot`'s
+debug-mode one in a single place. `-l`/`--limit` was already redundant
+(the stub always targets `hosts: <host>` explicitly) but stripped anyway
+for the same "don't trust the caller" reasoning. New regression test:
+`TestResolveTaskValues_StripsTags_Live` (`internal/session/
+resolved_test.go`), confirming an unmatched `--tags` no longer breaks the
+resolve.
+
 ## What's next
 
 This is intentionally scoped to the mechanics only - there are further

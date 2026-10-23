@@ -35,6 +35,7 @@ import (
 	"regexp"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
@@ -119,10 +120,10 @@ func jinjaStringLiteral(s string) string {
 // always for one already-known host, unlike tangsible template's own
 // interactive host-switching. rest is the current generation's own
 // passthrough args (importantly -i/-e, so the stub sees the same
-// inventory/extra-vars context the real run did) - never contains
-// -l/--limit itself (ParsePassthroughArgs already extracts that
-// separately), so there's no risk of it conflicting with this function's
-// own hosts: line.
+// inventory/extra-vars context the real run did) - stripped of
+// -t/--tags/--skip-tags/-l/--limit unconditionally, below, so there's no
+// risk of the caller's own task-targeting filtering out the stub's one
+// untagged task, or conflicting with this function's own hosts: line.
 //
 // extraVarsFile, if non-empty, is appended as --extra-vars @extraVarsFile,
 // last on the command line so it wins over anything rest itself already
@@ -150,6 +151,18 @@ func jinjaStringLiteral(s string) string {
 // (below) is the only caller that ever sets this, to the user's real
 // project directory - empty for a plain run, no behavior change there.
 func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVarsFile, realPlaybookDir string) (string, error) {
+	// Debug mode's own passthrough args (debugverb.PrepareSession's Rest)
+	// never go through config.ParsePassthroughArgs the way run/role's do,
+	// so -t/--tags/--skip-tags (and -l/--limit, already redundant - see
+	// above) can still be present here. The stub task below is untagged
+	// and must never be filtered by the user's own --tags/--skip-tags:
+	// confirmed live, an active --tags that doesn't match it means no
+	// v2_runner_on_* event at all, and the raw == nil branch below then
+	// surfaces whatever happened to be on stderr - a harmless, unrelated
+	// ansible warning, in one observed case - as if it were the real
+	// failure. Stripped unconditionally here rather than trusted to each
+	// caller, so the invariant holds no matter who calls this.
+	rest = config.ParsePassthroughArgs(rest).Rest
 	wrapped := wrapJinjaDefaults(taskSource)
 
 	// One shared, unique-per-call directory for every file this builds,

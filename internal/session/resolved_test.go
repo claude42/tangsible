@@ -138,3 +138,34 @@ func TestResolveTaskValues_RealPlaybookDir_Live(t *testing.T) {
 		t.Errorf("resolveTaskValues (realPlaybookDir set) = %q, want the stub's own temp dir fully replaced", withFix)
 	}
 }
+
+// TestResolveTaskValues_StripsTags_Live confirms the fix for a bug
+// reported live: debug mode's own passthrough args (debugverb.
+// PrepareSession's Rest) never go through config.ParsePassthroughArgs the
+// way run/role's do, so an active -t/--tags that doesn't match the stub's
+// one untagged task used to make it skip silently - no v2_runner_on_*
+// event, raw stays nil, and whatever ansible happened to print to stderr
+// (an unrelated warning, in the reported case) surfaced as if it were the
+// real failure. resolveTaskValues now strips -t/--tags/--skip-tags/
+// -l/--limit from rest unconditionally; this confirms a --tags that
+// matches nothing real no longer breaks the resolve.
+func TestResolveTaskValues_StripsTags_Live(t *testing.T) {
+	requireAnsiblePlaybook(t)
+
+	repoRoot, err := filepath.Abs("../../")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot, "callback"))
+
+	taskSource := "{{ 1 + 1 }}\n"
+	rest := []string{"-i", "localhost,", "--tags", "this_tag_matches_nothing"}
+
+	got, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, "", "")
+	if err != nil {
+		t.Fatalf("resolveTaskValues with an unmatched --tags: %v", err)
+	}
+	if strings.TrimSpace(got) != "2" {
+		t.Errorf("resolveTaskValues with an unmatched --tags = %q, want %q", got, "2")
+	}
+}
