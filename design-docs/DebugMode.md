@@ -2255,6 +2255,33 @@ wording in the same pass), `design-docs/Keyboard-shortcuts.md`,
 `livesession_debug.go` that still said "four new keys"/"F5/F9/F10/F11" with
 no F12.
 
+## Stage 2 follow-up round 6: a leading "Gathering Facts" landed at the end of the tree (2026-10-23)
+
+Reported live: with a cold facts cache, a cleared/fresh run's "Gathering
+Facts" task - like a handler or an `include_tasks` row (round 4, above),
+never listed by `--list-tasks` at all, tags-independent, confirmed
+live - showed up appended after every one of its play's own real tasks
+instead of before all of them. Root cause, in `insertDynamicTask`
+(`internal/debugverb/cursor.go`): its "anchor after `c.CurrentTask`"
+search correctly finds nothing when `c.CurrentTask` isn't a member of
+the current play's own `Tasks` - which is exactly what's true the first
+time any given play sees an unmatched task-start event at all (whether
+`CurrentTask` is still literally `nil`, at session start, or stale from
+whatever task was current at the end of the *previous* play, since
+`Apply` never resets it on a play-start event) - but the old fallback for
+that case, `insertAt := len(tasks)`, assumed "nowhere else to put it"
+meant "the end," when it actually always means "the front": nothing in
+this play has matched yet, so this unmatched task is chronologically
+first. Fixed by flipping the fallback to `insertAt := 0`. New tests:
+`TestCursor_ApplyInsertsLeadingGatheringFactsAtFront` (the reported
+single-play case) and `TestCursor_ApplyInsertsLeadingTaskOfSecondPlayAtFront`
+(the stale-`CurrentTask`-from-a-previous-play case, confirming the fix
+isn't just a nil-check) - both reproduced the bug first, confirmed to fail
+without the fix, then pass with it. Verified live in tmux too: a cold-
+cache run's "Gathering Facts" now reads first, before both of its play's
+real tasks, through to completion. `go build ./... && go vet ./... && go
+test -count=1 ./...` and `gofmt -l internal/` clean.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces

@@ -320,6 +320,91 @@ func TestCursor_ApplyInsertsHandlerTasksLive(t *testing.T) {
 	}
 }
 
+// TestCursor_ApplyInsertsLeadingGatheringFactsAtFront pins a real,
+// reported bug: --list-tasks never lists the implicit "Gathering Facts"
+// task at all (confirmed live, tags-independent), so when the facts cache
+// is cold and it genuinely runs, its task-start event is always the very
+// first one this play has seen - CurrentTask is still nil - and
+// insertDynamicTask's own "not found" fallback used to be len(tasks),
+// landing it after every one of the play's real tasks instead of before
+// all of them.
+func TestCursor_ApplyInsertsLeadingGatheringFactsAtFront(t *testing.T) {
+	skeleton := []runner.ProgressEntry{{Play: "p", Task: "real task one"}, {Play: "p", Task: "real task two"}}
+	state, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
+
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p"}})
+	host, changed := c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "Gathering Facts"}})
+	if host != "" || !changed {
+		t.Fatalf("Gathering Facts: host=%q changed=%v, want \"\", true", host, changed)
+	}
+	if c.CurrentTask == nodes[0] || c.CurrentTask == nodes[1] {
+		t.Fatal("Gathering Facts must not alias either real skeleton task's own node")
+	}
+
+	// The real run resumes normally afterward.
+	host, changed = c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "real task one"}})
+	if host != "" || !changed {
+		t.Fatalf("real task one: host=%q changed=%v, want \"\", true", host, changed)
+	}
+	if c.CurrentTask != nodes[0] {
+		t.Fatal("CurrentTask must resync to nodes[0] (\"real task one\") once the skeleton resumes matching")
+	}
+
+	play := state.Plays[0]
+	wantOrder := []string{"Gathering Facts", "real task one", "real task two"}
+	if len(play.Tasks) != len(wantOrder) {
+		t.Fatalf("play.Tasks length = %d, want %d", len(play.Tasks), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if play.Tasks[i].Name != want {
+			t.Errorf("play.Tasks[%d].Name = %q, want %q", i, play.Tasks[i].Name, want)
+		}
+	}
+}
+
+// TestCursor_ApplyInsertsLeadingTaskOfSecondPlayAtFront confirms the same
+// front-insertion applies to a later play too, where CurrentTask isn't
+// nil but is left over from the previous play's own last task (Apply
+// never resets it on a play-start event) - insertDynamicTask must
+// recognize that stale pointer isn't a member of the new play's own
+// Tasks either, not just the literal-nil case the previous test covers.
+func TestCursor_ApplyInsertsLeadingTaskOfSecondPlayAtFront(t *testing.T) {
+	skeleton := []runner.ProgressEntry{
+		{Play: "p1", Task: "p1 task"},
+		{Play: "p2", Task: "p2 real task"},
+	}
+	state, nodes, nodePlay := SeedState(skeleton)
+	c := NewCursor(nodes, nodePlay, runner.NewProgressTracker(skeleton), nil)
+
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p1"}})
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "p1 task"}})
+	if c.CurrentTask != nodes[0] {
+		t.Fatal("CurrentTask must be p1's own task after p1 task-start")
+	}
+
+	c.Apply(playbook.RawEvent{Event: "v2_playbook_on_play_start", Play: &playbook.PlayRef{Name: "p2"}})
+	host, changed := c.Apply(playbook.RawEvent{Event: "v2_playbook_on_task_start", Task: &playbook.TaskRef{Name: "Gathering Facts"}})
+	if host != "" || !changed {
+		t.Fatalf("p2 Gathering Facts: host=%q changed=%v, want \"\", true", host, changed)
+	}
+
+	play2 := state.Plays[1]
+	wantOrder := []string{"Gathering Facts", "p2 real task"}
+	if len(play2.Tasks) != len(wantOrder) {
+		t.Fatalf("play2.Tasks length = %d, want %d", len(play2.Tasks), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if play2.Tasks[i].Name != want {
+			t.Errorf("play2.Tasks[%d].Name = %q, want %q", i, play2.Tasks[i].Name, want)
+		}
+	}
+	// play1's own tasks must stay completely untouched by play2's insert.
+	if len(state.Plays[0].Tasks) != 1 || state.Plays[0].Tasks[0].Name != "p1 task" {
+		t.Fatal("play1's own Tasks must be unaffected by play2's dynamic insert")
+	}
+}
+
 func TestCursor_ApplyRecordsIgnoredFailures(t *testing.T) {
 	skeleton := []runner.ProgressEntry{{Play: "p", Task: "t"}}
 	_, nodes, nodePlay := SeedState(skeleton)

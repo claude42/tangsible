@@ -296,14 +296,29 @@ func (c *Cursor) Apply(ev playbook.RawEvent) (recordedHost string, taskChanged b
 
 // insertDynamicTask creates a brand-new *TaskNode for a task-start event
 // that doesn't match anything in the predicted skeleton (a handler, or a
-// task that only exists because of a dynamic include_tasks/include_role -
-// Apply's own doc comment above), and splices it into c.currentPlayNode's
-// own Tasks immediately after wherever c.CurrentTask currently sits, so it
-// reads in its actual chronological place rather than at the end of the
-// whole play (where it would read as having run after tasks that, in
-// reality, come later). A second, third, ... included task in the same
-// batch each anchor off the previous one this same way, in turn, so the
-// whole batch ends up in the right order and the right place.
+// task that only exists because of a dynamic include_tasks/include_role,
+// or the implicit "Gathering Facts" task --list-tasks never lists at all
+// regardless of tags - Apply's own doc comment above), and splices it
+// into c.currentPlayNode's own Tasks immediately after wherever
+// c.CurrentTask currently sits, so it reads in its actual chronological
+// place rather than at the end of the whole play (where it would read as
+// having run after tasks that, in reality, come later). A second, third,
+// ... included task in the same batch each anchor off the previous one
+// this same way, in turn, so the whole batch ends up in the right order
+// and the right place.
+//
+// If c.CurrentTask isn't found among c.currentPlayNode's own Tasks at
+// all - either it's nil (session start), or it's left over from whatever
+// task was current at the end of the *previous* play (Apply never resets
+// it on a play-start event) - this is necessarily the first task-start
+// event this play has seen yet, since CurrentTask is only ever set to a
+// node that's already a member of currentPlayNode.Tasks (a genuine
+// skeleton match, or a previous call to this same function). So the
+// insertion point is the very front, not the end: this is exactly the
+// case a bare, tags-independent "Gathering Facts" hits, being the first
+// task-start event of its play whenever the facts cache was cleared -
+// confirmed live as a real, reported bug without this: it landed after
+// every one of the play's own real tasks instead of before all of them.
 //
 // Returns nil (a no-op) if there's nowhere to anchor the insertion yet -
 // currentPlayNode is nil, meaning no play-start has resolved at all, which
@@ -315,7 +330,7 @@ func (c *Cursor) insertDynamicTask(ref *playbook.TaskRef) *playbook.TaskNode {
 	task := newEmptyTaskNode(ref.Name, ref.IsHandler)
 
 	tasks := c.currentPlayNode.Tasks
-	insertAt := len(tasks) // CurrentTask not found (e.g. nil): fall back to the end.
+	insertAt := 0 // CurrentTask not found in this play yet: this play's first task-start event.
 	for i, t := range tasks {
 		if t == c.CurrentTask {
 			insertAt = i + 1
