@@ -6,11 +6,11 @@ build:
 
 .PHONY: install
 install: build
-	./install.sh --local
+	./install.sh --local -y
 
 .PHONY: uninstall
 uninstall:
-	./install.sh --uninstall
+	./install.sh --uninstall -y
 
 .PHONY: clean
 clean:
