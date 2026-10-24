@@ -26,8 +26,23 @@ immediately implemented.
   * < / >
   * G
 
+* Debugger
+  * restart from beginning
+  * remove timer
+  * configurable keyboard shortcuts
+  * mouse control for variable explorer
+  * UX improvement for varible explorer
+  * Some more things in DebugMode.md
+
+* Details tab shows less info than before (really?)
+
+* Treeformatting broken when two-pane mode is active
+
 * Different tangsible vault approach
   * show vars in tui, edit with enter
+
+* tangsible host inventory
+  * add host to group
 
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
@@ -88,7 +103,15 @@ immediately implemented.
 * allow tangsible run -l host playbook.yml (in addition to tangsible run
   playbook.yml -l host)
 
+* tangsible rerun --only-failed
+
+* Drop tangsible role?
+
 ------
+
+Bugs
+
+* tangsible revisit -> total runtime is 00:00
 
 * Knoten im Tree öffnen, der auf letzter Zeile ist --> sollte runter
   scrollen, damit Inhalt sichtbar ist
