@@ -20,6 +20,7 @@
   content every time.
 - Drill-down: `←`/`→` at a task's first/last host now rolls into the
   previous/next task's last/first host instead of stopping there.
+- `template`: role-owned templates now see `role_path` and `role_name`.
 
 ## [0.2.0] - 2026-10-08
 

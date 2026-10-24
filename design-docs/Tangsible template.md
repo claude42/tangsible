@@ -91,14 +91,14 @@ racing the same output file would be a real bug, not a hypothetical one.
 ## Role-owned templates
 
 If the template's own path matches the standard role layout
-(`roles/<name>/templates/...`), tangsible generates the stub with
-`roles: [<name>]` instead of a bare template task, so variables defined
-by that role are available the same way they would be for a real
-`include_role`/`import_role`. Detected automatically from the path alone
-- no separate argument needed - by extending `tui.go`'s existing
-`rolePathPattern` (today `/roles/([^/]+)/(?:tasks|handlers)/`, used to
-derive the drill-down view's own `Role:` line) to also match
-`/templates/`.
+(`roles/<name>/templates/...`, `uikit.RolePathPattern`), the stub loads
+the role's `defaults/main.yml` and `vars/main.yml` via `vars_files` -
+never `roles: [<name>]`, which would run the role's tasks as a side
+effect. Since the role itself never runs, ansible doesn't set
+`role_path`/`role_name`; the stub fakes both as play vars from the
+template's path (`WriteRoleContext`, shared with the Resolved tab).
+`playbook_dir` can't be faked the same way (ansible's own value wins
+over play vars and `-e`) and points at the stub's scratch directory.
 
 ## The view
 

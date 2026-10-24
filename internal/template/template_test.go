@@ -196,6 +196,48 @@ func TestWriteTemplateStub(t *testing.T) {
 	if strings.Contains(content, "vars_files:") {
 		t.Error("stub content unexpectedly contains vars_files: for a template outside any role")
 	}
+	if strings.Contains(content, "role_path:") {
+		t.Error("stub content unexpectedly fakes role_path: for a template outside any role")
+	}
+}
+
+func TestWriteTemplateStubRoleOwned(t *testing.T) {
+	dir := t.TempDir()
+	roleDir := filepath.Join(dir, "roles", "webserver")
+	tplDir := filepath.Join(roleDir, "templates")
+	if err := os.MkdirAll(filepath.Join(roleDir, "defaults"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(tplDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defaultsFile := filepath.Join(roleDir, "defaults", "main.yml")
+	if err := os.WriteFile(defaultsFile, []byte("x: 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tplPath := filepath.Join(tplDir, "foo.j2")
+	if err := os.WriteFile(tplPath, []byte("{{ role_path }}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stubPath, err := WriteTemplateStub(tplPath, filepath.Join(dir, "out.txt"))
+	if err != nil {
+		t.Fatalf("WriteTemplateStub() error: %v", err)
+	}
+	data, err := os.ReadFile(stubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	for _, want := range []string{
+		"  vars:\n    role_path: " + roleDir + "\n    role_name: webserver\n",
+		"  vars_files:\n    - " + defaultsFile + "\n",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("stub content = %q, want it to contain %q", content, want)
+		}
+	}
 }
 
 func TestSplitHostTokens(t *testing.T) {

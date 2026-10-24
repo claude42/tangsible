@@ -160,27 +160,37 @@ func ConfirmManyHosts(count int, in io.Reader, out io.Writer) bool {
 	return line == "y" || line == "yes"
 }
 
+// RoleDir returns the directory and name of the role path belongs to, per
+// RolePathPattern (tui.go) - both "" if path isn't role-owned at all.
+func RoleDir(path string) (dir, name string) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", ""
+	}
+	loc := uikit.RolePathPattern.FindStringSubmatchIndex(abs)
+	if loc == nil {
+		return "", ""
+	}
+	// loc[0]:loc[1] is the full match ("/roles/<name>/templates/", or
+	// tasks/handlers for the Resolved tab's task paths); the role name
+	// itself is capture group 1, loc[2]:loc[3].
+	name = abs[loc[2]:loc[3]]
+	return abs[:loc[0]] + "/roles/" + name, name
+}
+
 // RoleVarsFiles returns the existing defaults/main.yml and vars/main.yml
 // paths (in that order, skipping whichever doesn't exist on disk) for the
-// role templatePath belongs to, per RolePathPattern (tui.go) - nil if
-// templatePath isn't role-owned at all. Deliberately doesn't invoke the
+// role templatePath belongs to (see RoleDir) - nil if templatePath isn't
+// role-owned at all. Deliberately doesn't invoke the
 // role itself (roles: [name] in the stub) - confirmed live that doing so
 // would run every task in the role's own tasks/main.yml as a side effect,
 // which a read-only template preview must never do; vars_files loads the
 // role's own default/var definitions without executing anything.
 func RoleVarsFiles(templatePath string) []string {
-	abs, err := filepath.Abs(templatePath)
-	if err != nil {
+	roleDir, _ := RoleDir(templatePath)
+	if roleDir == "" {
 		return nil
 	}
-	loc := uikit.RolePathPattern.FindStringSubmatchIndex(abs)
-	if loc == nil {
-		return nil
-	}
-	// loc[0]:loc[1] is the full match ("/roles/<name>/templates/", here -
-	// tasks/handlers never apply to a template path in practice); the role
-	// name itself is capture group 1, loc[2]:loc[3].
-	roleDir := abs[:loc[0]] + "/roles/" + abs[loc[2]:loc[3]]
 
 	var files []string
 	for _, rel := range []string{"defaults/main.yml", "vars/main.yml"} {
@@ -190,6 +200,29 @@ func RoleVarsFiles(templatePath string) []string {
 		}
 	}
 	return files
+}
+
+// WriteRoleContext appends play-level vars: and vars_files: to a stub
+// play for the role path belongs to - nothing if it isn't role-owned.
+// Since the stub never invokes the role itself (see RoleVarsFiles),
+// ansible doesn't set role_path/role_name; they're faked from the path
+// instead (confirmed live: play vars set them without a reserved-name
+// warning). playbook_dir can't be faked this way - ansible's own value
+// wins over both play vars and -e.
+func WriteRoleContext(b *strings.Builder, path string) {
+	roleDir, roleName := RoleDir(path)
+	if roleDir == "" {
+		return
+	}
+	b.WriteString("  vars:\n")
+	fmt.Fprintf(b, "    role_path: %s\n", roleDir)
+	fmt.Fprintf(b, "    role_name: %s\n", roleName)
+	if varsFiles := RoleVarsFiles(path); len(varsFiles) > 0 {
+		b.WriteString("  vars_files:\n")
+		for _, f := range varsFiles {
+			fmt.Fprintf(b, "    - %s\n", f)
+		}
+	}
 }
 
 // WriteTemplateStub generates a minimal playbook rendering templatePath to
@@ -243,12 +276,7 @@ func WriteTemplateStub(templatePath, outputPath string) (stubPath string, err er
 	var b strings.Builder
 	b.WriteString("- hosts: all\n")
 	b.WriteString("  ignore_unreachable: true\n")
-	if varsFiles := RoleVarsFiles(templatePath); len(varsFiles) > 0 {
-		b.WriteString("  vars_files:\n")
-		for _, f := range varsFiles {
-			fmt.Fprintf(&b, "    - %s\n", f)
-		}
-	}
+	WriteRoleContext(&b, templatePath)
 	b.WriteString("  tasks:\n")
 	b.WriteString("    - name: render template\n")
 	b.WriteString("      delegate_to: localhost\n")
