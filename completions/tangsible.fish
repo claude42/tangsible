@@ -51,8 +51,11 @@ complete -c tangsible -n '__fish_is_nth_token 1' -a revisit -d 'Browse and reope
 complete -c tangsible -n '__fish_is_nth_token 1' -a vault -d 'Edit vault-encrypted variables in place'
 complete -c tangsible -n '__fish_is_nth_token 1' -a debug -d 'Set breakpoints and step through a playbook'
 complete -c tangsible -n '__fish_is_nth_token 1' -a version -d 'Print version and build info, then exit'
+complete -c tangsible -n '__fish_is_nth_token 1' -a help -d 'List all verbs with their synopsis'
 
 # --- Verb-specific positionals ---
+
+complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_token 2' -a 'run rerun role template host hosts inventory revisit vault debug version help'
 
 # run/rerun/hosts/inventory/revisit/debug: tangsible <playbook.yml> [ansible-playbook args...]
 # revisit's own positional is optional too (falls back to the most

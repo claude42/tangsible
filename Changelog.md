@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- New verb: `tangsible help [verb]` lists every verb in one line, or one verb's synopsis
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

@@ -53,6 +53,9 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 *tangsible version*
 	Print version information about tangsible and all components it's using.
 
+*tangsible help* [_verb_]
+	List every verb with a one-line description, or show one verb's synopsis. *tangsible --help* does the same as *tangsible help*.
+
 # REQUIREMENTS
 
 *tangsible* requires *ansible-playbook*, *ansible-inventory*, *ansible-doc*, and

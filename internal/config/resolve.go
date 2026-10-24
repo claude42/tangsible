@@ -310,7 +310,8 @@ func ColorSchemePreference(cfg SettingsConfig) string {
 // Vault.md, per-variable vault editing - no TUI at all, unlike every
 // other Verb), "debug" (see design-docs/DebugMode.md, its own standalone
 // TUI - never internal/session's liveSession), or "version" (print build
-// stamps and exit - no TUI, no inventory).
+// stamps and exit - no TUI, no inventory), or "help" (print every verb's
+// synopsis and summary from VerbHelpTable, then exit).
 // A Verb is now mandatory: unlike the playbook argument, there's no
 // shape-based way to tell "no Verb given" from "Verb given" (every Verb
 // looks like a plain word, same as a playbook path), and more verbs were
@@ -331,6 +332,7 @@ const (
 	VerbVault     Verb = "vault"
 	VerbVersion   Verb = "version"
 	VerbDebug     Verb = "debug"
+	VerbHelp      Verb = "help"
 )
 
 // ParseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
@@ -341,7 +343,7 @@ func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 		return "", nil, false
 	}
 	switch Verb(args[0]) {
-	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbVersion, VerbDebug:
+	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbVersion, VerbDebug, VerbHelp:
 		return Verb(args[0]), args[1:], true
 	default:
 		return "", nil, false

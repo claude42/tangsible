@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,10 +45,27 @@ import (
 )
 
 func Main(build BuildInfo) {
+	// Only a leading -h/--help is tangsible's own; after a verb those
+	// flags belong to ansible-playbook.
+	if len(os.Args) > 1 && config.IsHelpFlag(os.Args[1]) {
+		config.WriteHelp(os.Stdout, "")
+		os.Exit(0)
+	}
 	v, args, ok := config.ParseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s <run|rerun|role|revisit|template|host|hosts|inventory|vault|debug|version> [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: tangsible <%s> [args ...]\nRun 'tangsible help' for each verb's synopsis.\n", config.VerbNames())
 		os.Exit(2)
+	}
+	if v == config.VerbHelp {
+		topic := ""
+		if len(args) > 0 {
+			topic = args[0]
+		}
+		if len(args) > 1 || !config.WriteHelp(os.Stdout, topic) {
+			fmt.Fprintf(os.Stderr, "tangsible: no help for %q\n%s\n", strings.Join(args, " "), config.UsageLine(config.VerbHelp))
+			os.Exit(2)
+		}
+		os.Exit(0)
 	}
 
 	// --dialog/--no-dialog (design-docs/RerunDialog.md) are only meaningful
@@ -252,7 +270,7 @@ func Main(build BuildInfo) {
 		if !explicit {
 			playbook, _ = config.ResolvePlaybook()
 			if playbook == "" {
-				fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+				fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRun))
 				fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible/config.toml, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
 				os.Exit(2)
 			}
@@ -280,7 +298,7 @@ func Main(build BuildInfo) {
 		var dialogOK bool
 		dialogOverride, rest, dialogOK = config.ExtractDialogFlag(rest)
 		if !dialogOK {
-			fmt.Fprintf(os.Stderr, "usage: %s run [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRun))
 			fmt.Fprintln(os.Stderr, "--dialog and --no-dialog cannot be combined")
 			os.Exit(2)
 		}
@@ -366,7 +384,7 @@ func Main(build BuildInfo) {
 		// start with '-' in practice either.
 		roleName, rest, explicit := config.SplitPlaybookArgs(args)
 		if !explicit {
-			fmt.Fprintf(os.Stderr, "usage: %s role <role_name> [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRole))
 			os.Exit(2)
 		}
 
@@ -377,7 +395,7 @@ func Main(build BuildInfo) {
 		var dialogOK bool
 		dialogOverride, rest, dialogOK = config.ExtractDialogFlag(rest)
 		if !dialogOK {
-			fmt.Fprintf(os.Stderr, "usage: %s role <role_name> [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRole))
 			fmt.Fprintln(os.Stderr, "--dialog and --no-dialog cannot be combined")
 			os.Exit(2)
 		}
@@ -458,7 +476,7 @@ func Main(build BuildInfo) {
 		var dialogOK bool
 		dialogOverride, rerunArgs, dialogOK = config.ExtractDialogFlag(rerunArgs)
 		if !dialogOK {
-			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRerun))
 			fmt.Fprintln(os.Stderr, "--dialog and --no-dialog cannot be combined")
 			os.Exit(2)
 		}
@@ -489,7 +507,7 @@ func Main(build BuildInfo) {
 		}
 		res, resolved := config.ResolveRerun(rerunArgs, cfg)
 		if !resolved {
-			fmt.Fprintf(os.Stderr, "usage: %s rerun [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRerun))
 			fmt.Fprintln(os.Stderr, "no playbook or role given, and nothing has ever been run in this project to rerun")
 			os.Exit(2)
 		}

@@ -433,7 +433,7 @@ func removeScratchDir(dir string) {
 func RunTemplateVerb(args []string) int {
 	templatePath, hostSpec, rest, ok := ParseTemplateArgs(args)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s template <path to template> [<hostname>[,<hostname>|<group>|all]...] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbTemplate))
 		return 2
 	}
 	if _, err := os.Stat(templatePath); err != nil {

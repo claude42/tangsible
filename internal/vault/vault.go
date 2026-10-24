@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/term"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/vaultfile"
 )
 
@@ -146,7 +147,7 @@ func promptPassword() (string, error) {
 func RunVaultVerb(args []string) int {
 	filename, passwordFile, askPass, err := ParseVaultArgs(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "usage: %s vault <filename> [--vault-password-file <path> | --ask-vault-pass]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbVault))
 		fmt.Fprintln(os.Stderr, "tangsible:", err)
 		return 2
 	}

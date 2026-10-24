@@ -100,7 +100,7 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 	if !explicit {
 		playbookArg, _ = config.ResolvePlaybook()
 		if playbookArg == "" {
-			fmt.Fprintf(os.Stderr, "usage: %s debug [<playbook.yml>] [ansible-playbook args...]\n", os.Args[0])
+			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbDebug))
 			fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible/config.toml, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
 			os.Exit(2)
 		}

@@ -58,6 +58,9 @@ package reads.
 - **resolve.go** - `SettingsConfig`, `Verb` parsing, the playbook
   resolution cascade (env var → project config → XDG config →
   `site.yml`).
+- **help.go** - `VerbInfo`/`VerbHelpTable`: every verb's synopsis and
+  one-line summary, behind `help` and all "usage:" errors; a test checks
+  them against the man pages.
 - **history.go** - `StateConfig`, invocation history read/write
   (`AppendInvocation`/`FinalizeInvocation`/`LastTarget`).
 - **rerunargs.go** - `ParsedPassthroughArgs`: splitting/reassembling

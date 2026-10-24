@@ -77,7 +77,7 @@ func ParseHostArgs(args []string) (hostname, playbookArg string, rest []string, 
 func RunHostVerb(args []string) int {
 	hostname, playbookArg, rest, ok := ParseHostArgs(args)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: %s host <hostname> [<playbook>] [ansible-playbook args...]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbHost))
 		return 2
 	}
 	playbook := playbookArg

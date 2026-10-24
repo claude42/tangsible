@@ -23,7 +23,7 @@
 # chased further" heuristic tangsible's own source uses for similar
 # judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts inventory revisit vault debug version"
+_tangsible_verbs="run rerun role template host hosts inventory revisit vault debug version help"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards
@@ -74,7 +74,7 @@ _tangsible_vault_flags="--vault-password-file --ask-vault-pass"
 # _tangsible_flags_for_verb echoes the complete flag set a given verb
 # actually understands - the union of ansible-playbook's own flags (for
 # every verb that shells out to it) plus whichever synthetic flags that
-# verb's own arg parser recognizes. vault/version take no ansible-playbook
+# verb's own arg parser recognizes. vault/version/help take no ansible-playbook
 # flags at all (neither ever spawns it), so they're deliberately not just
 # "everything plus a little more" the way run/rerun/role are.
 _tangsible_flags_for_verb()
@@ -98,7 +98,7 @@ _tangsible_flags_for_verb()
 	vault)
 		echo "$_tangsible_vault_flags"
 		;;
-	version)
+	version | help)
 		echo ""
 		;;
 	esac
@@ -252,6 +252,12 @@ _tangsible()
 		# Same "no dynamic hostname completion" reasoning as template above.
 		if [ "$pos" -eq 1 ]; then
 			_tangsible_ymlfiles "$cur"
+		fi
+		;;
+	help)
+		# tangsible help [verb]
+		if [ "$pos" -eq 0 ]; then
+			COMPREPLY=($(compgen -W "$_tangsible_verbs" -- "$cur"))
 		fi
 		;;
 	vault)
