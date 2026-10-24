@@ -665,9 +665,8 @@ while a Start/Continue/Step call is actually in flight, `chrome_debug_paused`
 while genuinely paused at a breakpoint. Idle (before the first F5/F10)
 and finished both look like an ordinary session - navy, same as `run`.
 
-**Resolved tab.** Unlike a plain run (where this tab stays off -
-`resolvedTabEnabled`, `internal/session/resolved.go`), debug mode gets
-its own working one, for *any* task's drill-down, not just one actually
+**Resolved tab.** Unlike a plain run (where this tab doesn't exist), debug mode gets
+a working one, for *any* task's drill-down, not just one actually
 paused at: the task's own source, with `{{ }}` expressions filled in
 using the real `task_vars` snapshot captured for every pause the
 debugger ever reaches - including any `register`/`set_fact` value an

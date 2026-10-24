@@ -15,6 +15,7 @@
 package session
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -119,23 +120,15 @@ func TestResolveTaskValues_RealPlaybookDir_Live(t *testing.T) {
 	taskSource := "{{ playbook_dir }}\n"
 	rest := []string{"-i", "localhost,"}
 
-	withoutFix, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, "", "")
+	withFix, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, emptySnapshot(t), "/my/real/project")
 	if err != nil {
-		t.Fatalf("resolveTaskValues (no realPlaybookDir): %v", err)
-	}
-	if !strings.Contains(withoutFix, "tangsible-resolve-") {
-		t.Fatalf("resolveTaskValues (no realPlaybookDir) = %q, want it to show the stub's own throwaway temp dir unchanged (sanity check on the test's own assumption)", withoutFix)
-	}
-
-	withFix, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, "", "/my/real/project")
-	if err != nil {
-		t.Fatalf("resolveTaskValues (realPlaybookDir set): %v", err)
+		t.Fatalf("resolveTaskValues: %v", err)
 	}
 	if !strings.Contains(withFix, "/my/real/project") {
-		t.Errorf("resolveTaskValues (realPlaybookDir set) = %q, want it to contain /my/real/project", withFix)
+		t.Errorf("resolveTaskValues = %q, want it to contain /my/real/project", withFix)
 	}
 	if strings.Contains(withFix, "tangsible-resolve-") {
-		t.Errorf("resolveTaskValues (realPlaybookDir set) = %q, want the stub's own temp dir fully replaced", withFix)
+		t.Errorf("resolveTaskValues = %q, want the stub's own temp dir fully replaced", withFix)
 	}
 }
 
@@ -161,11 +154,22 @@ func TestResolveTaskValues_StripsTags_Live(t *testing.T) {
 	taskSource := "{{ 1 + 1 }}\n"
 	rest := []string{"-i", "localhost,", "--tags", "this_tag_matches_nothing"}
 
-	got, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, "", "")
+	got, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", taskSource, "localhost", rest, emptySnapshot(t), "/my/real/project")
 	if err != nil {
 		t.Fatalf("resolveTaskValues with an unmatched --tags: %v", err)
 	}
 	if strings.TrimSpace(got) != "2" {
 		t.Errorf("resolveTaskValues with an unmatched --tags = %q, want %q", got, "2")
 	}
+}
+
+// emptySnapshot writes an empty task_vars snapshot (a bare JSON object)
+// for resolveTaskValues' required extraVarsFile.
+func emptySnapshot(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "snapshot.json")
+	if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

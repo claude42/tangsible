@@ -103,10 +103,7 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 	// itself is still updated regardless, so a later revisit is free.
 	key := resolveKey{task, host}
 	resolved, cached := s.resolveCache[key]
-	// debug mode never goes through resolvedTabEnabled at all (that flag
-	// stays false - the user's own call: reviving the old plain-run
-	// mechanism isn't worth it, this new one supersedes it for debug
-	// specifically) - it has its own trigger instead: a task_vars
+	// The Resolved tab is debug-mode only: its trigger is a task_vars
 	// snapshot captured for *every* pause reached (debugOnPause,
 	// livesession_debug.go - including one silently continued past, not
 	// just one actually surfaced), keyed by the debugger's own task
@@ -117,18 +114,12 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 	// to kick off at all; the tab just stays absent for it, same as any
 	// other task with nothing to show.
 	snapshot, haveSnapshot := s.debugTaskVarsCache[debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}]
-	shouldResolve := !cached && (resolvedTabEnabled || (s.debugMode && haveSnapshot))
+	shouldResolve := !cached && s.debugMode && haveSnapshot
 	if shouldResolve {
 		resolved = uikit.ResolvedRender{Pending: true}
 		s.resolveCache[key] = resolved
 		go func() {
-			var text string
-			var err error
-			if s.debugMode {
-				text, err = resolveTaskValuesFromSnapshot(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, snapshot, s.debugPlaybookDir)
-			} else {
-				text, err = resolveTaskValues(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, "", "")
-			}
+			text, err := resolveTaskValuesFromSnapshot(task.Path, s.sourceIndex[task.Path], host, s.passthroughArgs, snapshot, s.debugPlaybookDir)
 			result := uikit.ResolvedRender{}
 			if err != nil {
 				result.Err = err.Error()

@@ -43,18 +43,6 @@ import (
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
-// resolvedTabEnabled temporarily disables the Resolved tab, and the
-// ansible-playbook invocation that backs it (showOutputWithOrigin, in
-// livesession_output.go), pending a better implementation: live use
-// showed Jinja's inability to recursively resolve (this file's own doc
-// comment on that gap, further down) means the tab most often renders
-// back out unhelpfully close to - or identical to - Task definition
-// rather than showing the filled-in value a user actually wants. Flip
-// back to true once that's addressed; BuildOutputTabs'/ResolvedTabHidden's
-// own show/hide logic (internal/uikit/tui_drilldown.go) is left
-// untouched, so re-enabling is just this one flag.
-const resolvedTabEnabled = false
-
 // jinjaExpressionPattern matches one {{ ... }} expression block in raw
 // ansible source text - a regex-based heuristic, not a real Jinja lexer,
 // same "documented, not chased to 100%" tolerance this project already
@@ -125,13 +113,12 @@ func jinjaStringLiteral(s string) string {
 // risk of the caller's own task-targeting filtering out the stub's one
 // untagged task, or conflicting with this function's own hosts: line.
 //
-// extraVarsFile, if non-empty, is appended as --extra-vars @extraVarsFile,
-// last on the command line so it wins over anything rest itself already
-// carries - debug mode's own resolveTaskValuesFromSnapshot (below) is
-// the only caller that ever sets it, to seed the render from a captured
-// task_vars snapshot (ansible's own highest-precedence layer) rather
-// than whatever the stub would otherwise gather fresh. Empty for a plain
-// run - no behavior change there at all.
+// extraVarsFile is appended as --extra-vars @extraVarsFile, last on the
+// command line so it wins over anything rest itself already carries - it
+// seeds the render from a captured task_vars snapshot (ansible's own
+// highest-precedence layer) rather than whatever the stub would
+// otherwise gather fresh. resolveTaskValuesFromSnapshot (below) is the
+// only caller.
 //
 // err is non-nil for a genuine failure to determine anything at all
 // (mirroring RenderTemplate's own pre-flight-failure case) - a Jinja
@@ -139,7 +126,7 @@ func jinjaStringLiteral(s string) string {
 // reported the same way, since from the caller's point of view both just
 // mean "show this error instead of a resolved result."
 //
-// realPlaybookDir, if non-empty, replaces every occurrence of this call's
+// realPlaybookDir replaces every occurrence of this call's
 // own throwaway tmpDir (below) in the rendered result - the stub playbook
 // this builds always lives in its own disposable temp directory, which
 // ansible-core reports right back as that stub's own playbook_dir/
@@ -147,9 +134,7 @@ func jinjaStringLiteral(s string) string {
 // is overridable via extraVarsFile's own --extra-vars, confirmed live -
 // see debugUnfakeShadowPaths' own doc comment, livesession_debug.go, for
 // role_path/inventory_dir/inventory_file, which *are* overridable and so
-// need no help here). debug mode's own resolveTaskValuesFromSnapshot
-// (below) is the only caller that ever sets this, to the user's real
-// project directory - empty for a plain run, no behavior change there.
+// need no help here). It is the user's real project directory.
 func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVarsFile, realPlaybookDir string) (string, error) {
 	// Debug mode's own passthrough args (debugverb.PrepareSession's Rest)
 	// never go through config.ParsePassthroughArgs the way run/role's do,
@@ -197,18 +182,11 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 	var b strings.Builder
 	fmt.Fprintf(&b, "- hosts: %s\n", host)
 	b.WriteString("  ignore_unreachable: true\n")
-	if extraVarsFile != "" {
-		// gather_facts: false only when a snapshot is already supplying
-		// everything (debug mode) - the snapshot's own ansible_facts,
-		// captured from the real run, is both unnecessary to re-gather
-		// and strictly more accurate than a fresh gather could be (it
-		// reflects the exact moment the real run paused, not "whatever
-		// is true right now"). Left enabled for a plain run's own
-		// (currently disabled) resolve, which has no snapshot to fall
-		// back on and may genuinely need a fresh gather to resolve a
-		// facts-dependent expression at all.
-		b.WriteString("  gather_facts: false\n")
-	}
+	// gather_facts: false - the snapshot's own ansible_facts, captured
+	// from the real run, is both unnecessary to re-gather and strictly
+	// more accurate than a fresh gather could be (it reflects the exact
+	// moment the real run paused, not "whatever is true right now").
+	b.WriteString("  gather_facts: false\n")
 	template.WriteRoleContext(&b, roleTaskPath)
 	b.WriteString("  tasks:\n")
 	b.WriteString("    - name: resolve task values\n")
@@ -237,9 +215,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 		return "", err
 	}
 	cmdArgs := append([]string{stubPath}, rest...)
-	if extraVarsFile != "" {
-		cmdArgs = append(cmdArgs, "--extra-vars", "@"+extraVarsFile)
-	}
+	cmdArgs = append(cmdArgs, "--extra-vars", "@"+extraVarsFile)
 	cmd := exec.Command("ansible-playbook", cmdArgs...)
 	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
@@ -298,10 +274,7 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 		return "", fmt.Errorf("resolve task reported success but the rendered file couldn't be read: %w", err)
 	}
 	text := string(content)
-	if realPlaybookDir != "" {
-		text = strings.ReplaceAll(text, tmpDir, realPlaybookDir)
-	}
-	return text, nil
+	return strings.ReplaceAll(text, tmpDir, realPlaybookDir), nil
 }
 
 // resolveTaskValuesFromSnapshot is resolveTaskValues' own debug-mode

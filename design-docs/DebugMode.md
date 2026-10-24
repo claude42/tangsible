@@ -583,9 +583,8 @@ pauses the run exactly like one armed with F9.
 
 **Requested live:** bring back the drill-down's "Resolved" tab - but
 only for `debug`, using the real variable data a debug session now has
-that a plain run never did; explicitly not reviving `resolvedTabEnabled`
-(`internal/session/resolved.go`) for plain `run`/`rerun`/`role`, which
-stays `false`. Loop variables stay unresolvable by nature (understood,
+that a plain run never did; the old `resolvedTabEnabled` flag for plain
+`run`/`rerun`/`role` (always `false`) has since been removed. Loop variables stay unresolvable by nature (understood,
 not chased); variables inside `when:` conditions are explicitly
 postponed (see "Scope, deliberately not solved here" below - it turns
 out there's nothing *to* solve, this mechanism never touches them at
@@ -644,11 +643,9 @@ already reflects every `register`/`set_fact`/earlier-task update visible
 to the real run at the exact moment it paused.
 
 `showOutputWithOrigin`'s existing async-fetch-on-open machinery
-(`livesession_output.go`) needed no new shape, only a second trigger
-condition alongside `resolvedTabEnabled`: `s.debugMode` plus a cached
-snapshot for this `(task, host)` in the new `s.debugTaskVarsCache`. Same
-`s.resolveCache`/`ResolvedRender` the plain-run path already uses for
-the final rendered result - `BuildOutputTabs`/`ResolvedTabHidden`/
+(`livesession_output.go`) needed no new shape, only a trigger
+condition: `s.debugMode` plus a cached snapshot for this `(task, host)` in the new `s.debugTaskVarsCache`. Same
+`s.resolveCache`/`ResolvedRender` as the earlier plain-run tab - `BuildOutputTabs`/`ResolvedTabHidden`/
 `BuildResolvedTab` (`uikit/tui_drilldown.go`) needed no changes
 whatsoever, confirming the original design's own instinct that this tab
 never needed to know where its data came from.
@@ -1798,9 +1795,8 @@ string long/unique enough that a blunt replace is actually safe"
 reasoning Fix 1's own `copyDir` already relies on - and only then
 replacing that directory's own path with the real `playbookDir` in the
 final rendered text. `resolveTaskValuesFromSnapshot` passes
-`s.debugPlaybookDir` through as this new parameter; the plain-run
-caller (`resolvedTabEnabled`, currently `false`, so dormant either way)
-passes `""` - no behavior change there.
+`s.debugPlaybookDir` through as this new parameter; the old plain-run
+caller (since removed) passed `""`.
 
 **Verified** live in tmux end to end: a role task referencing
 `{{ role_path }}` in its own `dest:`, paused with `--all-vars`,
