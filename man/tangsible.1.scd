@@ -48,7 +48,7 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 	Edit individually vault-encrypted variables in a file in place, without hand-running *ansible-vault encrypt_string* and pasting ciphertext back yourself.
 
 *tangsible-debug*(1)
-	Set breakpoints on a playbook's own tasks and step through a run, inspecting variables at each pause.
+	Step through a playbook, set breakpoints, watch variables.
 
 *tangsible version*
 	Print version information about tangsible and all components it's using.

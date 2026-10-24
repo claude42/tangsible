@@ -255,60 +255,17 @@ It runs the role against `hosts: all`, while normal Ansible options such as
 tangsible debug [playbook.yml] [--all-vars|-a] [ansible-playbook args...]
 ```
 
-This is the same live tree, two-pane layout, and tabbed drill-down as a
-normal run - not a separate screen - with breakpoints layered on top. It
-shows every play and task up front (so breakpoints can be armed before
-anything has run), lets you set them directly on the tree, then run or
-step through the playbook: `F5` runs to the next armed breakpoint (or to
-completion with none set), `F9` arms/disarms a breakpoint on the selected
-task (or click its row), `F10` skips the rest of the current task's hosts
-and stops at the next task's first one, `F11` steps to the very next
-pause regardless of breakpoints (host by host, within the same task
-included), and `F12` redoes - re-running the exact task/host currently
-paused at and waiting for that same result, even if another host's own
-pending result for the same task surfaces in between. Built on
-ansible-core's own task debugger (`debugger: always`), spliced onto a
-disposable copy of the playbook's
-directory - the real files on disk are never touched.
+Full screen debugger. Toggle breakpoints with F9 / left mouse button. Run /
+continue with F5, step to next task with F10, next host with F11, redo
+current task on current host with F12.
 
-Whenever a pause surfaces, the drill-down opens automatically for that
-task and host, with a working Resolved tab - unlike a normal run's own
-(disabled) one, it fills in every variable reference from that task's own
-captured state, including `when:`/`failed_when:`/`changed_when:`/`until:`
-conditions and a `register:` target's own result.
+v opens the variable watch explorer. 
 
-By default, variables are only captured at a pause actually shown to you
-(an armed breakpoint, a step, or a task failure), so the Resolved tab
-works for that task, not yet for one you haven't stopped at.
-`--all-vars`/`-a` captures every task's own variables as it's reached
-instead, so the Resolved tab works no matter which task you later
-navigate back to - at the cost of that capture's own real time on every
-task, whether or not the run ever stops there.
-
-`v` opens a variable watch explorer: a text field with live autocomplete
-(name and current value, from whichever host/task is currently selected)
-for adding a watched expression - a bare name, or a dotted/bracket-index
-path into one, like `foo.bar` or `foo[0]`. Watched values stay visible
-and re-evaluate live as you navigate to a different host/task, greyed
-out once you close the explorer with Esc; one that can't currently be
-resolved shows as `<undefined>` rather than as an error; the headline
-itself reads "Watched variables (unavailable)" instead whenever nothing
-was captured for the current host/task at all. The explorer's own
-bottom-of-screen keyboard hints replace the usual ones while it's open,
-and its "Watched variables" headline is colored like the rest of the
-debug chrome. Page Up/Down, Home/End, and Tab still scroll the screen
-and switch drill-down tabs while the explorer is open - only the plain
-arrow keys are claimed by the explorer itself.
-
-The same field also sets a variable: type `expr = value` instead (e.g.
-`outcome_var = 'good'`) and it's written straight into the paused task's
-own live variables, taking effect on the very next redo/continue/step -
-`value` is forwarded exactly as typed, as raw Python (a quoted string, a
-number, `true`/`false`, ...). Only valid while you're looking at exactly
-the host/task the debugger is currently paused at (there's nothing to
-write into once that pause has moved on); anywhere else it's rejected
-and your typed text is kept so you can fix it. A successful set marks
-the row `(just set)` until the next real pause.
+When execution is paused additional "Resolved" tab shows current task with
+all variables replaced by their values. --all-vars captures all variables for
+all tasks (at the cost of much slower execution). Variables can be added to
+the watch list. Variable contents can also be changed by entering `var =
+value`.
 
 ## Debugging a Jinja2 template
 

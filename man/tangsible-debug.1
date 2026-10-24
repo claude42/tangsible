@@ -5,11 +5,11 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-debug" "1" "2026-10-22" "Tangsible" "Tangsible Manual"
+.TH "tangsible-debug" "1" "2026-10-24" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
-tangsible-debug - set breakpoints and step through a playbook
+tangsible-debug - step through a playbook, set breakpoints, watch variables.\&
 .PP
 .SH SYNOPSIS
 .PP
@@ -18,35 +18,18 @@ tangsible-debug - set breakpoints and step through a playbook
 .SH DESCRIPTION
 .PP
 \fBdebug\fR lets you pause a playbook run at specific tasks, step through it
-task by task, and inspect each paused task'\&s own variables - built on
-ansible-core'\&s own built-in task debugger, not a separate interactive
-protocol of its own.\&
+task by task, and inspect each paused task'\&s own variables.\&
 .PP
-It never touches the real playbook or role files on disk: \fBdebug\fR first
-builds a disposable, hardlinked copy of the whole playbook'\&s directory tree
-(under \fB.\&tangsible/debug/\fR next to the playbook, removed again on exit),
-splices ansible-core'\&s \fBdebugger: always\fR onto every task in that copy, and
-runs the copy instead.\& Every task therefore pauses; a breakpoint you set is
-purely a client-side choice of which of those pauses to actually show you -
-\fBdebug\fR resumes silently past every other one on your behalf, which is also
-why breakpoints can be toggled live, mid-run, with no re-editing of
-anything.\&
+\fBtangsible debug\fR creates a copy of the playbook'\&s directory tree 
+nd addes \fBdebugger: always\fR to every task in that copy to achieve its
+interactive debugging functionality.\&
 .PP
-On startup, \fBdebug\fR shows every play and task the run will touch, predicted
-the same way the live tree'\&s own progress indicator is (a throwaway
-\fB--list-tasks --list-hosts\fR probe) - a notified handler, or a dynamically
-resolved \fBinclude_tasks:\fR, won'\&t appear in this predicted list even though
-it will genuinely run; see \fBtangsible\fR(1)'\&s own \fB--list-tasks\fR caveats.\& The
-whole predicted tree is visible up front, before anything has run, so
-breakpoints can be armed before the first \fBF5\fR/\fBF10\fR/\fBF11\fR/\fBF12\fR.\&
+On startup, \fBdebug\fR shows every play and task the run will touch, so breakpoints
+can be armed before the first \fBF5\fR/\fBF10\fR/\fBF11\fR/\fBF12\fR.\&
 .PP
 \fBdebug\fR is the exact same live tree UI \fBtangsible-run\fR(1) uses, with
-breakpoint/pause state layered on top - not a second, separate screen.\&
-Every \fBtangsible-run\fR(1) key binding (navigation, Enter-to-expand, the
-two-pane drill-down and its tabs, filter, search, recap, \fBq\fR/Ctrl-C) works
-identically here; see that page for all of those.\& There is no rerun
-dialog and no recorded run history, though - a debug session is not
-something a later \fBtangsible rerun\fR can replay.\&
+breakpoint/single step functionality, variable explorer and Resolved tab
+layered on top.\&
 .PP
 .SH ADDITIONAL OPTIONS
 .PP
@@ -58,9 +41,8 @@ failure) - its Resolved tab works for that task, but not yet for one
 you haven'\&t stopped at.\& This flag captures every task'\&s own
 variables instead, including one silently resumed past with no
 breakpoint armed on it, so the Resolved tab works no matter which
-task you later navigate back to - at the cost of paying that
-capture'\&s own real time on every single task, whether or not the run
-ever actually stops there.\&
+task you later navigate back to - at the cost of significantly reduced
+performance.\&
 .PP
 .RE
 .SH CONTROLS
@@ -70,9 +52,8 @@ already offers:
 .PP
 \fBF5\fR
 .RS 4
-Run: before a run starts, or while paused, resumes past every pause
-whose task isn'\&t armed, surfacing only an armed one - or runs to
-completion outright if nothing is armed at all.\&
+Run / continue: start / resume execution until the  next breakpoint or
+the end of the playbook is reached.\&
 .PP
 .RE
 \fBF9\fR
@@ -85,96 +66,48 @@ the row'\&s usual expand/collapse.\&
 .RE
 \fBF10\fR
 .RS 4
-Next task: before a run starts, or while paused, skips the rest of
+Next task: before a run starts, or while paused, executes the rest of
 the current task'\&s remaining hosts and stops unconditionally at the
-next task'\&s first pause, armed or not.\&
+next task'\&s first host.\&
 .PP
 .RE
 \fBF11\fR
 .RS 4
 Step: before a run starts, or while paused, stops at the very next
-pause unconditionally, armed or not - one host at a time, including
-every other host still left on the current task.\&
+host (of the current or next task).\&
 .PP
 .RE
 \fBF12\fR
 .RS 4
 Redo: only meaningful while genuinely paused (a no-op otherwise).\&
-Re-runs the exact task/host currently paused at from scratch, and
-waits for that exact result - even if another host'\&s own pending
-result for the same task would otherwise surface first, it'\&s drained
-in the background rather than shown, so the view never jumps away
-from the host you asked to redo.\& That other host'\&s own result, its
-outcome overwritten in place rather than duplicated, still shows up
-normally the next time you navigate to or step/continue onto it.\&
+Re-runs the exact task/host currently paused at from scratch.\& Will take
+any modifications made in the variable watch explorer into account.\&
 .PP
 .RE
 \fBv\fR
 .RS 4
-Open the variable watch explorer: a text field with live autocomplete
-(name and current value, from whichever host/task is currently
-selected) for adding a watched expression - a bare name, or a
-dotted/bracket-index path into one, like \fBfoo.\&bar\fR or \fBfoo[0]\fR.\& Enter
-adds the typed or highlighted expression; \fBUp\fR/\fBDown\fR with an empty
-field selects a watched row instead (jumping straight to the last
-entry on \fBUp\fR, the first on \fBDown\fR, from no selection - and
-symmetrically, \fBDown\fR past the last entry wraps back to the input,
-same as \fBUp\fR past the first); \fBDelete\fR or
-\fBBackspace\fR removes the selected one.\& \fBEsc\fR is staged - closes a
-suggestion list, then clears the field, then closes the explorer (or
-deselects a row, then closes).\& Watched values re-evaluate live as you
-navigate to a different host/task, and stay visible, greyed out, once
-you close the explorer; one that can'\&t currently be resolved shows as
-\fB<undefined>\fR rather than as an error, and the headline itself reads
-"Watched variables (unavailable)" instead whenever nothing was
-captured for the current host/task at all.\& While open, the
-explorer'\&s own key hints replace the usual ones at the bottom of the
-screen, reverting the moment it closes; its own "Watched variables"
-headline (not the entries or the input field) is colored like the
-rest of the session'\&s own chrome.\& \fBPage Up\fR/\fBPage Down\fR, \fBHome\fR/\fBEnd\fR,
-and \fBTab\fR still reach the screen/tabs behind the explorer while it'\&s
-open - only the plain arrow keys are claimed by the explorer itself.\&
+Add new variables to be watched.\& Will autocomplete known variables.\&
+Currently undefined variables can be watched as well.\& Currently only
+supports scalars - elements of sequences or mappings can be accessed
+e.\&g.\& with \fBfoo.\&bar\fR or \fBfoo[0]\fR.\&
 .PP
-The same field also sets a variable: type \fBexpr = value\fR instead (e.\&g.\&
-\fBoutcome_var = '\&good'\&\fR) and it'\&s written straight into the paused
-task'\&s own live variables - \fBvalue\fR is forwarded exactly as typed, as
-raw Python (a quoted string, a number, \fBtrue\fR/\fBfalse\fR, .\&.\&.\&), taking
-effect on the very next redo/continue/step.\& Only valid while the
-current selection is exactly the host/task the debugger is paused at
-right now - there'\&s nothing to write into once that pause has moved
-on - and rejected otherwise, with the typed text kept so it can be
-fixed.\& A successful set marks the row \fB(just set)\fR until the next
-real pause, after which it'\&s indistinguishable from any other watched
-value again.\&
+Use cursor up/down to select a variable and press \fBDelete\fR or
+\fBBackspace\fR to stop watching it.\&
+.PP
+If no watched variables are available for a specific task (because
+execution has not stopped at this task and \fB-a\fR has not been specified,
+the header will read "Watched variables (unavailable)".\& If a variable is
+not defined for a specific task it will be listed as \fB<undefined>\fR.\&
+.PP
+Change a variables value by enterint \fBvar_name = new_value\fR.\& Changed
+values will only be used when the current task is repeated with \fBF12\fR
 .PP
 .RE
-Whenever a pause surfaces (an armed breakpoint, a step, or a next-task
-stop), the drill-down
-opens automatically for that exact paused task and host, in whichever of
-full-screen or two-pane mode the terminal'\&s current width calls for.\& Its
-\fBResolved\fR tab works for the task currently paused at; with \fB--all-vars\fR
-(above), every task'\&s own variables are captured as the run reaches it,
-so the tab works for \fBany\fR task'\&s drill-down, not just the one currently
-paused at - showing the task'\&s source with every variable reference filled
-in from its own captured state, including \fBwhen:\fR/\fBfailed_when:\fR/
-\fBchanged_when:\fR/\fBuntil:\fR conditions and a \fBregister:\fR target'\&s own result.\&
-The raw-output (\fBo\fR) view has nothing to show in a debug session, since the
-debugger itself owns the child'\&s stdout for its own prompt text.\&
-.PP
-\fBq\fR/\fBCtrl-C\fR interrupts the child while it'\&s running or paused, and quits
-once it'\&s finished (or immediately, before any run has started) - the same
-two-stage behavior \fBtangsible-run\fR(1) already has.\&
-.PP
-.SH LIMITATIONS
-.PP
-Deliberately out of scope for now: Step Out (ansible-core has no real call
-stack to step out of), and \fB--step\fR (rejected outright - it would pause
-the child for a second, unrelated reason \fBdebug\fR doesn'\&t know how to
-drive; \fBdebug\fR'\&s own breakpoints are what pause a run).\& A variable can
-only be set as a scalar (a non-scalar value can still be assigned, but
-then renders as \fB<undefined>\fR, the same as any other non-scalar watched
-value).\& Two tasks sharing the exact same name alias to the same
-breakpoint.\&
+Whenever execution stops, the drill-down view opens automatically for that exact
+paused task and host, in whichever of full-screen or two-pane mode the
+terminal'\&s current width calls for.\& Its \fBResolved\fR tab works for the task
+currently paused at (or all tasks with \fB-a\fR) - showing the task'\&s source with every
+variable reference filled in from its own captured state.\&
 .PP
 .SH EXIT STATUS
 .PP
