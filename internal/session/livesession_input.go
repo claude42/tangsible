@@ -275,6 +275,30 @@ func (s *liveSession) handleGlobalQuit(event *tcell.EventKey) (*tcell.EventKey, 
 	if event.Key() != tcell.KeyRune || event.Rune() != 'q' {
 		return nil, false
 	}
+	if s.debugMode && s.debugLoopDriving {
+		// q while F5/F10/F11's own applyPolicy loop (internal/debugrun) is
+		// actively driving doesn't touch the real child at all - every
+		// task already pauses via the spliced debugger (internal/
+		// debugcopy's debugger: always), so the current task is left to
+		// finish naturally and the very next pause surfaces
+		// unconditionally, exactly like a single step, instead of being
+		// auto-continued past (design-docs/DebugMode.md's "q's own soft
+		// stop while actively driving"). One-shot:
+		// debugConsumeStopRequest consumes it the instant applyPolicy's
+		// loop observes it. Ctrl-C (handleCtrlC above) is deliberately
+		// unchanged - still the one escalation path for a task that's
+		// genuinely stuck/slow, which a soft stop can't help with (it only
+		// ever takes effect at the next task boundary, never mid-task).
+		// Scoped to debugLoopDriving, not the broader debugDriving: a
+		// slow F12 redo or the watch panel's variable-set round-trip
+		// still get the unconditional SIGINT below, completely
+		// unaffected - see debugLoopDriving's own doc comment
+		// (livesession.go) for why reusing the broader flag here would
+		// have silently removed the ability to interrupt either of those.
+		s.debugStopPending.Store(true)
+		s.debugRefreshChrome()
+		return nil, true
+	}
 	if s.processDone.Load() {
 		s.quitting.Store(true) // before Stop() - see main.go's race note
 		s.app.Stop()

@@ -505,8 +505,13 @@ A `liveSession` (`internal/session`), same as `run`/`rerun`/`role` - not
 a second TUI (design-docs/DebugMode.md's "Architecture decision
 (2026-10-18)"). Every key/mouse binding documented above for the main
 tree - navigation, Enter-to-expand a task into its own per-host rows,
-two-pane drill-down, filter, search, recap, `q`/Ctrl-C - works
-identically here, since it's the exact same code. The whole predicted
+two-pane drill-down, filter, search, recap, Ctrl-C - works identically
+here, since it's the exact same code; `q` is almost the same, except
+while F5/F10/F11's own drive loop is actively running (not yet paused),
+where it instead requests a soft stop (see this section's own bullet
+list below) rather than interrupting the real process the way it does
+everywhere else - design-docs/DebugMode.md's "q's own soft stop while
+actively driving." The whole predicted
 task tree is visible up front, before anything has run (seeded from a
 `--list-tasks` skeleton probe, `internal/debugverb.SeedState` - see
 DebugMode.md for why this can't go through `PlaybookState.Apply` the way

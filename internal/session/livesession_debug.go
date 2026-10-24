@@ -32,8 +32,12 @@ import (
 // DebugMode.md's "Stage 1" [keys] config section isn't wired yet) and one
 // background orchestration goroutine, parallel to runner.RunOneGeneration
 // rather than a modification of it - everything else (the tree, two-pane,
-// the drill-down, filter/search, recap, q/Ctrl-C) is the exact same
-// liveSession machinery every other Verb already uses.
+// the drill-down, filter/search, recap) is the exact same liveSession
+// machinery every other Verb already uses. Ctrl-C is too (handleCtrlC,
+// livesession_input.go, completely unmodified for debug mode); q isn't
+// quite, while F5/F10/F11's own drive loop is actually in flight - see
+// debugConsumeStopRequest/handleGlobalQuit's own doc comments and design-
+// docs/DebugMode.md's "q's own soft stop while actively driving".
 
 // debugArmed reports whether t has an armed breakpoint - FlattenRows' own
 // armed parameter, and the "selected row re-render"'s own marker
@@ -125,6 +129,8 @@ func (s *liveSession) debugBottomBarHint() string {
 		return " finished - F5/F9/F10/F11/F12 disabled "
 	case s.debugPausedHost != "":
 		return " F5: continue  F9: breakpoint  F10: next task  F11: step  F12: redo "
+	case s.debugLoopDriving && s.debugStopPending.Load():
+		return " stopping after this task... (ctrl-c to interrupt now) "
 	case s.debugDriving:
 		return " running... (ctrl-c to interrupt) "
 	default:
@@ -282,6 +288,12 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 		return
 	}
 	s.debugDriving = true
+	s.debugLoopDriving = true
+	// Defensive, not load-bearing: applyPolicy already consumes a pending
+	// stop request the instant it's observed (debugConsumeStopRequest's
+	// own CompareAndSwap), so this only guards against a stale true
+	// somehow surviving into an unrelated new drive.
+	s.debugStopPending.Store(false)
 	// processDone starts forced true for debug's own idle state (main.go,
 	// NewLiveTUI's pendingSpawned doc comment - "safe to quit outright,
 	// nothing to interrupt") and is never otherwise touched until
@@ -301,6 +313,7 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 			if err != nil {
 				s.app.QueueUpdateDraw(func() {
 					s.debugDriving = false
+					s.debugLoopDriving = false
 					s.everStarted = true
 					s.processDone.Store(true)
 					s.exitCode.Store(-1)
@@ -314,7 +327,7 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 			s.procH.Store(sess.Process())
 			s.app.QueueUpdateDraw(func() { s.debugSess = sess })
 			go s.debugDrainEvents(sess)
-			pause, eof, perr := debugrun.RunWithBreakpoints(sess, s.debugBPS, mode, s.debugOnPause(sess))
+			pause, eof, perr := debugrun.RunWithBreakpoints(sess, s.debugBPS, mode, s.debugConsumeStopRequest, s.debugOnPause(sess))
 			s.app.QueueUpdateDraw(func() {
 				s.debugApplyPauseResult(pause, eof, perr)
 			})
@@ -325,11 +338,24 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 	sess := s.debugSess
 	fromTask := s.debugLastPauseTask
 	go func() {
-		pause, eof, perr := debugrun.ContinueWithBreakpoints(sess, s.debugBPS, mode, fromTask, s.debugOnPause(sess))
+		pause, eof, perr := debugrun.ContinueWithBreakpoints(sess, s.debugBPS, mode, fromTask, s.debugConsumeStopRequest, s.debugOnPause(sess))
 		s.app.QueueUpdateDraw(func() {
 			s.debugApplyPauseResult(pause, eof, perr)
 		})
 	}()
+}
+
+// debugConsumeStopRequest is applyPolicy's own stopRequested parameter
+// (internal/debugrun/breakpoints.go) for the F5/F10/F11 drive above - q's
+// own soft-stop request (handleGlobalQuit, livesession_input.go). A
+// check-and-clear via CompareAndSwap, not a plain Load: this is what
+// makes applyPolicy's own "consumed the instant it's observed true"
+// contract real, and what makes it safe for debugStopPending to need no
+// mutex (CLAUDE.md's "Atomics only, no mutex") despite being written from
+// the event-loop goroutine and read here, repeatedly, on
+// debugStartOrContinue's own background one.
+func (s *liveSession) debugConsumeStopRequest() bool {
+	return s.debugStopPending.CompareAndSwap(true, false)
 }
 
 // debugRedo drives one redo-and-wait call in the background (F12) -
@@ -599,6 +625,7 @@ func (s *liveSession) debugUnfakeShadowPaths(raw json.RawMessage) json.RawMessag
 // the job once it does.
 func (s *liveSession) debugApplyPauseResult(pause debugrun.Pause, eof bool, err error) {
 	s.debugDriving = false
+	s.debugLoopDriving = false
 	s.watch.clearJustSet() // Stage 5: the live pause is about to change either way
 	if err != nil {
 		s.everStarted = true
@@ -668,6 +695,7 @@ func (s *liveSession) debugFinish() {
 	}
 	s.processDone.Store(true)
 	s.debugDriving = false
+	s.debugLoopDriving = false
 	s.debugRefreshChrome()
 	s.rebuild()
 }
@@ -725,9 +753,13 @@ func (s *liveSession) debugDrainEvents(sess *debugrun.Session) {
 	s.app.QueueUpdateDraw(s.debugFinish)
 }
 
-// q/Ctrl-C needs no debug-specific code at all: handleCtrlC/
-// handleGlobalQuit (livesession_input.go) already signal s.procH.Load()
-// unconditionally whenever !s.processDone.Load(), and debugStartOrContinue
-// above stores the real child process into s.procH the moment it's
-// spawned - so both already reach the right process, exactly as they
-// already do for a plain run.
+// Ctrl-C needs no debug-specific code at all: handleCtrlC
+// (livesession_input.go) already signals s.procH.Load() unconditionally
+// whenever !s.processDone.Load(), and debugStartOrContinue above stores
+// the real child process into s.procH the moment it's spawned - so it
+// already reaches the right process, exactly as it already does for a
+// plain run. q is almost the same story (handleGlobalQuit, same file) -
+// except while debugLoopDriving is true, where it requests a soft stop
+// instead (debugConsumeStopRequest's own doc comment, design-docs/
+// DebugMode.md's "q's own soft stop while actively driving") rather than
+// touching the real process at all.

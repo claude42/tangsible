@@ -121,7 +121,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   and wait errors are collected and printed after `app.Run()` returns.
 - **Ctrl-C/q**: tcell raw mode disables SIGINT, so tangsible forwards it to the
   child (`ProcHandle`, always the current generation) while running and quits
-  once finished - matching plain `ansible-playbook`.
+  once finished - matching plain `ansible-playbook`. `debug` carves out one
+  exception: `q` (not Ctrl-C) while its own F5/F10/F11 drive loop is in
+  flight requests a soft stop instead of touching the real process -
+  `design-docs/DebugMode.md`'s "q's own soft stop while actively driving".
 - **Exit codes**: 99 = user interrupt (unambiguous, only tangsible sends
   SIGINT); 4 = unreachable *or* parse error, disambiguated by
   `state.HadUnreachable`. `uikit.GenuineFailure` is the shared predicate.

@@ -89,7 +89,7 @@ func TestBreakpoints_RunTillBreakpoint_EmptySetRunsToCompletion(t *testing.T) {
 	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
 	bps := NewBreakpointSet()
 
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 	bps := NewBreakpointSet()
 	bps.Set("TASK: task two")
 
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 	// Both hosts pause on the armed task - the breakpoint is per task
 	// label, not per host, so the second host's own pause on the same
 	// task must also surface, not auto-continue past.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, "", nil)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +133,92 @@ func TestBreakpoints_RunTillBreakpoint_StopsOnlyAtArmedTask(t *testing.T) {
 
 	// task three isn't armed - both hosts' pauses on it auto-continue,
 	// running the rest of the playbook to completion in one call.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, "", nil)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !eof {
 		t.Errorf("expected eof after the unarmed task three, got pause %+v", pause)
+	}
+}
+
+// TestBreakpoints_StopRequested_SurfacesNextPauseEvenWithNothingArmed is
+// design-docs/DebugMode.md's "q's own soft stop while actively driving":
+// a one-shot stopRequested closure, with bps deliberately empty, should
+// surface the very next pause unconditionally (like a single step)
+// instead of RunTillBreakpoint's own silent auto-continue - and, once
+// consumed, never fire again.
+func TestBreakpoints_StopRequested_SurfacesNextPauseEvenWithNothingArmed(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
+	bps := NewBreakpointSet()
+
+	stopped := false
+	stopRequested := func() bool {
+		if !stopped {
+			stopped = true
+			return true
+		}
+		return false
+	}
+
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, stopRequested, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof || pause.Task != "TASK: task one" {
+		t.Fatalf("expected the soft stop to surface the very first pause, got pause=%+v eof=%v", pause, eof)
+	}
+
+	// The one-shot request is already consumed - with bps still empty,
+	// this must now run straight to eof.
+	_, eof, err = ContinueWithBreakpoints(sess, bps, RunTillBreakpoint, "", stopRequested, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eof {
+		t.Fatal("expected eof - the one-shot stop request was already consumed")
+	}
+}
+
+// TestBreakpoints_StopRequested_ConsumedEvenWhenBreakpointAlsoFires pins
+// applyPolicy's own documented "no attempt to distinguish the reason"
+// rule: stopRequested and an armed breakpoint both apply to the very same
+// pause here - it's still called (and consumed) exactly once, not skipped
+// just because bps.Has alone would already have surfaced that pause.
+func TestBreakpoints_StopRequested_ConsumedEvenWhenBreakpointAlsoFires(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	sess := spawnFixture(t, threeTaskTwoHostFixture(t))
+	bps := NewBreakpointSet()
+	bps.Set("TASK: task one")
+
+	stopped := false
+	stopCalls := 0
+	stopRequested := func() bool {
+		stopCalls++
+		if !stopped {
+			stopped = true
+			return true
+		}
+		return false
+	}
+
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, stopRequested, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eof || pause.Task != "TASK: task one" {
+		t.Fatalf("expected the armed first pause, got pause=%+v eof=%v", pause, eof)
+	}
+	if stopCalls != 1 {
+		t.Fatalf("stopRequested called %d times, want exactly 1", stopCalls)
+	}
+	if !stopped {
+		t.Fatal("expected stopRequested to be consumed even though the armed breakpoint alone would also have surfaced this pause")
 	}
 }
 
@@ -162,7 +242,7 @@ func TestBreakpoints_OnPauseFiresForEverySilentlyContinuedPause(t *testing.T) {
 	bps := NewBreakpointSet() // deliberately empty
 
 	var seen []Pause
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, func(p Pause, willSurface bool) {
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil, func(p Pause, willSurface bool) {
 		seen = append(seen, p)
 		if willSurface {
 			t.Errorf("onPause got willSurface=true for %+v, want false - bps is empty and mode is RunTillBreakpoint", p)
@@ -193,7 +273,7 @@ func TestBreakpoints_OnPause_WillSurfaceTrueForArmedBreakpoint(t *testing.T) {
 	bps.Set("TASK: task two")
 
 	var willSurfaceSeen []bool
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, func(p Pause, willSurface bool) {
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil, func(p Pause, willSurface bool) {
 		willSurfaceSeen = append(willSurfaceSeen, willSurface)
 	})
 	if err != nil {
@@ -232,7 +312,7 @@ func TestBreakpoints_StepNextTask_SkipsRemainingHostsOfCurrentTask(t *testing.T)
 
 	// RunWithBreakpoints has no "current task" to skip past yet - falls
 	// back to StepOne's own behavior, surfacing the very first pause.
-	pause, eof, err := RunWithBreakpoints(sess, bps, StepNextTask, nil)
+	pause, eof, err := RunWithBreakpoints(sess, bps, StepNextTask, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +325,7 @@ func TestBreakpoints_StepNextTask_SkipsRemainingHostsOfCurrentTask(t *testing.T)
 
 	// Paused at task one/host1 - StepNextTask should skip task one's
 	// second host entirely and land directly on task two's first host.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +337,7 @@ func TestBreakpoints_StepNextTask_SkipsRemainingHostsOfCurrentTask(t *testing.T)
 	}
 
 	// And again, from task two to task three.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +350,7 @@ func TestBreakpoints_StepNextTask_SkipsRemainingHostsOfCurrentTask(t *testing.T)
 
 	// task three is the last task - StepNextTask past it runs to eof,
 	// same as StepOne/RunTillBreakpoint would with nothing left armed.
-	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil)
+	pause, eof, err = ContinueWithBreakpoints(sess, bps, StepNextTask, pause.Task, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,13 +367,13 @@ func TestBreakpoints_StepOne_SurfacesEveryPauseRegardlessOfSet(t *testing.T) {
 	bps := NewBreakpointSet() // deliberately empty - StepOne ignores it
 
 	var pauses []Pause
-	pause, eof, err := RunWithBreakpoints(sess, bps, StepOne, nil)
+	pause, eof, err := RunWithBreakpoints(sess, bps, StepOne, nil, nil)
 	for !eof {
 		if err != nil {
 			t.Fatal(err)
 		}
 		pauses = append(pauses, pause)
-		pause, eof, err = ContinueWithBreakpoints(sess, bps, StepOne, "", nil)
+		pause, eof, err = ContinueWithBreakpoints(sess, bps, StepOne, "", nil, nil)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -322,7 +402,7 @@ func TestRedoUntilTarget_DrainsInterleavedPauseSilently(t *testing.T) {
 	bps := NewBreakpointSet()
 	bps.Set("TASK: task one")
 
-	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil)
+	pause, eof, err := RunWithBreakpoints(sess, bps, RunTillBreakpoint, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

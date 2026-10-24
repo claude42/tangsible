@@ -386,6 +386,34 @@ type liveSession struct {
 	// concurrently (F5 held down, a double keypress, ...), the same
 	// single-flight role Session's own REPL channel requires.
 	debugDriving bool
+	// debugLoopDriving is true only while debugStartOrContinue's own
+	// RunWithBreakpoints/ContinueWithBreakpoints call (F5/F10/F11's
+	// applyPolicy loop, internal/debugrun) is the thing in flight -
+	// narrower than debugDriving above, which is also true during F12's
+	// own debugRedo and the watch panel's variable-set round-trip
+	// (debugSetWatch). q's own soft-stop meaning (handleGlobalQuit,
+	// livesession_input.go) only makes sense for the applyPolicy loop:
+	// RedoUntilTarget is already bounded/single-target (its own doc
+	// comment, debugrun/breakpoints.go) and debugSetWatch is one bounded
+	// REPL round-trip - neither a multi-pause loop a soft stop could act
+	// on. q during either of those two still sends a real SIGINT exactly
+	// as it always has, gated on this field being false. Set/cleared
+	// alongside debugDriving in debugStartOrContinue/
+	// debugApplyPauseResult/debugFinish; never touched by debugRedo/
+	// debugSetWatch.
+	debugLoopDriving bool
+	// debugStopPending is q's one-shot "soft stop" request
+	// (handleGlobalQuit), made while debugLoopDriving is true - design-
+	// docs/DebugMode.md's "q's own soft stop while actively driving".
+	// Unlike every other field in this section, it's genuinely written
+	// from the event-loop goroutine (q's own synchronous input-capture
+	// handler) and read from debugStartOrContinue's own background
+	// goroutine, repeatedly, inside applyPolicy's loop - CLAUDE.md's
+	// "Atomics only, no mutex" applies here exactly as it already does
+	// for processDone/quitting/exitCode, even though this field never
+	// leaves internal/session. Consumed via CompareAndSwap, not a plain
+	// Load - see debugConsumeStopRequest (livesession_debug.go).
+	debugStopPending atomic.Bool
 	// debugPausedHost is "" unless genuinely paused at a breakpoint right
 	// now - distinct from s.processDone (CLAUDE.md's "Generation outcome
 	// ordering" invariant covers that one; a pause is the child process

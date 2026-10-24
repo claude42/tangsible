@@ -67,6 +67,7 @@ var treeHelp = uikit.HelpScreen{
 			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
 			{Keys: "F12", Desc: "Redo - re-run the task/host currently paused at, waiting for that exact result", ID: helpIDDebug},
 			{Keys: "v", Desc: "Open the variable watch explorer (type expr = value to set one)", ID: helpIDDebug},
+			{Keys: "q", Desc: "While running: soft stop - finish this task, then pause (ctrl-c still force-kills)", ID: helpIDDebug},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},
@@ -127,6 +128,7 @@ var outputHelp = uikit.HelpScreen{
 			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
 			{Keys: "F12", Desc: "Redo - re-run the task/host currently paused at, waiting for that exact result", ID: helpIDDebug},
 			{Keys: "v", Desc: "Open the variable watch explorer (type expr = value to set one)", ID: helpIDDebug},
+			{Keys: "q", Desc: "While running: soft stop - finish this task, then pause (ctrl-c still force-kills)", ID: helpIDDebug},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},

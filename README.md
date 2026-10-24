@@ -421,6 +421,13 @@ layered on (no separate "debug view" of its own):
 | `F12` | Redo - re-run the task/host currently paused at, waiting for that exact result |
 | `v` | Open the variable watch explorer (type `expr = value` to set one) |
 
+`q`/`Ctrl-C` inherit their usual meaning from the Main tree above, with one
+exception: while F5/F10/F11 is actively running (not yet paused), `q`
+instead requests a soft stop - the real process is left untouched, the
+current task finishes naturally, and the very next pause is shown
+unconditionally, as if a single step had been taken. `Ctrl-C` always keeps
+its usual immediate-interrupt behavior, even then.
+
 **Template view**
 
 | Key | Action |

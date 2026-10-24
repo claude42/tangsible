@@ -2312,6 +2312,107 @@ cosmetic gap (the tab simply stays absent, same as any task that never
 ran). Recorded here as a known, accepted limitation instead - not
 planned to be revisited unless the tradeoff above changes.
 
+## q's own soft stop while actively driving (2026-10-24)
+
+**Reported live:** pressing F5 to run, then `q`/Ctrl-C mid-run, was
+expected to land back in the debugger at the current task (so stepping
+could continue) - instead it killed the whole run outright, landing
+straight in "finished - F5/F9/F10/F11/F12 disabled."
+
+**Root cause:** `q`/Ctrl-C in debug mode reused the exact same code plain
+`run`/`rerun`/`role` already have (`handleGlobalQuit`/`handleCtrlC`,
+`internal/session/livesession_input.go`) - both just send a real OS
+`SIGINT` straight to the live `ansible-playbook` child
+(`s.procH.Load().Signal(os.Interrupt)`), which aborts the whole run. This
+was deliberate reuse at the time (Stage 2's own "q/Ctrl-C needed zero
+debug-specific code"), but it overlooked something true only of debug
+mode: every task already has `debugger: always` spliced onto it
+(`internal/debugcopy`), so the debugger regains control after *every*
+task regardless of breakpoints - "running" (F5) is really `debugrun.
+applyPolicy`'s own loop (`internal/debugrun/breakpoints.go`) auto-
+resuming through every pause whose task isn't armed. There was never a
+need to kill anything to get back into the debugger - the next natural
+pause is always coming; the run just chose not to stop there.
+
+**Decided (and implemented): split `q` and Ctrl-C.** `q` while the
+F5/F10/F11 drive loop is actually in flight now requests a *soft stop*:
+the real process is never touched, the current task is left to finish
+naturally, and the very next pause surfaces unconditionally (like a
+single step) instead of being auto-continued past - one-shot, consumed
+the instant it's honored. Ctrl-C is **completely unchanged** - still an
+immediate, unconditional real `SIGINT` - kept as the escalation path for
+a task that's genuinely stuck or slow, since a soft stop can only take
+effect at the next task boundary, never mid-task.
+
+**Mechanism.** `applyPolicy`/`RunWithBreakpoints`/`ContinueWithBreakpoints`
+(`internal/debugrun/breakpoints.go`) gained a new `stopRequested func()
+bool` parameter, polled once per loop iteration, unconditionally, before
+`willSurface` is computed - OR'd in alongside the existing `bps.Has`/mode
+checks. Because the real implementation is itself a check-and-clear, a
+request is consumed the instant it's observed `true` on any iteration,
+with no attempt to distinguish "the stop caused this surface" from
+"something else (an armed breakpoint) also would have" - simplest correct
+behavior, and it also covers a stop requested before a call's very first
+pause has even arrived. `RedoUntilTarget` (F12) was deliberately left
+untouched - already bounded/single-target, the soft-stop concept doesn't
+apply to it.
+
+On the `internal/session` side, two new fields: `debugStopPending
+atomic.Bool` (`livesession.go`) - genuinely cross-goroutine (written by
+`q`'s own event-loop-goroutine key handler, read repeatedly from
+`debugStartOrContinue`'s background goroutine), so CLAUDE.md's "Atomics
+only, no mutex" applies here exactly as it already does for
+`processDone`/`quitting`/`exitCode`, even though this field never leaves
+`internal/session`; consumed via `debugConsumeStopRequest`'s
+`CompareAndSwap(true, false)`, not a plain `Load`. And `debugLoopDriving
+bool` - a narrower sibling of the existing `debugDriving`, true only while
+the F5/F10/F11 `applyPolicy` loop itself is in flight. This second field
+turned out to be the one real design subtlety: `debugDriving` is a
+*broader* single-flight guard also covering F12's own `debugRedo` and the
+watch panel's `debugSetWatch` - gating the new `q` branch on `debugDriving`
+alone would have silently removed the ability to interrupt a slow redo or
+an in-flight variable-set at all (nothing would ever consume the
+resulting stop flag, since only the `applyPolicy` loop checks it).
+`debugLoopDriving` is touched only in `debugStartOrContinue`/
+`debugApplyPauseResult`/`debugFinish`, never in `debugRedo`/
+`debugSetWatch` - so `q` during either of those two still sends today's
+unconditional `SIGINT`, unaffected.
+
+`handleGlobalQuit` (`livesession_input.go`) gained one new branch, checked
+before its existing `processDone`/SIGINT logic: `if s.debugMode &&
+s.debugLoopDriving { s.debugStopPending.Store(true); ...}`. `handleCtrlC`
+was **not touched at all**. `debugBottomBarHint` gained a new case
+(" stopping after this task... (ctrl-c to interrupt now) "), checked
+before the plain "running..." one.
+
+**New tests** (`internal/debugrun/breakpoints_test.go`, same real-
+`ansible-playbook` fixture/style as the existing `TestBreakpoints_
+RunTillBreakpoint_*`): `TestBreakpoints_StopRequested_
+SurfacesNextPauseEvenWithNothingArmed` (a one-shot stop with an empty
+breakpoint set surfaces the very next pause, then runs to eof once
+consumed) and `TestBreakpoints_StopRequested_ConsumedEvenWhenBreakpointAlsoFires`
+(an armed breakpoint and a pending stop on the exact same pause - confirms
+the stop closure is still called and consumed exactly once, not skipped
+just because the breakpoint alone would already surface it).
+
+**Verified live in tmux**, not just on paper: F5 on a task with a long
+`sleep`, `q` pressed within milliseconds - bottom bar immediately reads
+the new "stopping..." hint; the real `ansible-playbook`/`sleep` processes
+stay alive and unsignaled for the rest of the sleep; once it completes,
+the session lands genuinely paused at that exact task (not skipped
+further ahead), with the normal paused hint; F5 from there continues
+normally with no lingering effect. Separately confirmed unaffected:
+Ctrl-C during the same driving state still sends a real `SIGINT`
+immediately, killing the child within ~1s; `q` while genuinely *paused*
+(no F5 in flight) still sends `SIGINT` too, unchanged.
+
+**Known, accepted inconsistency, not addressed here:** `q` while
+genuinely paused still force-kills via `SIGINT` (confirmed live, above) -
+arguably the same "land back in the debugger" expectation could apply
+there too, even though there's nothing left to "soft stop" toward since
+it's already stopped. Flagged as a possible follow-up to ask about later;
+left untouched per the explicit scope decided for this round.
+
 ## Status
 
 **Design decided 2026-09-23, nothing implemented yet.** This doc replaces
