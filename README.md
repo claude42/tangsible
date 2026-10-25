@@ -246,7 +246,9 @@ tangsible role role_name  [ansible-playbook args...]
 ```
 
 It runs the role against `hosts: all`, while normal Ansible options such as
-`-i` and `-l` can be used to select the actual target.
+`-i` and `-l` can be used to select the actual target. The role is found in
+`./roles` or on Ansible's roles path (`$ANSIBLE_ROLES_PATH`, `roles_path`,
+`~/.ansible/roles`, `/usr/share/ansible/roles`, `/etc/ansible/roles`).
 
 
 ## Debugging a playbook (breakpoints)

@@ -25,17 +25,19 @@ complete -c tangsible -f
 # fish's own bundled git/docker completions rely on for positional
 # tracking, not a real parse of which flags consume a following word.
 function __tangsible_roles --description 'Role names tangsible could plausibly mean'
-	# Only ./roles and ~/.ansible/roles - design-docs/Tangsible role.md's
-	# own examples pull from these; a roles_path override in ansible.cfg
-	# or a Galaxy collection's own roles aren't considered, a deliberately
-	# narrow heuristic in the same spirit as tangsible's own "good enough
-	# for the common case" choices elsewhere.
-	for d in roles ~/.ansible/roles
+	# ./roles, $ANSIBLE_ROLES_PATH if set, else ansible's built-in
+	# defaults. A roles_path in ansible.cfg isn't consulted: asking
+	# ansible-config on every <TAB> is too slow.
+	set -l dirs ~/.ansible/roles /usr/share/ansible/roles /etc/ansible/roles
+	if set -q ANSIBLE_ROLES_PATH; and test -n "$ANSIBLE_ROLES_PATH"
+		set dirs (string split : -- $ANSIBLE_ROLES_PATH)
+	end
+	for d in roles $dirs
 		test -d $d; or continue
 		for r in $d/*/
 			basename $r
 		end
-	end
+	end | sort -u
 end
 
 # --- Verb (the first positional) ---

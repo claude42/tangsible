@@ -62,8 +62,8 @@ orchestration + the live TUI) · one package per standalone verb (`role`,
 primitives: shadow-copy/splice, the live process driver + breakpoint
 policy, and skeleton-seeded state/event resolution, respectively -
 `internal/session` is their only caller, same as any other verb-specific
-package above) · `internal/inventory`, `internal/ansibledoc` (small shared
-clients). Only `internal/session` (its `tui.go` and `livesession*.go`) and
+package above) · `internal/inventory`, `internal/ansibledoc`, `internal/rolepath` (small
+shared clients). Only `internal/session` (its `tui.go` and `livesession*.go`) and
 `internal/uikit` touch `tview`/`tcell`; `session/main.go` doesn't, and
 neither does any of debug mode's own three packages.
 
@@ -252,7 +252,8 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   between edits) with difflib opcodes; runs in `app.Suspend` so the tree
   resumes afterwards.
 - **Role** (`Tangsible role.md`): stub `.tangsible-role-<role>.yml` in the
-  *cwd* (source lookup walks the playbook's directory).
+  *cwd* (source lookup walks the playbook's directory, plus referenced
+  roles found via `internal/rolepath` - display only, `debug` stays in-tree).
 - **Template** (`Tangsible template.md`): stub + output in one private scratch
   dir (removed as a whole, also on SIGTERM/SIGHUP - a late write from an
   interrupted render then fails instead of leaking); `hosts: all` + `--limit`

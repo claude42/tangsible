@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/rolepath"
 	"github.com/pmezard/go-difflib/difflib"
 	"github.com/rivo/tview"
 )
@@ -494,8 +495,24 @@ func TaskSourceFile(path string) string {
 // parallel one.
 var RolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers|templates)/`)
 
+// stripLineSuffix drops a trailing ":<digits>" (a task path's line number).
+func stripLineSuffix(path string) string {
+	i := strings.LastIndexByte(path, ':')
+	if i < 0 || i == len(path)-1 {
+		return path
+	}
+	for _, c := range path[i+1:] {
+		if c < '0' || c > '9' {
+			return path
+		}
+	}
+	return path[:i]
+}
+
 // RoleFromPath returns the role name a task's or template's own path was
-// sourced from, or "" if it doesn't match the standard
+// sourced from - judged first against the effective roles_path
+// (rolepath.Dirs, so a roles directory not called "roles" still works),
+// then by the roles/<name>/ pattern - or "" if it doesn't match the standard
 // roles/<name>/tasks|handlers|templates/ layout at all (a play-level task,
 // a template outside any role, or a role laid out unconventionally).
 // Matched directly against the full "<file>:<line>" path (or, for a
@@ -504,6 +521,9 @@ var RolePathPattern = regexp.MustCompile(`/roles/([^/]+)/(?:tasks|handlers|templ
 // after "tasks"/"handlers"/"templates", which a trailing ":<line>" (a
 // task's own path shape) never interferes with.
 func RoleFromPath(path string) string {
+	if _, name := rolepath.FromPath(stripLineSuffix(path), rolepath.Dirs()); name != "" {
+		return name
+	}
 	m := RolePathPattern.FindStringSubmatch(path)
 	if m == nil {
 		return ""

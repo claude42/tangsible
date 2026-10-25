@@ -17,7 +17,8 @@ package role
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"code.aw.net/claude/tangsible/internal/rolepath"
 )
 
 // RoleStubFilename returns the dot-prefixed stub playbook filename
@@ -25,10 +26,10 @@ import (
 // current working directory, never a system temp directory. That matters
 // beyond tidiness: source.go's buildTaskSourceIndex finds a task's own
 // source for the output drill-down view by walking the *playbook's own*
-// directory tree, never by tracing roles:/include_role references - a
-// stub written to a system temp directory would start that walk from an
-// empty directory and the role's own Task definition sections would
-// silently go blank for every role run. Dot-prefixed so it doesn't clutter
+// directory tree (plus the directories of roles named in its roles: list
+// that live elsewhere on the roles path) - a stub written to a system temp
+// directory would start that walk from an empty directory and a
+// project-local role's Task definition sections would silently go blank. Dot-prefixed so it doesn't clutter
 // a directory listing next to the user's own files; should be
 // .gitignore'd (not done automatically - same "don't reach beyond the
 // project's own files uninvited" restraint writeState already exercises
@@ -55,22 +56,19 @@ func WriteRoleStub(role string) (path string, err error) {
 	return path, nil
 }
 
-// RoleFoundNearby is a best-effort check for whether role's own directory
-// is actually discoverable under the current working directory (the
-// standard ./roles/<name> layout) - purely informational, used to warn the
-// user up front rather than to gate anything: per design-docs/Tangsible
-// role.md's own "best-effort, degrade gracefully" decision, the stub is
-// generated and handed to ansible-playbook regardless of what this
-// reports. Deliberately doesn't also search $ANSIBLE_ROLES_PATH or any
-// other of ansible's own role-search locations - since the stub always
-// lives in the current working directory (see roleStubFilename), only a
-// role actually reachable from *that* directory can ever have its source
-// found by buildTaskSourceIndex's own walk, so checking places the walk
-// could never reach anyway would just be dead code, not a more thorough
-// check.
-func RoleFoundNearby(role string) bool {
-	info, err := os.Stat(filepath.Join("roles", role))
-	return err == nil && info.IsDir()
+// RoleFound is a best-effort check for whether role's own directory is
+// discoverable the way ansible would find it: ./roles/<name> under the
+// current working directory first, then each roles_path entry
+// (rolepath.Dirs: $ANSIBLE_ROLES_PATH, ansible.cfg, or ansible's built-in
+// ~/.ansible/roles, /usr/share/ansible/roles, /etc/ansible/roles) -
+// purely informational, used to warn the user up front rather than to
+// gate anything: per design-docs/Tangsible role.md's own "best-effort,
+// degrade gracefully" decision, the stub is generated and handed to
+// ansible-playbook regardless of what this reports. A role found outside
+// ./roles still gets its Task definition sections, because the source
+// index (source.BuildTaskSourceIndex) looks in the same places.
+func RoleFound(role string) bool {
+	return rolepath.Find(role, ".", rolepath.Dirs()) != ""
 }
 
 // StartRoleSession generates a fresh stub playbook for role and returns
@@ -89,8 +87,8 @@ func StartRoleSession(role string) (stubPath string, cleanup func()) {
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't create stub playbook for role %q: %v\n", role, err)
 		os.Exit(1)
 	}
-	if !RoleFoundNearby(role) {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't find ./roles/%s - ansible-playbook will still try to resolve it, but the drill-down view's Task definition section won't be available for it\n", role)
+	if !RoleFound(role) {
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't find role %q in ./roles or the roles path - ansible-playbook will still try to resolve it, but the drill-down view's Task definition section won't be available for it\n", role)
 	}
 	return path, func() { os.Remove(path) }
 }

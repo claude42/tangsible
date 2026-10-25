@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-role" "1" "2026-09-16" "Tangsible" "Tangsible Manual"
+.TH "tangsible-role" "1" "2026-10-25" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -24,13 +24,13 @@ runs it exactly as \fBtangsible-run\fR(1) would, and removes the stub again once
 Tangsible exits.\&
 .PP
 The stub always targets \fBhosts: all\fR; narrow the actual target the normal
-way, with \fB-i\fR/\fB-l\fR passthrough arguments.\& If a \fB.\&/roles/\fR\fIrole_name\fR
-directory isn'\&t found relative to the current directory, a warning is
-printed up front — the run proceeds regardless (Ansible may still resolve
-the role from \fB$ANSIBLE_ROLES_PATH\fR, a configured roles path, or a
-collection), but the drill-down view'\&s Task definition section won'\&t be
-available for it, since the source lookup only ever walks the stub'\&s own
-directory tree.\&
+way, with \fB-i\fR/\fB-l\fR passthrough arguments.\& The role is looked up as Ansible
+would: \fB.\&/roles/\fR\fIrole_name\fR, then each entry of the effective roles path
+(\fB$ANSIBLE_ROLES_PATH\fR, \fBroles_path\fR in \fBansible.\&cfg\fR, or the defaults
+\fB~/.\&ansible/roles\fR, \fB/usr/share/ansible/roles\fR, \fB/etc/ansible/roles\fR).\& If
+it isn'\&t found, a warning is printed up front — the run proceeds regardless
+(Ansible may still resolve the role some other way, e.\&g.\& from a collection),
+but the drill-down view'\&s Task definition section won'\&t be available for it.\&
 .PP
 Everything else — the live tree, filtering, the rerun dialog, the diff
 picker — works exactly as in \fBtangsible-run\fR(1).\&

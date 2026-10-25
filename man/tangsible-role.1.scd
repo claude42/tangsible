@@ -17,13 +17,13 @@ runs it exactly as *tangsible-run*(1) would, and removes the stub again once
 Tangsible exits.
 
 The stub always targets *hosts: all*; narrow the actual target the normal
-way, with *-i*/*-l* passthrough arguments. If a *./roles/*_role_name_
-directory isn't found relative to the current directory, a warning is
-printed up front — the run proceeds regardless (Ansible may still resolve
-the role from *$ANSIBLE_ROLES_PATH*, a configured roles path, or a
-collection), but the drill-down view's Task definition section won't be
-available for it, since the source lookup only ever walks the stub's own
-directory tree.
+way, with *-i*/*-l* passthrough arguments. The role is looked up as Ansible
+would: *./roles/*_role_name_, then each entry of the effective roles path
+(*$ANSIBLE_ROLES_PATH*, *roles_path* in *ansible.cfg*, or the defaults
+*~/.ansible/roles*, */usr/share/ansible/roles*, */etc/ansible/roles*). If
+it isn't found, a warning is printed up front — the run proceeds regardless
+(Ansible may still resolve the role some other way, e.g. from a collection),
+but the drill-down view's Task definition section won't be available for it.
 
 Everything else — the live tree, filtering, the rerun dialog, the diff
 picker — works exactly as in *tangsible-run*(1).

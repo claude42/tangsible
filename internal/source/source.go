@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"code.aw.net/claude/tangsible/internal/rolepath"
 )
 
 // TaskSourceIndex maps a task's Ansible-reported path ("<absolute
@@ -188,8 +190,38 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	}
 
 	root := filepath.Dir(abs)
-	files := []string{abs}
+	files := append([]string{abs}, yamlFilesUnder(root, abs)...)
 
+	roleNames := map[string]bool{}
+	for _, f := range files {
+		for _, name := range indexFile(f, index, tagSet, nameSet, nil) {
+			roleNames[name] = true
+		}
+	}
+
+	// Roles referenced from a play's roles: but living outside the
+	// playbook's own tree (~/.ansible/roles, /etc/ansible/roles,
+	// /usr/share/ansible/roles, any roles_path) - their tasks run just the
+	// same, so they need a Task definition section too. Only referenced
+	// roles are walked, never a whole system directory. Display only:
+	// ListTaskLocations deliberately doesn't do this (debug mode can only
+	// splice files in its shadow copy of the project tree).
+	for name := range roleNames {
+		dir := rolepath.Find(name, root, rolepath.Dirs())
+		if dir == "" || isUnder(dir, root) {
+			continue // not found, or already covered by the walk above
+		}
+		for _, f := range yamlFilesUnder(dir, "") {
+			indexFile(f, index, tagSet, nameSet, nil)
+		}
+	}
+	return index, sortedSet(tagSet), sortedSet(nameSet)
+}
+
+// yamlFilesUnder returns every .yml/.yaml file under root except skip
+// (pass "" for none), skipping .git and .tangsible directories.
+func yamlFilesUnder(root, skip string) []string {
+	var files []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // unreadable entry - skip it, not fatal to the walk
@@ -200,8 +232,8 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 			}
 			return nil
 		}
-		if path == abs {
-			return nil // already included above
+		if path == skip {
+			return nil
 		}
 		switch strings.ToLower(filepath.Ext(path)) {
 		case ".yml", ".yaml":
@@ -209,11 +241,13 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 		}
 		return nil
 	})
+	return files
+}
 
-	for _, f := range files {
-		indexFile(f, index, tagSet, nameSet, nil)
-	}
-	return index, sortedSet(tagSet), sortedSet(nameSet)
+// isUnder reports whether path is dir itself or lies inside it.
+func isUnder(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // topLevelPlay is one entry in a playbook file's own top-level sequence -
@@ -424,21 +458,21 @@ func sortedSet(set map[string]bool) []string {
 // top-level shape that isn't a sequence (e.g. a vars file, which is a
 // mapping) simply indexes nothing from this file - never propagated as an
 // error.
-func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bool, locations *[]TaskLocation) {
+func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bool, locations *[]TaskLocation) (roleNames []string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return nil
 	}
 
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
-		return
+		return nil
 	}
 	root := doc.Content[0] // yaml.Unmarshal into a *yaml.Node wraps the
 	// real top-level node one level down in a DocumentNode - root here is
 	// that actual top-level node.
 	if root.Kind != yaml.SequenceNode {
-		return
+		return nil
 	}
 
 	lines := strings.Split(string(data), "\n")
@@ -465,12 +499,14 @@ func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bo
 			}
 			collectTags(play, tagSet)
 			collectRoleTags(play, tagSet)
+			roleNames = append(roleNames, collectRoleNames(play)...)
 			walkMappingForTaskLists(path, play, playTaskListKeys, lines, playEnd, index, tagSet, nameSet, locations)
 		}
-		return
+		return roleNames
 	}
 
 	indexTaskList(path, root, lines, totalLines+1, index, tagSet, nameSet, locations)
+	return nil
 }
 
 // collectTags reads mapping's own "tags:" value, if any - a scalar
@@ -529,6 +565,32 @@ func collectRoleTags(play *yaml.Node, tagSet map[string]bool) {
 			collectTags(r, tagSet)
 		}
 	}
+}
+
+// collectRoleNames returns the literal name of every role in play's own
+// "roles:" sequence: the bare "- somerole" form, or a mapping's "role:"
+// (or older "name:") value. A templated or non-scalar value is skipped.
+func collectRoleNames(play *yaml.Node) []string {
+	roles := mappingValue(play, "roles")
+	if roles == nil || roles.Kind != yaml.SequenceNode {
+		return nil
+	}
+	var names []string
+	for _, r := range roles.Content {
+		v := r
+		if r.Kind == yaml.MappingNode {
+			if v = mappingValue(r, "role"); v == nil {
+				v = mappingValue(r, "name")
+			}
+		}
+		if v == nil || v.Kind != yaml.ScalarNode {
+			continue
+		}
+		if n := strings.TrimSpace(v.Value); n != "" && !strings.Contains(n, "{{") {
+			names = append(names, n)
+		}
+	}
+	return names
 }
 
 // mappingValue returns the value node for key within mapping node m, or

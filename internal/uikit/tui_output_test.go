@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/rolepath"
 )
 
 // TestBuildTaskTab_RecolorsIgnoredFailure covers the drill-down view's own
@@ -980,4 +981,17 @@ func TestBuildOutputTabsFileVisibility(t *testing.T) {
 			t.Errorf("names = %v, want no File tab on a fetch error - design-docs/ShowFileContents.md says don't display it", names)
 		}
 	})
+}
+
+func TestRoleFromPath_CustomRolesPath(t *testing.T) {
+	defer rolepath.SetDirs([]string{"/opt/ansible-roles"})()
+	for path, want := range map[string]string{
+		"/opt/ansible-roles/nginx/tasks/main.yml:7": "nginx", // not under a dir called "roles"
+		"/proj/roles/web/tasks/main.yml:3":          "web",   // pattern fallback
+		"/proj/site.yml:4":                          "",
+	} {
+		if got := RoleFromPath(path); got != want {
+			t.Errorf("RoleFromPath(%q) = %q, want %q", path, got, want)
+		}
+	}
 }

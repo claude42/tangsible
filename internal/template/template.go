@@ -41,6 +41,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/rolepath"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
@@ -166,6 +167,9 @@ func RoleDir(path string) (dir, name string) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", ""
+	}
+	if dir, name := rolepath.FromPath(abs, rolepath.Dirs()); name != "" {
+		return dir, name
 	}
 	loc := uikit.RolePathPattern.FindStringSubmatchIndex(abs)
 	if loc == nil {

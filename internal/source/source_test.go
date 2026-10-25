@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"code.aw.net/claude/tangsible/internal/rolepath"
 )
 
 func TestBuildTaskSourceIndex(t *testing.T) {
@@ -490,4 +492,48 @@ func containsSourceFor(index TaskSourceIndex, taskName string) bool {
 		}
 	}
 	return false
+}
+
+func TestBuildTaskSourceIndex_ExternalRole(t *testing.T) {
+	ext := t.TempDir()
+	defer rolepath.SetDirs([]string{ext})()
+
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(ext, "used", "tasks", "main.yml"), "- name: external used task\n  debug: msg=hi\n")
+	write(filepath.Join(ext, "mapped", "tasks", "main.yml"), "- name: external mapped task\n  debug: msg=hi\n")
+	write(filepath.Join(ext, "unused", "tasks", "main.yml"), "- name: external unused task\n  debug: msg=hi\n")
+
+	proj := t.TempDir()
+	pb := filepath.Join(proj, "site.yml")
+	write(pb, "- hosts: all\n  roles:\n    - used\n    - role: mapped\n      tags: [m]\n    - missing\n")
+
+	index, _, names := BuildTaskSourceIndex(pb)
+	joined := ""
+	for _, src := range index {
+		joined += src + "\n"
+	}
+	for _, want := range []string{"external used task", "external mapped task"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("index lacks %q (referenced external role not indexed)", want)
+		}
+	}
+	if strings.Contains(joined, "external unused task") {
+		t.Error("index contains a task of an unreferenced external role")
+	}
+	_ = names
+
+	// Debug mode's breakpoint locations stay within the project tree.
+	for _, loc := range ListTaskLocations(pb) {
+		if strings.HasPrefix(loc.Path, ext) {
+			t.Errorf("ListTaskLocations returned external location %v", loc)
+		}
+	}
 }

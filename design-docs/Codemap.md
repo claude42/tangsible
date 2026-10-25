@@ -75,11 +75,18 @@ package reads.
 - **role.go** - the "role" verb: generates/removes a throwaway stub
   playbook for `roles: [name]`.
 
+## internal/rolepath
+
+- **rolepath.go** - ansible's effective roles path (`Dirs`, from
+  `ansible-config dump`, built-in defaults as fallback), `Find` a role by
+  name, `FromPath` the role a file belongs to.
+
 ## internal/source
 
 - **source.go** - `BuildTaskSourceIndex`: finds a task's own YAML
   source text (the drill-down's TASK: section) by indexing every
-  `.yml`/`.yaml` file under the playbook's directory tree.
+  `.yml`/`.yaml` file under the playbook's directory tree, plus the
+  roles named in its `roles:` lists that live elsewhere on the roles path.
   `ListTaskLocations` walks the same tree for `TaskLocation` (file/line/
   indent, not text) - debug mode's own splice-point data
   (`design-docs/DebugMode.md`), not used by the drill-down itself.

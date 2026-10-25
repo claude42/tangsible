@@ -3940,6 +3940,15 @@ show live variable state for free, once Phase 1 ships.
 - Whether single-step and named breakpoints share one mechanism or need
   separate code paths.
 
+## Known gap: roles outside the project tree get no breakpoints (2026-10-25)
+
+Plain `run`/`rerun`/`role` now index roles found on ansible's roles path
+(`~/.ansible/roles`, `/etc/ansible/roles`, ..., see `internal/rolepath`) for
+the Task definition tab. `debug` deliberately doesn't: `ListTaskLocations`
+stays within the playbook's directory tree, because the `debugger:` splice
+only applies to files in the shadow copy. Tasks of such a role still run
+(and show in the tree) but can't have breakpoints.
+
 # Resume
 
 claude --resume ffbd62f0-5860-4b91-a329-4872afd4657e

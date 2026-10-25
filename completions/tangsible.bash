@@ -118,15 +118,19 @@ _tangsible_ymlfiles()
 }
 
 # Role names tangsible could plausibly mean for "tangsible role <name>" -
-# a subdirectory name under ./roles or ~/.ansible/roles, the two places
-# design-docs/Tangsible role.md's own examples pull from. Not aware of
-# roles_path overrides in ansible.cfg or Galaxy-installed collections'
-# own roles - a deliberately narrow heuristic, same spirit as tangsible's
-# own "good enough for the common case" choices elsewhere.
+# a subdirectory name under ./roles, $ANSIBLE_ROLES_PATH if set, else
+# ansible's built-in defaults (~/.ansible/roles, /usr/share/ansible/roles,
+# /etc/ansible/roles). A roles_path in ansible.cfg isn't consulted: asking
+# ansible-config on every <TAB> is too slow.
 _tangsible_roles()
 {
-	local d name
-	for d in roles ~/.ansible/roles; do
+	local d name dirs
+	if [ -n "$ANSIBLE_ROLES_PATH" ]; then
+		IFS=: read -ra dirs <<< "$ANSIBLE_ROLES_PATH"
+	else
+		dirs=(~/.ansible/roles /usr/share/ansible/roles /etc/ansible/roles)
+	fi
+	for d in roles "${dirs[@]}"; do
 		[ -d "$d" ] || continue
 		for name in "$d"/*/; do
 			[ -d "$name" ] || continue

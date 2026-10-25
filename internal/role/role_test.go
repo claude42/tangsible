@@ -67,25 +67,25 @@ func TestWriteRoleStub(t *testing.T) {
 	})
 }
 
-func TestRoleFoundNearby(t *testing.T) {
+func TestRoleFound(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if RoleFoundNearby("myrole") {
-		t.Error("roleFoundNearby(myrole) = true before ./roles/myrole exists, want false")
+	if RoleFound("myrole") {
+		t.Error("RoleFound(myrole) = true before ./roles/myrole exists, want false")
 	}
 
 	if err := os.MkdirAll(filepath.Join("roles", "myrole", "tasks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if !RoleFoundNearby("myrole") {
-		t.Error("roleFoundNearby(myrole) = false after creating ./roles/myrole, want true")
+	if !RoleFound("myrole") {
+		t.Error("RoleFound(myrole) = false after creating ./roles/myrole, want true")
 	}
 
 	// A plain file at that path (not a directory) shouldn't count.
 	if err := os.WriteFile(filepath.Join("roles", "notadir"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if RoleFoundNearby("notadir") {
-		t.Error("roleFoundNearby(notadir) = true for a plain file, want false")
+	if RoleFound("notadir") {
+		t.Error("RoleFound(notadir) = true for a plain file, want false")
 	}
 }
