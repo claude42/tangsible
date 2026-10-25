@@ -1,0 +1,17 @@
+- name: Install postgresql
+  command: sleep 0.8
+  changed_when: not (demo_root ~ '/' ~ inventory_hostname ~ '/etc/postgresql.conf') is file
+
+- name: Configure postgresql
+  template:
+    src: postgresql.conf.j2
+    dest: "{{ demo_root }}/{{ inventory_hostname }}/etc/postgresql.conf"
+    mode: "0644"
+
+- name: Create application database
+  command: sleep 0.4
+
+- name: Schedule nightly backup
+  copy:
+    dest: "{{ demo_root }}/{{ inventory_hostname }}/etc/pg-backup.cron"
+    content: "0 2 * * * postgres pg_dumpall > /var/backups/all.sql\n"

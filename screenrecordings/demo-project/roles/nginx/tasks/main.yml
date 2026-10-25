@@ -1,0 +1,32 @@
+- name: Install nginx
+  command: sleep 0.6
+  changed_when: not (demo_root ~ '/' ~ inventory_hostname ~ '/etc/nginx.conf') is file
+
+- name: Configure nginx
+  template:
+    src: nginx.conf.j2
+    dest: "{{ demo_root }}/{{ inventory_hostname }}/etc/nginx.conf"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Deploy site content
+  copy:
+    dest: "{{ demo_root }}/{{ inventory_hostname }}/var/www/index.html"
+    content: "<h1>{{ inventory_hostname }}.{{ domain }}</h1>\n"
+    mode: "0644"
+
+- name: Enable status page on staging
+  copy:
+    dest: "{{ demo_root }}/{{ inventory_hostname }}/etc/nginx-status.conf"
+    content: "location /status { stub_status; }\n"
+  when: inventory_hostname == 'web02'
+
+- name: Open firewall for http
+  command: sleep 0.4
+  changed_when: false
+
+- name: Start nginx
+  command: ./start-nginx.sh {{ demo_root }}/{{ inventory_hostname }}
+  args:
+    chdir: "{{ role_path }}/files"
+  changed_when: false

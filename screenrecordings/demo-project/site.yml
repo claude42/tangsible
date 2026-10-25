@@ -1,0 +1,17 @@
+- name: Common baseline
+  hosts: all
+  gather_facts: false
+  roles:
+    - common
+
+- name: Web servers
+  hosts: webservers
+  gather_facts: false
+  roles:
+    - nginx
+
+- name: Database servers
+  hosts: databases
+  gather_facts: false
+  roles:
+    - postgresql

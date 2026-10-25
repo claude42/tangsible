@@ -1,0 +1,8 @@
+worker_processes auto;
+
+server {
+    listen 80;
+    server_name {{ inventory_hostname }}.{{ domain }};
+    root /var/www;
+    access_log /var/log/nginx/{{ inventory_hostname }}.access.log;
+}

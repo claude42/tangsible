@@ -49,6 +49,10 @@ callback/__pycache__/
 # output/hostnames.
 /.tangsible/runs/
 
+# State `tangsible run` leaves in the screen-recording demo project
+# (screenrecordings/demo.tape resets it before every render).
+/screenrecordings/demo-project/.tangsible/
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 

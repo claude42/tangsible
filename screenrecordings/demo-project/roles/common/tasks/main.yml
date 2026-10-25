@@ -1,0 +1,29 @@
+- name: Create host directory tree
+  file:
+    path: "{{ demo_root }}/{{ inventory_hostname }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [etc, etc/motd.d, var/www, run]
+
+- name: Update package cache
+  command: sleep 0.4
+  changed_when: false
+
+- name: Install baseline packages
+  command: sleep 0.4
+  register: pkgs
+  changed_when: not (demo_root ~ '/' ~ inventory_hostname ~ '/etc/motd') is file
+
+- name: Deploy message of the day
+  template:
+    src: motd.j2
+    dest: "{{ demo_root }}/{{ inventory_hostname }}/etc/motd"
+    mode: "0644"
+
+- name: Disable password authentication for ssh
+  copy:
+    dest: "{{ demo_root }}/{{ inventory_hostname }}/etc/sshd_config"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+    mode: "0600"
