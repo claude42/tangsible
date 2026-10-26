@@ -30,22 +30,16 @@ Wait+Screen /Playbook (completed|failed)/
 Sleep 3s
 Type "q"
 Sleep 1s
-Type "q"
-Sleep 1s
 Type "clear" Enter
 Type "tangsible run site.yml --limit webservers" Enter
 Wait+Screen /Playbook (completed|failed)/
 Sleep 3s
 Type "q"
 Sleep 1s
-Type "q"
-Sleep 1s
 Type "clear" Enter
 Type "tangsible run site.yml" Enter
 Wait+Screen /Playbook (completed|failed)/
 Sleep 3s
-Type "q"
-Sleep 1s
 Type "q"
 Sleep 1s
 Type "clear" Enter

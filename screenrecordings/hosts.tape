@@ -31,8 +31,6 @@ Wait+Screen /Playbook (completed|failed)/
 Sleep 3s
 Type "q"
 Sleep 1s
-Type "q"
-Sleep 1s
 Type "clear" Enter
 Sleep 500ms
 Show
