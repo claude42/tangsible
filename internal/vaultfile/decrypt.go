@@ -36,7 +36,7 @@ func rejectNestedVault(n *yaml.Node) error {
 // (wrong password or corrupted data); or a !vault tag on a non-scalar
 // node (malformed input).
 func BuildDecryptedView(sourceBytes []byte, password string) (DecryptedView, error) {
-	doc, root, lines, err := parseTopLevelMapping(sourceBytes)
+	_, root, lines, err := parseTopLevelMapping(sourceBytes)
 	if err != nil {
 		return DecryptedView{}, err
 	}
@@ -49,6 +49,19 @@ func BuildDecryptedView(sourceBytes []byte, password string) (DecryptedView, err
 		PresentBefore: map[string]bool{},
 		IndentWidth:   detectIndentWidth(lines),
 	}
+
+	// The editable view is the source file's own text with only each
+	// vaulted entry's lines swapped for its decrypted form - not a yaml.v3
+	// re-encoding of the whole tree, which silently drops blank lines
+	// between entries (and reformats everything else). Everything not
+	// replaced - header, plain entries, comments, blank lines - stays
+	// byte-for-byte, so Reassemble's gaps (taken from the edited file) still
+	// carry them through to the saved file.
+	type replacement struct {
+		start, n int // 1-indexed first line and line count of the entry
+		text     []string
+	}
+	var repls []replacement
 
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		keyNode := root.Content[i]
@@ -74,20 +87,26 @@ func BuildDecryptedView(sourceBytes []byte, password string) (DecryptedView, err
 
 		view.VaultedBefore[key] = plaintext
 
-		valNode.Tag = ""
-		valNode.Value = plaintext
-		if strings.Contains(plaintext, "\n") {
-			valNode.Style = yaml.LiteralStyle
-		} else {
-			valNode.Style = 0
+		text, err := encodePlainEntry(key, plaintext, view.IndentWidth)
+		if err != nil {
+			return DecryptedView{}, fmt.Errorf("vaultfile: encoding decrypted view: %w", err)
 		}
+		repls = append(repls, replacement{
+			start: keyNode.Line,
+			n:     strings.Count(sourceContent[key], "\n") + 1,
+			text:  text,
+		})
 	}
 
-	plaintextYAML, err := encodeNode(doc, view.IndentWidth)
-	if err != nil {
-		return DecryptedView{}, fmt.Errorf("vaultfile: encoding decrypted view: %w", err)
+	var out []string
+	next := 1
+	for _, r := range repls {
+		out = append(out, sliceLines(lines, next, r.start-1)...)
+		out = append(out, r.text...)
+		next = r.start + r.n
 	}
-	view.PlaintextYAML = plaintextYAML
+	out = append(out, sliceLines(lines, next, len(lines))...)
+	view.PlaintextYAML = strings.Join(out, "\n")
 
 	return view, nil
 }

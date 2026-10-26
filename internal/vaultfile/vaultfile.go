@@ -134,9 +134,9 @@ func parseTopLevelMapping(data []byte) (doc, root *yaml.Node, lines []string, er
 // without trimming first) counts here, deliberately: an *indented* line
 // starting with "#" could legitimately be part of a multi-line secret's
 // own literal content, not a comment at all.
-func keyContentSpans(root *yaml.Node, lines []string) (headerLines []string, contents, gaps map[string]string) {
+func keyContentSpans(root *yaml.Node, lines []string) (headerLines []string, contents map[string]string, gaps map[string][]string) {
 	contents = map[string]string{}
-	gaps = map[string]string{}
+	gaps = map[string][]string{}
 
 	firstLine := len(lines) + 1
 	if len(root.Content) > 0 {
@@ -152,6 +152,11 @@ func keyContentSpans(root *yaml.Node, lines []string) (headerLines []string, con
 			end = root.Content[i+2].Line
 		}
 		span := sliceLines(lines, start, end-1)
+		if end == len(lines)+1 && len(span) > 0 && span[len(span)-1] == "" {
+			// strings.Split of text ending in "\n" yields a final "" that
+			// isn't a line; Reassemble adds the final newline itself.
+			span = span[:len(span)-1]
+		}
 
 		contentEnd := len(span)
 		for contentEnd > 0 {
@@ -163,7 +168,9 @@ func keyContentSpans(root *yaml.Node, lines []string) (headerLines []string, con
 			break
 		}
 		contents[key] = strings.Join(span[:contentEnd], "\n")
-		gaps[key] = strings.Join(span[contentEnd:], "\n")
+		// Lines, not a joined string: a gap of exactly one blank line
+		// would join to "" and be indistinguishable from no gap at all.
+		gaps[key] = span[contentEnd:]
 	}
 	return headerLines, contents, gaps
 }
@@ -247,19 +254,30 @@ func detectIndentWidth(lines []string) int {
 	return defaultIndentWidth
 }
 
-// encodeNode encodes doc (the document node, not the mapping node it
-// wraps - see parseTopLevelMapping's doc comment on why that distinction
-// matters for comment preservation) back to YAML text with the given
-// indent width.
-func encodeNode(doc *yaml.Node, indentWidth int) (string, error) {
+// encodePlainEntry renders one "key: value" entry with value as a plain
+// string (a literal block for multi-line values), as the lines that replace
+// that key's vaulted block in the editable view. Built from fresh nodes -
+// no comments or other state of the source tree leak in - and tagged !!str
+// so a value like "12345" or "true" comes out quoted and stays a string
+// when the view is parsed again.
+func encodePlainEntry(key, plaintext string, indentWidth int) ([]string, error) {
+	val := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: plaintext}
+	if strings.Contains(plaintext, "\n") {
+		val.Style = yaml.LiteralStyle
+	}
+	entry := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+		{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		val,
+	}}
+
 	var buf strings.Builder
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(indentWidth)
-	if err := enc.Encode(doc); err != nil {
-		return "", err
+	if err := enc.Encode(entry); err != nil {
+		return nil, err
 	}
 	if err := enc.Close(); err != nil {
-		return "", err
+		return nil, err
 	}
-	return buf.String(), nil
+	return strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n"), nil
 }

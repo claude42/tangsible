@@ -97,7 +97,7 @@ func Reassemble(before DecryptedView, editedBytes []byte, password string) (Reas
 			}
 			outLines = appendBlock(outLines, editedContent[key])
 		}
-		outLines = appendBlock(outLines, editedGaps[key])
+		outLines = append(outLines, editedGaps[key]...)
 	}
 
 	if len(result.Problems) > 0 {

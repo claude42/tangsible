@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"code.aw.net/claude/tangsible/internal/vaultcrypto"
 )
 
 func readTestdataFile(t *testing.T, name string) []byte {
@@ -677,4 +679,85 @@ func mappingValueNode(t *testing.T, root *yaml.Node, key string) *yaml.Node {
 func mappingScalarValue(t *testing.T, root *yaml.Node, key string) string {
 	t.Helper()
 	return mappingValueNode(t, root, key).Value
+}
+
+// layoutSource builds a vault file with blank lines and comments between
+// its entries (the shape a hand-maintained group_vars file really has) and
+// the decrypted view of it.
+func layoutSource(t *testing.T, password string, secrets map[string]string) (src string, view DecryptedView) {
+	t.Helper()
+	block := func(key string) string {
+		enc, err := vaultcrypto.Encrypt(secrets[key], password)
+		if err != nil {
+			t.Fatalf("Encrypt(%s): %v", key, err)
+		}
+		return strings.Join(formatVaultBlock(key, enc, 10), "\n")
+	}
+	src = "# header\n\nplain: one\n\n# note on a\n" + block("secret_a") +
+		"\n\n# note on b\n" + block("secret_b") + "\n\nlast: 3\n"
+	view, err := BuildDecryptedView([]byte(src), password)
+	if err != nil {
+		t.Fatalf("BuildDecryptedView: %v", err)
+	}
+	return src, view
+}
+
+// TestBlankLinesAndCommentsSurviveRoundTrip pins the layout guarantee: the
+// editable view keeps blank lines and comments between entries, so an
+// untouched file saves back byte-for-byte and an edit only changes the
+// edited entry's own block.
+func TestBlankLinesAndCommentsSurviveRoundTrip(t *testing.T) {
+	password := testPassword(t)
+	src, view := layoutSource(t, password, map[string]string{"secret_a": "alpha", "secret_b": "beta"})
+
+	wantView := "# header\n\nplain: one\n\n# note on a\nsecret_a: alpha\n\n# note on b\nsecret_b: beta\n\nlast: 3\n"
+	if view.PlaintextYAML != wantView {
+		t.Errorf("editable view:\n%q\nwant:\n%q", view.PlaintextYAML, wantView)
+	}
+
+	result, err := Reassemble(view, []byte(view.PlaintextYAML), password)
+	if err != nil {
+		t.Fatalf("Reassemble (no edit): %v", err)
+	}
+	if !result.Unchanged || result.YAML != src {
+		t.Errorf("unedited file did not save back byte-for-byte (Unchanged=%v):\n%q\nwant:\n%q", result.Unchanged, result.YAML, src)
+	}
+
+	edited := strings.Replace(view.PlaintextYAML, "secret_a: alpha", "secret_a: rotated", 1)
+	result, err = Reassemble(view, []byte(edited), password)
+	if err != nil {
+		t.Fatalf("Reassemble (edit): %v", err)
+	}
+	if result.Unchanged {
+		t.Error("Unchanged should be false after editing secret_a")
+	}
+	if strings.Count(result.YAML, "\n\n") != strings.Count(src, "\n\n") {
+		t.Errorf("blank lines changed:\n%s", result.YAML)
+	}
+	for _, keep := range []string{"# header\n\nplain: one\n\n# note on a\n", "\n\n# note on b\n" + view.SourceContent["secret_b"] + "\n\nlast: 3\n"} {
+		if !strings.Contains(result.YAML, keep) {
+			t.Errorf("result lost untouched text %q:\n%s", keep, result.YAML)
+		}
+	}
+}
+
+// TestBuildDecryptedView_StringLookalikesStayQuoted: a secret that happens
+// to read as a number, bool or multi-line text must come back from the
+// editor as the same string, not as a different YAML type.
+func TestBuildDecryptedView_StringLookalikesStayQuoted(t *testing.T) {
+	password := testPassword(t)
+	_, view := layoutSource(t, password, map[string]string{"secret_a": "12345", "secret_b": "line one\nline two"})
+
+	for _, want := range []string{`secret_a: "12345"`, "secret_b: |"} {
+		if !strings.Contains(view.PlaintextYAML, want) {
+			t.Errorf("view missing %q:\n%s", want, view.PlaintextYAML)
+		}
+	}
+	result, err := Reassemble(view, []byte(view.PlaintextYAML), password)
+	if err != nil {
+		t.Fatalf("Reassemble: %v", err)
+	}
+	if len(result.Problems) != 0 || !result.Unchanged {
+		t.Errorf("unedited look-alike secrets should round-trip cleanly: problems=%v unchanged=%v", result.Problems, result.Unchanged)
+	}
 }

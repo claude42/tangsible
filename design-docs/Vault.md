@@ -86,24 +86,25 @@ that both the user will recognize its original file and diffs are kept
 minimal.
 
 `gopkg.in/yaml.v3`'s node-based API (already a dependency, used by
-`source.go` for task-source lookup) decodes the file into a `yaml.Node`
-tree rather than a struct, which is how the *editable* view gets built:
-decode → swap each vaulted value's tag/text for its decrypted plaintext →
-encode. That round-trip preserves comments, key order, and anchors well
-enough for a throwaway temp file whose own formatting is never diffed
-against anything.
+`source.go` for task-source lookup) is used for *parsing* (line numbers,
+tags, which keys exist) but not for producing either file. Re-encoding a
+whole decoded tree reformats everything and silently drops blank lines
+between entries - the first version of the editable view did exactly that,
+and since the saved file takes the gaps between entries (comments, blank
+lines) from the edited view, every save quietly deleted the file's blank
+lines (found while recording the vault screen recording).
 
-The *final* file written back out is a different matter, and does **not**
-go through that same encode step — see "Implementation" below for why:
-re-encoding the whole document turned out to reformat every untouched
-vaulted block on every save, not just the ones actually touched. Instead,
-reassembly splices raw source-text spans (see `keyContentSpans`):
-an unedited entry's exact original bytes, indentation included, are
-reused verbatim rather than regenerated. The one accepted `yaml.v3`
-round-trip gap that remains is in the *editable view* specifically: blank
-lines between entries there aren't reliably preserved. That gap doesn't
-propagate to the saved file, since untouched entries there come from raw
-source text, not from the view's own re-encoding.
+Both files are therefore built by splicing raw source text. The *editable
+view* is the source file with only each vaulted entry's own lines swapped
+for its decrypted `key: value` (`encodePlainEntry` - a fresh node tagged
+`!!str`, so a secret like `12345` comes out quoted and stays a string);
+header, plain entries, comments and blank lines are untouched. The *saved
+file* reuses an unedited entry's exact original bytes, indentation
+included, rather than regenerating it, and takes the gaps between entries
+from the edited view (so comments the user adds or removes there are
+honored). `keyContentSpans` keeps a gap as a list of lines, not a joined
+string: a gap of exactly one blank line would otherwise be
+indistinguishable from no gap.
 
 3. What to encrypt, what to leave alone
 
