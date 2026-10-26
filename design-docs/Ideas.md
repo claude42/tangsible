@@ -3,36 +3,31 @@
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
 
-* Debug mode (to improve Resolved variables and od our own debugger)
-  * strategy plugin is deprecated
-  * use hostvars[inventory_hostname] gives us at least something
-  * Use virtual terminal to run ansible-playbook - to support things like
-    --step, --pause, the debuger or ansible.builtin.pause
-
 * Jump to first / next fail
 
-* Big busy spinner for lazy loading tabs
-
+* Roles (see "Tangsible role.md")
+  * support for other role paths in
+    * include_role, import_role and meta/main.yml dependencies
+  * support for roles in collection
 * tangsible host
-  * show disk size / free space
+  * show mounts / disk size / free space
   * schon distribution release name
   * # of cores
   * Python version
   * uptime
   * q ends, doesn't go back to list
-
-* Key don't work in all tabs
-  * Space / b
-  * < / >
-  * G
+  * show when which role ran last
 
 * Debugger
-  * restart from beginning
   * remove timer
   * configurable keyboard shortcuts
   * mouse control for variable explorer
   * UX improvement for varible explorer
   * Some more things in DebugMode.md
+  * show undefined variables in template
+  * don't show passwords etc.
+  * change variable - not just for the current step
+  * restart from beginning / cursor / redo role (accepting to lose context)
 
 * Details tab shows less info than before (really?)
 
@@ -70,8 +65,6 @@ immediately implemented.
 
 * Sign checksums, let install.sh verify
 
-* Variable resolution explorer - show expansion of a variable on every host
-
 * Desktop notifications with OSC 9 / OSC 777, notify send, terminal-notifier
 
 * git-aware rerun suggestions (git diff --name-only)
@@ -90,15 +83,10 @@ immediately implemented.
 
 * --check -> visualize items which do not support --check
 
-* Go to first failed task keyboard shortcut
-
 * edit file
 
 * hide encrypted values in drill down
 
-* show template for all hosts
-
-* show undefined variables in template
 
 * allow tangsible run -l host playbook.yml (in addition to tangsible run
   playbook.yml -l host)
@@ -116,3 +104,7 @@ Bugs
 * Knoten im Tree öffnen, der auf letzter Zeile ist --> sollte runter
   scrollen, damit Inhalt sichtbar ist
 
+Promote
+
+* https://search.brave.com/ask?q=How+to+promote+an+open+source+project&source=llmSuggest&conversation=09b901abb579898038d8f714856c761d67ff
+* esp. ProductHunt
