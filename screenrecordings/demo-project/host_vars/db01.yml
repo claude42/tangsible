@@ -1,0 +1,2 @@
+postgresql_max_connections: 200
+backup_retention_days: 14

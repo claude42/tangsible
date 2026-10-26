@@ -1,0 +1,2 @@
+nginx_worker_connections: 1024
+site_title: Tangsible demo (web02)
