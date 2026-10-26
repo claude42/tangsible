@@ -73,9 +73,18 @@ Sleep 500ms
 Up
 Sleep 1s
 Enter
+Sleep 3s
+
+# 5. Re-run it from here: the dialog is pre-filled from that run
+Type "r"
+Sleep 3s
+Enter
 Sleep 4s
 
-Escape
-Sleep 1s
+# 6. Stop after a few lines (the interrupted run joins the list)
+Type "q"
+Sleep 2s
+Type "q"
+Sleep 2s
 Type "q"
 Sleep 500ms
