@@ -233,7 +233,7 @@ and analyze / drill down into all results and outcomes in the same ways as if
 it just ran.
 
 Press `d` after a run or revisit to get a visual diff of its outcomes
-compared to a previous run.
+compared to a previous run, and `r` to re-run the one you are looking at.
 
 ## Running a role in isolation
 
