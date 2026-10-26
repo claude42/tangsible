@@ -10,6 +10,7 @@
 
 - name: Create application database
   command: sleep 0.4
+  changed_when: false
 
 - name: Schedule nightly backup
   copy:
