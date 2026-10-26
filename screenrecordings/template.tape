@@ -27,38 +27,22 @@ Type "cd screenrecordings/demo-project && git checkout -q -- roles/nginx/templat
 Sleep 500ms
 Show
 
-# 1. Render a template for the first inventory host
-Type "tangsible template roles/nginx/templates/nginx.conf.j2" Sleep 300ms Enter
-Wait+Screen /server_name db01/
-Sleep 4s
+# 1. Render a template for several hosts at once: one tab per host
+Type "tangsible template roles/nginx/templates/nginx.conf.j2 all" Sleep 300ms Enter
+Wait+Screen /server_name/
+Sleep 3s
 
-# 2. The source next to the result
+# 2. Flip through the tabs - each host got its own result - and the source
+Tab
+Sleep 2500ms
+Tab
+Sleep 2500ms
 Tab
 Sleep 3s
 Tab
 Sleep 1s
 
-# 3. Same template, other hosts
-Type "h"
-Sleep 800ms
-Ctrl+U
-Type "web01"
-Sleep 1s
-Enter
-Wait+Screen /server_name web01/
-Sleep 3s
-
-# 3b. And a third one
-Type "h"
-Sleep 800ms
-Ctrl+U
-Type "web02"
-Sleep 1s
-Enter
-Wait+Screen /server_name web02/
-Sleep 3s
-
-# 4. Edit it: use a variable that does not exist
+# 3. Edit it: use a variable that does not exist (every tab is re-rendered)
 Type "e"
 Sleep 2s
 Type "7Go"
@@ -69,9 +53,13 @@ Type ":wq"
 Sleep 500ms
 Enter
 Wait+Screen /is undefined/
-Sleep 4s
+Sleep 3s
+Tab
+Sleep 2s
+Tab
+Sleep 2s
 
-# 5. Edit again: give it a default
+# 4. Edit again: give it a default
 Type "e"
 Sleep 2s
 Type "/nginx_max_body_size"
@@ -83,7 +71,11 @@ Type ":wq"
 Sleep 500ms
 Enter
 Wait+Screen /client_max_body_size 10m/
-Sleep 4s
+Sleep 3s
+Tab
+Sleep 2500ms
+Tab
+Sleep 3s
 
 Type "q"
 Sleep 500ms
