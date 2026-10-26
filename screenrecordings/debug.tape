@@ -58,9 +58,11 @@ Type@1ms "[15~"
 Wait+Screen /Status:/
 Sleep 3s
 
-# 4. Look at the task with all variables resolved
-Tab@600ms 4
-Sleep 4s
+# 4. The task as written, then with all variables resolved
+Tab@600ms 3
+Sleep 5s
+Tab
+Sleep 6s
 
 # 5. Watch a variable, then change it
 Escape
