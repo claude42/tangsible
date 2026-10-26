@@ -27,7 +27,7 @@ Hide
 Type "export PS1='$ '" Enter
 Type "rm -rf /tmp/tangsible-demo && cd screenrecordings/demo-project && rm -rf .tangsible && clear" Enter
 Type "tangsible run site.yml" Enter
-Wait+Screen /r: re-run/
+Wait+Screen /Playbook (completed|failed)/
 Sleep 3s
 Type "q"
 Sleep 1s
