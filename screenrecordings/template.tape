@@ -38,7 +38,7 @@ Sleep 3s
 Tab
 Sleep 1s
 
-# 3. Same template, other host
+# 3. Same template, other hosts
 Type "h"
 Sleep 800ms
 Ctrl+U
@@ -46,6 +46,16 @@ Type "web01"
 Sleep 1s
 Enter
 Wait+Screen /server_name web01/
+Sleep 3s
+
+# 3b. And a third one
+Type "h"
+Sleep 800ms
+Ctrl+U
+Type "web02"
+Sleep 1s
+Enter
+Wait+Screen /server_name web02/
 Sleep 3s
 
 # 4. Edit it: use a variable that does not exist
