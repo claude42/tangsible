@@ -222,6 +222,9 @@ tangsible rerun [playbook.yml] [ansible-playbook args...]
 
 ## Revisit and compare previous runs
 
+<a href="https://gettangsible.aw.net/revisit.gif"><img src="https://gettangsible.aw.net/revisit.png" alt="Revisiting a failed run and re-running it" width="360" align="right"></a>
+<a href="https://gettangsible.aw.net/diff.gif"><img src="https://gettangsible.aw.net/diff.png" alt="Diffing two runs after a template edit" width="360" align="right"></a>
+
 Pick a previous run with
 ```
 tangsible revisit
@@ -253,6 +256,8 @@ It runs the role against `hosts: all`, while normal Ansible options such as
 
 ## Debugging a playbook (breakpoints)
 
+<a href="https://gettangsible.aw.net/debug.gif"><img src="https://gettangsible.aw.net/debug.png" alt="Breakpoints and stepping with tangsible debug" width="360" align="right"></a>
+
 ```
 tangsible debug [playbook.yml] [--all-vars|-a] [ansible-playbook args...]
 ```
@@ -270,6 +275,8 @@ the watch list. Variable contents can also be changed by entering `var =
 value`.
 
 ## Debugging a Jinja2 template
+
+<a href="https://gettangsible.aw.net/template.gif"><img src="https://gettangsible.aw.net/template.png" alt="Rendering a template per host and fixing an undefined variable" width="360" align="right"></a>
 
 Debugging a template properly means rendering it through Ansible's own
 templating system, with the variables and inventory context that Ansible will
@@ -293,6 +300,8 @@ after saving.
 
 ## Encrypt individual variables
 
+<a href="https://gettangsible.aw.net/vault.gif"><img src="https://gettangsible.aw.net/vault.png" alt="Editing individually encrypted variables" width="360" align="right"></a>
+
 `ansible-vault` either allows you to encrypt a whole file via `edit` or
 `encrypt`- which will result in huge diff on every change or you can create
 individually encrypted variables via `encrypt_string` which involves
@@ -308,6 +317,8 @@ variables. One can simply add / edit / remove encrypted variables in the text
 editor while diffs stay minimal.
 
 ## Analyze hosts
+
+<a href="https://gettangsible.aw.net/hosts.gif"><img src="https://gettangsible.aw.net/hosts.png" alt="Inventory tree and host detail tabs" width="360" align="right"></a>
 
 ```
 tangsible host hostname [playbook.yml] [ansible-playbook args...]
