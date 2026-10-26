@@ -392,7 +392,10 @@ thin constructor/wiring shell.
 
 Not Go code. `*.tape` are [vhs](https://github.com/charmbracelet/vhs)
 scripts, one per recorded feature, rendered by `make demos` into
-`output/` (gitignored - the GIFs are hosted outside the repo).
+`output/` (gitignored - the GIFs are hosted outside the repo), and
+`posters.sh` writes a poster PNG per GIF (middle frame, or the time
+given by a `# poster: <seconds>` line in the tape) for linking from
+the README.
 `demo-project/` is a small localhost-only Ansible project (three
 "hosts", three roles, one deliberate first-attempt failure on `web02`)
 that all tapes record against; it only writes below `/tmp/tangsible-demo`.

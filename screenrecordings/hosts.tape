@@ -8,6 +8,7 @@
 # Everything runs on localhost; the facts shown come from the canned fact
 # cache in demo-project/.fact-cache.
 
+# poster: 7
 Output screenrecordings/output/hosts.gif
 
 Require tangsible

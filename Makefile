@@ -5,7 +5,7 @@ build:
 	go build -o $(BIN) .
 
 # Render every screenrecordings/*.tape into screenrecordings/output/ (not
-# committed). Needs vhs, ttyd and ffmpeg; uses the freshly built binary.
+# committed), plus a poster PNG for each. Needs vhs, ttyd and ffmpeg; uses the freshly built binary.
 .PHONY: demos
 demos: build
 	@command -v vhs >/dev/null || { echo "vhs not found (https://github.com/charmbracelet/vhs)"; exit 1; }
@@ -13,6 +13,7 @@ demos: build
 	@for t in screenrecordings/*.tape; do \
 		echo "==> $$t"; PATH="$(CURDIR):$$PATH" vhs "$$t" || exit 1; \
 	done
+	@screenrecordings/posters.sh
 
 .PHONY: install
 install: build

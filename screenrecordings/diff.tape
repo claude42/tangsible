@@ -6,6 +6,7 @@
 #
 # Everything runs on localhost under /tmp/tangsible-demo; see demo-project/.
 
+# poster: 21
 Output screenrecordings/output/diff.gif
 
 Require tangsible
