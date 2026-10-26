@@ -222,8 +222,7 @@ tangsible rerun [playbook.yml] [ansible-playbook args...]
 
 ## Revisit and compare previous runs
 
-<a href="https://gettangsible.aw.net/revisit.gif"><img src="https://gettangsible.aw.net/revisit.png" alt="Revisiting a failed run and re-running it" width="360" align="right"></a>
-<a href="https://gettangsible.aw.net/diff.gif"><img src="https://gettangsible.aw.net/diff.png" alt="Diffing two runs after a template edit" width="360" align="right"></a>
+<a href="https://gettangsible.aw.net/revisit.gif"><img src="https://gettangsible.aw.net/revisit.png" alt="Revisiting a run, diffing it against a failed one, and re-running it" width="360" align="right"></a>
 
 Pick a previous run with
 ```
