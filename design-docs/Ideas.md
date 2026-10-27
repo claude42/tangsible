@@ -10,10 +10,6 @@ immediately implemented.
     * include_role, import_role and meta/main.yml dependencies
   * support for roles in collection
 * tangsible host
-  * show mounts / disk size / free space
-  * schon distribution release name
-  * # of cores
-  * Python version
   * uptime
   * q ends, doesn't go back to list
   * show when which role ran last
@@ -28,6 +24,7 @@ immediately implemented.
   * don't show passwords etc.
   * change variable - not just for the current step
   * restart from beginning / cursor / redo role (accepting to lose context)
+  * Use Data Tagging
 
 * Details tab shows less info than before (really?)
 
@@ -54,8 +51,6 @@ immediately implemented.
   hosts
 
 * tangsible config
-
-* export previous runs, rename previous runs
 
 * Easily decrypt individual variables, overwrite existing variables, not sure
   what's still open?
@@ -103,6 +98,8 @@ Bugs
 
 * Knoten im Tree öffnen, der auf letzter Zeile ist --> sollte runter
   scrollen, damit Inhalt sichtbar ist
+
+* Select a line in the summary -> cursor left/right won't work as expected
 
 Promote
 
