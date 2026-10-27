@@ -11,6 +11,8 @@ Show, next to a variable's value, the file and line it was defined in
 * `debug`'s `v` watch explorer (`livesession_watch.go`,
   `debugwatch_eval.go`): one extra line or suffix per watched expression.
 * Possibly the Resolved tab, which today shows only values.
+* A **Variables tab** in the debug drill-down: the full list of
+  `task_vars` with values *and* origins (see "Variables tab" below).
 
 Answers the question Ansible's own precedence rules make hard: "which of my
 twenty places for this variable actually won?"
@@ -84,6 +86,57 @@ Result (abridged): `{"play_var": [["pb.yml", 5, 15, null]], "gv_var":
 
 Match tags by `type(t).__name__ == 'Origin'` rather than importing the class,
 so the one-liner needs only the `AnsibleTagHelper` import.
+
+## Variables tab (full list: values + origins)
+
+Idea: while paused, an extra drill-down tab listing every variable in the
+paused task's `task_vars`, with value and origin. Cost was measured, not
+guessed (ansible-core 2.19.11, localhost, `gather_facts: true`, inside the
+debugger):
+
+* `task_vars` is ~154 top-level keys (112 of them under `ansible_facts`),
+  ~112 KB as JSON.
+* Origins for all top-level keys: ~0.2 ms (one `AnsibleTagHelper.tags` call
+  per key), ~5.7 KB of output.
+* Origins via a recursive walk (~9,100 nodes, depth limit 6): ~55 ms,
+  ~7.4 KB of output.
+* Only 14 top-level keys had an `Origin` - the ones from the playbook, vars
+  files, group/host_vars, inventory and `-e`. Facts and magic variables
+  have none (facts and results are untrusted values, not file-defined).
+
+**The values are already in hand.** `debugCaptureSnapshot`
+(`internal/session/livesession_debug.go`) already runs
+`Query("task_vars")` - the whole dict - on every pause that surfaces
+(always with `--all-vars`/`-a`) and caches it in `debugTaskVarsCache`,
+keyed by (task, host), merged with the registered result. The ~112 KB
+transfer is therefore already paid; the tab only needs one more small
+origin query next to it. The expensive part of this feature would be moving
+big payloads over the debugger pipe (`session.go` records a past ~20 s
+stall on a >100 KB response, fixed by bounding the prompt scan to the last
+`promptCheckTail` bytes) - an origins-only response of a few KB avoids that
+entirely. Don't send values a second time.
+
+**It also answers the limitation in `Showallvariables.md`.** That doc
+paused because a separate stub run can only show *static* context (no
+`register`/`set_fact` state from the same run). The debugger's `task_vars`
+is the live state at the pause, so in debug mode this tab shows exactly
+that.
+
+Open design points:
+
+* Rendering ~150-200 rows with large values (`ansible_facts`,
+  `ansible_env`): needs per-row collapse/truncation; in-tab search and copy
+  already exist for tabs.
+* Ordering/grouping by origin: variables from the user's own files and
+  `-e` first, then facts, then magic variables. Leaning toward hiding facts
+  behind a toggle, off by default.
+* Origins come from one batched query for all top-level names (dict
+  comprehension, as in the example above); nested origins only if the tab
+  expands a node.
+* Untested: behavior in a real paused session through tangsible's own pipe
+  (only the stdin-piped debugger prompt was probed), and a host with very
+  many facts (many interfaces/mounts) - the origins-only output stays small
+  either way, the value rendering is what scales.
 
 ## Implementation sketch
 
