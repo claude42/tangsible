@@ -129,7 +129,7 @@ var hostDetailHelp = uikit.HelpScreen{
 			{Keys: "Summary", Desc: "Key facts, gathered live (or from the fact cache)"},
 			{Keys: "Groups", Desc: "Every group the host belongs to, including inherited ones"},
 			{Keys: "Plays", Desc: "Which plays and tasks would run on this host"},
-			{Keys: "host_vars", Desc: "The host's own host_vars file(s)"},
+			{Keys: "host_vars", Desc: "The host's own inventory variables and host_vars file(s)"},
 			{Keys: "Everything known", Desc: "ansible-inventory --host output, all variables"},
 		}},
 		{Title: "Switching what's shown", Entries: []uikit.HelpEntry{

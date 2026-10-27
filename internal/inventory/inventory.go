@@ -156,6 +156,30 @@ func ListInventoryRaw(passthroughArgs []string) (map[string]json.RawMessage, err
 	return raw, nil
 }
 
+// ListHostVarsExport runs `ansible-inventory --list --export`, forwarding
+// passthroughArgs verbatim, and returns hostname's own entry from
+// "_meta.hostvars" - its inline/host-section inventory variables only, with
+// group variables left under their groups (unlike `--host`, which merges
+// them in). Confirmed empirically: this also folds in values from
+// host_vars/ files, so a caller that renders those separately has to
+// subtract them. A host with no vars of its own is absent from the map and
+// yields nil, not an error.
+func ListHostVarsExport(passthroughArgs []string, hostname string) (map[string]any, error) {
+	raw, err := ListInventoryRaw(append([]string{"--export"}, passthroughArgs...))
+	if err != nil {
+		return nil, err
+	}
+	var meta struct {
+		Hostvars map[string]map[string]any `json:"hostvars"`
+	}
+	if data, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(data, &meta); err != nil {
+			return nil, fmt.Errorf("ansible-inventory --list --export: unexpected _meta shape: %v", err)
+		}
+	}
+	return meta.Hostvars[hostname], nil
+}
+
 // ListInventoryHosts runs `ansible-inventory --list`, forwarding
 // passthroughArgs verbatim, and returns every host it finds
 // (FlattenInventoryHosts, above) - shared by the "hosts" Verb's own

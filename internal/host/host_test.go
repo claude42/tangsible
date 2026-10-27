@@ -613,3 +613,19 @@ func TestTabIndexByName(t *testing.T) {
 		})
 	}
 }
+
+func TestInventoryOnlyVars(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "h1.yml")
+	if err := os.WriteFile(f, []byte("file_var: x\noverridden: 2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exported := map[string]any{"ansible_host": "1.2.3.4", "file_var": "x", "overridden": 1.0}
+	got := inventoryOnlyVars(exported, []string{f, filepath.Join(dir, "missing.yml")})
+	if len(got) != 1 || got["ansible_host"] != "1.2.3.4" {
+		t.Errorf("inventoryOnlyVars() = %v, want only ansible_host", got)
+	}
+	if got := inventoryOnlyVars(exported, nil); len(got) != 3 {
+		t.Errorf("with no files, got %v, want all keys", got)
+	}
+}

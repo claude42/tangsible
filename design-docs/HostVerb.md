@@ -40,7 +40,8 @@ its own section below).
 **Groups** - the host's full transitive inventory-group chain.
 **Plays** - which plays/tasks would run for this host, from the target
 playbook.
-**host_vars** - verbatim contents of every `host_vars/<hostname>` file.
+**host_vars** - the host's own inventory variables, then verbatim contents
+of every `host_vars/<hostname>` file.
 **Everything known** - `ansible-inventory --host <hostname>`'s own
 output, merged with whatever facts the Summary tab itself gathered (see
 "Everything known" below).
@@ -250,7 +251,12 @@ prefix) renders unstyled.
 
 ## host_vars tab
 
-Shows every `host_vars/<hostname>` file verbatim, one section per file -
+Leads with an `inventory` section: the host's own variables from the
+inventory itself (`inventory.ListHostVarsExport`, `ansible-inventory --list
+--export`, group vars not merged in), rendered as YAML. That export also
+folds in host_vars file values, so `inventoryOnlyVars` drops every key a
+discovered file defines (the file wins anyway, and is shown below).
+Then shows every `host_vars/<hostname>` file verbatim, one section per file -
 not a merged/flattened key-value view. Preserves comments/formatting and
 needs no variable-precedence/merge logic. File discovery mirrors
 ansible-core's `DataLoader.find_vars_files` (`DiscoverHostVarsFiles`): per

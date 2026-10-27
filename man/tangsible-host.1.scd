@@ -34,7 +34,7 @@ Standard *ansible-playbook*(1) arguments can be used, e.g. *--inventory* or
 	host.
 
 *host_vars*
-	The host's own *host_vars* files, if any are found alongside the
+	The host's own variables from the inventory, then its *host_vars* files, if any are found alongside the
 	playbook or inventory.
 
 *Everything known*

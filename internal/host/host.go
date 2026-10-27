@@ -43,6 +43,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"gopkg.in/yaml.v3"
 )
 
 // ParseHostArgs splits args (everything after the "host" Verb) into the
@@ -416,11 +417,25 @@ func FetchHostVars(hostname, playbook string, rest []string) (string, error) {
 	dirs = append(dirs, ExtractInventoryDirs(rest)...)
 
 	files := DiscoverHostVarsFiles(hostname, dirs)
-	if len(files) == 0 {
-		return fmt.Sprintf("no host_vars files found for host %q", hostname), nil
-	}
 
 	var b strings.Builder
+	invVars, invErr := inventory.ListHostVarsExport(rest, hostname)
+	if invErr != nil {
+		b.WriteString(hostSectionHeading("inventory"))
+		fmt.Fprintf(&b, "(couldn't read inventory variables: %s)\n\n", tview.Escape(invErr.Error()))
+	} else if only := inventoryOnlyVars(invVars, files); len(only) > 0 {
+		out, err := yaml.Marshal(only)
+		if err != nil {
+			out = []byte(fmt.Sprintf("(couldn't render: %v)", err))
+		}
+		b.WriteString(hostSectionHeading("inventory"))
+		b.WriteString(uikit.HighlightYAMLKeys(string(out)))
+		b.WriteString("\n\n")
+	}
+
+	if len(files) == 0 && b.Len() == 0 {
+		return fmt.Sprintf("no host_vars files or inventory variables found for host %q", hostname), nil
+	}
 	for _, path := range files {
 		data, err := os.ReadFile(path)
 		content := string(data)
@@ -432,6 +447,36 @@ func FetchHostVars(hostname, playbook string, rest []string) (string, error) {
 		b.WriteString("\n\n")
 	}
 	return b.String(), nil
+}
+
+// inventoryOnlyVars drops from exported (inventory.ListHostVarsExport's
+// result, which already has host_vars file values folded in) every
+// top-level key that any of files defines - those are shown verbatim in
+// their own file sections, and a host_vars file wins over the inventory
+// for a key set in both, so the file section is the one that's right.
+// A file that can't be read or parsed as a mapping contributes no keys.
+func inventoryOnlyVars(exported map[string]any, files []string) map[string]any {
+	fileKeys := map[string]bool{}
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var m map[string]any
+		if yaml.Unmarshal(data, &m) != nil {
+			continue
+		}
+		for k := range m {
+			fileKeys[k] = true
+		}
+	}
+	only := map[string]any{}
+	for k, v := range exported {
+		if !fileKeys[k] {
+			only[k] = v
+		}
+	}
+	return only
 }
 
 // FetchHostPlays runs "ansible-playbook <playbook> <rest...> --limit
