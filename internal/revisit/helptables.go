@@ -26,7 +26,7 @@ func runListBar(allowRerun, nested bool) string {
 	case nested:
 		return " ?: help  enter: compare  esc: back "
 	case allowRerun:
-		return " ?: help  enter: open  r: re-run  q: quit "
+		return " ?: help  enter: open  r: re-run  R: rename  E: export  del: delete  q: quit "
 	}
 	return " ?: help  enter: open  q: quit "
 }
@@ -35,6 +35,9 @@ const (
 	runListIDOpen    = "open"    // "revisit": open the run
 	runListIDCompare = "compare" // diff picker: compare against the run
 	runListIDRerun   = "rerun"
+	runListIDRename  = "rename"
+	runListIDDelete  = "delete"
+	runListIDExport  = "export"
 	runListIDQuit    = "quit"
 	runListIDBack    = "back"
 )
@@ -46,7 +49,7 @@ func runListHelpHidden(allowRerun, nested bool) func(id string) bool {
 			return nested
 		case runListIDCompare, runListIDBack:
 			return !nested
-		case runListIDRerun:
+		case runListIDRerun, runListIDRename, runListIDDelete, runListIDExport:
 			return !allowRerun
 		}
 		return false
@@ -65,6 +68,9 @@ var runListHelp = uikit.HelpScreen{
 			{Keys: "Enter", Desc: "Open the run as a tree, as it looked when it finished", ID: runListIDOpen},
 			{Keys: "Enter", Desc: "Compare the current run against this one", ID: runListIDCompare},
 			{Keys: "r", Desc: "Open the run straight into the re-run dialog", ID: runListIDRerun},
+			{Keys: "R", Desc: "Name the run (shown in the list; empty clears it)", ID: runListIDRename},
+			{Keys: "E", Desc: "Export the run to one text file, readable without tangsible (reopen: tangsible revisit <file>)", ID: runListIDExport},
+			{Keys: "Delete / Backspace", Desc: "Delete the run and its saved files (asks first)", ID: runListIDDelete},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},

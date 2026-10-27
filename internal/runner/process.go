@@ -559,12 +559,17 @@ func ReplayRunLog(jsonlPath string) (*pb.PlaybookState, error) {
 		return nil, err
 	}
 	defer f.Close()
+	return ReplayRunLogReader(f), nil
+}
 
+// ReplayRunLogReader is ReplayRunLog for events that are already in hand
+// (an export file's events section) rather than in a file.
+func ReplayRunLogReader(r io.Reader) *pb.PlaybookState {
 	state := &pb.PlaybookState{}
-	for item := range ScanEvents(f, nil) {
+	for item := range ScanEvents(r, nil) {
 		if item.IsEvent {
 			state.Apply(item.Ev)
 		}
 	}
-	return state, nil
+	return state
 }

@@ -63,6 +63,10 @@ type InvocationRecord struct {
 	Time     string `toml:"time,omitempty"`
 	ExitCode *int   `toml:"exit_code,omitempty"`
 	RunID    string `toml:"run_id,omitempty"`
+	// Name is an optional user-assigned label for this run
+	// (design-docs/Revisit.md, "Name runs"), set from revisit's list.
+	// Per run, not per target: a rerun starts blank.
+	Name string `toml:"name,omitempty"`
 }
 
 // PlaybookHistory is one [[history]] entry in state.toml: either a
@@ -331,6 +335,54 @@ func FinalizeInvocation(path, playbook, role string, exitCode int, runID string)
 	}
 
 	return WriteState(path, cfg)
+}
+
+// RenameInvocation sets (or, with name == "", clears) the Name of the
+// invocation whose RunID is runID, wherever in the history it lives. A
+// runID that matches nothing is a no-op, not an error - the entry may have
+// been evicted by retention since the caller listed it.
+func RenameInvocation(path, runID, name string) error {
+	if runID == "" {
+		return nil
+	}
+	cfg := ReadState(path)
+	for i := range cfg.History {
+		for j := range cfg.History[i].Invocations {
+			if inv := &cfg.History[i].Invocations[j]; inv.RunID == runID {
+				inv.Name = name
+				return WriteState(path, cfg)
+			}
+		}
+	}
+	return nil
+}
+
+// DeleteInvocation removes the whole invocation record whose RunID is
+// runID - and its saved run files - from the history, unlike the pruning of
+// vanished logs (PruneMissingRunLogs), which keeps the record. The target's
+// own [[history]] entry stays even if this was its last invocation: every
+// reader already copes with an empty Invocations, and general.last may still
+// point at it. An unknown runID is a no-op.
+func DeleteInvocation(path, runID string) error {
+	if runID == "" {
+		return nil
+	}
+	cfg := ReadState(path)
+	for i := range cfg.History {
+		h := &cfg.History[i]
+		for j := range h.Invocations {
+			if h.Invocations[j].RunID != runID {
+				continue
+			}
+			h.Invocations = append(h.Invocations[:j], h.Invocations[j+1:]...)
+			if err := WriteState(path, cfg); err != nil {
+				return err
+			}
+			DeleteRunLog(path, runID)
+			return nil
+		}
+	}
+	return nil
 }
 
 // LastTarget resolves cfg.General.Last - the playbook path or role name of

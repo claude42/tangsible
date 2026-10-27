@@ -552,3 +552,132 @@ hint text (mirroring how the tree's bottom bar advertises exactly what's
 live) stays legible once it's advertising three new single-letter actions at
 once.
 
+## Export in ansible-navigator / ansible-runner format (discussion, 2026-10-27)
+
+Related to "Export runs" above: could tangsible *produce* the artifacts that
+`ansible-navigator` or `ansible-runner` write, from what `.tangsible/runs/`
+already holds? (Export only - importing their files is not the goal.)
+Everything below about their formats is from memory and **unverified** - the
+first step of any implementation is installing both tools, running a
+`testdata/` playbook, and writing down the real schemas.
+
+### What the two tools write
+
+* **ansible-navigator**: one JSON file per run, on by default
+  (`--playbook-artifact-enable`), default `<playbook>-artifact-<timestamp>.json`
+  next to the playbook (`playbook-artifact.save-as`). Holds playbook/
+  inventory/command metadata, status, start/end, the plays -> tasks ->
+  per-host results tree and the raw stdout as a list of lines.
+  `ansible-navigator replay <file>` reads it back (same idea as `revisit`).
+  It also writes an `ansible-navigator.log` in the cwd (plain logging, not
+  an artifact).
+* **ansible-runner**: a `private_data_dir` with `project/`, `inventory/`,
+  `env/` and `artifacts/<ident>/`. The latter holds `stdout`, `stderr`,
+  `status`, `rc`, `command`, `fact_cache/` and `job_events/<counter>-<uuid>.json`
+  (one file per event: event name, counter, uuid, `start_line`/`end_line`
+  into stdout, `event_data` with playbook/play/task/host/`res`). Its events
+  come from runner's own AWX-derived callback, so the schema differs from
+  `ansible.posix.jsonl` and from `tangsible_jsonl.py`.
+
+### What we already have per generation
+
+`<RunID>.jsonl` (byte-for-byte callback events: timestamps, play/task ids,
+names, paths, per-host results, durations), `<RunID>.stdout` (merged
+stdout+stderr in arrival order, with our forced ANSI color) and
+`<RunID>.stderr`; `state.toml` history has `Args`/`Time`/`ExitCode`/`RunID`.
+
+### Feasibility
+
+Possible, mostly as pure export functions over saved data
+(e.g. `tangsible export --format navigator|runner <RunID>`, or an extra choice
+in the export popup above).
+
+* **navigator**: rebuild the plays/tasks/hosts tree by feeding the jsonl
+  through `PlaybookState`; stdout lines from `.stdout` (decide whether to
+  strip the ANSI); metadata from history. One file, no new run data beyond
+  metadata. Exact key names/versioning must be matched against a real
+  artifact.
+* **runner**: `stdout`/`stderr` are near-direct copies; `rc`/`status`/
+  `command` are tiny files; `fact_cache/` and `env/` stay empty.
+  `job_events/*.json` needs a per-event translation to runner's AWX-style
+  schema *and* `start_line`/`end_line` offsets into `.stdout`, which means
+  correlating events with output lines - not recorded today. Consumers
+  (AWX tooling, runner library users) may be picky about the shape.
+
+### Gap: run-level metadata
+
+Start/end time, resolved command line, inventory, and the exit code if it
+isn't persisted for every path. Proposal: a small `<RunID>.meta.json` written
+at the end of a generation (everything else is derivable after the fact).
+
+### Recommendation
+
+Navigator first (one file, only the metadata is new, buys `ansible-navigator
+replay` compatibility); runner as a later, optional exporter, the line-offset
+mapping being its main cost. Fits the open export question above as another
+single-file candidate for shape (b)/(c), with the same caveat that the TASK
+source tab will be empty away from the original machine/repo.
+
+
+## Name runs - decisions and status (2026-10-27)
+
+Decided: `R` (capital, to stay clear of `r` = re-run) opens a "Name this run"
+popup on the list; Enter saves, Esc cancels, empty text clears the name. The
+name belongs to one run (`InvocationRecord.Name`, `omitempty`); a re-run
+starts blank. Both name and command stay visible, with the program name
+dropped to save width:
+
+```
+2026-10-27 19:43:47 - Success - foobarbaz (run site.yml -l some,hosts)
+```
+
+Unnamed runs look as before. Only revisit's own list offers `R` (diff's
+picker doesn't), but both show names. Implemented: `config.RenameInvocation`,
+`RevisitEntry.Name`, `RevisitDescription`, the popup in `RunRevisitListTUI`,
+help table + bottom bar; verified live under tmux (typed `q`/`b`/`j` stay
+text in the popup).
+
+Still open from the feedback above, for Delete/Export: `D` rather than `d`
+(`d` = Diff elsewhere); whether delete removes the whole history record or
+only clears `RunID` (affects rerun pre-fill); cursor placement after delete;
+export shape (a/b/c) and the empty TASK tab for foreign files; filename
+sanitizing.
+
+## Delete runs - decisions and status (2026-10-27)
+
+Decided: Delete and Backspace (as in the variable explorer) on revisit's
+list, behind a y/n confirmation popup. A delete removes the whole
+`InvocationRecord` and its saved files (`config.DeleteInvocation`), so the
+run no longer feeds rerun pre-fill either. The target's own `[[history]]`
+entry stays, even with no invocations left (all readers cope with that, and
+`general.last` may point at it). Cursor afterwards: the row that followed the
+deleted one, else the one before, else none - the list stays open, empty.
+Not offered in diff's picker. Verified live under tmux (middle, last and
+final-row deletes, cancel); the cursor position itself was judged from the
+remaining rows, not from a styled capture.
+
+## Export runs - decisions and status (2026-10-27)
+
+Decided: export is for sharing, so the file must be readable without
+tangsible. One UTF-8 text file (`export.go`), in order: a `# key: value`
+header (first line `# tangsible run export v1`; command, name, started,
+exit, playbook or role, args), `==== output ====` (the saved `.stdout`,
+ANSI stripped; omitted for runs saved before that file existed),
+`==== stderr ====`, and last `==== tangsible events (jsonl, verbatim) ====`
+followed by the saved `.jsonl` unchanged, so replay reuses the existing line
+scanner. Anyone can stop reading at the events marker.
+
+* `E` on revisit's list opens a file-name popup, prefilled with the name (or
+  start time + command line), reduced to `[A-Za-z0-9._-]`, capped at 80
+  characters, plus `.txt`. Written to the current directory; an existing
+  file is never overwritten (the error shows in the popup's title). The
+  popup warns that the file contains task results.
+* `tangsible revisit file.txt` recognizes an export by its first line and
+  opens it straight into the frozen tree: no list, nothing recorded in
+  history. A re-run from there records history under the exported
+  playbook/role like any other. The Task definition tab only works if that
+  playbook exists locally; the `o` view shows the (color-stripped) output.
+* Known wart: the bottom bar of an opened export still says "Esc: back to
+  the list", although Esc leaves; fixing it means threading another flag
+  through `NewLiveTUI`.
+* Not done: redaction of secrets; navigator/runner formats (see above).

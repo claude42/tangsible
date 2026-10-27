@@ -64,6 +64,9 @@ complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_to
 # recently revisitable target), same shape as run/rerun/hosts/inventory/debug.
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun hosts inventory revisit debug; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
+# revisit also takes an exported run (E in its list): tangsible revisit <file.txt>
+complete -c tangsible -n '__fish_seen_subcommand_from revisit; and __fish_is_nth_token 2' \
+	-a '(__fish_complete_suffix .txt)' -d 'Exported run'
 
 # role: tangsible role <role_name> [ansible-playbook args...]
 complete -c tangsible -n '__fish_seen_subcommand_from role; and __fish_is_nth_token 2' \

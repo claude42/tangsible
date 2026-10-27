@@ -223,8 +223,11 @@ _tangsible()
 		# tangsible <playbook.yml> [ansible-playbook args...]
 		# revisit's own positional is optional too (falls back to the most
 		# recently revisitable target), same shape as run/rerun/hosts/
-		# inventory/debug.
-		if [ "$pos" -eq 0 ]; then
+		# inventory/debug; it also takes an exported run (*.txt).
+		if [ "$pos" -eq 0 ] && [ "$verb" = revisit ]; then
+			COMPREPLY=($(compgen -o plusdirs -f -X '!*.@(yml|yaml|txt)' -- "$cur"))
+			compopt -o filenames 2>/dev/null
+		elif [ "$pos" -eq 0 ]; then
 			_tangsible_ymlfiles "$cur"
 		else
 			COMPREPLY=($(compgen -f -- "$cur"))

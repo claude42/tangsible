@@ -221,6 +221,8 @@ run/rerun/role session and by revisit's own rerun.
   one via a replayed (frozen) `NewLiveTUI`. Owns `NewLiveTUIFunc`, the
   callback type that lets it call into `session.NewLiveTUI` without an
   import cycle.
+- **export.go** - single-file run export (header, output, stderr, then
+  the verbatim events) and its reader.
 - **revisitresolve.go** - `RevisitEntry`, filtering/sorting invocation
   history into a revisit-able list.
 

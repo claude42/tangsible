@@ -235,6 +235,11 @@ it just ran.
 Press `d` after a run or revisit to get a visual diff of its outcomes
 compared to a previous run, and `r` to re-run the one you are looking at.
 
+In the list of previous runs, `R` gives the selected run a name, which is shown
+in front of its command line, and `Delete` (or `Backspace`) removes it. `E` exports it to a single text file
+that anyone can read, with or without tangsible; `tangsible revisit file.txt`
+opens such a file as a tree.
+
 ## Running a role in isolation
 
 Normally, `ansible-playbook` runs playbooks rather than individual roles.

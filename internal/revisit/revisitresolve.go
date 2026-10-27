@@ -34,6 +34,10 @@ type RevisitEntry struct {
 	Time     string
 	ExitCode int
 	RunID    string
+	Name     string // user-assigned label, "" if none
+	// Imported is set instead of RunID for an entry opened from an export
+	// file (export.go): its data comes from there, not from .tangsible/runs/.
+	Imported *ExportedRun
 }
 
 // ResolveRevisitEntries flattens every revisitable invocation across cfg's
@@ -98,6 +102,7 @@ func NewRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) Revi
 		Time:     inv.Time,
 		ExitCode: code,
 		RunID:    inv.RunID,
+		Name:     inv.Name,
 	}
 }
 

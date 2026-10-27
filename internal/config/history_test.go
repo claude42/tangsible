@@ -521,3 +521,76 @@ func TestPruneMissingRunLogsNoOpWhenNothingIsMissing(t *testing.T) {
 		t.Errorf("pruneMissingRunLogs() on an entry with no RunID at all: %v", err)
 	}
 }
+
+func TestRenameInvocation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	for _, id := range []string{"A", "B"} {
+		if err := AppendInvocation(path, "site.yml", "", "-l "+id); err != nil {
+			t.Fatal(err)
+		}
+		if err := FinalizeInvocation(path, "site.yml", "", 0, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := RenameInvocation(path, "A", "first"); err != nil {
+		t.Fatalf("RenameInvocation(): %v", err)
+	}
+	invs := ReadState(path).History[0].Invocations
+	if invs[0].Name != "first" || invs[1].Name != "" {
+		t.Errorf("names = %q, %q; want \"first\" on A only", invs[0].Name, invs[1].Name)
+	}
+
+	if err := RenameInvocation(path, "A", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReadState(path).History[0].Invocations[0].Name; got != "" {
+		t.Errorf("name after clearing = %q, want empty", got)
+	}
+
+	if err := RenameInvocation(path, "nope", "x"); err != nil {
+		t.Errorf("unknown RunID: err = %v, want a no-op", err)
+	}
+}
+
+func TestDeleteInvocation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".tangsible", "state.toml")
+	for _, id := range []string{"A", "B"} {
+		if err := AppendInvocation(path, "site.yml", "", "-l "+id); err != nil {
+			t.Fatal(err)
+		}
+		if err := FinalizeInvocation(path, "site.yml", "", 0, id); err != nil {
+			t.Fatal(err)
+		}
+		jsonl, _ := RunLogPaths(path, id)
+		if err := EnsureParentDir(jsonl); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(jsonl, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := DeleteInvocation(path, "A"); err != nil {
+		t.Fatalf("DeleteInvocation(): %v", err)
+	}
+	invs := ReadState(path).History[0].Invocations
+	if len(invs) != 1 || invs[0].RunID != "B" {
+		t.Fatalf("invocations = %+v, want only B", invs)
+	}
+	if jsonl, _ := RunLogPaths(path, "A"); fileExists(jsonl) {
+		t.Errorf("A's saved log still exists")
+	}
+	if jsonl, _ := RunLogPaths(path, "B"); !fileExists(jsonl) {
+		t.Errorf("B's saved log was removed too")
+	}
+
+	if err := DeleteInvocation(path, "B"); err != nil {
+		t.Fatal(err)
+	}
+	h := ReadState(path).History
+	if len(h) != 1 || len(h[0].Invocations) != 0 {
+		t.Errorf("history after deleting the last invocation = %+v, want the target kept with none", h)
+	}
+}

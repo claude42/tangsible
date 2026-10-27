@@ -23,7 +23,19 @@ runs whose own recorded tags/hosts overlap the given value.
 Once a run is open, every normal live-tree key applies (see
 *tangsible-run*(1)), including *r* to rerun it (starting a real, live
 invocation from that point) and *d* to diff it against another recorded
-run. 
+run.
+
+In the list, *R* gives the selected run a name (shown before its command
+line; an empty name clears it), *Delete* or *Backspace* removes it together
+with its saved files (after a confirmation), and *E* exports it to one plain
+text file in the current directory.
+
+An export holds a header, the ansible output (colors stripped), stderr and,
+last, the saved event stream. It can be read in any editor, and
+*tangsible revisit* _exported-run.txt_ opens it as a frozen tree without
+touching the recorded history. It contains task results; check it for
+secrets before sharing. The source of a task is only shown if the playbook
+is also present locally.
 
 # EXIT STATUS
 

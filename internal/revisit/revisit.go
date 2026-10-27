@@ -26,6 +26,7 @@
 package revisit
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,6 +71,21 @@ type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bo
 // newLiveTUI is main.go's own tui.NewLiveTUI - see NewLiveTUIFunc's own
 // doc comment for why this is injected rather than called directly.
 func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
+	// "tangsible revisit <export file>": open a shared run straight into its
+	// tree - no list, nothing recorded in history.
+	if target, _, explicit := config.SplitPlaybookArgs(args); explicit && IsExportFile(target) {
+		data, err := os.ReadFile(target)
+		var er *ExportedRun
+		if err == nil {
+			er, err = ReadExport(data)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't read %s: %v\n", target, err)
+			return 1
+		}
+		OpenRevisitEntry(er.Entry, newLiveTUI, false)
+		return 0
+	}
 	shownAnything := false
 	// lastRunID is whichever entry was most recently opened - carried into
 	// the next RunRevisitListTUI call so closing that entry (Esc/q) puts
@@ -117,6 +133,17 @@ func RevisitCommandText(e RevisitEntry) string {
 		cmd += " " + e.Args
 	}
 	return cmd
+}
+
+// RevisitDescription is the row's last column: the bare command text, or -
+// once the run has a name - "<name> (<command without the leading
+// "tangsible ">)", dropping the program name to save width.
+func RevisitDescription(e RevisitEntry) string {
+	cmd := RevisitCommandText(e)
+	if e.Name == "" {
+		return cmd
+	}
+	return fmt.Sprintf("%s (%s)", e.Name, strings.TrimPrefix(cmd, "tangsible "))
 }
 
 // FormatRevisitTime renders InvocationRecord.Time (RFC3339 UTC, as
@@ -299,7 +326,7 @@ func resolveHadUnreachable(e RevisitEntry) *bool {
 // second one.
 func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, selected bool) string {
 	ts := FormatRevisitTime(e.Time)
-	cmd := RevisitCommandText(e)
+	cmd := RevisitDescription(e)
 	label, color := classifyExit(e.ExitCode, hadUnreachable)
 	padded := label + strings.Repeat(" ", labelWidth-len([]rune(label)))
 	if selected {
@@ -347,8 +374,10 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 
 	list := uikit.NewTreeList()
 
-	header := tview.NewTextView().SetDynamicColors(true).
-		SetText(fmt.Sprintf(" %d previous run(s) - %s ", len(entries), purpose))
+	headerText := func(note string) string {
+		return fmt.Sprintf(" %d previous run(s) - %s%s ", len(entries), purpose, note)
+	}
+	header := tview.NewTextView().SetDynamicColors(true).SetText(headerText(""))
 	header.SetTextStyle(uikit.BarStyle)
 	helpScreen, hide := runListHelp, runListHelpHidden(allowRerun, nested)
 	footer := tview.NewTextView().SetDynamicColors(true).SetText(runListBar(allowRerun, nested))
@@ -408,7 +437,9 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 				app.Stop()
 			})
 		}
-		list.SetCurrentItem(selectedIdx)
+		if selectedIdx >= 0 {
+			list.SetCurrentItem(selectedIdx)
+		}
 	}
 	list.SetChangedFunc(func(index int) {
 		if rebuilding {
@@ -422,7 +453,141 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 	pages := tview.NewPages().AddPage("main", flex, true, true)
 	help := uikit.NewHelpOverlay(app, pages)
 
+	// Rename dialog ('R', revisit proper only - the same allowRerun flag
+	// that marks the list as the program's own, not diff's picker): a
+	// single-field modal, same CenteredModal/Pages pattern as template's
+	// host-switch dialog. Empty text clears the name.
+	renameOpen := false
+	renameInput := tview.NewInputField().SetLabel("Name: ")
+	uikit.StyleInputField(renameInput)
+	renameInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor))
+	renameFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewBox(), 1, 0, false). // top margin
+		AddItem(renameInput, 1, 0, true)
+	renameFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Name this run (enter: apply, esc: cancel) ")
+	pages.AddPage("rename", uikit.CenteredModal(renameFlex, 60, 5), true, false)
+	closeRename := func() {
+		renameOpen = false
+		pages.HidePage("rename")
+		app.SetFocus(list)
+	}
+	renameInput.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			if selectedIdx >= 0 && selectedIdx < len(entries) {
+				name := strings.TrimSpace(renameInput.GetText())
+				// Only show the new name if it was actually saved - the verb
+				// loop re-reads state.toml on every return to the list, so a
+				// name shown here but not persisted would silently vanish.
+				if config.RenameInvocation(config.TangsibleStatePath, entries[selectedIdx].RunID, name) == nil {
+					entries[selectedIdx].Name = name
+				}
+			}
+			closeRename()
+			rebuildRows()
+		case tcell.KeyEscape:
+			closeRename()
+		}
+	})
+
+	// Export dialog ('E', revisit proper only): a file name, written to the
+	// current directory (a path typed in works too). Errors - typically
+	// "file exists" - go in the dialog's own title so it can be fixed in place.
+	exportOpen := false
+	exportInput := tview.NewInputField().SetLabel("File: ")
+	uikit.StyleInputField(exportInput)
+	exportInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor))
+	exportNote := tview.NewTextView().SetTextColor(tcell.GetColor(uikit.StandardTextColor)).
+		SetText("Contains task results - check for secrets before sharing.")
+	exportFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewBox(), 1, 0, false). // top margin
+		AddItem(exportInput, 1, 0, true).
+		AddItem(tview.NewBox(), 1, 0, false).
+		AddItem(exportNote, 1, 0, false)
+	const exportTitle = " Export this run (enter: save, esc: cancel) "
+	exportFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(exportTitle)
+	pages.AddPage("export", uikit.CenteredModal(exportFlex, 70, 7), true, false)
+	closeExport := func() {
+		exportOpen = false
+		pages.HidePage("export")
+		app.SetFocus(list)
+	}
+	exportInput.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			path := strings.TrimSpace(exportInput.GetText())
+			if path == "" || selectedIdx < 0 || selectedIdx >= len(entries) {
+				return
+			}
+			if err := ExportRun(entries[selectedIdx], path); err != nil {
+				exportFlex.SetTitle(" " + tview.Escape(err.Error()) + " ")
+				return
+			}
+			closeExport()
+			header.SetText(headerText(" - exported to " + tview.Escape(path)))
+		case tcell.KeyEscape:
+			closeExport()
+		}
+	})
+
+	// Delete confirmation (Delete/Backspace, revisit proper only): removes
+	// the whole record plus its saved files, so it asks first. y confirms,
+	// n/Esc cancel.
+	deleteOpen := false
+	deleteText := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter).
+		SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	deleteFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewBox(), 1, 0, false). // top margin
+		AddItem(deleteText, 1, 0, true)
+	deleteFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(" Delete this run? (y: delete, n/esc: cancel) ")
+	pages.AddPage("delete", uikit.CenteredModal(deleteFlex, 60, 5), true, false)
+	closeDelete := func() {
+		deleteOpen = false
+		pages.HidePage("delete")
+		app.SetFocus(list)
+	}
+	// deleteSelected removes the highlighted entry; the cursor lands on the
+	// row after it, or the one before if it was last, or nowhere (-1) if the
+	// list is now empty.
+	deleteSelected := func() {
+		if selectedIdx < 0 || selectedIdx >= len(entries) {
+			return
+		}
+		if config.DeleteInvocation(config.TangsibleStatePath, entries[selectedIdx].RunID) != nil {
+			return // not persisted - keep showing it rather than have it reappear later
+		}
+		entries = append(entries[:selectedIdx], entries[selectedIdx+1:]...)
+		if selectedIdx >= len(entries) {
+			selectedIdx = len(entries) - 1
+		}
+		header.SetText(headerText(""))
+		rebuildRows()
+	}
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if deleteOpen {
+			switch {
+			case event.Key() == tcell.KeyRune && event.Rune() == 'y':
+				closeDelete()
+				deleteSelected()
+			case event.Key() == tcell.KeyRune && event.Rune() == 'n', event.Key() == tcell.KeyEscape, event.Key() == tcell.KeyCtrlC:
+				closeDelete()
+			}
+			return nil
+		}
+		if exportOpen || renameOpen {
+			// Everything goes to the text field (typed q/j/b must stay text);
+			// Ctrl-C cancels the dialog rather than quitting.
+			if event.Key() == tcell.KeyCtrlC {
+				if exportOpen {
+					closeExport()
+				} else {
+					closeRename()
+				}
+				return nil
+			}
+			return event
+		}
 		if help.HandleKey(event) {
 			return nil
 		}
@@ -436,6 +601,32 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 		case event.Key() == tcell.KeyCtrlC, event.Key() == tcell.KeyRune && event.Rune() == 'q',
 			nested && event.Key() == tcell.KeyEscape:
 			app.Stop()
+			return nil
+		case allowRerun && (event.Key() == tcell.KeyDelete || event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2):
+			// Backspace too: Mac laptops' "delete" key sends it (same
+			// reasoning as the watch explorer's own binding).
+			if selectedIdx >= 0 && selectedIdx < len(entries) {
+				deleteText.SetText(tview.Escape(RevisitDescription(entries[selectedIdx])))
+				deleteOpen = true
+				pages.ShowPage("delete")
+			}
+			return nil
+		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'E':
+			if selectedIdx >= 0 && selectedIdx < len(entries) {
+				exportInput.SetText(ExportFileName(entries[selectedIdx]))
+				exportFlex.SetTitle(exportTitle)
+				exportOpen = true
+				pages.ShowPage("export")
+				app.SetFocus(exportInput)
+			}
+			return nil
+		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'R':
+			if selectedIdx >= 0 && selectedIdx < len(entries) {
+				renameInput.SetText(entries[selectedIdx].Name)
+				renameOpen = true
+				pages.ShowPage("rename")
+				app.SetFocus(renameInput)
+			}
 			return nil
 		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'r':
 			// Pick the highlighted entry and ask RunRevisitVerb to open it
@@ -454,6 +645,12 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 	app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 		if ev, act, handled := help.HandleMouse(event, action); handled {
 			return ev, act
+		}
+		if (renameOpen || deleteOpen || exportOpen) && event != nil && action == tview.MouseLeftClick {
+			x, y := event.Position()
+			if (renameOpen && !uikit.InRect(x, y, renameFlex)) || (deleteOpen && !uikit.InRect(x, y, deleteFlex)) || (exportOpen && !uikit.InRect(x, y, exportFlex)) {
+				return nil, action // a click outside the dialog must not reach the list under it
+			}
 		}
 		return event, action
 	})
@@ -495,11 +692,17 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 // rather than Enter (RunRevisitVerb). Cancelling the dialog drops back to
 // the frozen tree exactly as an in-tree 'r' cancel does.
 func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunDialog bool) {
-	jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, e.RunID)
-	state, err := runner.ReplayRunLog(jsonlPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't open saved run data: %v\n", err)
-		return
+	var state *pb.PlaybookState
+	if e.Imported != nil {
+		state = runner.ReplayRunLogReader(bytes.NewReader(e.Imported.Events))
+	} else {
+		jsonlPath, _ := config.RunLogPaths(config.TangsibleStatePath, e.RunID)
+		var err error
+		state, err = runner.ReplayRunLog(jsonlPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't open saved run data: %v\n", err)
+			return
+		}
 	}
 
 	// playbook is what a rerun (Phase 3, below) would actually spawn -
@@ -556,7 +759,11 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	// behavior for it. Overwritten for real the moment a rerun happens
 	// from within this session, same as exitCode/progH below.
 	var lastStderr atomic.Pointer[[]string]
-	if saved := config.ReadRunStderr(config.TangsibleStatePath, e.RunID); saved != nil {
+	saved := config.ReadRunStderr(config.TangsibleStatePath, e.RunID)
+	if e.Imported != nil {
+		saved = e.Imported.Stderr
+	}
+	if len(saved) > 0 {
 		lastStderr.Store(&saved)
 	}
 	// outLog (the 'o' raw-output view) is seeded the same way from the
@@ -564,8 +771,12 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	// run saved before that file existed. Swapped for a live one by a
 	// rerun from within this session, same as lastStderr.
 	var outLog atomic.Pointer[runner.OutputLog]
-	if saved, ok := config.ReadRunOutput(config.TangsibleStatePath, e.RunID); ok {
-		outLog.Store(runner.NewOutputLogFromLines(saved))
+	savedOut, hasOut := config.ReadRunOutput(config.TangsibleStatePath, e.RunID)
+	if e.Imported != nil {
+		savedOut, hasOut = e.Imported.Output, e.Imported.HasOutput
+	}
+	if hasOut {
+		outLog.Store(runner.NewOutputLogFromLines(savedOut))
 	}
 	processDone.Store(true)
 	exitCode.Store(int32(e.ExitCode))

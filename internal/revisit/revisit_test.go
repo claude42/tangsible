@@ -246,3 +246,18 @@ func TestClassifyExitIntegratesResolvedUnreachable(t *testing.T) {
 		t.Errorf("RevisitStatusLabel(exit 4, resolved from a real unreachable event) = %q, want %q", got, "Success")
 	}
 }
+
+func TestRevisitDescription(t *testing.T) {
+	e := RevisitEntry{Playbook: "site.yml", Args: "-l some,hosts"}
+	if got, want := RevisitDescription(e), "tangsible run site.yml -l some,hosts"; got != want {
+		t.Errorf("unnamed = %q, want %q", got, want)
+	}
+	e.Name = "foobarbaz"
+	if got, want := RevisitDescription(e), "foobarbaz (run site.yml -l some,hosts)"; got != want {
+		t.Errorf("named = %q, want %q", got, want)
+	}
+	role := RevisitEntry{Role: "postfix", Name: "n"}
+	if got, want := RevisitDescription(role), "n (role postfix)"; got != want {
+		t.Errorf("named role = %q, want %q", got, want)
+	}
+}
