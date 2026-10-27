@@ -8,6 +8,7 @@
 - `revisit`: Delete / Backspace removes a previous run and its saved files (after a confirmation)
 - `revisit`: `E` exports a run to one human-readable text file; `tangsible revisit file.txt` opens it
 - `host`: the host_vars tab now also shows the host's own variables from the inventory
+- `host`: More information in the Summary tab
 - Roles outside the project (`~/.ansible/roles`, `/etc/ansible/roles`, `roles_path`, ...) are now found by `role`, shown in the Task definition tab and recognized as roles by Details/Resolved/`template`; completions follow `$ANSIBLE_ROLES_PATH`
 - New verb: `tangsible help [verb]` lists every verb in one line, or one verb's synopsis
 

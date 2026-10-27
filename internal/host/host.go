@@ -1032,6 +1032,79 @@ func FormatRAM(raw interface{}) string {
 	return fmt.Sprintf("%.1f GB", mb/1024)
 }
 
+// formatProcessor renders the deduplicated model names followed by
+// ansible_processor_nproc in brackets, e.g. "AMD Ryzen 5 3600 (12 vCPUs)".
+// nproc (the CPUs actually available to the process) is used rather than
+// processor_vcpus, which reports the host's CPUs inside an LXC container.
+func formatProcessor(facts map[string]interface{}) string {
+	p := strings.Join(DedupProcessorModels(facts["ansible_processor"]), ", ")
+	n, ok := facts["ansible_processor_nproc"].(float64)
+	if !ok || n < 1 {
+		return p
+	}
+	unit := "vCPUs"
+	if n == 1 {
+		unit = "vCPU"
+	}
+	return JoinNonEmpty(" ", p, fmt.Sprintf("(%d %s)", int(n), unit))
+}
+
+// formatDistribution renders "Debian, 13.7 (trixie)": name, version, and
+// the release codename in brackets when there is one.
+func formatDistribution(facts map[string]interface{}) string {
+	d := JoinNonEmpty(", ", FactString(facts, "distribution"), FactString(facts, "distribution_version"))
+	if rel := FactString(facts, "distribution_release"); rel != "" {
+		d = JoinNonEmpty(" ", d, "("+rel+")")
+	}
+	return d
+}
+
+// FormatMounts renders ansible_facts' "mounts" (a list of objects with
+// mount, size_total and size_available in bytes) as one "<mount>  <free> /
+// <total>" line per mount point, in the order Ansible reports them, with
+// the mount paths padded and both sizes right-aligned across all lines.
+func FormatMounts(raw interface{}) []string {
+	list, _ := raw.([]interface{})
+	type row struct{ path, free, total string }
+	var rows []row
+	pathW, freeW, totalW := 0, 0, 0
+	for _, e := range list {
+		m, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		path, _ := m["mount"].(string)
+		if path == "" {
+			continue
+		}
+		total, _ := m["size_total"].(float64)
+		avail, _ := m["size_available"].(float64)
+		r := row{path, formatBytes(avail), formatBytes(total)}
+		rows = append(rows, r)
+		pathW = max(pathW, len(r.path))
+		freeW = max(freeW, len(r.free))
+		totalW = max(totalW, len(r.total))
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fmt.Sprintf("%-*s  %*s / %*s", pathW, r.path, freeW, r.free, totalW, r.total))
+	}
+	return out
+}
+
+func formatBytes(n float64) string {
+	units := []string{"B", "KB", "MB", "GB", "TB", "PB"}
+	i := 0
+	for n >= 1024 && i < len(units)-1 {
+		n /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%.0f B", n)
+	}
+	return fmt.Sprintf("%.1f %s", n, units[i])
+}
+
 // VirtualizationContainerTechs/virtualizationVMTechs categorize
 // ansible_facts' own "virtualization_type" (and, as a fallback,
 // "virtualization_tech_guest" entries) into design-docs/HostVerb.md's own
@@ -1140,13 +1213,35 @@ func formatCharacteristics(hostname string, facts map[string]interface{}) string
 		{"Host", hostname},
 		{"FQDN", FactString(facts, "fqdn")},
 		{"OS", JoinNonEmpty(", ", FactString(facts, "system"), FactString(facts, "kernel"))},
-		{"Distribution", JoinNonEmpty(", ", FactString(facts, "distribution"), FactString(facts, "distribution_version"))},
+		{"Distribution", formatDistribution(facts)},
+		{"Python", FactString(facts, "python_version")},
 		{"Architecture", FactString(facts, "architecture")},
-		{"Processor", strings.Join(DedupProcessorModels(facts["ansible_processor"]), ", ")},
-		{"RAM", FormatRAM(facts["ansible_memtotal_mb"])},
+		{"Processor", formatProcessor(facts)},
 		{"Virtualization", ClassifyVirtualization(facts)},
+		{"RAM", FormatRAM(facts["ansible_memtotal_mb"])},
+		{"Mounts", ""},
 		{"IPv4", strings.Join(FactStringList(facts, "all_ipv4_addresses"), ", ")},
 		{"IPv6", strings.Join(FilterLinkLocal(FactStringList(facts, "all_ipv6_addresses")), ", ")},
+	}
+	// "Mounts" expands in place into one line per mount point; later lines
+	// carry no label so the values line up under the first.
+	for i, f := range fields {
+		if f.label != "Mounts" {
+			continue
+		}
+		var mounts []field
+		for j, m := range FormatMounts(facts["ansible_mounts"]) {
+			label := ""
+			if j == 0 {
+				label = "Mounts"
+			}
+			mounts = append(mounts, field{label, m})
+		}
+		if len(mounts) == 0 {
+			mounts = []field{{"Mounts", ""}}
+		}
+		fields = append(fields[:i], append(mounts, fields[i+1:]...)...)
+		break
 	}
 
 	width := 0
@@ -1163,6 +1258,9 @@ func formatCharacteristics(hostname string, facts map[string]interface{}) string
 			value = "-"
 		}
 		label := f.label + ":"
+		if f.label == "" {
+			label = ""
+		}
 		fmt.Fprintf(&b, "[%s]%s[-]%s[%s]%s[-]\n", uikit.KeyHighlightColor, label, strings.Repeat(" ", width-len(label)+1), uikit.ValueHighlightColor, tview.Escape(value))
 	}
 	return b.String()
