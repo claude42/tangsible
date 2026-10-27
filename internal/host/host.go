@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -319,16 +320,23 @@ func ExtractInventoryDirs(rest []string) []string {
 	return dirs
 }
 
+// varsFileExtensions are ansible-core's default YAML_FILENAME_EXTENSIONS,
+// the extensions it accepts for vars files (tangsible doesn't read a
+// customized setting).
+var varsFileExtensions = []string{".yml", ".yaml", ".json"}
+
 // DiscoverHostVarsFiles returns every host_vars file for hostname found
-// under any of dirs, sorted for determinism - Ansible looks for host_vars
-// as a sibling of both the inventory source and the playbook (ansible-core's
-// own documented behavior), so dirs is expected to already carry both
-// candidates by the time this is called (extractInventoryDirs plus the
-// playbook's own directory - see fetchHostVars). Matches both shapes
-// Ansible itself recognizes: a single host_vars/<hostname>.yml (or .yaml)
-// file, and a host_vars/<hostname>/ directory of multiple files.
-// Deduplicated by absolute path, since the playbook and an inventory
-// source can easily share the same directory.
+// under any of dirs - Ansible looks for host_vars as a sibling of both the
+// inventory source and the playbook (ansible-core's own documented
+// behavior), so dirs is expected to already carry both candidates by the
+// time this is called (extractInventoryDirs plus the playbook's own
+// directory - see fetchHostVars). Mirrors DataLoader.find_vars_files:
+// per dir, the first of host_vars/<hostname>, <hostname>.yml, .yaml, .json
+// that exists wins - a directory is walked recursively (sorted at every
+// level, hidden files and "~" backups skipped, any file with a vars
+// extension or none), a file is taken as is. Deduplicated by absolute
+// path, since the playbook and an inventory source can easily share the
+// same directory.
 func DiscoverHostVarsFiles(hostname string, dirs []string) []string {
 	seen := map[string]bool{}
 	var files []string
@@ -344,29 +352,49 @@ func DiscoverHostVarsFiles(hostname string, dirs []string) []string {
 		files = append(files, path)
 	}
 	for _, dir := range dirs {
-		for _, ext := range []string{".yml", ".yaml"} {
-			p := filepath.Join(dir, "host_vars", hostname+ext)
-			if info, err := os.Stat(p); err == nil && !info.IsDir() {
-				addIfNew(p)
+		base := filepath.Join(dir, "host_vars", hostname)
+		for _, ext := range append([]string{""}, varsFileExtensions...) {
+			info, err := os.Stat(base + ext)
+			if err != nil {
+				continue
 			}
+			if info.IsDir() {
+				for _, f := range varsFilesInDir(base + ext) {
+					addIfNew(f)
+				}
+			} else {
+				addIfNew(base + ext)
+			}
+			break
 		}
-		groupDir := filepath.Join(dir, "host_vars", hostname)
-		entries, err := os.ReadDir(groupDir)
+	}
+	return files
+}
+
+// varsFilesInDir is DataLoader._get_dir_vars_files: dir's vars files,
+// recursing into subdirectories whose names have no extension.
+func varsFilesInDir(dir string) []string {
+	entries, err := os.ReadDir(dir) // sorted by name
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || strings.HasSuffix(name, "~") {
+			continue
+		}
+		ext := filepath.Ext(name)
+		path := filepath.Join(dir, name)
+		info, err := os.Stat(path) // follows symlinks, like ansible
 		if err != nil {
 			continue
 		}
-		var names []string
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			if strings.HasSuffix(e.Name(), ".yml") || strings.HasSuffix(e.Name(), ".yaml") {
-				names = append(names, e.Name())
-			}
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			addIfNew(filepath.Join(groupDir, name))
+		switch {
+		case info.IsDir() && ext == "":
+			files = append(files, varsFilesInDir(path)...)
+		case !info.IsDir() && (ext == "" || slices.Contains(varsFileExtensions, ext)):
+			files = append(files, path)
 		}
 	}
 	return files

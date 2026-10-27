@@ -252,7 +252,12 @@ prefix) renders unstyled.
 
 Shows every `host_vars/<hostname>` file verbatim, one section per file -
 not a merged/flattened key-value view. Preserves comments/formatting and
-needs no variable-precedence/merge logic. Each line's own `key:` portion
+needs no variable-precedence/merge logic. File discovery mirrors
+ansible-core's `DataLoader.find_vars_files` (`DiscoverHostVarsFiles`): per
+directory the first of `<host>`, `<host>.yml`, `.yaml`, `.json` wins, a
+directory is walked recursively (hidden files, `~` backups and dotted
+subdirectories skipped; `.yml`/`.yaml`/`.json` or no extension) - the file
+names `main.yml`/`vault.yml` are only convention. Each line's own `key:` portion
 is highlighted green, the value `lightsteelblue` - including a bare
 block-sequence list item with no key of its own (`- alpha`, previously
 left fully unstyled since it has no colon at all to match against) and a

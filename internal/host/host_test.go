@@ -335,6 +335,61 @@ func TestDiscoverHostVarsFiles(t *testing.T) {
 	}
 }
 
+// Ansible's own rules (DataLoader.find_vars_files): a directory wins over
+// <host>.yml, is walked recursively, and takes .yml/.yaml/.json or
+// extensionless files, skipping hidden files and "~" backups.
+func TestDiscoverHostVarsFilesMirrorsAnsible(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel string) string {
+		t.Helper()
+		p := filepath.Join(dir, "host_vars", rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x: 1\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// A directory beats a sibling web1.yml.
+	write("web1.yml")
+	main := write("web1/main.yml")
+	vault := write("web1/vault.yml")
+	jsonf := write("web1/extra.json")
+	bare := write("web1/noext")
+	nested := write("web1/network/ifaces.yaml")
+	deeper := write("web1/network/bgp/peers.yml")
+	write("web1/.hidden.yml")
+	write("web1/main.yml~")
+	write("web1/notes.txt")
+	write("web1/old.d/skipped.yml") // a dotted directory name isn't recursed
+
+	got := DiscoverHostVarsFiles("web1", []string{dir})
+	// Sorted at every level: extra.json, main.yml, network/{bgp/, ifaces}, noext, vault.yml
+	want := []string{jsonf, main, deeper, nested, bare, vault}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("DiscoverHostVarsFiles(web1) =\n%v\nwant\n%v", got, want)
+	}
+
+	// Single-file shapes: .json and extensionless.
+	j := write("web2.json")
+	if got := DiscoverHostVarsFiles("web2", []string{dir}); !reflect.DeepEqual(got, []string{j}) {
+		t.Errorf("DiscoverHostVarsFiles(web2) = %v, want [%s]", got, j)
+	}
+	b := write("web3")
+	if got := DiscoverHostVarsFiles("web3", []string{dir}); !reflect.DeepEqual(got, []string{b}) {
+		t.Errorf("DiscoverHostVarsFiles(web3) = %v, want [%s]", got, b)
+	}
+
+	// First match wins among the single-file shapes, like Ansible.
+	write("web4.yaml")
+	write("web4.json")
+	if got := DiscoverHostVarsFiles("web4", []string{dir}); len(got) != 1 || filepath.Base(got[0]) != "web4.yaml" {
+		t.Errorf("DiscoverHostVarsFiles(web4) = %v, want only web4.yaml", got)
+	}
+}
+
 func TestHostRowText(t *testing.T) {
 	if got, want := HostRowText("web1", false, false, false), "[gray]●[-]  [silver]web1[-]"; got != want {
 		t.Errorf("HostRowText(selected=false) = %q, want %q", got, want)
