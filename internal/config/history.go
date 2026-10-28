@@ -67,6 +67,10 @@ type InvocationRecord struct {
 	// (design-docs/Revisit.md, "Name runs"), set from revisit's list.
 	// Per run, not per target: a rerun starts blank.
 	Name string `toml:"name,omitempty"`
+	// Pinned keeps this run at the top of revisit's list and exempt from
+	// the retention cap (design-docs/Revisit.md, "Pin runs"). Per run: a
+	// rerun starts unpinned.
+	Pinned bool `toml:"pinned,omitempty"`
 }
 
 // PlaybookHistory is one [[history]] entry in state.toml: either a
@@ -357,6 +361,24 @@ func RenameInvocation(path, runID, name string) error {
 	return nil
 }
 
+// SetInvocationPinned pins or unpins the invocation whose RunID is runID.
+// Unknown runID: no-op, as in RenameInvocation.
+func SetInvocationPinned(path, runID string, pinned bool) error {
+	if runID == "" {
+		return nil
+	}
+	cfg := ReadState(path)
+	for i := range cfg.History {
+		for j := range cfg.History[i].Invocations {
+			if inv := &cfg.History[i].Invocations[j]; inv.RunID == runID {
+				inv.Pinned = pinned
+				return WriteState(path, cfg)
+			}
+		}
+	}
+	return nil
+}
+
 // DeleteInvocation removes the whole invocation record whose RunID is
 // runID - and its saved run files - from the history, unlike the pruning of
 // vanished logs (PruneMissingRunLogs), which keeps the record. The target's
@@ -435,18 +457,34 @@ func LastTarget(cfg StateConfig) (PlaybookHistory, bool) {
 	return PlaybookHistory{}, false
 }
 
-// AppendCapped appends next to existing, dropping from the front (oldest
-// first) until the result is at most max entries long. evicted is whatever
-// got dropped, oldest first, so a caller with side effects to clean up
-// per-entry (appendInvocation deleting a dropped entry's own saved run-log
-// files) has something to iterate.
+// AppendCapped appends next to existing, dropping the oldest unpinned
+// entries until at most max unpinned ones remain. Pinned entries are never
+// dropped and don't count toward max, so pinning doesn't shrink the room
+// for new history. evicted is whatever got dropped, oldest first, so a
+// caller with side effects to clean up per-entry (appendInvocation deleting
+// a dropped entry's own saved run-log files) has something to iterate.
 func AppendCapped(existing []InvocationRecord, next InvocationRecord, max int) (result, evicted []InvocationRecord) {
 	out := append(existing, next)
-	if len(out) > max {
-		evicted = out[:len(out)-max]
-		out = out[len(out)-max:]
+	unpinned := 0
+	for _, r := range out {
+		if !r.Pinned {
+			unpinned++
+		}
 	}
-	return out, evicted
+	if unpinned <= max {
+		return out, nil
+	}
+	drop := unpinned - max
+	kept := make([]InvocationRecord, 0, len(out))
+	for _, r := range out {
+		if !r.Pinned && drop > 0 {
+			evicted = append(evicted, r)
+			drop--
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept, evicted
 }
 
 // LastInvocation returns the most recently recorded invocation string

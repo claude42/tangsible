@@ -329,10 +329,17 @@ func RevisitRowText(e RevisitEntry, hadUnreachable *bool, labelWidth int, select
 	cmd := RevisitDescription(e)
 	label, color := classifyExit(e.ExitCode, hadUnreachable)
 	padded := label + strings.Repeat(" ", labelWidth-len([]rune(label)))
-	if selected {
-		return fmt.Sprintf("[%s:%s:b]%s - %s - %s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
+	// Pinned rows start with a colored "*"; the column is blank otherwise so
+	// timestamps line up.
+	pin, pinSel := " ", " "
+	if e.Pinned {
+		pin = fmt.Sprintf("[%s]*[-]", uikit.SelectionColor)
+		pinSel = "*"
 	}
-	return fmt.Sprintf("[%s]%s[-] - [%s]%s[-] - [%s]%s[-]", uikit.StandardTextColor, tview.Escape(ts), color, tview.Escape(padded), uikit.StandardTextColor, tview.Escape(cmd))
+	if selected {
+		return fmt.Sprintf("[%s:%s:b]%s %s - %s - %s[-:-:-]", uikit.SelectedRowTextColor, uikit.SelectedRowBackgroundColor, pinSel, tview.Escape(ts), tview.Escape(padded), tview.Escape(cmd))
+	}
+	return fmt.Sprintf("%s [%s]%s[-] - [%s]%s[-] - [%s]%s[-]", pin, uikit.StandardTextColor, tview.Escape(ts), color, tview.Escape(padded), uikit.StandardTextColor, tview.Escape(cmd))
 }
 
 // RunRevisitListTUI shows entries (already filtered/sorted newest-first by
@@ -609,6 +616,26 @@ func RunRevisitListTUI(entries []RevisitEntry, initialRunID, purpose string, all
 				deleteText.SetText(tview.Escape(RevisitDescription(entries[selectedIdx])))
 				deleteOpen = true
 				pages.ShowPage("delete")
+			}
+			return nil
+		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'P':
+			// Toggle the pin, re-sort (pinned first, then newest first) and
+			// keep the cursor on the same run, which has moved.
+			if selectedIdx >= 0 && selectedIdx < len(entries) {
+				e := &entries[selectedIdx]
+				// Only change what's shown if it was actually saved - see rename.
+				if config.SetInvocationPinned(config.TangsibleStatePath, e.RunID, !e.Pinned) == nil {
+					e.Pinned = !e.Pinned
+					runID := e.RunID
+					SortRevisitEntries(entries)
+					for i := range entries {
+						if entries[i].RunID == runID {
+							selectedIdx = i
+							break
+						}
+					}
+					rebuildRows()
+				}
 			}
 			return nil
 		case allowRerun && event.Key() == tcell.KeyRune && event.Rune() == 'E':

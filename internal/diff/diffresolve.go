@@ -81,6 +81,6 @@ func ResolveDiffCandidates(currentPlaybook, currentRole, currentTags, currentHos
 			entries = append(entries, revisit.NewRevisitEntry(h, inv))
 		}
 	}
-	revisit.SortRevisitEntriesNewestFirst(entries)
+	revisit.SortRevisitEntries(entries)
 	return entries
 }

@@ -35,6 +35,7 @@ type RevisitEntry struct {
 	ExitCode int
 	RunID    string
 	Name     string // user-assigned label, "" if none
+	Pinned   bool   // sorts above all unpinned runs
 	// Imported is set instead of RunID for an entry opened from an export
 	// file (export.go): its data comes from there, not from .tangsible/runs/.
 	Imported *ExportedRun
@@ -82,7 +83,7 @@ func ResolveRevisitEntries(args []string, cfg config.StateConfig) []RevisitEntry
 		}
 	}
 
-	SortRevisitEntriesNewestFirst(entries)
+	SortRevisitEntries(entries)
 	return entries
 }
 
@@ -103,18 +104,22 @@ func NewRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) Revi
 		ExitCode: code,
 		RunID:    inv.RunID,
 		Name:     inv.Name,
+		Pinned:   inv.Pinned,
 	}
 }
 
-// SortRevisitEntriesNewestFirst sorts entries in place, newest Time first -
-// shared by ResolveRevisitEntries and ResolveDiffCandidates. A Time that
+// SortRevisitEntries sorts entries in place: pinned runs first, then
+// unpinned, each group newest Time first - shared by ResolveRevisitEntries and ResolveDiffCandidates. A Time that
 // fails to parse (shouldn't happen for anything AppendInvocation itself
 // ever wrote, but not trusted blindly - same caveat this project applies
 // to every other event-derived field) falls back to time.Time's own zero
 // value, which naturally sorts to the end - no separate fallback branch
 // needed.
-func SortRevisitEntriesNewestFirst(entries []RevisitEntry) {
+func SortRevisitEntries(entries []RevisitEntry) {
 	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].Pinned != entries[j].Pinned {
+			return entries[i].Pinned
+		}
 		ti, _ := time.Parse(time.RFC3339, entries[i].Time)
 		tj, _ := time.Parse(time.RFC3339, entries[j].Time)
 		return ti.After(tj)

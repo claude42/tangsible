@@ -47,6 +47,14 @@ func TestAppendCapped(t *testing.T) {
 			want:        []InvocationRecord{rec("b"), rec("c"), rec("d")},
 			wantEvicted: []InvocationRecord{rec("a")},
 		},
+		{
+			name:        "pinned entries are kept and don't count toward the cap",
+			existing:    []InvocationRecord{{Args: "a", Pinned: true}, rec("b"), rec("c")},
+			next:        rec("d"),
+			max:         2,
+			want:        []InvocationRecord{{Args: "a", Pinned: true}, rec("c"), rec("d")},
+			wantEvicted: []InvocationRecord{rec("b")},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -592,5 +600,26 @@ func TestDeleteInvocation(t *testing.T) {
 	h := ReadState(path).History
 	if len(h) != 1 || len(h[0].Invocations) != 0 {
 		t.Errorf("history after deleting the last invocation = %+v, want the target kept with none", h)
+	}
+}
+
+func TestSetInvocationPinned(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	if err := AppendInvocation(path, "site.yml", "", "-l x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := FinalizeInvocation(path, "site.yml", "", 0, "r1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []bool{true, false} {
+		if err := SetInvocationPinned(path, "r1", want); err != nil {
+			t.Fatal(err)
+		}
+		if got := ReadState(path).History[0].Invocations[0].Pinned; got != want {
+			t.Errorf("Pinned = %v, want %v", got, want)
+		}
+	}
+	if err := SetInvocationPinned(path, "nope", true); err != nil {
+		t.Errorf("unknown runID should be a no-op, got %v", err)
 	}
 }

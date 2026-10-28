@@ -428,6 +428,19 @@ tangsible revisit filename.json
 
 Tangible should open this file and us it as input for revisiting a run.
 
+### Pin runs
+
+The user might want to revisit / rerun some runs quite frequently. Even if
+they name that specific run it will still scroll out of sight after a while.
+
+#### Proposal
+
+Add a functionality to "pin" runs to the top, i.e. user presses a keyboard
+shortcut (e.g. "P") then this run will always be displayed at the top of the
+list (and marked as pinned with a special symbol, a star or something else,
+you choose). If there are more than one pinned run, these will be sorted in
+reverse chronological order.
+
 #### Still to be discussed
 
 Currently a run consists of two files, exporting two files will be rather
@@ -681,3 +694,14 @@ scanner. Anyone can stop reading at the events marker.
   the list", although Esc leaves; fixing it means threading another flag
   through `NewLiveTUI`.
 * Not done: redaction of secrets; navigator/runner formats (see above).
+
+## Pin runs - decisions and status (2026-10-28)
+
+Decided: `P` toggles a pin on revisit's list (not offered in diff's picker,
+which does show pins). `InvocationRecord.Pinned` (`omitempty`); pinned runs
+sort first (newest first among themselves), marked with a leading `*` in
+`uikit.SelectionColor`. Filters (playbook, `-l`, `--tags`) apply to pins too,
+so only matching pins show. The cursor follows the toggled run to its new
+row. Retention: pinned runs are never evicted and don't count toward
+`MaxHistoryPerPlaybook` (`config.AppendCapped`). A rerun starts unpinned;
+delete and export treat pinned runs like any other.

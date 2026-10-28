@@ -26,7 +26,7 @@ func runListBar(allowRerun, nested bool) string {
 	case nested:
 		return " ?: help  enter: compare  esc: back "
 	case allowRerun:
-		return " ?: help  enter: open  r: re-run  R: rename  E: export  del: delete  q: quit "
+		return " ?: help  enter: open  r: re-run  R: rename  P: pin  E: export  del: delete  q: quit "
 	}
 	return " ?: help  enter: open  q: quit "
 }
@@ -36,6 +36,7 @@ const (
 	runListIDCompare = "compare" // diff picker: compare against the run
 	runListIDRerun   = "rerun"
 	runListIDRename  = "rename"
+	runListIDPin     = "pin"
 	runListIDDelete  = "delete"
 	runListIDExport  = "export"
 	runListIDQuit    = "quit"
@@ -49,7 +50,7 @@ func runListHelpHidden(allowRerun, nested bool) func(id string) bool {
 			return nested
 		case runListIDCompare, runListIDBack:
 			return !nested
-		case runListIDRerun, runListIDRename, runListIDDelete, runListIDExport:
+		case runListIDRerun, runListIDRename, runListIDPin, runListIDDelete, runListIDExport:
 			return !allowRerun
 		}
 		return false
@@ -69,6 +70,7 @@ var runListHelp = uikit.HelpScreen{
 			{Keys: "Enter", Desc: "Compare the current run against this one", ID: runListIDCompare},
 			{Keys: "r", Desc: "Open the run straight into the re-run dialog", ID: runListIDRerun},
 			{Keys: "R", Desc: "Name the run (shown in the list; empty clears it)", ID: runListIDRename},
+			{Keys: "P", Desc: "Pin / unpin the run: pinned runs (*) stay at the top and are never dropped by the history cap", ID: runListIDPin},
 			{Keys: "E", Desc: "Export the run to one text file, readable without tangsible (reopen: tangsible revisit <file>)", ID: runListIDExport},
 			{Keys: "Delete / Backspace", Desc: "Delete the run and its saved files (asks first)", ID: runListIDDelete},
 		}},

@@ -50,6 +50,20 @@ func TestResolveRevisitEntriesSortsNewestFirst(t *testing.T) {
 	}
 }
 
+func TestResolveRevisitEntriesPinnedFirst(t *testing.T) {
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
+			{Args: "pinned old", Time: "2026-08-23T09:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1", Pinned: true},
+			{Args: "newest", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
+			{Args: "pinned newer", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-3", Pinned: true},
+		}},
+	}}
+	got := ResolveRevisitEntries(nil, cfg)
+	if len(got) != 3 || got[0].Args != "pinned newer" || got[1].Args != "pinned old" || got[2].Args != "newest" {
+		t.Errorf("ResolveRevisitEntries() order = %v, want pinned newer, pinned old, newest", got)
+	}
+}
+
 func TestResolveRevisitEntriesUnparseableTimeSortsLast(t *testing.T) {
 	cfg := config.StateConfig{History: []config.PlaybookHistory{
 		{Playbook: "site.yml", Invocations: []config.InvocationRecord{

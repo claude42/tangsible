@@ -5,6 +5,7 @@
 ### Added
 
 - `revisit`: `R` names a previous run; the name shows in the list before the command line
+- `revisit`: `P` pins a run to the top of the list (marked `*`, exempt from the history cap)
 - `revisit`: Delete / Backspace removes a previous run and its saved files (after a confirmation)
 - `revisit`: `E` exports a run to one human-readable text file; `tangsible revisit file.txt` opens it
 - `host`: the host_vars tab now also shows the host's own variables from the inventory
