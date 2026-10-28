@@ -122,6 +122,15 @@ type SettingsConfig struct {
 		// keyword) expands past this count. *int, nil-means-default-10, same
 		// shape as NotifyTaskFailedMax above and for the same reason.
 		TemplateHostsMax *int `toml:"template_hosts_max"`
+		// TerminalProgress governs design-docs/ProgressIndicator.md's OSC 9;4
+		// terminal progress (taskbar/tab progress bar) - "auto" (the
+		// default: on only for terminals known to support it, see
+		// uikit.TerminalProgressSupported), "on", or "off", case-
+		// insensitive (see TerminalProgressModePreference). Unlike
+		// notifications above, auto-detection is worth it here: OSC 9 is
+		// also iTerm2's notification sequence, so a terminal that doesn't
+		// understand the ";4;" form could show a bogus notification.
+		TerminalProgress string `toml:"terminal_progress"`
 		// ColorScheme is design-docs/ColorConfig.md's own addendum -
 		// "dark" or "light", case-insensitive, governing which of
 		// ColorsConfig's own Dark/Light sub-tables (and a loaded
@@ -285,6 +294,31 @@ func RunDialogPreference(cfg SettingsConfig) DialogPreference {
 		return DialogPreferenceAlways
 	default:
 		return DialogPreferenceDefault
+	}
+}
+
+// TerminalProgressMode is General.TerminalProgress's parsed form.
+type TerminalProgressMode int
+
+const (
+	TerminalProgressAuto TerminalProgressMode = iota
+	TerminalProgressOn
+	TerminalProgressOff
+)
+
+// TerminalProgressModePreference reads cfg.General.TerminalProgress as a
+// TerminalProgressMode, case-insensitively - "on"/"off" match explicitly;
+// everything else, including an unset or unrecognized value, falls back to
+// TerminalProgressAuto, the same "swallow and fall back" convention as
+// RunDialogPreference.
+func TerminalProgressModePreference(cfg SettingsConfig) TerminalProgressMode {
+	switch {
+	case strings.EqualFold(cfg.General.TerminalProgress, "on"):
+		return TerminalProgressOn
+	case strings.EqualFold(cfg.General.TerminalProgress, "off"):
+		return TerminalProgressOff
+	default:
+		return TerminalProgressAuto
 	}
 }
 

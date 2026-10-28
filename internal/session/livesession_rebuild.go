@@ -66,6 +66,29 @@ func (s *liveSession) updateWindowTitle(progressPos, progressTotal int, frozen b
 	_ = uikit.SetWindowTitle(fmt.Sprintf("%d%%  %s", pct, s.playbookName))
 }
 
+// updateTerminalProgress mirrors the same progress into the terminal's own
+// progress indicator (OSC 9;4, uikit/termprogress.go), only writing when
+// the resulting sequence changes - same throttling idea as
+// updateWindowTitle. Best-effort, errors dropped.
+func (s *liveSession) updateTerminalProgress(progressPos, progressTotal int, frozen bool) {
+	if !s.terminalProgress {
+		return
+	}
+	failed := frozen && uikit.GenuineFailure(int(s.exitCode.Load()), s.state.HadUnreachable, runner.AnsibleUserInterruptedExitCode)
+	paused := s.debugMode && s.debugPausedHost != ""
+	p := uikit.ComputeTerminalProgress(s.everStarted, s.progH.Load() == nil, frozen, failed, paused, progressPos, progressTotal)
+	seq := p.Sequence()
+	if seq == s.lastTerminalProgress {
+		return
+	}
+	s.lastTerminalProgress = seq
+	if p.State == uikit.TerminalProgressHidden {
+		_ = uikit.ClearTerminalProgress()
+		return
+	}
+	_ = uikit.SetTerminalProgress(p)
+}
+
 // activeTasks returns the set of tasks currently in flight (playbook.
 // PlaybookState.IncompleteTasks, as a membership set), or nil once the run
 // has finished - the same "frozen means nothing is active" rule
@@ -293,6 +316,7 @@ func (s *liveSession) rebuild() {
 	// one rebuild pass anyway.
 	progressPos, progressTotal := s.progressPosition()
 	s.updateWindowTitle(progressPos, progressTotal, frozen)
+	s.updateTerminalProgress(progressPos, progressTotal, frozen)
 
 	// Two-pane layout (design-docs/TwoPanedLayout.md) is live, not
 	// decided once at open time: every rebuild - including ones driven

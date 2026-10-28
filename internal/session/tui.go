@@ -305,6 +305,12 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.notifyPlaybookFinishedKind = config.NotifyPlaybookFinishedKind(s.notifyCfg)
 	s.notifyTaskFailedKind = config.NotifyTaskFailedKind(s.notifyCfg)
 	s.notifyTaskFailedMax = config.NotifyTaskFailedMax(s.notifyCfg)
+	switch config.TerminalProgressModePreference(s.notifyCfg) {
+	case config.TerminalProgressOn:
+		s.terminalProgress = true
+	case config.TerminalProgressAuto:
+		s.terminalProgress = uikit.TerminalProgressSupported(os.Getenv)
+	}
 	// s.taskFailedNotifyCount/s.suppressedTaskFailures both reset per
 	// generation (submitRerun below) - notify_task_failed_max's own cap is
 	// per run, not per session (design-docs/Notifications.md: "Failure

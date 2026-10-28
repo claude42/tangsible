@@ -60,7 +60,10 @@ func SetWindowTitle(title string) error {
 // rebuild) never has to know or restore whatever title was there before.
 func RunWithTitleStack(app *tview.Application) error {
 	_ = PushWindowTitle()
-	defer func() { _ = PopWindowTitle() }()
+	defer func() {
+		_ = ClearTerminalProgress() // termprogress.go: no-op unless one was shown
+		_ = PopWindowTitle()
+	}()
 	return app.Run()
 }
 

@@ -23,6 +23,23 @@ tangsible started. If it still diverges meaningfully from the recap's own
 count on a real, role-heavy playbook, drop it again; if not, this note
 (and "Decision" below) needs updating to reflect keeping it.
 
+## Terminal progress (OSC 9;4)
+
+The same `progressPos`/`progressTotal` also drive the terminal's own
+progress indicator (`internal/uikit/termprogress.go`,
+`updateTerminalProgress`), controlled by `general.terminal_progress`
+(`auto` by default). OSC 9 is also iTerm2's notification sequence, so
+`auto` only enables it on terminals known to understand the `;4;` form
+(detection follows Rust's anstyle-progress, see `TerminalProgressSupported`).
+States: nothing while the `--list-tasks` probe is still pending (an
+indeterminate flash before the first percentage read as a glitch);
+indeterminate if the probe finished empty or failed, or once the prediction reaches 100%
+while the process still runs (the prediction's blind spots, below, would
+otherwise show a full bar that keeps going); normal with the percentage;
+paused at a debug breakpoint; error (kept) after a genuine failure; cleared
+after a clean finish, an interrupt, and on exit (`RunWithTitleStack`, only if
+a bar was shown). Not cleared on SIGTERM/SIGHUP - the TUI has no handler.
+
 ## Situation
 
 The top bar's "Task x/y" indicator (`internal/runner/progress.go`) predicts

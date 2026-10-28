@@ -97,6 +97,12 @@ type liveSession struct {
 	// SetWindowTitle to "only when the number actually changed" rather
 	// than writing an escape sequence on every 200ms heartbeat tick.
 	lastTitlePercent int
+	// terminalProgress is whether OSC 9;4 is enabled for this session
+	// (terminal_progress, resolved once in NewLiveTUI);
+	// lastTerminalProgress is the sequence most recently written, so
+	// updateTerminalProgress only writes on change.
+	terminalProgress     bool
+	lastTerminalProgress string
 	// revisitReturn/targetPlaybook/targetRole - only needed by the input
 	// dispatcher (livesession_input.go): revisitReturn backs Esc-at-the-
 	// bare-tree's "back to the revisit list" case, targetPlaybook/

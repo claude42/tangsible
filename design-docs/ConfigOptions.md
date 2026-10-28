@@ -37,11 +37,12 @@ own row below.
 | `notify_playbook_finished` | string: `"off"` \| `"osc9"` \| `"osc777"` \| `"osc99"` \| `"bell"` | `"off"` | |
 | `notify_task_failed` | string: `"off"` \| `"osc9"` \| `"osc777"` \| `"osc99"` \| `"bell"` | `"off"` | |
 | `notify_task_failed_max` | int | `5` | |
+| `terminal_progress` | string: `"auto"` \| `"on"` \| `"off"` | `"auto"` | |
 | `template_hosts_max` | int | `10` | |
 | `color_scheme` | string: `"dark"` \| `"light"` | `"dark"` | See `[colors]` below |
 | `theme` | string (a theme name) | *(none — no theme)* | See `[colors]` below |
 
-All eleven cascade project → global → system → documented default, as
+All twelve cascade project → global → system → documented default, as
 described above.
 
 **`default_playbook`** — the playbook path used when a verb that needs one
@@ -92,6 +93,14 @@ unrecognized value (including absence everywhere) means `"off"`.
 **`notify_task_failed_max`** — caps how many `notify_task_failed`
 notifications fire per generation before further failures are counted but
 not individually notified (`Notifications.md`).
+
+**`terminal_progress`** — mirrors the progress into the terminal's own
+progress indicator (OSC 9;4: taskbar/tab progress bar; `ProgressIndicator.md`).
+`"auto"` enables it only for terminals known to support it (iTerm2's
+`TERM_FEATURES` containing `P`, iTerm2 3.6.6+ via `LC_TERMINAL` (survives ssh), WezTerm, Ghostty, Windows Terminal, ConEmu,
+Ptyxis 48+); `"on"` forces it (e.g. inside tmux, where the outer terminal's
+variables aren't visible); `"off"` disables it. Case-insensitive; an
+unrecognized value means `"auto"`.
 
 **`template_hosts_max`** — how many hosts the `template` Verb's own
 resolved host list (from its comma-separated hostname/group positional,

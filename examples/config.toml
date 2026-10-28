@@ -22,6 +22,7 @@ run_dialog = "default"              # "default" | "never" | "always"
 notify_playbook_finished = "off"    # "off" | "osc9" | "osc777" | "osc99" | "bell"
 notify_task_failed = "off"          # "off" | "osc9" | "osc777" | "osc99" | "bell"
 notify_task_failed_max = 5
+terminal_progress = "auto"          # "auto" | "on" | "off" - OSC 9;4 taskbar/tab progress, see design-docs/ProgressIndicator.md
 template_hosts_max = 10
 color_scheme = "dark"                # "dark" | "light" - see design-docs/ColorConfig.md's own addendum
 

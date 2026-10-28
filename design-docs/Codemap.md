@@ -32,6 +32,10 @@ subprocesses.
   shortcut table, rendered as the `?` help dialog
   (`HelpText`/`NewHelpDialog`); `HelpOverlay`, the dialog's runtime
   (open/close, key/mouse handling, focus restore) every app shares.
+- **termprogress.go** - OSC 9;4 terminal progress: support detection
+  from env vars, state mapping (`ComputeTerminalProgress`), writer
+  (`ProgressIndicator.md`); cleared by `windowtitle.go`'s
+  `RunWithTitleStack`.
 - **tabs.go** - `TabbedPane`, the shared tab-bar widget (drill-down
   view, template page).
 - **tui_style.go** - palette/style constants (colors, indents,

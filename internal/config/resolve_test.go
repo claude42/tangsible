@@ -618,3 +618,16 @@ func TestColorEnabledByUser(t *testing.T) {
 		})
 	}
 }
+
+func TestTerminalProgressModePreference(t *testing.T) {
+	for in, want := range map[string]TerminalProgressMode{
+		"": TerminalProgressAuto, "auto": TerminalProgressAuto, "bogus": TerminalProgressAuto,
+		"on": TerminalProgressOn, "ON": TerminalProgressOn, "off": TerminalProgressOff, "Off": TerminalProgressOff,
+	} {
+		var cfg SettingsConfig
+		cfg.General.TerminalProgress = in
+		if got := TerminalProgressModePreference(cfg); got != want {
+			t.Errorf("%q: got %v, want %v", in, got, want)
+		}
+	}
+}
