@@ -25,15 +25,35 @@ import (
 // centered within whatever space its container gives it, instead of
 // filling all of it - the standard tview pattern for a page that overlays
 // only part of the screen (see tview's own Pages wiki example). Used for
-// the filter dialog (see NewLiveTUI).
+// the filter dialog (see NewLiveTUI). p is wrapped in clearedPrimitive, so a
+// dialog row with no widget of its own doesn't show what is underneath.
 func CenteredModal(p tview.Primitive, width, height int) tview.Primitive {
 	return tview.NewFlex().
 		AddItem(nil, 0, 1, false).
 		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(nil, 0, 1, false).
-			AddItem(p, height, 1, true).
+			AddItem(clearedPrimitive{p}, height, 1, true).
 			AddItem(nil, 0, 1, false), width, 1, true).
 		AddItem(nil, 0, 1, false)
+}
+
+// clearedPrimitive paints its whole rect in the background color before
+// drawing the wrapped primitive. tview's Flex and Grid are created with
+// dontClear set, so any row of a Flex-built dialog that holds no widget
+// (spare space at the bottom, say) would otherwise keep whatever the page
+// underneath drew there. Every other method is promoted from the wrapped
+// primitive, so focus, keys and mouse handling are unchanged.
+type clearedPrimitive struct{ tview.Primitive }
+
+func (c clearedPrimitive) Draw(screen tcell.Screen) {
+	x, y, w, h := c.GetRect()
+	style := tcell.StyleDefault.Background(tview.Styles.PrimitiveBackgroundColor)
+	for row := y; row < y+h; row++ {
+		for col := x; col < x+w; col++ {
+			screen.SetContent(col, row, ' ', nil, style)
+		}
+	}
+	c.Primitive.Draw(screen)
 }
 
 // StyleAutocomplete gives field's completion drop-down the control

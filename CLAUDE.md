@@ -218,6 +218,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   `trackEnd` makes End/G/scroll-to-bottom follow appended text (pin with
   `ScrollTo` when not following); `Highlight()` swaps colors on top of a
   region's tag; `SetLabelColor` sets foreground only.
+- `Flex`/`Grid` never clear their own rect (`dontClear`): a dialog row with no
+  widget shows the page underneath. `uikit.CenteredModal` wraps its content in
+  `clearedPrimitive` for this - build modals with it.
 - `tview.List` re-clamps its scroll offset to the cursor on every draw -
   that's why the tree is a custom `uikit.TreeList`.
 - `SetScreen` before `EnableMouse` (tview only enables the mouse on an existing
