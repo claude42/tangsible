@@ -199,6 +199,8 @@ run/rerun/role session and by revisit's own rerun.
   of everything Tangsible can determine about one host (live facts,
   inventory group chain, which plays would run, host_vars files, raw
   `ansible-inventory --host` dump).
+- **lastplayrun.go** - the Plays tab's per-play "last ran" line: replays
+  the playbook's saved run logs newest first (`LastPlayRuns`).
 - **inventory.go** - the "inventory" verb: a collapsible tree view of the
   whole inventory (groups as nodes, hosts as leaves), reusing host.go's
   own stub-playbook/ping/five-tab detail machinery to open a host.

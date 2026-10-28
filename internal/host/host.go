@@ -479,21 +479,22 @@ func inventoryOnlyVars(exported map[string]any, files []string) map[string]any {
 	return only
 }
 
-// FetchHostPlays runs "ansible-playbook <playbook> <rest...> --limit
-// <hostname> --list-tasks --list-hosts" and groups the flattened
+// FetchHostPlayEntries runs "ansible-playbook <playbook> <rest...> --limit
+// <hostname> --list-tasks --list-hosts" and returns the flattened
 // ProgressEntry sequence ParseListTasksOutput (progress.go) already
-// produces back into per-play sections, reusing that parser directly
-// rather than reimplementing it - narrowed to exactly this host via the
-// same --limit flag progress.go's own doc comment already explains is
-// required alongside --list-hosts for a limit to actually apply at all.
+// produces, reusing that parser directly rather than reimplementing it -
+// narrowed to exactly this host via the same --limit flag progress.go's
+// own doc comment already explains is required alongside --list-hosts for
+// a limit to actually apply at all. note, if non-empty, is what the tab
+// shows instead of a list (no playbook, or nothing would run).
 // Unlike BuildProgressSkeleton (progress.go), which is always
 // best-effort and swallows every failure silently (fine for an optional
 // progress indicator riding on top of an already-working run), this
 // surfaces a real failure as err, since an empty Plays tab needs to stay
 // distinguishable from "the whole invocation failed."
-func FetchHostPlays(playbook string, rest []string, hostname string) (string, error) {
+func FetchHostPlayEntries(playbook string, rest []string, hostname string) (entries []runner.ProgressEntry, note string, err error) {
 	if playbook == "" {
-		return "no playbook specified, and none could be resolved - can't determine which plays would run", nil
+		return nil, "no playbook specified, and none could be resolved - can't determine which plays would run", nil
 	}
 	args := append([]string{playbook}, rest...)
 	args = append(args, "--limit", hostname, "--list-tasks", "--list-hosts")
@@ -506,7 +507,7 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 		if msg == "" {
 			msg = execerr.Fallback("ansible-playbook", err)
 		}
-		return "", fmt.Errorf("%s", msg)
+		return nil, "", fmt.Errorf("%s", msg)
 	}
 
 	// nil, not source.FreeStrategyPlayNames(playbook): this tab answers
@@ -516,11 +517,18 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 	// progress-fill prediction has to, design-docs/StrategyFree.md) would
 	// wrongly drop real, correct entries from a static preview that was
 	// never trying to predict live event matching in the first place.
-	entries := runner.ParseListTasksOutput(stdout.String(), nil)
+	entries = runner.ParseListTasksOutput(stdout.String(), nil)
 	if len(entries) == 0 {
-		return fmt.Sprintf("no plays would run for host %q", hostname), nil
+		return nil, fmt.Sprintf("no plays would run for host %q", hostname), nil
 	}
+	return entries, "", nil
+}
 
+// RenderHostPlays renders the Plays tab: one section per play, then its
+// tasks. lastRun is the per-play "last ran" annotation (lastplayrun.go),
+// shown in brackets after the heading; nil while the lookup still runs,
+// and a play with no entry gets none.
+func RenderHostPlays(entries []runner.ProgressEntry, lastRun map[string]lastPlayRun) string {
 	var b strings.Builder
 	currentPlay := ""
 	for _, e := range entries {
@@ -528,12 +536,16 @@ func FetchHostPlays(playbook string, rest []string, hostname string) (string, er
 			if currentPlay != "" {
 				b.WriteString("\n")
 			}
-			b.WriteString(hostSectionHeading(e.Play))
+			suffix := ""
+			if r, ok := lastRun[e.Play]; ok {
+				suffix = " (" + formatLastPlayRun(r) + ")"
+			}
+			b.WriteString(hostPlayHeading(e.Play, suffix))
 			currentPlay = e.Play
 		}
 		fmt.Fprintf(&b, "  %s\n", highlightRolePrefix(e.Task))
 	}
-	return b.String(), nil
+	return b.String()
 }
 
 // highlightRolePrefix highlights a task line's own leading "<role> : "
@@ -653,6 +665,14 @@ func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]
 // separately-colored pieces.
 func hostSectionHeading(label string) string {
 	return fmt.Sprintf("[%s::b]%s\n%s[-::-]\n\n", uikit.HeadingColor, tview.Escape(label), strings.Repeat("=", len([]rune(label))))
+}
+
+// hostPlayHeading is hostSectionHeading with an annotation (the Plays tab's
+// bracketed "last ran") in AnnotationColor after the label, the underline
+// covering both.
+func hostPlayHeading(label, suffix string) string {
+	return fmt.Sprintf("[%s::b]%s[-::-][%s::]%s[-::-]\n[%s::b]%s[-::-]\n\n", uikit.HeadingColor, tview.Escape(label), uikit.AnnotationColor, tview.Escape(suffix),
+		uikit.HeadingColor, strings.Repeat("=", len([]rune(label))+len([]rune(suffix))))
 }
 
 // HostSummaryStubYAML is the play design-docs/HostVerb.md's Summary tab
@@ -1786,7 +1806,54 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		groupsCache, playsCache, hostVarsCache, everythingCache = cache.groups, cache.plays, cache.hostVars, cache.everythingKnown
 	}
 	fetch(groupsView, groupsCache, func() (string, error) { return FetchHostGroups(hostname, rest) })
-	fetch(playsView, playsCache, func() (string, error) { return FetchHostPlays(playbook, rest, hostname) })
+	// Plays gets its own goroutine too: the list renders as soon as the
+	// --list-tasks probe is back, then each play's "last ran" line
+	// (LastPlayRuns - replays saved run logs, which can take seconds) fills
+	// in on top of it.
+	go func() {
+		if playsCache != nil {
+			if text, ok := playsCache[hostname]; ok {
+				app.QueueUpdateDraw(func() {
+					playsView.SetText(text)
+					playsView.ScrollToBeginning()
+				})
+				return
+			}
+		}
+		entries, note, err := FetchHostPlayEntries(playbook, rest, hostname)
+		if err != nil || note != "" {
+			app.QueueUpdateDraw(func() {
+				searchBar.ClearForView(playsView)
+				if err != nil { // errors are never cached, as in fetch
+					playsView.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
+				} else {
+					playsView.SetText(tview.Escape(note))
+					if playsCache != nil {
+						playsCache[hostname] = tview.Escape(note)
+					}
+				}
+				playsView.ScrollToBeginning()
+			})
+			return
+		}
+		app.QueueUpdateDraw(func() {
+			searchBar.ClearForView(playsView)
+			playsView.SetText(RenderHostPlays(entries, nil))
+			playsView.ScrollToBeginning()
+		})
+		wanted := map[string]bool{}
+		for _, e := range entries {
+			wanted[e.Play] = true
+		}
+		last := LastPlayRuns(config.ReadState(config.TangsibleStatePath), playbook, hostname, wanted, replaySavedRun)
+		text := RenderHostPlays(entries, last)
+		app.QueueUpdateDraw(func() {
+			playsView.SetText(text) // no ScrollToBeginning: see Summary's Recent
+			if playsCache != nil {
+				playsCache[hostname] = text
+			}
+		})
+	}()
 	fetch(hostVarsView, hostVarsCache, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
 
 	// Everything known also gets its own bespoke goroutine rather than the

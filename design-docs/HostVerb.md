@@ -249,6 +249,22 @@ empirically against real `--list-tasks` output) is highlighted green,
 the task name itself `lightsteelblue`; a plain play-level task (no such
 prefix) renders unstyled.
 
+The play's heading ends with a gray `(last ran 2026-10-20 14:03 · ok)` saying
+when that play last ran on this host (`lastplayrun.go`). Found by replaying
+the *resolved playbook's own* saved run logs (`.tangsible/runs/`, so at most
+`MaxHistoryPerPlaybook` runs; roles' histories are not searched), newest
+first, matching plays by name. A play "ran" if at least one of its tasks has
+an outcome for the host other than unreachable (so an unreachable host and a
+play filtered out entirely by `--tags`/`--limit` don't count; a failed run
+does). The status is `failed` if a task failed (ignored failures don't
+count), else `ok`; a `--check` run is suffixed `, check` (`ok, check`) - the newest run
+counts either way, it isn't skipped in favour of an older real one. No match
+shows nothing (the history is capped, so absence isn't "never"). The list
+renders as soon as the probe returns, the brackets fill in after the run logs
+are read; the final text is cached with the rest of the
+tab. Known limit, as in diff mode: unnamed or templated play names can
+mismatch.
+
 ## host_vars tab
 
 Leads with an `inventory` section: the host's own variables from the
