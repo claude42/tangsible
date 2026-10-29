@@ -4,6 +4,7 @@
 
 ### Added
 
+- Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
 - `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
 - Progress is also shown in the terminal's own progress indicator (OSC 9;4) where supported; `terminal_progress = "auto" | "on" | "off"`
 - `revisit`: `R` names a previous run; the name shows in the list before the command line
@@ -23,6 +24,7 @@
 
 ### Fixed
 
+- Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving
 - The host_vars tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)
 

@@ -181,6 +181,9 @@ type liveSession struct {
 	// the panes' own internal layout reflows mid-session, the split-vs-
 	// full-screen choice itself doesn't re-decide until the next open).
 	splitMode bool
+	// dividerDrag holds the tree pane width the user dragged the divider
+	// to, for the whole session; read it via splitTreeWidth.
+	dividerDrag uikit.DividerDrag
 	// currentPageName tracks which of "main"/"output"/"split" is
 	// currently frontmost, so switchPage can tell whether a page switch
 	// is actually needed before calling pages.SwitchToPage - which, per

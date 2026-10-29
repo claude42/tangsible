@@ -338,7 +338,7 @@ func (s *liveSession) rebuild() {
 	if s.viewingOutput {
 		s.splitMode = s.twoPaneLayout && totalWidth >= uikit.SplitMinTotalWidth
 		if s.splitMode {
-			s.splitBody.ResizeItem(s.treeBody, uikit.SplitTreeWidth(totalWidth), 0)
+			s.splitBody.ResizeItem(s.treeBody, s.splitTreeWidth(totalWidth), 0)
 			s.bottomBar.SetText(uikit.SplitBottomBarText)
 			s.switchPage("split")
 		} else {
@@ -375,7 +375,7 @@ func (s *liveSession) rebuild() {
 				hostAndTask = s.outputHost + "   " + s.outputTask.Name
 			}
 			s.splitHeader.SetText(uikit.ProgressFillLine(
-				uikit.ComposeSplitHeaderLine(s.playbookName, s.topBarLabel(), hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.showElapsed()),
+				uikit.ComposeSplitHeaderLine(s.playbookName, s.topBarLabel(), hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.splitTreeWidth(totalWidth), s.showElapsed()),
 				progressPos, progressTotal, frozen, s.chromeColorName()))
 		} else {
 			// Padded to the full terminal width before the fill is
@@ -413,7 +413,7 @@ func (s *liveSession) rebuild() {
 	// text (watchPanel.render's own doc comment).
 	watchWidth := totalWidth
 	if s.splitMode {
-		watchWidth = totalWidth - uikit.SplitTreeWidth(totalWidth) - uikit.SplitDividerWidth
+		watchWidth = totalWidth - s.splitTreeWidth(totalWidth) - uikit.SplitDividerWidth
 	}
 	_, watchSnapshotOK := s.watch.currentSnapshot()
 	s.watch.render(func(expr string) watchResult {
@@ -460,7 +460,7 @@ func (s *liveSession) rebuild() {
 	// rect problem entirely rather than working around it.
 	width := totalWidth
 	if s.splitMode {
-		width = uikit.SplitTreeWidth(totalWidth)
+		width = s.splitTreeWidth(totalWidth)
 	}
 	// Belt-and-suspenders only: TaskLabel is panic-safe for any width,
 	// but clamp defensively in case totalWidth is ever unexpectedly
@@ -545,22 +545,10 @@ func (s *liveSession) rebuild() {
 
 	activeTasks := s.activeTasks()
 
-	// treeAllHosts is s.state.AllHosts normally, or nil while a two-pane
-	// drill-down session is open (design-docs/TwoPanedLayout.md): hosts
-	// aren't shown on collapsed tree rows in that mode (the drill-down
-	// pane already shows exactly which host is selected - see
-	// s.showOutput's live-sync). ComputeHostColumnLayout/TaskLabel both
-	// already have a documented allHosts == nil fallback - no shared
-	// column, title rendered alone against avail - normally only
-	// reachable transiently before the run's first host reports
-	// anything; reused here deliberately rather than adding a second
-	// code path. s.state.AllHosts itself is untouched - only these two
-	// call sites (and the selected-row re-render below) see the
-	// override, so the top bar/filters/etc. keep seeing the real list.
+	// The tree renders identically in split and full-screen mode - only
+	// width (already the tree pane's own, above) differs - so the same
+	// host-column-shrink cascade applies at the narrower budget.
 	treeAllHosts := s.state.AllHosts
-	if s.splitMode {
-		treeAllHosts = nil
-	}
 
 	// Computed once per rebuild and reused for every row - both
 	// FlattenRows' own per-row TaskLabel calls and the standalone

@@ -139,6 +139,7 @@ var outputHelp = uikit.HelpScreen{
 			{Keys: "Wheel", Desc: "Scroll"},
 			{Keys: "Click a tab", Desc: "Switch to it"},
 			{Keys: "Click a tree row", Desc: "Side-by-side layout only: expand / collapse a task, or show a host's result"},
+			{Keys: "Drag the divider", Desc: "Side-by-side layout only: resize the two panes"},
 		}},
 	},
 }

@@ -387,6 +387,7 @@ func (s *liveSession) closeOutput() {
 	s.viewingOutput = false
 	s.viewingOutputFromRecap = false
 	s.splitMode = false
+	s.dividerDrag.Cancel()
 	// A real, reported bug (design-docs/ErrorOutput.md): without this,
 	// s.outputTabs' own internal focus state can get stuck, silently
 	// hijacking keyboard input meant for whatever opens next (the re-run

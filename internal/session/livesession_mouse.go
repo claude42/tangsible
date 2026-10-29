@@ -278,6 +278,11 @@ func (s *liveSession) handleOutputViewMouse(event *tcell.EventMouse, action tvie
 	// before regardless of what was last clicked. Checked first, before
 	// any of the output-specific hit-tests below.
 	if s.splitMode {
+		bodyX, _, _, _ := s.splitBody.GetInnerRect()
+		_, _, totalWidth, _ := s.pages.GetInnerRect()
+		if result, handled := s.dividerDrag.HandleMouse(event, action, s.splitDivider, bodyX, totalWidth, s.rebuild); handled {
+			return result, action
+		}
 		if x, y := event.Position(); uikit.InRect(x, y, s.treeBody) {
 			// A wheel scroll over the tree pane itself (not its
 			// s.bottomBar row - matching the full-screen case below,
@@ -391,6 +396,13 @@ func (s *liveSession) handleOutputViewMouse(event *tcell.EventMouse, action tvie
 		}
 	}
 	return event, action
+}
+
+// splitTreeWidth is the tree pane's width for a terminal totalWidth columns
+// wide: the width the user dragged the divider to if any, else
+// uikit.SplitTreeWidth's growth rule.
+func (s *liveSession) splitTreeWidth(totalWidth int) int {
+	return s.dividerDrag.TreeWidth(totalWidth)
 }
 
 // handleTreeMouse is everything handleMouse falls through to once

@@ -182,6 +182,7 @@ tree auto-expands so that row is visible.
 **Mouse**
 * Wheel / trackpad - scroll the active tab's content
 * Click on a tab   - switch to it (same as Tab/Shift-Tab)
+* Drag the divider - side-by-side layout only: resize the two panes
 * Click on the top/bottom info bars - no effect (same fix as the main
                      tree's own top/bottom bars, above)
 

@@ -38,6 +38,8 @@ subprocesses.
   `RunWithTitleStack`.
 - **tabs.go** - `TabbedPane`, the shared tab-bar widget (drill-down
   view, template page).
+- **dividerdrag.go** - `DividerDrag`: mouse-draggable divider of the
+  two-pane layouts (`run` family, `hosts`, `inventory`).
 - **tui_style.go** - palette/style constants (colors, indents,
   bottom-bar text).
 - **tui_layout.go** - row-text rendering: `TaskLabel`/`HostLabel`/

@@ -486,6 +486,7 @@ func RunInventoryTreeTUI(root *invNode, playbook string, rest []string, stubPath
 		currentHostNode *invNode
 		lastTotalWidth  int
 		quitting        atomic.Bool
+		dividerDrag     uikit.DividerDrag
 		selectedNode    *invNode
 		rebuilding      bool
 		currentNodes    []*invNode
@@ -606,7 +607,7 @@ func RunInventoryTreeTUI(root *invNode, playbook string, rest []string, stubPath
 		splitMode = totalWidth >= uikit.SplitMinTotalWidth
 		if splitMode {
 			splitFlex := tview.NewFlex().SetDirection(tview.FlexColumn).
-				AddItem(listFlex, uikit.SplitTreeWidth(totalWidth), 0, false).
+				AddItem(listFlex, dividerDrag.TreeWidth(totalWidth), 0, false).
 				AddItem(splitDivider, uikit.SplitDividerWidth, 0, false).
 				AddItem(detailPrimitive, 0, 1, true)
 			pages.RemovePage("split")
@@ -887,6 +888,12 @@ func RunInventoryTreeTUI(root *invNode, playbook string, rest []string, stubPath
 				return nil, action
 			}
 			return event, action
+		}
+		if splitMode {
+			_, _, totalWidth, _ := pages.GetInnerRect()
+			if ev, handled := dividerDrag.HandleMouse(event, action, splitDivider, 0, totalWidth, layout); handled {
+				return ev, action
+			}
 		}
 		if x, y := event.Position(); uikit.InRect(x, y, detailHeader) || uikit.InRect(x, y, detailSearch.Primitive()) {
 			return nil, action

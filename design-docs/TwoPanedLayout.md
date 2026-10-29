@@ -49,15 +49,24 @@ While two-pane mode stays active across a resize, the tree pane's own width
 is kept current too (still governed by the 30–80 character growth rule
 above), independent of whichever way the terminal is being resized.
 
+## Dragging the divider
+
+The divider between the panes can be grabbed with the mouse (left button
+press on its column, move, release); the tree pane's width follows the
+pointer. The result is clamped so the tree keeps at least 30 and the
+drill-down at least 79 columns, hence there is no room to drag at exactly
+110 columns. The chosen width is kept for the rest of the session (across
+drill-down opens and terminal resizes, re-clamped each time); it is not
+persisted. Without a drag, the growth rule above applies. Every verb with this layout supports it
+(`run`-family sessions, `hosts`, `inventory`), via `uikit.DividerDrag`.
+
 ## Tree pane content while split
 
-Hostnames are dropped from a task's collapsed row entirely while the tree is
-shown in the narrow, two-pane-mode pane — not shrunk down via the existing
-per-character algorithm, just omitted. The rationale: whichever host matters
-right now is already shown by the live-sync behavior below (auto-expanded,
-cursor on that exact host row), so the collapsed-row hostnames aren't pulling
-their weight at this width and the code doesn't need to reproduce the
-existing shrink-to-fit cascade at a second, narrower budget.
+The tree pane renders exactly as the single-pane tree would in a terminal
+as wide as the pane: same host-column shrink cascade, same alignment of host
+rows. Only the width budget differs (`SplitTreeWidth`). (An earlier version
+omitted hostnames from collapsed rows in this mode; that also broke the
+column alignment of the expanded host rows, so it was dropped.)
 
 ## Live-sync between the drill-down and the tree pane
 

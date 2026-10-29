@@ -173,7 +173,7 @@ func ComposeTopBarLine(playbookName, label string, hosts []string, elapsed time.
 //
 // Layout, left to right: label (TopBarLabel), Filter:, then - starting
 // exactly at the column the drill-down pane itself starts at
-// (SplitTreeWidth(width) + SplitDividerWidth, the same arithmetic
+// (treeWidth + SplitDividerWidth, the same arithmetic
 // s.splitBody's own ResizeItem call sizes the tree pane with) - "Hosts: "
 // followed by hostAndTask (the drill-down's own currently-shown "<host>
 // <task title>", three spaces between the two - matching every other
@@ -189,7 +189,7 @@ func ComposeTopBarLine(playbookName, label string, hosts []string, elapsed time.
 // right side - the progress percentage (temporarily reinstated, see
 // progressPercentPrefix's own doc comment) and the heartbeat (spinner +
 // elapsed, or just elapsed once frozen).
-func ComposeSplitHeaderLine(playbookName, label string, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width int, showElapsed bool) string {
+func ComposeSplitHeaderLine(playbookName, label string, hostAndTask string, elapsed time.Duration, frozen bool, filter FilterQuery, progressPos, progressTotal int, width, treeWidth int, showElapsed bool) string {
 	mm, ss := MinutesSeconds(elapsed)
 	progressPrefix := progressPercentPrefix(progressPos, progressTotal, frozen)
 	var right string
@@ -208,7 +208,7 @@ func ComposeSplitHeaderLine(playbookName, label string, hostAndTask string, elap
 	// letters - without accounting for it, "Hosts:" lined up with the
 	// tab bar's own left edge, one column short of where the tab labels
 	// themselves actually start reading (confirmed live, by eye).
-	hostsCol := SplitTreeWidth(width) + SplitDividerWidth + 1
+	hostsCol := treeWidth + SplitDividerWidth + 1
 	headPad := hostsCol - len([]rune(leftHead))
 	if headPad < 1 {
 		// leftHead itself already overruns where the drill-down pane
@@ -507,6 +507,14 @@ type HostColumnLayout struct {
 func SplitTreeWidth(totalWidth int) int {
 	extra := totalWidth - SplitMinTotalWidth
 	return SplitMinTreeWidth + min(extra, SplitMaxTreeWidth-SplitMinTreeWidth)
+}
+
+// ClampSplitTreeWidth limits a tree pane width (e.g. one the user dragged the
+// divider to) to what a split of totalWidth columns allows: the tree keeps at
+// least SplitMinTreeWidth and the drill-down at least SplitMinOutputWidth.
+// Only meaningful once totalWidth >= SplitMinTotalWidth.
+func ClampSplitTreeWidth(totalWidth, want int) int {
+	return max(SplitMinTreeWidth, min(want, totalWidth-SplitDividerWidth-SplitMinOutputWidth))
 }
 
 // ComputeHostColumnLayout implements TUI.md's third-iteration algorithm:

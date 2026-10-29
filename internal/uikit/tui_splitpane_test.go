@@ -54,7 +54,7 @@ func TestSplitTreeWidth(t *testing.T) {
 // than lining up with it.
 func TestComposeSplitHeaderLine_HostsAlignsWithOutputPane(t *testing.T) {
 	width := 207
-	line := ComposeSplitHeaderLine("site.yml", "Playbook", "zen   bootstrap : Check if host key is already known", 2*time.Second, false, FilterQuery{}, 0, 10, width, true)
+	line := ComposeSplitHeaderLine("site.yml", "Playbook", "zen   bootstrap : Check if host key is already known", 2*time.Second, false, FilterQuery{}, 0, 10, width, SplitTreeWidth(width), true)
 
 	wantCol := SplitTreeWidth(width) + SplitDividerWidth + 1
 	gotCol := strings.Index(line, "Hosts:")
@@ -71,10 +71,7 @@ func TestComposeSplitHeaderLine_HostsAlignsWithOutputPane(t *testing.T) {
 
 // TestComputeHostColumnLayoutNilAllHosts pins the "no shared column" fallback
 // computeHostColumnLayout has always had for an empty host list - the
-// two-pane drill-down (design-docs/TwoPanedLayout.md) now deliberately
-// invokes this same path (via rebuild's treeAllHosts) to omit hostnames from
-// collapsed tree rows, so a regression here would silently break that
-// feature, not just the pre-existing "no host has reported yet" case.
+// the "no host has reported yet" case.
 func TestComputeHostColumnLayoutNilAllHosts(t *testing.T) {
 	state := buildTwoPlayState() // task names: task1, task2, task3
 	layout := ComputeHostColumnLayout(state, nil, 200, false)
@@ -101,5 +98,19 @@ func TestTaskLabelNilAllHosts(t *testing.T) {
 	}
 	if strings.Contains(got, "web1") || strings.Contains(got, "web2") {
 		t.Errorf("taskLabel() = %q, want no hostnames at all when allHosts is nil", got)
+	}
+}
+
+func TestClampSplitTreeWidth(t *testing.T) {
+	tests := []struct{ total, want, got int }{
+		{200, 10, SplitMinTreeWidth},
+		{200, 100, 100},
+		{200, 500, 200 - SplitDividerWidth - SplitMinOutputWidth},
+		{SplitMinTotalWidth, 60, SplitMinTreeWidth},
+	}
+	for _, tc := range tests {
+		if got := ClampSplitTreeWidth(tc.total, tc.want); got != tc.got {
+			t.Errorf("ClampSplitTreeWidth(%d, %d) = %d, want %d", tc.total, tc.want, got, tc.got)
+		}
 	}
 }

@@ -155,6 +155,7 @@ var hostDetailHelp = uikit.HelpScreen{
 		{Title: "Mouse", Entries: []uikit.HelpEntry{
 			{Keys: "Wheel", Desc: "Scroll"},
 			{Keys: "Click a tab", Desc: "Switch to it"},
+			{Keys: "Drag the divider", Desc: "Side-by-side layout only: resize the two panes"},
 		}},
 	},
 }
