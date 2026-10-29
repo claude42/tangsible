@@ -204,6 +204,9 @@ run/rerun/role session and by revisit's own rerun.
   plus `StripANSI`/`SplitANSI`.
 - **generation.go** - `RunOneGeneration`/`NewRequestRerun`: draining
   one generation to completion and starting a fresh one on request.
+- **callbackplugin.go** - `ResolveCallbackPluginDir`: `$TANGSIBLE_CALLBACK_DIR`
+  or the embedded plugin (`callback/embed.go`) extracted once per version
+  into the XDG cache dir; `CallbackPluginEnv` for every spawn.
 - **progress.go** - `ProgressTracker`: the "Task x/y" top-bar progress
   indicator, predicted from a throwaway `--list-tasks --list-hosts`
   run.

@@ -33,9 +33,9 @@ go run . run testdata/outcomes.yml -i localhost,
 go run . run testdata/multihost.yml -i testdata/multihost-inventory.ini
 ```
 
-During development set `TANGSIBLE_CALLBACK_DIR=$PWD/callback` - the bundled
-callback plugin is found next to an installed binary, not next to `go run`'s
-temp binary. Fixtures in `testdata/` are described in its files' own comments
+The callback plugin is `//go:embed`-ed (no setup for `go run`);
+`TANGSIBLE_CALLBACK_DIR=$PWD/callback` makes tangsible use the on-disk copy
+instead, to try plugin edits without rebuilding. Fixtures in `testdata/` are described in its files' own comments
 (`free-strategy.yml`, `hostnames.yml` with an unreachable host, `diff.yml`,
 vault fixtures, ...).
 
@@ -138,11 +138,12 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - **Callback plugin** (`callback/tangsible_events.py`,
   `design-docs/OwnCallbackPlugin.md`): a clean-room, Apache-2.0
   implementation of `ansible.posix.jsonl`'s schema plus our additions
-  (`callback-tests/`), `aggregate` type, shipped as a sibling file (not
-  `//go:embed`). Never copy code from the old GPL fork (git history) or
+  (`callback-tests/`), `aggregate` type, compiled in with `//go:embed`
+  (`callback/embed.go`). Never copy code from the old GPL fork (git history) or
   from ansible.posix itself into it - write additions from the documented
   behavior. `ResolveCallbackPluginDir`
-  finds it; `CallbackPluginEnv` *unions* it into the user's
+  returns `$TANGSIBLE_CALLBACK_DIR` or the copy extracted once per
+  version to `$XDG_CACHE_HOME/tangsible/plugin-<hash>/`; `CallbackPluginEnv` *unions* it into the user's
   `ANSIBLE_CALLBACK_PLUGINS`, never overwrites; the plugin is
   `CALLBACK_NEEDS_ENABLED = False`, so `ANSIBLE_CALLBACKS_ENABLED` is left
   alone (no `ansible-config` call before spawn). `ANSIBLE_JSON_INDENT=0` everywhere.

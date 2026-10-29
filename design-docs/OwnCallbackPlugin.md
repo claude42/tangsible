@@ -7,6 +7,16 @@
 > (fork stays GPL; the GPL/Apache split in the docs) are superseded; the rest
 > - aggregate type, event fd, schema, sibling-file shipping - still holds.
 > Mentions of `tangsible_jsonl` below are the old name.
+>
+> **Update (2026-10-29), shipping:** with the GPL gone, decision 6 and the
+> "Shipping the .py from a Go binary" section are superseded too: the plugin
+> is now `//go:embed`-ed (`callback/embed.go`) and extracted once per
+> version to `$XDG_CACHE_HOME/tangsible/plugin-<sha256[:12]>/`
+> (`internal/runner/callbackplugin.go`), falling back to a private temp dir;
+> `$TANGSIBLE_CALLBACK_DIR` still overrides. No sibling file, no installer
+> step, no `<prefix>/share` lookup. The cache, not `$XDG_DATA_HOME`, since
+> the file is regenerable from the binary and `share/tangsible` also holds
+> user themes.
 
 ## Status
 

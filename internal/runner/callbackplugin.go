@@ -15,80 +15,62 @@
 package runner
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	"code.aw.net/claude/tangsible/callback"
 	"code.aw.net/claude/tangsible/internal/config"
 )
 
 // callbackPluginName is our bundled plugin's own CALLBACK_NAME (callback/
-// tangsible_events.py) - with ".py" appended, the file
-// ResolveCallbackPluginDir looks for in each candidate directory - checking
-// for the file itself, not just the directory's existence, so a stale or
-// empty directory doesn't silently pass.
+// tangsible_events.py) - with ".py" appended, the file the directory
+// ResolveCallbackPluginDir returns must contain.
 const callbackPluginName = "tangsible_events"
 const callbackPluginFile = callbackPluginName + ".py"
 
-// ResolveCallbackPluginDir finds the directory holding our bundled ansible
-// callback plugin (design-docs/OwnCallbackPlugin.md), tried in order:
+// embeddedPlugin is the plugin source compiled into the binary. A var so
+// tests can substitute their own bytes.
+var embeddedPlugin = callback.Plugin
+
+// extractedDir memoizes the extraction for the life of the process: the
+// embedded bytes can't change, and every spawn (and every one-shot scrape)
+// asks for the directory again.
+var extractedDir struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
+// ResolveCallbackPluginDir returns the directory holding our ansible
+// callback plugin (design-docs/OwnCallbackPlugin.md), for
+// ANSIBLE_CALLBACK_PLUGINS:
 //
-//  1. $TANGSIBLE_CALLBACK_DIR - an explicit override. This is the only
-//     candidate that resolves during local development/testing, since
-//     none of the locations below exist until the release-packaging step
-//     (OwnCallbackPlugin.md's "Shipping the .py from a Go binary") is
-//     actually built.
-//  2. "<prefix>/share/tangsible", where <prefix> is derived structurally
-//     from the running executable's own path (its bin/ dir's own parent) -
-//     not from any environment variable or install-time state. This is
-//     deliberately not "$XDG_DATA_HOME/tangsible sibling to the binary" -
-//     data belongs under .../share, not mixed into .../bin (install.sh's
-//     own CALLBACK_DIR comment) - and it's what makes a single rule
-//     correctly cover both the default install (~/.local/bin/tangsible ->
-//     ~/.local/share/tangsible, exactly $XDG_DATA_HOME's own default) and
-//     a --prefix one (/opt/x/bin/tangsible -> /opt/x/share/tangsible,
-//     exactly what install.sh's own --prefix-aware DATA_DIR computes)
-//     without the two ever needing to agree via a shared environment
-//     variable at install time.
-//  3. $XDG_DATA_HOME/tangsible (or ~/.local/share/tangsible) - only
-//     diverges from 2 when $XDG_DATA_HOME has been customized independently
-//     of where the binary itself was installed (a default, no-prefix
-//     install with a non-default $XDG_DATA_HOME) - install.sh's own
-//     DATA_DIR already follows $XDG_DATA_HOME in that same case, so this
-//     candidate is what actually finds it then.
+//  1. $TANGSIBLE_CALLBACK_DIR, when set - an explicit override for plugin
+//     development, patching it, or a packager who wants a fixed path. It
+//     must contain the plugin; there is no silent fall-through, a
+//     misconfigured override is an error.
+//  2. The copy embedded in the binary, extracted once per version to
+//     $XDG_CACHE_HOME/tangsible/plugin-<hash>/ (see extractPlugin).
 //
-// Returns an error naming every location tried if none of them panned out.
+// The plugin and the binary speak a private protocol, so an on-disk copy
+// from some other version is deliberately never searched for.
 func ResolveCallbackPluginDir() (string, error) {
-	var tried []string
-
 	if dir := os.Getenv("TANGSIBLE_CALLBACK_DIR"); dir != "" {
-		tried = append(tried, dir)
-		if hasCallbackPlugin(dir) {
-			return dir, nil
+		if !hasCallbackPlugin(dir) {
+			return "", fmt.Errorf("$TANGSIBLE_CALLBACK_DIR=%s has no %s", dir, callbackPluginFile)
 		}
+		return dir, nil
 	}
-
-	if exe, err := os.Executable(); err == nil {
-		dir := prefixRelativeShareDir(exe)
-		tried = append(tried, dir)
-		if hasCallbackPlugin(dir) {
-			return dir, nil
-		}
-	}
-
-	if dataHome := config.DataHome(); dataHome != "" {
-		dir := filepath.Join(dataHome, "tangsible")
-		tried = append(tried, dir)
-		if hasCallbackPlugin(dir) {
-			return dir, nil
-		}
-	}
-
-	return "", fmt.Errorf(
-		"could not find the %s callback plugin (tried: %s) - set $TANGSIBLE_CALLBACK_DIR during development, or see README.md for install locations",
-		callbackPluginFile, strings.Join(tried, ", "),
-	)
+	extractedDir.once.Do(func() {
+		extractedDir.dir, extractedDir.err = extractPlugin(embeddedPlugin, config.CacheHome(), os.TempDir())
+	})
+	return extractedDir.dir, extractedDir.err
 }
 
 func hasCallbackPlugin(dir string) bool {
@@ -96,14 +78,71 @@ func hasCallbackPlugin(dir string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// prefixRelativeShareDir returns "<prefix>/share/tangsible" for an
-// executable living at "<prefix>/bin/<name>" - the structural derivation
-// ResolveCallbackPluginDir's own doc comment explains, split out here as
-// a pure function of exe's path so it's directly testable without a real
-// os.Executable() call or any filesystem state.
-func prefixRelativeShareDir(exe string) string {
-	prefix := filepath.Dir(filepath.Dir(exe))
-	return filepath.Join(prefix, "share", "tangsible")
+// extractPlugin writes content as the plugin file into a directory named
+// after its hash, so versions never overwrite each other: under
+// <cacheHome>/tangsible/ if that works, else (no usable home or a read-only
+// cache) a fresh private directory below tmpDir - which is not cleaned up,
+// it holds one small file. The directory holds nothing but the plugin:
+// ansible loads every .py file in a callback plugin directory.
+func extractPlugin(content []byte, cacheHome, tmpDir string) (string, error) {
+	sum := sha256.Sum256(content)
+	name := "plugin-" + hex.EncodeToString(sum[:])[:12]
+	var failures []string
+	if cacheHome != "" {
+		dir := filepath.Join(cacheHome, "tangsible", name)
+		err := writePluginFile(dir, content)
+		if err == nil {
+			return dir, nil
+		}
+		failures = append(failures, err.Error())
+	}
+	dir, err := os.MkdirTemp(tmpDir, "tangsible-plugin-")
+	if err == nil {
+		if err = writePluginFile(dir, content); err == nil {
+			return dir, nil
+		}
+	}
+	failures = append(failures, err.Error())
+	return "", fmt.Errorf("could not extract the %s callback plugin: %s", callbackPluginFile, strings.Join(failures, "; "))
+}
+
+// writePluginFile makes dir hold exactly content as the plugin file. An
+// already-correct file is left alone (no write on a normal start; also a
+// concurrent tangsible never sees it change). Otherwise it is written to a
+// temp name - not .py, so ansible can't pick it up half-written - and
+// renamed into place, which is atomic.
+func writePluginFile(dir string, content []byte) error {
+	target := filepath.Join(dir, callbackPluginFile)
+	if have, err := os.ReadFile(target); err == nil && bytes.Equal(have, content) {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".extract-")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.Write(content)
+	cerr := tmp.Close()
+	if err := firstErr(werr, cerr); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), target); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+func firstErr(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CallbackPluginEnv returns the env vars any ansible-playbook invocation

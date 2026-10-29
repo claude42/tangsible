@@ -26,7 +26,7 @@
 #
 #       sudo ./install.sh --local --prefix /usr/local --yes
 #
-# which lands the binary/plugin/docs under /usr/local/bin and
+# which lands the binary and docs under /usr/local/bin and
 # /usr/local/share the same way this script always has, just rooted
 # somewhere other than your home directory - nothing about the mechanism
 # changes, only the paths (see PREFIX/BIN_DIR/DATA_DIR below).
@@ -136,15 +136,11 @@ DOC_DIR="$DATA_DIR/doc/tangsible"
 # <data dir>/... via $XDG_DATA_DIRS, so these follow --prefix / $XDG_DATA_HOME.
 BASH_COMP_DIR="$DATA_DIR/bash-completion/completions"
 FISH_COMP_DIR="$DATA_DIR/fish/vendor_completions.d"
-# Same $DATA_DIR everything else here uses - not $BIN_DIR: a plugin file
-# is data, not an executable, so it belongs under .../share like the docs/
-# man pages above, not mixed into .../bin. ResolveCallbackPluginDir (Go
-# side, design-docs/OwnCallbackPlugin.md) derives this exact same path
-# structurally from the running executable's own location (its bin/ dir's
-# own parent + /share/tangsible) rather than from $XDG_DATA_HOME directly,
-# which is what keeps the two sides agreeing under --prefix too, without
-# either needing to know what flag the other was given at install time.
-CALLBACK_DIR="$DATA_DIR/tangsible"
+# Where earlier releases installed the callback plugin; the plugin is compiled
+# into the binary now (design-docs/OwnCallbackPlugin.md), this is only for
+# --uninstall to clean up after them. Only those files: the directory also
+# holds the user's own themes (themes/).
+LEGACY_CALLBACK_DIR="$DATA_DIR/tangsible"
 
 # Whether the resolved install location is inside $HOME - drives the root
 # check and the "no sudo, nothing outside your home directory" messaging
@@ -202,8 +198,7 @@ fetch_stdout() {
 # ----------------------------------------------------------------------
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || echo ".")
 looks_local() {
-	[ -f "$SELF_DIR/tangsible" ] && [ -d "$SELF_DIR/man" ] && [ -f "$SELF_DIR/LICENSE" ] &&
-		[ -f "$SELF_DIR/callback/tangsible_events.py" ]
+	[ -f "$SELF_DIR/tangsible" ] && [ -d "$SELF_DIR/man" ] && [ -f "$SELF_DIR/LICENSE" ]
 }
 if [ "$MODE" = auto ]; then
 	if looks_local; then MODE=local; else MODE=download; fi
@@ -219,7 +214,9 @@ if [ "$DO_UNINSTALL" = 1 ]; then
 	say "Removing a per-user tangsible install."
 	say ""
 	confirm "Remove $BIN_DIR/tangsible?" && rm -f "$BIN_DIR/tangsible"
-	confirm "Remove the bundled callback plugin $CALLBACK_DIR/ ?" && rm -rf "$CALLBACK_DIR"
+	confirm "Remove the callback plugin files an earlier release installed to $LEGACY_CALLBACK_DIR/ ?" &&
+		rm -f "$LEGACY_CALLBACK_DIR/tangsible_jsonl.py" "$LEGACY_CALLBACK_DIR/tangsible_events.py" "$LEGACY_CALLBACK_DIR/LICENSE"
+	confirm "Remove the extracted callback plugin cache ${XDG_CACHE_HOME:-$HOME/.cache}/tangsible/ ?" && rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/tangsible"
 	confirm "Remove man pages $MAN_DIR/tangsible*.1?" && rm -f "$MAN_DIR"/tangsible*.1
 	confirm "Remove $DOC_DIR/ ?" && rm -rf "$DOC_DIR"
 	confirm "Remove shell completions?" && {
@@ -331,7 +328,6 @@ else
 fi
 
 [ -f "$SRC/tangsible" ] || err "no ./tangsible in $SRC"
-[ -f "$SRC/callback/tangsible_events.py" ] || err "no ./callback/tangsible_events.py in $SRC"
 
 # ----------------------------------------------------------------------
 # plan
@@ -348,12 +344,11 @@ if [ -n "$CURRENT" ]; then
 	say "  (replacing: $CURRENT at $(command -v tangsible))"
 fi
 say "  1. binary            -> $BIN_DIR/tangsible"
-say "  2. callback plugin   -> $CALLBACK_DIR/"
-say "  3. man pages         -> $MAN_DIR/"
-say "  4. README + LICENSE  -> $DOC_DIR/"
+say "  2. man pages         -> $MAN_DIR/"
+say "  3. README + LICENSE  -> $DOC_DIR/"
 if [ "$WANT_COMPLETIONS" = 1 ]; then
-	say "  5. bash completion   -> $BASH_COMP_DIR/tangsible"
-	say "  6. fish completion   -> $FISH_COMP_DIR/tangsible.fish"
+	say "  4. bash completion   -> $BASH_COMP_DIR/tangsible"
+	say "  5. fish completion   -> $FISH_COMP_DIR/tangsible.fish"
 fi
 say ""
 if [ "$TARGET_IN_HOME" = 1 ]; then
@@ -375,14 +370,7 @@ if confirm "Install the tangsible binary to $BIN_DIR/tangsible ?"; then
 	did_bin=1
 fi
 
-# 2. callback plugin - required for "run"/"rerun" to work at all
-if confirm "Install the bundled callback plugin to $CALLBACK_DIR/ - required for tangsible run/rerun ?"; then
-	mkdir -p "$CALLBACK_DIR"
-	cp "$SRC/callback/tangsible_events.py" "$SRC/callback/LICENSE" "$CALLBACK_DIR/"
-	say "    installed $CALLBACK_DIR/"
-fi
-
-# 3. man pages
+# 2. man pages
 if confirm "Install the man pages to $MAN_DIR/ ?"; then
 	mkdir -p "$MAN_DIR"
 	n=0
@@ -394,7 +382,7 @@ if confirm "Install the man pages to $MAN_DIR/ ?"; then
 	say "    installed $n man page(s)"
 fi
 
-# 4. docs
+# 3. docs
 if confirm "Install README and LICENSE to $DOC_DIR/ ?"; then
 	mkdir -p "$DOC_DIR"
 	for f in README.md LICENSE; do
@@ -403,7 +391,7 @@ if confirm "Install README and LICENSE to $DOC_DIR/ ?"; then
 	say "    installed $DOC_DIR/"
 fi
 
-# 5/6. completions
+# 4/5. completions
 if [ "$WANT_COMPLETIONS" = 1 ]; then
 	if [ -f "$SRC/completions/tangsible.bash" ] &&
 		confirm "Install bash completion to $BASH_COMP_DIR/tangsible ?"; then

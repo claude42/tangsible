@@ -3,7 +3,7 @@
 Tangsible's Ansible callback plugin: an `aggregate` callback that writes one
 JSON document per playbook event to the file descriptor named by
 `TANGSIBLE_EVENT_FD` (normal display output when unset), alongside whatever
-stdout callback the user has configured. Apache-2.0 licensed.
+stdout callback the user has configured. Apache-2.0 licensed (see the top-level `LICENSE`).
 
 The document layout follows `ansible.posix.jsonl`; additions are listed in
 the `notes` of `ansible-doc -t callback tangsible_events`

@@ -152,11 +152,10 @@ Use
 go install code.aw.net/claude/tangsible@latest
 ```
 
-to install it in `$GOPATH/bin` (usually `~/go/bin`). This installs only the
-binary, not the bundled callback plugin. Fetch `callback/tangsible_events.py`
-from this repo and either place it at `$XDG_DATA_HOME/tangsible/` (default
-`~/.local/share/tangsible/`) or point `$TANGSIBLE_CALLBACK_DIR` at it.
-`tangsible version` reports whether it was actually found.
+to install it in `$GOPATH/bin` (usually `~/go/bin`). The Ansible callback
+plugin is compiled into the binary; it is extracted to
+`$XDG_CACHE_HOME/tangsible/` (default `~/.cache/tangsible/`) on first use.
+`tangsible version` reports where.
 
 ### From source
 
@@ -468,9 +467,9 @@ go vet ./...     # lint
 go test ./...    # unit tests
 ```
 
-`go build`/`go run .` alone won't have the bundled callback plugin installed,
-so a plain build from source needs `$TANGSIBLE_CALLBACK_DIR` pointed at the
-repo's `callback/` directory to run a playbook, e.g.:
+The callback plugin is embedded at build time, so `go run .` works as is. To
+try a modified `callback/tangsible_events.py` without rebuilding, point
+`$TANGSIBLE_CALLBACK_DIR` at a directory containing it:
 
 ```
 TANGSIBLE_CALLBACK_DIR="$PWD/callback" go run . run site.yml

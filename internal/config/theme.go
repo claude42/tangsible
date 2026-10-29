@@ -42,17 +42,16 @@ type ThemeFile struct {
 	Light map[string]string
 }
 
-// ResolveThemePath finds name's own theme file, mirroring
-// runner.ResolveCallbackPluginDir's exact two-tier precedent for a
-// bundled-but-user-extensible asset (design-docs/OwnCallbackPlugin.md):
+// ResolveThemePath finds name's own theme file, in two tiers for a
+// bundled-but-user-extensible asset (the pattern the callback plugin's own
+// lookup used before it was embedded, design-docs/OwnCallbackPlugin.md):
 // <prefix>/share/tangsible/themes/<name>.toml (anything shipped with the
 // install), then $XDG_DATA_HOME/tangsible/themes/<name>.toml (a user's
 // own, writable regardless of how Tangsible itself was installed) -
 // DataHome, not ConfigHome, since a theme is a shareable asset someone
 // else might have authored, the same distinction ConfigHome/DataHome
-// already draw for an unrelated reason. Unlike
-// ResolveCallbackPluginDir, no $TANGSIBLE_CALLBACK_DIR-style dev
-// override - not documented as needed, and easy to add later if it is.
+// already draw for an unrelated reason. No $TANGSIBLE_CALLBACK_DIR-style
+// dev override - not documented as needed, and easy to add later if it is.
 func ResolveThemePath(name string) (path string, ok bool) {
 	if exe, err := os.Executable(); err == nil {
 		candidate := prefixRelativeThemePath(exe, name)

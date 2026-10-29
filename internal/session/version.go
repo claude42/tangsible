@@ -95,11 +95,10 @@ func RunVersion(b BuildInfo) int {
 // actually use, plus whether its own bundled callback plugin
 // (design-docs/OwnCallbackPlugin.md) actually resolves - since decision 3
 // dropped the ansible.posix dependency entirely, there's no longer a
-// separate collection to version-check; ResolveCallbackPluginDir's own
-// search (dev override, sibling-to-binary, XDG data dir) is now the one
-// thing that can actually go wrong, so this reuses its exact error message
-// (which already names every location tried) rather than inventing a
-// second diagnostic message that could drift from it.
+// separate collection to version-check. The plugin is compiled into the
+// binary and extracted on first use (ResolveCallbackPluginDir), so what can
+// still go wrong is the extraction or a bad $TANGSIBLE_CALLBACK_DIR; this
+// reports which one is in effect and reuses the resolver's own error.
 func printAnsibleEnv() {
 	if path, err := exec.LookPath("ansible-playbook"); err != nil {
 		fmt.Println("ansible-playbook: not found on PATH")
@@ -114,7 +113,11 @@ func printAnsibleEnv() {
 
 	fmt.Println()
 	if dir, err := runner.ResolveCallbackPluginDir(); err == nil {
-		fmt.Printf("tangsible callback plugin: found in %s\n", dir)
+		if os.Getenv("TANGSIBLE_CALLBACK_DIR") != "" {
+			fmt.Printf("tangsible callback plugin: %s (from $TANGSIBLE_CALLBACK_DIR)\n", dir)
+		} else {
+			fmt.Printf("tangsible callback plugin: built in, extracted to %s\n", dir)
+		}
 	} else {
 		fmt.Printf("tangsible callback plugin: %v\n", err)
 	}
