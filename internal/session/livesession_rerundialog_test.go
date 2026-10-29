@@ -15,6 +15,7 @@
 package session
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
@@ -232,7 +233,7 @@ func TestRerunFieldSyncEditingPlayFieldByHandUnchecksResume(t *testing.T) {
 func TestRerunFieldSyncMatchHostsIncludesGroups(t *testing.T) {
 	state := &playbook.PlaybookState{AllHosts: []string{"web1", "web2"}}
 	form := tview.NewForm()
-	r := newRerunFieldSync(form, state, nil, nil, []string{"webservers", "dbservers"}, runner.InitialRerunDefaults{})
+	r := newRerunFieldSync(form, state, nil, nil, groupsOf("webservers", "dbservers"), runner.InitialRerunDefaults{})
 
 	if got := r.matchHosts("web"); !slicesEqualUnordered(got, []string{"web1", "web2", "webservers"}) {
 		t.Errorf(`matchHosts("web") = %v, want [web1 web2 webservers] in some order`, got)
@@ -331,4 +332,10 @@ func TestRerunFieldSyncInitialRerunDefaultsAppliedOnce(t *testing.T) {
 	if checked(r.resumeCheckbox) {
 		t.Error("initialRerunDefaults must only ever apply once - a later rebuild must not re-check a box the user unchecked by hand")
 	}
+}
+
+func groupsOf(names ...string) *atomic.Pointer[[]string] {
+	var p atomic.Pointer[[]string]
+	p.Store(&names)
+	return &p
 }

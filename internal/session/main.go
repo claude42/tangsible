@@ -611,10 +611,18 @@ func Main(build BuildInfo) {
 	// Best-effort: a failed inventory fetch here just means no group
 	// suggestions, not a fatal error - --limit itself already accepts a
 	// group name typed by hand regardless of what autocomplete offers.
-	var knownGroups []string
-	if raw, err := inventory.ListInventoryRaw(originalArgs.Rest); err == nil {
-		knownGroups = inventory.GroupNames(raw)
-	}
+	// Fetched in the background (~300 ms of ansible-inventory start-up that
+	// would otherwise delay the first frame; an atomic.Pointer like progH,
+	// since the dialog only reads it per keystroke): typing a group name
+	// within the first moments just gets no suggestion yet.
+	var knownGroups atomic.Pointer[[]string]
+	invArgs := originalArgs.Rest
+	go func() {
+		if raw, err := inventory.ListInventoryRaw(invArgs); err == nil {
+			groups := inventory.GroupNames(raw)
+			knownGroups.Store(&groups)
+		}
+	}()
 	if spawnPlaybook != playbook {
 		// "--start-at-play" spawns this first generation against a trimmed
 		// copy, not playbook itself - every RawEvent.Task.Path for a task
@@ -793,7 +801,7 @@ func Main(build BuildInfo) {
 			CopyDir:          debugPrep.CopyDir,
 		}
 	}
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, &knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)
 
 	if pending != nil {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.OutLog, pending.RunID, pending.First)

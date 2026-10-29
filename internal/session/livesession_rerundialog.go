@@ -16,6 +16,7 @@ package session
 
 import (
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
@@ -44,7 +45,7 @@ type rerunFieldSync struct {
 	state                *playbook.PlaybookState
 	knownTags            []string
 	knownPlayNames       []string
-	knownGroups          []string
+	knownGroups          *atomic.Pointer[[]string] // nil, or not yet stored: no group suggestions (see main.go)
 	initialRerunDefaults runner.InitialRerunDefaults
 
 	playField               *tview.InputField
@@ -118,7 +119,7 @@ type rerunFieldSync struct {
 // initialRerunDefaults are copied in since NewLiveTUI's own parameters
 // aren't needed anywhere outside this subsystem (confirmed by grep before
 // this extraction) and so were never hoisted onto liveSession itself.
-func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames, knownGroups []string, initialRerunDefaults runner.InitialRerunDefaults) *rerunFieldSync {
+func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], initialRerunDefaults runner.InitialRerunDefaults) *rerunFieldSync {
 	r := &rerunFieldSync{
 		form:                 form,
 		state:                state,
@@ -291,12 +292,18 @@ func (r *rerunFieldSync) matchTags(text string) []string { return matchToken(r.k
 
 // matchHosts' candidates are state.AllHosts (live, grows as the run
 // discovers hosts - read fresh on every call, not captured once) plus
-// knownGroups (static, fetched once at session startup) - two disjoint
+// knownGroups (static, fetched once in the background at session startup,
+// so possibly not there yet - read fresh on every call) - two disjoint
 // namespaces in practice, so no dedup between them is attempted; a literal
 // host and a group happening to share a name is an edge case that would at
 // worst just show one redundant suggestion, never a wrong one.
 func (r *rerunFieldSync) matchHosts(text string) []string {
-	candidates := append(append([]string{}, r.state.AllHosts...), r.knownGroups...)
+	candidates := append([]string{}, r.state.AllHosts...)
+	if r.knownGroups != nil {
+		if g := r.knownGroups.Load(); g != nil {
+			candidates = append(candidates, *g...)
+		}
+	}
 	return matchToken(candidates, text)
 }
 func (r *rerunFieldSync) matchPlay(text string) []string {

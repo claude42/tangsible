@@ -15,6 +15,10 @@
 - Roles outside the project (`~/.ansible/roles`, `/etc/ansible/roles`, `roles_path`, ...) are now found by `role`, shown in the Task definition tab and recognized as roles by Details/Resolved/`template`; completions follow `$ANSIBLE_ROLES_PATH`
 - New verb: `tangsible help [verb]` lists every verb in one line, or one verb's synopsis
 
+### Changed
+
+- `run`/`role`/`debug`/`rerun` start about 300 ms faster (host-group autocomplete for the re-run dialog loads in the background)
+
 ### Fixed
 
 - `tangsible vault` no longer deletes the blank lines between entries when saving
