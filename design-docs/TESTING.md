@@ -333,6 +333,13 @@ default `go test ./...` suite:
   justified it in the first place: an interactive flow where the risk is
   specifically in the wiring/rendering/focus behavior itself, not in logic
   a unit test could isolate more cheaply.
+* **The callback plugin has a Python suite of its own** (`callback-tests/`,
+  `python3 -m unittest discover -s callback-tests`). It is behavioral
+  rather than unit-level: each test runs a real `ansible-playbook` against
+  the plugin and asserts on the event stream it writes (format, event
+  shapes, strategies, our additions), and the parity tests run
+  `ansible.posix.jsonl` as a black box and compare, with our documented
+  additions stripped. Needs `ansible-playbook`; not part of `go test`.
 * **Manual testing (`go run .`, or tmux for anything scripted/repeated)
   stays right for the visual/interactive layer generally.** This plan
   isn't meant to replace it for everything - only to back up the logic

@@ -76,3 +76,6 @@ go.work.sum
 # .vscode/
 .claude/
 
+
+# Editor swap files
+*.swp

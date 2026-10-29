@@ -152,10 +152,7 @@ Use
 go install code.aw.net/claude/tangsible@latest
 ```
 
-to install it in `$GOPATH/bin` (usually `~/go/bin`). The Ansible callback
-plugin is compiled into the binary; it is extracted to
-`$XDG_CACHE_HOME/tangsible/` (default `~/.cache/tangsible/`) on first use.
-`tangsible version` reports where.
+to install it in `$GOPATH/bin` (usually `~/go/bin`).
 
 ### From source
 
@@ -484,6 +481,15 @@ go test -tags e2e ./...
 
 These require `tmux` and `ansible-playbook` and are excluded from the normal
 test run.
+
+The callback plugin has its own Python test suite in `callback-tests/`. It runs
+real `ansible-playbook` processes and checks the event stream, including a
+comparison against `ansible.posix.jsonl` (skipped if that collection isn't
+installed). It needs `ansible-playbook` and takes about a minute:
+
+```
+python3 -m unittest discover -s callback-tests -v
+```
 
 ## License
 
