@@ -240,10 +240,8 @@ func TemplateHostsMax(cfg SettingsConfig) int {
 // DefaultTreeExpanded reports whether cfg.General.DefaultTreeState says a
 // freshly-started run's first task should start expanded - true only for
 // "expanded" (case-insensitive); everything else, including an unset or
-// unrecognized value, means collapsed - the documented default, applied
-// silently rather than warning on a typo, consistent with this project's
-// general "swallow and fall back" convention for config values elsewhere
-// (readDefaultPlaybook, DecodeHostResult).
+// unrecognized value, means collapsed - the documented default. The typo
+// itself is reported separately, once per file (settingswarn.go).
 func DefaultTreeExpanded(cfg SettingsConfig) bool {
 	return strings.EqualFold(cfg.General.DefaultTreeState, "expanded")
 }
@@ -481,7 +479,17 @@ func ReadTOMLFile[T any](path string) T {
 // ReadSettingsConfig reads path (a config.toml, local or global - see
 // settingsConfig's own doc comment) via readTOMLFile.
 func ReadSettingsConfig(path string) SettingsConfig {
-	return ReadTOMLFile[SettingsConfig](path)
+	var v SettingsConfig
+	if _, err := os.Stat(path); err != nil {
+		return v
+	}
+	md, err := toml.DecodeFile(path, &v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't parse %s: %v\n", path, err)
+		return SettingsConfig{}
+	}
+	addPendingWarnings(settingsWarnings(path, v, md.Undecoded()))
+	return v
 }
 
 // ReadDefaultPlaybook returns path's general.default_playbook value - ""

@@ -77,8 +77,8 @@ testable in isolation; the rest needs tmux.
 
 `config.toml` in `./.tangsible/` (project), `$XDG_CONFIG_HOME/tangsible/`
 (global), `/etc/tangsible/` (system); every key cascades project -> global ->
-system -> built-in default. Unknown/invalid values fall back silently
-(`[general]`) or warn after exit (`[colors]`). Reference:
+system -> built-in default. Unknown keys and invalid values fall back to the default and warn after exit
+(`config/settingswarn.go`, `[colors]`' own checks). Reference:
 `design-docs/ConfigOptions.md`, `examples/config.toml`.
 
 The playbook argument is optional for `run`/`rerun`/`host`: `$TANGSIBLE_PLAYBOOK`

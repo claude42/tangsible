@@ -53,8 +53,9 @@ for the full order, or `ResolvePlaybook`.
 
 **`default_tree_state`** — whether a freshly-started run's very first task
 row starts out expanded or collapsed. Case-insensitive; any value other
-than `"expanded"` (including a typo, or the key being absent everywhere)
-means collapsed, applied silently rather than warning.
+than `"expanded"` (or the key being absent everywhere) means collapsed; a
+value that isn't `"expanded"`/`"collapsed"` also warns after exit (see
+"Mistakes in config.toml" below).
 
 **`two_pane_layout`** — whether the output drill-down keeps the tree pane
 visible alongside it on a wide enough terminal, instead of taking over the
@@ -80,7 +81,8 @@ yet implemented" below).
 keeps the pre-existing per-Verb behavior (shown for `rerun`, not for
 `run`/`role`); `"never"`/`"always"` force it off/on regardless of Verb.
 Case-insensitive; any unrecognized value (including a typo) falls back to
-`"default"`, same convention as `default_tree_state`. An explicit
+`"default"` (and warns, see "Mistakes in config.toml"), same convention as
+`default_tree_state`. An explicit
 `--dialog`/`--no-dialog` on the command line overrides this per
 invocation, for `run`/`rerun`/`role` only — every other Verb rejects
 either flag outright.
@@ -152,3 +154,17 @@ under `<prefix>/share/tangsible/themes/` or
 `$XDG_DATA_HOME/tangsible/themes/`, same shape as `[colors]` itself.
 `ColorConfig.md`'s own "Full precedence chain" section is the reference
 for how `[colors]`, a theme, and the hardcoded defaults combine.
+
+## Mistakes in config.toml
+
+An unrecognized key (a typo in a key name, e.g. `terminal_progres`) and an
+invalid value for a fixed-choice `[general]` key (`default_tree_state`,
+`run_dialog`, `notify_*`, `terminal_progress`, `color_scheme`) print a
+warning after tangsible exits - never while the TUI runs - naming the file,
+the key and the allowed values. The setting itself still falls back to its
+default exactly as before, so a typo never stops a run (`settingswarn.go`).
+Each file is checked on its own, so a typo in a lower tier is reported even
+when a higher tier overrides it. Not checked: numeric ranges
+(`notify_task_failed_max`, `template_hosts_max`), and keys inside
+`[colors.dark]`/`[colors.light]` (invalid colors there already warn, see
+`ColorConfig.md`).

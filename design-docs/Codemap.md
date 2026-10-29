@@ -62,6 +62,9 @@ package reads.
 - **resolve.go** - `SettingsConfig`, `Verb` parsing, the playbook
   resolution cascade (env var → project config → XDG config →
   `site.yml`).
+- **settingswarn.go** - warnings for unknown `config.toml` keys and invalid
+  fixed-choice `[general]` values, collected per file and printed after
+  exit (`ConfigOptions.md`, "Mistakes in config.toml").
 - **help.go** - `VerbInfo`/`VerbHelpTable`: every verb's synopsis and
   one-line summary, behind `help` and all "usage:" errors; a test checks
   them against the man pages.
