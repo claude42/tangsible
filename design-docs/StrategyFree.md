@@ -41,7 +41,7 @@ Decisions below).
 ## The callback plugin fork (now on `main`, confirmed)
 
 `design-docs/OwnCallbackPlugin.md`'s Phase 1 fork (`callback/
-tangsible_jsonl.py`) is merged and live for every real run - confirmed by
+tangsible_events.py`) is merged and live for every real run - confirmed by
 reading the actual code, not the design doc's own intentions:
 
 - `internal/runner/process.go`'s `SpawnGeneration` already passes an event
@@ -76,7 +76,7 @@ reading the actual code, not the design doc's own intentions:
   dependency change"*).
 
 **What the plugin actually emits under `free`** (read directly from
-`callback/tangsible_jsonl.py`, not inferred): `v2_runner_on_start`'s
+`callback/tangsible_events.py`, not inferred): `v2_runner_on_start`'s
 non-lockstep branch builds a *full* `task_result` (same shape as a
 task-start event - `task.id`/`name`/`path`/`duration.start`) and adds a
 top-level `"host": host.get_name()` to it - this is new, not something
@@ -278,7 +278,7 @@ implementation, not a design question.)
 
 **A real wrinkle, now that the actual payload shapes are known:** under
 lockstep, `v2_runner_on_start`'s `task` object is minimal - `{"id": ...}`
-only, no `name`/`path` (confirmed against `tangsible_jsonl.py`'s own
+only, no `name`/`path` (confirmed against `tangsible_events.py`'s own
 lockstep branch). If `findOrCreateTask` is ever called for that event (step
 2 below needs to, to update in-flight state), the existing-node lookup
 (`if t, ok := s.tasksByID[ref.ID]; ok { return t }`) must run first and

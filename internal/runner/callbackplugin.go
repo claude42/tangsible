@@ -24,11 +24,11 @@ import (
 )
 
 // callbackPluginName is our bundled plugin's own CALLBACK_NAME (callback/
-// tangsible_jsonl.py) - with ".py" appended, the file
+// tangsible_events.py) - with ".py" appended, the file
 // ResolveCallbackPluginDir looks for in each candidate directory - checking
 // for the file itself, not just the directory's existence, so a stale or
 // empty directory doesn't silently pass.
-const callbackPluginName = "tangsible_jsonl"
+const callbackPluginName = "tangsible_events"
 const callbackPluginFile = callbackPluginName + ".py"
 
 // ResolveCallbackPluginDir finds the directory holding our bundled ansible

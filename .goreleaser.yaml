@@ -21,7 +21,7 @@ before:
     - go mod tidy
     - go vet ./...
     # Python's own bytecode cache (regenerated locally by anything that
-    # imports callback/tangsible_jsonl.py, e.g. an ansible-playbook run
+    # imports callback/tangsible_events.py, e.g. an ansible-playbook run
     # against it) - .gitignore'd, but archives.files' own callback/* glob
     # below isn't git-aware, so a stray local cache would otherwise ship
     # in the release tarball. A "^"-prefixed exclude-glob archive.files
@@ -82,12 +82,7 @@ archives:
         dst: man
       - src: completions/*
         dst: completions
-      # The bundled ansible callback plugin (design-docs/
-      # OwnCallbackPlugin.md) - a GPL-3.0 derivative of ansible.posix.jsonl,
-      # deliberately shipped as a sibling file rather than //go:embed-ed
-      # into the (Apache-2.0) binary, per that doc's decision 6. Its own
-      # callback/LICENSE (GPL-3.0 text) travels with it, not the top-level
-      # Apache LICENSE above.
+      # The bundled ansible callback plugin.
       - src: callback/*
         dst: callback
       # A full-defaults config.toml (design-docs/ConfigOptions.md) and an

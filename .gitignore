@@ -28,6 +28,7 @@ profile.cov
 # in a release archive (.goreleaser.yaml's callback/* glob would otherwise
 # happily pick it up) or get committed alongside the tracked .py source.
 callback/__pycache__/
+callback-tests/__pycache__/
 
 # GoReleaser build output (`goreleaser release`/`--snapshot`, see
 # .goreleaser.yaml) - cross-compiled binaries, archives, checksums.

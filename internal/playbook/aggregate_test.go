@@ -386,7 +386,7 @@ func TestApply_TaskIdempotent_TwoHostsNoTaskStart(t *testing.T) {
 // TestFindOrCreateTask_LockstepStartEventDoesNotBlankNameOrPath covers the
 // real wrinkle design-docs/StrategyFree.md calls out: under lockstep, a
 // v2_runner_on_start event's own Task is minimal ({"id": ...} only, no
-// name/path - tangsible_jsonl.py's own lockstep branch). Once a task
+// name/path - tangsible_events.py's own lockstep branch). Once a task
 // already exists (created by the real task-start event moments earlier),
 // that minimal event must resolve to the existing node unchanged, not
 // overwrite its already-populated Name/Path with the empty strings this

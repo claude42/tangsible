@@ -39,7 +39,7 @@ func requireAnsiblePlaybook(t *testing.T) {
 }
 
 // repoRoot finds the repository root from this test file's own location,
-// so the bundled callback plugin (callback/tangsible_jsonl.go) can be
+// so the bundled callback plugin (callback/tangsible_events.py) can be
 // found the same dev-only way CLAUDE.md documents (TANGSIBLE_CALLBACK_DIR).
 func repoRoot(t *testing.T) string {
 	t.Helper()

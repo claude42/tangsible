@@ -1,5 +1,13 @@
 # Shipping our own Ansible callback plugin
 
+> **Update (2026-10-29): the plugin is no longer a GPL fork.** It was replaced
+> by `callback/tangsible_events.py`, an Apache-2.0 clean-room implementation of
+> jsonl's schema (provenance in `callback/README.md`, tests in
+> `callback-tests/`) carrying the same additions. Decisions 1 and 2 below
+> (fork stays GPL; the GPL/Apache split in the docs) are superseded; the rest
+> - aggregate type, event fd, schema, sibling-file shipping - still holds.
+> Mentions of `tangsible_jsonl` below are the old name.
+
 ## Status
 
 **Approach approved, implementation deferred to after the official

@@ -590,7 +590,7 @@ first step of any implementation is installing both tools, running a
   (one file per event: event name, counter, uuid, `start_line`/`end_line`
   into stdout, `event_data` with playbook/play/task/host/`res`). Its events
   come from runner's own AWX-derived callback, so the schema differs from
-  `ansible.posix.jsonl` and from `tangsible_jsonl.py`.
+  `ansible.posix.jsonl` and from `tangsible_events.py`.
 
 ### What we already have per generation
 

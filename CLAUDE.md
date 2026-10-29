@@ -27,6 +27,7 @@ a real TTY. Root `main.go` just calls `session.Main`.
 go build ./...
 go vet ./...
 go test ./...                     # unit tests; -run <Name> for one
+python3 -m unittest discover -s callback-tests   # callback plugin (needs ansible)
 go test -tags e2e ./...           # + tmux-driven e2e (e2e_rerun_test.go; needs tmux, ansible-playbook)
 go run . run testdata/outcomes.yml -i localhost,
 go run . run testdata/multihost.yml -i testdata/multihost-inventory.ini
@@ -134,10 +135,13 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 
 ## Event pipeline (`internal/runner`, `internal/playbook`)
 
-- **Callback plugin** (`callback/tangsible_jsonl.py`,
-  `design-docs/OwnCallbackPlugin.md`): a GPL fork of `ansible.posix.jsonl`
-  (schema-compatible), `aggregate` type, shipped as a sibling file (never
-  `//go:embed` - keeps the binary Apache-2.0). `ResolveCallbackPluginDir`
+- **Callback plugin** (`callback/tangsible_events.py`,
+  `design-docs/OwnCallbackPlugin.md`): a clean-room, Apache-2.0
+  implementation of `ansible.posix.jsonl`'s schema plus our additions
+  (`callback-tests/`), `aggregate` type, shipped as a sibling file (not
+  `//go:embed`). Never copy code from the old GPL fork (git history) or
+  from ansible.posix itself into it - write additions from the documented
+  behavior. `ResolveCallbackPluginDir`
   finds it; `CallbackPluginEnv` *unions* it into the user's
   `ANSIBLE_CALLBACK_PLUGINS`, never overwrites; the plugin is
   `CALLBACK_NEEDS_ENABLED = False`, so `ANSIBLE_CALLBACKS_ENABLED` is left

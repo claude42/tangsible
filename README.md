@@ -120,8 +120,7 @@ normally require writing temporary playbooks.
   a piped or headless shell.
 
 Tangsible ships its own bundled ansible callback plugin to receive Ansible
-events while a playbook runs, so no extra collection install is needed -
-see [License](#license) for the (GPL-3.0) plugin's own licensing.
+events while a playbook runs, so no extra collection install is needed.
 
 ## Install
 
@@ -154,7 +153,7 @@ go install code.aw.net/claude/tangsible@latest
 ```
 
 to install it in `$GOPATH/bin` (usually `~/go/bin`). This installs only the
-binary, not the bundled callback plugin. Fetch `callback/tangsible_jsonl.py`
+binary, not the bundled callback plugin. Fetch `callback/tangsible_events.py`
 from this repo and either place it at `$XDG_DATA_HOME/tangsible/` (default
 `~/.local/share/tangsible/`) or point `$TANGSIBLE_CALLBACK_DIR` at it.
 `tangsible version` reports whether it was actually found.
@@ -489,11 +488,8 @@ test run.
 
 ## License
 
-The `tangsible` binary/CLI is **Apache-2.0** licensed - see `LICENSE`.
-
-The bundled `callback/tangsible_jsonl.py` Ansible callback plugin is a
-**GPL-3.0-or-later** derivative of `ansible.posix.jsonl` - see
-`callback/LICENSE`.
+The `tangsible` binary/CLI and the bundled Ansible callback plugin are
+**Apache-2.0** licensed - see `LICENSE`.
 
 ## Contact
 

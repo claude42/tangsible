@@ -363,7 +363,7 @@ func (s *PlaybookState) findOrCreateTask(ev RawEvent, host string) *TaskNode {
 		// Found by ID alone - deliberately doesn't touch Name/Path/
 		// IsHandler even if this particular event's own Task carries
 		// them (or doesn't): under lockstep, a v2_runner_on_start event's
-		// own Task is minimal ({"id": ...} only, tangsible_jsonl.py's own
+		// own Task is minimal ({"id": ...} only, tangsible_events.py's own
 		// lockstep branch - design-docs/StrategyFree.md), and blindly
 		// overwriting an already-populated Name/Path with empty strings
 		// from that shape would erase what the real task-start event

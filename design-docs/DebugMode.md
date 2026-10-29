@@ -2419,7 +2419,7 @@ custom strategy plugin, not a callback, is the only layer with access to
 per-host variable state) is sound, but the exact hook point
 (`_process_pending_results`) is **not yet spiked live** - see "Biggest open
 risk" below. Depends on `design-docs/OwnCallbackPlugin.md`'s fd-transport
-plugin, which is merged and live (`callback/tangsible_jsonl.py`).
+plugin, which is merged and live (`callback/tangsible_events.py`).
 
 **2026-09-25 spike addendum: hook point confirmed, but a new foundation-
 level risk surfaced. Paused here, not proceeding for now** - see "Live
@@ -3721,7 +3721,7 @@ module's globals the debugger evaluates against, so the query needs
 only, ansible-core 2.19.11): a 4-task, 2-host fixture
 (`testdata/multihost-inventory.ini`) with `debugger: always` spliced onto
 every task (simulating the uniform-splice approach above), run with the
-*real* bundled callback plugin (`callback/tangsible_jsonl.py`) wired up
+*real* bundled callback plugin (`callback/tangsible_events.py`) wired up
 exactly as `SpawnGeneration` does it - `ANSIBLE_CALLBACK_PLUGINS`/
 `ANSIBLE_CALLBACKS_ENABLED` set, a pipe's write end passed to the child and
 named via `TANGSIBLE_EVENT_FD` - while *also* driving the debugger's own

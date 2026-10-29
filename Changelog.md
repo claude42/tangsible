@@ -19,6 +19,7 @@
 
 ### Changed
 
+- The bundled callback plugin is now `callback/tangsible_events.py`, a clean-room Apache-2.0 implementation replacing the GPL-3.0 fork of `ansible.posix.jsonl`; the whole of tangsible is Apache-2.0 now
 - `config.toml`: unknown keys and invalid values for fixed-choice `[general]` settings now print a warning after exit (they still fall back to the default)
 - Faster startup: `run`/`role`/`debug`/`rerun` ~300 ms (host groups load in the background), `run`/`role` ~250 ms (no `ansible-config` call before spawning), `role`/`template` ~250 ms (shared, early `ansible-config` call)
 

@@ -203,7 +203,7 @@ fetch_stdout() {
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || echo ".")
 looks_local() {
 	[ -f "$SELF_DIR/tangsible" ] && [ -d "$SELF_DIR/man" ] && [ -f "$SELF_DIR/LICENSE" ] &&
-		[ -f "$SELF_DIR/callback/tangsible_jsonl.py" ]
+		[ -f "$SELF_DIR/callback/tangsible_events.py" ]
 }
 if [ "$MODE" = auto ]; then
 	if looks_local; then MODE=local; else MODE=download; fi
@@ -331,7 +331,7 @@ else
 fi
 
 [ -f "$SRC/tangsible" ] || err "no ./tangsible in $SRC"
-[ -f "$SRC/callback/tangsible_jsonl.py" ] || err "no ./callback/tangsible_jsonl.py in $SRC"
+[ -f "$SRC/callback/tangsible_events.py" ] || err "no ./callback/tangsible_events.py in $SRC"
 
 # ----------------------------------------------------------------------
 # plan
@@ -378,7 +378,7 @@ fi
 # 2. callback plugin - required for "run"/"rerun" to work at all
 if confirm "Install the bundled callback plugin to $CALLBACK_DIR/ - required for tangsible run/rerun ?"; then
 	mkdir -p "$CALLBACK_DIR"
-	cp "$SRC/callback/tangsible_jsonl.py" "$SRC/callback/LICENSE" "$CALLBACK_DIR/"
+	cp "$SRC/callback/tangsible_events.py" "$SRC/callback/LICENSE" "$CALLBACK_DIR/"
 	say "    installed $CALLBACK_DIR/"
 fi
 
