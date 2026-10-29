@@ -46,7 +46,7 @@ var generalChoices = []generalChoice{
 	{"notify_playbook_finished", func(c SettingsConfig) string { return c.General.NotifyPlaybookFinished }, []string{"off", "osc9", "osc777", "osc99", "bell"}, "off"},
 	{"notify_task_failed", func(c SettingsConfig) string { return c.General.NotifyTaskFailed }, []string{"off", "osc9", "osc777", "osc99", "bell"}, "off"},
 	{"terminal_progress", func(c SettingsConfig) string { return c.General.TerminalProgress }, []string{"auto", "on", "off"}, "auto"},
-	{"color_scheme", func(c SettingsConfig) string { return c.General.ColorScheme }, []string{"dark", "light"}, "dark"},
+	{"color_scheme", func(c SettingsConfig) string { return c.General.ColorScheme }, []string{"dark", "light", "auto"}, "auto"},
 }
 
 // settingsWarnings returns the messages for one parsed config file: path is

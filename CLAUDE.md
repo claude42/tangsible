@@ -94,7 +94,8 @@ per `uikit.*Color` var (snake_case, `Color` dropped), resolved once by
 `uikit.ApplyColorConfig`/`diff.ApplyColorConfig` in `session.Main` before any
 TUI exists - read the vars at construction time, not at package init.
 `[colors.dark]`/`[colors.light]` and theme files are selected by
-`general.color_scheme`/`theme`. `background` is pushed into
+`general.color_scheme`/`theme` (`color_scheme = "auto"` asks the terminal via
+`internal/termbg`, collected in `session.Main`'s `applyColors`). `background` is pushed into
 `tview.Styles.PrimitiveBackgroundColor`; `background` and `standard_text` alone
 accept `"default"` (terminal's own color, `uikit.TerminalDefaultColor`).
 **Never leave text on tview's defaults** (white text, yellow labels, white

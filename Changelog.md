@@ -4,6 +4,7 @@
 
 ### Added
 
+- `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
 - Progress is also shown in the terminal's own progress indicator (OSC 9;4) where supported; `terminal_progress = "auto" | "on" | "off"`
 - `revisit`: `R` names a previous run; the name shows in the list before the command line
 - `revisit`: `P` pins a run to the top of the list (marked `*`, exempt from the history cap)

@@ -39,7 +39,7 @@ own row below.
 | `notify_task_failed_max` | int | `5` | |
 | `terminal_progress` | string: `"auto"` \| `"on"` \| `"off"` | `"auto"` | |
 | `template_hosts_max` | int | `10` | |
-| `color_scheme` | string: `"dark"` \| `"light"` | `"dark"` | See `[colors]` below |
+| `color_scheme` | string: `"dark"` \| `"light"` \| `"auto"` | `"auto"` | See `[colors]` below |
 | `theme` | string (a theme name) | *(none — no theme)* | See `[colors]` below |
 
 All twelve cascade project → global → system → documented default, as
@@ -113,7 +113,11 @@ template.md`).
 **`color_scheme`/`theme`** — design-docs/ColorConfig.md's own addendum:
 which of `[colors]`'s own `[dark]`/`[light]` sub-tables applies, and an
 optional named theme file to load. See `[colors]` below rather than
-duplicating that doc's own reference here.
+duplicating that doc's own reference here. The default, `"auto"`,
+asks the terminal whether its background is dark or light (OSC 11) and picks
+the matching sub-table; a terminal that can't be asked, or isn't a terminal
+at all, gets `"dark"` (`ColorConfig.md`, "Auto-detection"). Set `"dark"` or
+`"light"` to skip the query.
 
 ## Example
 

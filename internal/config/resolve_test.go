@@ -631,3 +631,19 @@ func TestTerminalProgressModePreference(t *testing.T) {
 		}
 	}
 }
+
+func TestColorSchemeAuto(t *testing.T) {
+	for in, want := range map[string]bool{"auto": true, "AUTO": true, "": true, "bogus": true, "dark": false, "Dark": false, "light": false} {
+		var cfg SettingsConfig
+		cfg.General.ColorScheme = in
+		if got := ColorSchemeAuto(cfg); got != want {
+			t.Errorf("%q: got %v, want %v", in, got, want)
+		}
+	}
+	// An unresolved "auto" must never end up light by accident.
+	var cfg SettingsConfig
+	cfg.General.ColorScheme = "auto"
+	if got := ColorSchemePreference(cfg); got != "dark" {
+		t.Errorf("unresolved auto: got %q, want dark", got)
+	}
+}

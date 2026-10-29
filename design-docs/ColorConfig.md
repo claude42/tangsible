@@ -346,10 +346,11 @@ A new `[general] color_scheme = "dark" | "light"` key, defaulting to
 `SelectedRowTextColor`'s own doc comment on being nudged for readability
 against light backgrounds, which in context means a light *foreground
 element*, i.e. the app already assumes a dark surrounding terminal).
-Deliberately no `"auto"` option - this app already rejected guessing a
-terminal's own capabilities once (`design-docs/Notifications.md`'s own
-reasoning for not auto-detecting OSC support), and a terminal's
-background color is, if anything, less reliably queryable than that.
+`"auto"` was first deliberately left out - this app had already rejected
+guessing a terminal's own capabilities once (`design-docs/Notifications.md`'s
+own reasoning for not auto-detecting OSC support). It was added later, and
+is now the default (see "Auto-detection" below); a terminal that can't be
+asked still gets `"dark"`.
 
 `[colors]` itself gains two optional sub-tables, `[colors.dark]` and
 `[colors.light]` (`ColorsConfig.Dark`/`Light`, `internal/config/colorsconfig.go`
@@ -479,3 +480,40 @@ one key in your own `config.toml` without forking the theme file.
 4. **Hot-reload** stays out of scope for the same reason it already is
    above - a theme/scheme change needs a restart, consistent with
    everything else configurable in this app.
+
+### Auto-detection
+
+`color_scheme = "auto"` (`internal/termbg`) asks the terminal for its
+background color: OSC 11 (`ESC ] 11 ; ? ESC \`), answered as
+`rgb:RRRR/GGGG/BBBB`, judged light above 50% perceived brightness. It is the default
+(also for an unset or unrecognized value; an explicit `"dark"`/`"light"`
+sends no query) after a measurement showed the cost is negligible: hidden
+behind existing startup work for `run`/`rerun`/`role`/`debug`, a few ms
+elsewhere - only a terminal that answers neither OSC 11 nor DA1 costs the
+full 500 ms. It only picks between `[colors.dark]` and `[colors.light]`;
+as noted above, `"light"` doesn't change the base palette by itself.
+
+* **DA1 as the end marker.** A DA1 query (`ESC [ c`) is sent right behind
+  the OSC 11 one. Terminals answer in order and every terminal answers DA1,
+  so its reply means "nothing more is coming": a terminal that doesn't know
+  OSC 11 (mosh, the Linux console, many multiplexers) is recognized within
+  milliseconds instead of after a timeout, and no late reply is left to
+  show up in the TUI as keystrokes. A terminal that answers neither is
+  given 500 ms.
+* **Overlap.** The query is sent at startup but only collected right before
+  the colors are applied - for `run`/`rerun`/`role`/`debug` that is just
+  before the TUI is built, so the round trip (a few ms locally, one RTT
+  over ssh) hides behind the work they do anyway (`first frame` stays at
+  ~430 ms for `run`). The standalone verbs wait right away. A verb given
+  `--ask-become-pass`/`--ask-vault-pass` waits before anything is spawned,
+  so a reply can't land in a password prompt. `vault` never asks.
+* **Terminal state.** While the query is out the terminal is in no-echo,
+  non-canonical mode (output processing and signals stay on; a signal
+  restores the terminal before it is re-raised), restored as soon as the
+  answer is in. Characters typed in that window are swallowed.
+* **Fallbacks, in order:** the terminal's answer, `$COLORFGBG` (rxvt
+  convention: background palette index 0-6/8 dark, 7/9-15 light; static, so
+  only a fallback), then `"dark"`. Not a terminal (stdin/stdout piped,
+  `TERM=dumb`) means no query at all.
+* **Static.** Resolved once per process; a terminal theme switched while
+  tangsible runs is not followed.

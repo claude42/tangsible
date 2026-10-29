@@ -24,7 +24,7 @@ notify_task_failed = "off"          # "off" | "osc9" | "osc777" | "osc99" | "bel
 notify_task_failed_max = 5
 terminal_progress = "auto"          # "auto" | "on" | "off" - OSC 9;4 taskbar/tab progress, see design-docs/ProgressIndicator.md
 template_hosts_max = 10
-color_scheme = "dark"                # "dark" | "light" - see design-docs/ColorConfig.md's own addendum
+color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "light" - see design-docs/ColorConfig.md
 
 # theme has no real default - left commented out (no theme applied). Set
 # it to a theme file's own name (minus .toml), found under

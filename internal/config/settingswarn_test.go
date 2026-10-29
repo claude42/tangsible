@@ -56,7 +56,7 @@ bogus_color = "red"
 func TestReadSettingsConfigNoWarningsForValidFile(t *testing.T) {
 	pendingWarnings = nil
 	t.Cleanup(func() { pendingWarnings = nil })
-	path := writeConfig(t, "[general]\nterminal_progress = \"AUTO\"\nrun_dialog = \"never\"\n[colors]\nstandard_text = \"red\"\n[colors.dark]\nanything = \"red\"\n")
+	path := writeConfig(t, "[general]\nterminal_progress = \"AUTO\"\nrun_dialog = \"never\"\ncolor_scheme = \"auto\"\n[colors]\nstandard_text = \"red\"\n[colors.dark]\nanything = \"red\"\n")
 	ReadSettingsConfig(path)
 	if len(pendingWarnings) != 0 {
 		t.Errorf("unexpected warnings: %q", pendingWarnings)

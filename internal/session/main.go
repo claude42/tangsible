@@ -41,6 +41,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/template"
+	"code.aw.net/claude/tangsible/internal/termbg"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"code.aw.net/claude/tangsible/internal/vault"
 )
@@ -106,9 +107,38 @@ func Main(build BuildInfo) {
 	// color var this package touches directly; diff.ApplyColorConfig
 	// covers its own one color var (DiffChromeColor/DiffChromeStyle)
 	// that internal/uikit can't reach into.
-	colorCfg := config.ResolveEffectiveColors(config.MergedSettingsConfig())
-	uikit.ApplyColorConfig(colorCfg)
-	diff.ApplyColorConfig(colorCfg)
+	//
+	// color_scheme = "auto" asks the terminal for its background first
+	// (internal/termbg, OSC 11): the question is sent here, but the answer
+	// is only collected - and the colors applied - by applyColors, so for
+	// the verbs with real work before their TUI (run/rerun/role/debug) the
+	// round trip overlaps it. The standalone verbs apply right before they
+	// start; any verb that may prompt for a password (--ask-become-pass,
+	// ...) applies immediately, so a late reply can never be read as part
+	// of the password.
+	startupSettings := config.MergedSettingsConfig()
+	var bgQuery *termbg.Query
+	if config.ColorSchemeAuto(startupSettings) && v != config.VerbVault {
+		bgQuery = termbg.Start()
+	}
+	var applyColorsOnce sync.Once
+	applyColors := func() {
+		applyColorsOnce.Do(func() {
+			cfg := startupSettings
+			if config.ColorSchemeAuto(cfg) {
+				cfg.General.ColorScheme = "dark"
+				if r := bgQuery.Wait(); r.OK && r.Light {
+					cfg.General.ColorScheme = "light"
+				}
+			}
+			colorCfg := config.ResolveEffectiveColors(cfg)
+			uikit.ApplyColorConfig(colorCfg)
+			diff.ApplyColorConfig(colorCfg)
+		})
+	}
+	if config.HasInteractiveCredentialFlag(args) {
+		applyColors()
+	}
 
 	// printStartupWarnings prints (and clears) whatever ResolveEffectiveColors/
 	// ApplyColorConfig collected above (a bad theme name/file, an invalid
@@ -139,31 +169,37 @@ func Main(build BuildInfo) {
 	// program, with its own separate, smaller TUI - it's a liveSession
 	// now, same as run/role, so it's handled in the switch below instead.
 	if v == config.VerbTemplate {
+		applyColors()
 		code := template.RunTemplateVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
 	}
 	if v == config.VerbHost {
+		applyColors()
 		code := host.RunHostVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
 	}
 	if v == config.VerbHosts {
+		applyColors()
 		code := host.RunHostsVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
 	}
 	if v == config.VerbInventory {
+		applyColors()
 		code := host.RunInventoryVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
 	}
 	if v == config.VerbRevisit {
+		applyColors()
 		code := revisit.RunRevisitVerb(args, NewLiveTUI)
 		printStartupWarnings()
 		os.Exit(code)
 	}
 	if v == config.VerbVault {
+		applyColors()
 		code := vault.RunVaultVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
@@ -812,6 +848,7 @@ func Main(build BuildInfo) {
 			CopyDir:          debugPrep.CopyDir,
 		}
 	}
+	applyColors() // collects the terminal's answer if color_scheme = "auto" - see above
 	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, &knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)
 
 	if pending != nil {

@@ -132,16 +132,16 @@ type SettingsConfig struct {
 		// understand the ";4;" form could show a bogus notification.
 		TerminalProgress string `toml:"terminal_progress"`
 		// ColorScheme is design-docs/ColorConfig.md's own addendum -
-		// "dark" or "light", case-insensitive, governing which of
+		// "dark", "light" or "auto", case-insensitive, governing which of
 		// ColorsConfig's own Dark/Light sub-tables (and a loaded
 		// theme's own [dark]/[light] sections) applies - see
-		// ColorSchemePreference. Deliberately no "auto": this app
-		// already rejected guessing a terminal's own capabilities once
-		// (NotifyPlaybookFinished's own doc comment, above), and a
-		// terminal's background color is, if anything, less reliably
-		// queryable than that. Defaults to "dark" - this app's existing
-		// hardcoded colors were always tuned for a dark surrounding
-		// terminal.
+		// ColorSchemePreference. "auto" (the default, also for an unset or
+		// unrecognized value - see ColorSchemeAuto) asks the terminal for
+		// its background color (internal/termbg, OSC 11) at startup: the
+		// answer is resolved into "dark"/"light" in session.Main before
+		// ColorSchemePreference ever sees it, and a terminal that can't be
+		// asked falls back to "dark" - this app's existing hardcoded colors
+		// were always tuned for a dark surrounding terminal.
 		ColorScheme string `toml:"color_scheme"`
 		// Theme names a color theme file to load - design-docs/
 		// ColorConfig.md's own addendum, see ResolveThemePath/LoadTheme
@@ -320,11 +320,19 @@ func TerminalProgressModePreference(cfg SettingsConfig) TerminalProgressMode {
 	}
 }
 
+// ColorSchemeAuto reports whether the terminal's background is to be
+// detected (internal/termbg): the default, so true for "auto" and for
+// anything that isn't an explicit "dark"/"light" (unset, or a typo - which
+// settingswarn.go reports).
+func ColorSchemeAuto(cfg SettingsConfig) bool {
+	return !strings.EqualFold(cfg.General.ColorScheme, "dark") && !strings.EqualFold(cfg.General.ColorScheme, "light")
+}
+
 // ColorSchemePreference reads cfg.General.ColorScheme, case-insensitively -
 // "light" is the only value that means light; everything else, including
-// an unset or unrecognized value (a typo, "auto" - deliberately not
-// supported, see General.ColorScheme's own doc comment), falls back to
-// "dark", the same "swallow and fall back" convention
+// an unset or unrecognized value (a typo, or "auto" that hasn't been
+// resolved - session.Main replaces those with the detected scheme first),
+// falls back to "dark", the same "swallow and fall back" convention
 // DefaultTreeExpanded/RunDialogPreference already use for their own
 // two/three-way string settings.
 func ColorSchemePreference(cfg SettingsConfig) string {

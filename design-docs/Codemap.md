@@ -82,6 +82,13 @@ package reads.
 - **role.go** - the "role" verb: generates/removes a throwaway stub
   playbook for `roles: [name]`.
 
+## internal/termbg
+
+- **termbg.go** - dark/light background detection for `color_scheme =
+  "auto"`: OSC 11 query plus a DA1 end-of-replies marker, reply parsing,
+  `$COLORFGBG` fallback. `tty_unix.go` (+ `ioctl_*.go`) talks to the
+  terminal; `tty_other.go` is the no-op elsewhere.
+
 ## internal/ansibleconfig
 
 - **ansibleconfig.go** - one shared `ansible-config dump --format json`
