@@ -24,8 +24,7 @@ import (
 )
 
 // callbackPluginName is our bundled plugin's own CALLBACK_NAME (callback/
-// tangsible_jsonl.py) - the name ANSIBLE_CALLBACKS_ENABLED must carry
-// (callbacksenabled.go) and, with ".py" appended, the file
+// tangsible_jsonl.py) - with ".py" appended, the file
 // ResolveCallbackPluginDir looks for in each candidate directory - checking
 // for the file itself, not just the directory's existence, so a stale or
 // empty directory doesn't silently pass.
@@ -112,11 +111,14 @@ func prefixRelativeShareDir(exe string) string {
 // sites (design-docs/OwnCallbackPlugin.md's "these don't need the fd dance"
 // note for the three one-shot scrapes, "a shared helper... so all four
 // sites stay in sync"): where to find it (ANSIBLE_CALLBACK_PLUGINS,
-// unioned via PrependCallbackPluginsPath) and that it's turned on
-// (ANSIBLE_CALLBACKS_ENABLED, unioned via ResolveCallbacksEnabled) - plus
-// ANSIBLE_JSON_INDENT=0, pinned so a user's ansible.cfg overriding it to
-// pretty-print can't break any of these four callers' own line-based
-// scanners. SpawnGeneration additionally sets TANGSIBLE_EVENT_FD itself
+// unioned via PrependCallbackPluginsPath) - plus ANSIBLE_JSON_INDENT=0,
+// pinned so a user's ansible.cfg overriding it to pretty-print can't break
+// any of these four callers' own line-based scanners. The plugin is not
+// listed in ANSIBLE_CALLBACKS_ENABLED: it sets CALLBACK_NEEDS_ENABLED =
+// False, so it loads from the plugin path alone and the user's own
+// callbacks_enabled is never touched (and never needs querying - that
+// ansible-config run used to sit on the path to every first frame).
+// SpawnGeneration additionally sets TANGSIBLE_EVENT_FD itself
 // (fd-transport setup is specific to the live TUI run, not to a one-shot
 // scrape that just captures cmd.Output() and tolerates our plugin's own
 // stdout-fallback line - along with whatever the run's own default stdout
@@ -129,7 +131,6 @@ func CallbackPluginEnv() ([]string, error) {
 	}
 	return []string{
 		"ANSIBLE_CALLBACK_PLUGINS=" + PrependCallbackPluginsPath(pluginDir, os.Getenv("ANSIBLE_CALLBACK_PLUGINS")),
-		"ANSIBLE_CALLBACKS_ENABLED=" + ResolveCallbacksEnabled(callbackPluginName),
 		"ANSIBLE_JSON_INDENT=0",
 	}, nil
 }
@@ -141,8 +142,8 @@ func CallbackPluginEnv() ([]string, error) {
 // time SpawnGeneration reads it), ':'-joined - never a bare overwrite,
 // which would stop ansible-playbook from finding the user's own callback
 // plugins directory at all (design-docs/OwnCallbackPlugin.md roadblock 8,
-// the ANSIBLE_CALLBACK_PLUGINS half - roadblock 5/callbacksenabled.go is
-// its ANSIBLE_CALLBACKS_ENABLED counterpart). existing is exactly what
+// the ANSIBLE_CALLBACK_PLUGINS half - roadblock 5 is its
+// ANSIBLE_CALLBACKS_ENABLED counterpart, since removed). existing is exactly what
 // os.Getenv("ANSIBLE_CALLBACK_PLUGINS") returns - passed in rather than
 // read here so this stays a pure, directly testable function.
 func PrependCallbackPluginsPath(dir, existing string) string {

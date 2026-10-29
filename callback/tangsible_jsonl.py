@@ -32,8 +32,9 @@ DOCUMENTATION = '''
           variable when set, otherwise to normal display output.
     type: aggregate
     requirements:
-      - Enable via callbacks_enabled / ANSIBLE_CALLBACKS_ENABLED (this is an
-        aggregate callback, not a stdout callback)
+      - Loads whenever its directory is on the callback plugin path (it does
+        not need callbacks_enabled; this is an aggregate callback, not a
+        stdout callback)
     options:
       show_custom_stats:
         name: Show custom stats
@@ -93,7 +94,11 @@ class CallbackModule(CallbackBase):
     CALLBACK_VERSION = 2.0
     CALLBACK_TYPE = 'aggregate'
     CALLBACK_NAME = 'tangsible_jsonl'
-    CALLBACK_NEEDS_ENABLED = True
+    # Loads whenever its directory is on ANSIBLE_CALLBACK_PLUGINS (tangsible
+    # puts it there only for the ansible-playbook processes it spawns) - so
+    # tangsible needn't query the user's callbacks_enabled list (an
+    # ansible-config run, ~250 ms) just to add itself to it.
+    CALLBACK_NEEDS_ENABLED = False
 
     def __init__(self, display=None):
         super(CallbackModule, self).__init__(display)

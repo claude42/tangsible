@@ -17,7 +17,7 @@
 
 ### Changed
 
-- `run`/`role`/`debug`/`rerun` start about 300 ms faster (host-group autocomplete for the re-run dialog loads in the background); `role`/`template` another ~250 ms (one shared `ansible-config` call, started early)
+- Faster startup: `run`/`role`/`debug`/`rerun` ~300 ms (host groups load in the background), `run`/`role` ~250 ms (no `ansible-config` call before spawning), `role`/`template` ~250 ms (shared, early `ansible-config` call)
 
 ### Fixed
 

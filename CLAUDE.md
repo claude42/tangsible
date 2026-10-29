@@ -138,8 +138,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   (schema-compatible), `aggregate` type, shipped as a sibling file (never
   `//go:embed` - keeps the binary Apache-2.0). `ResolveCallbackPluginDir`
   finds it; `CallbackPluginEnv` *unions* it into the user's
-  `ANSIBLE_CALLBACK_PLUGINS`/`ANSIBLE_CALLBACKS_ENABLED` (via `ansible-config
-  dump --only-changed`), never overwrites. `ANSIBLE_JSON_INDENT=0` everywhere.
+  `ANSIBLE_CALLBACK_PLUGINS`, never overwrites; the plugin is
+  `CALLBACK_NEEDS_ENABLED = False`, so `ANSIBLE_CALLBACKS_ENABLED` is left
+  alone (no `ansible-config` call before spawn). `ANSIBLE_JSON_INDENT=0` everywhere.
 - **Transport**: live runs get events on a dedicated fd (`TANGSIBLE_EVENT_FD`,
   `cmd.ExtraFiles`); the child's stdout stays the user's own callback output
   (`OutputLog`, the `o` view). One-shot scrapes (host, template, resolved) read

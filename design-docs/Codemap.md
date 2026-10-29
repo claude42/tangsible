@@ -82,7 +82,7 @@ package reads.
 ## internal/ansibleconfig
 
 - **ansibleconfig.go** - one shared `ansible-config dump --format json`
-  (roles path for `rolepath`, `callbacks_enabled` for `runner`), started
+  (roles path for `rolepath`), started
   in the background by `Prefetch` from `session.Main` and reused while
   recent.
 
