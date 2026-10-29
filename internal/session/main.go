@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/ansibleconfig"
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
@@ -66,6 +67,16 @@ func Main(build BuildInfo) {
 			os.Exit(2)
 		}
 		os.Exit(0)
+	}
+
+	// Every verb below except revisit/vault/version ends up asking
+	// ansible-config (roles path, callbacks_enabled) before its first frame
+	// - start that now, so its ~250 ms overlaps the work in between instead
+	// of adding to it (internal/ansibleconfig).
+	switch v {
+	case config.VerbRevisit, config.VerbVault, config.VerbVersion:
+	default:
+		ansibleconfig.Prefetch()
 	}
 
 	// --dialog/--no-dialog (design-docs/RerunDialog.md) are only meaningful

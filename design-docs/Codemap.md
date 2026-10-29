@@ -79,6 +79,13 @@ package reads.
 - **role.go** - the "role" verb: generates/removes a throwaway stub
   playbook for `roles: [name]`.
 
+## internal/ansibleconfig
+
+- **ansibleconfig.go** - one shared `ansible-config dump --format json`
+  (roles path for `rolepath`, `callbacks_enabled` for `runner`), started
+  in the background by `Prefetch` from `session.Main` and reused while
+  recent.
+
 ## internal/rolepath
 
 - **rolepath.go** - ansible's effective roles path (`Dirs`, from

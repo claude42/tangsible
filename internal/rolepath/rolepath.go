@@ -23,10 +23,12 @@ package rolepath
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"code.aw.net/claude/tangsible/internal/ansibleconfig"
 )
 
 // configName is how `ansible-config dump` names the effective roles path.
@@ -60,8 +62,9 @@ func SetDirs(dirs []string) (restore func()) {
 }
 
 func fetchDirs() []string {
-	if out, err := exec.Command("ansible-config", "dump", "--format", "json").Output(); err == nil {
-		if dirs := parseDirs(out); len(dirs) > 0 {
+	// Once per process anyway (Dirs), so any dump is recent enough.
+	if v, ok := ansibleconfig.Find(ansibleconfig.Get(time.Hour), configName); ok {
+		if dirs := parseDirsValue(v); len(dirs) > 0 {
 			return dirs
 		}
 	}
@@ -82,33 +85,33 @@ func defaultDirs() []string {
 // without a real ansible-config binary. Returns nil if the entry is
 // missing or malformed. Relative entries are made absolute against the cwd.
 func parseDirs(jsonOutput []byte) []string {
-	var entries []struct {
-		Name  string          `json:"name"`
-		Value json.RawMessage `json:"value"`
-	}
+	var entries []ansibleconfig.Entry
 	if err := json.Unmarshal(jsonOutput, &entries); err != nil {
 		return nil
 	}
-	for _, e := range entries {
-		if e.Name != configName {
-			continue
-		}
-		var raw []string
-		if json.Unmarshal(e.Value, &raw) != nil {
-			return nil
-		}
-		var dirs []string
-		for _, d := range raw {
-			if d = strings.TrimSpace(d); d == "" {
-				continue
-			}
-			if abs, err := filepath.Abs(d); err == nil {
-				dirs = append(dirs, abs)
-			}
-		}
-		return dirs
+	if v, ok := ansibleconfig.Find(entries, configName); ok {
+		return parseDirsValue(v)
 	}
 	return nil
+}
+
+// parseDirsValue turns the DEFAULT_ROLES_PATH entry's raw value into
+// absolute directories; nil if it's malformed.
+func parseDirsValue(value json.RawMessage) []string {
+	var raw []string
+	if json.Unmarshal(value, &raw) != nil {
+		return nil
+	}
+	var dirs []string
+	for _, d := range raw {
+		if d = strings.TrimSpace(d); d == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(d); err == nil {
+			dirs = append(dirs, abs)
+		}
+	}
+	return dirs
 }
 
 // Find returns the directory of the role called name: <base>/roles/<name>

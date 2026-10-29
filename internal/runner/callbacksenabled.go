@@ -16,8 +16,10 @@ package runner
 
 import (
 	"encoding/json"
-	"os/exec"
 	"strings"
+	"time"
+
+	"code.aw.net/claude/tangsible/internal/ansibleconfig"
 )
 
 // callbacksEnabledConfigName is how `ansible-config dump` itself names the
@@ -54,11 +56,16 @@ func ResolveCallbacksEnabled(pluginName string) string {
 // ansible-playbook's own pre-flight gate; this is never worth blocking a
 // generation over.
 func currentCallbacksEnabled() []string {
-	out, err := exec.Command("ansible-config", "dump", "--only-changed", "--format", "json").Output()
-	if err != nil {
+	// The shared full dump (ansibleconfig - also holds the roles path, and
+	// may already be running from session.Main's Prefetch): its effective
+	// value is the same one --only-changed reported, but a dump older than
+	// a few seconds is redone so a later generation still sees an
+	// ansible.cfg edited mid-session.
+	v, ok := ansibleconfig.Find(ansibleconfig.Get(5*time.Second), callbacksEnabledConfigName)
+	if !ok {
 		return nil
 	}
-	return parseCallbacksEnabled(out)
+	return parseCallbacksEnabledValue(v)
 }
 
 // parseCallbacksEnabled is currentCallbacksEnabled's pure parsing half,
@@ -69,24 +76,24 @@ func currentCallbacksEnabled() []string {
 // never matches callbacksEnabledConfigName below, same tolerance as every
 // other entry that isn't the one we're looking for.
 func parseCallbacksEnabled(jsonOutput []byte) []string {
-	var entries []struct {
-		Name  string          `json:"name"`
-		Value json.RawMessage `json:"value"`
-	}
+	var entries []ansibleconfig.Entry
 	if err := json.Unmarshal(jsonOutput, &entries); err != nil {
 		return nil
 	}
-	for _, e := range entries {
-		if e.Name != callbacksEnabledConfigName {
-			continue
-		}
-		var names []string
-		if json.Unmarshal(e.Value, &names) != nil {
-			return nil
-		}
-		return names
+	if v, ok := ansibleconfig.Find(entries, callbacksEnabledConfigName); ok {
+		return parseCallbacksEnabledValue(v)
 	}
 	return nil
+}
+
+// parseCallbacksEnabledValue decodes the entry's raw value; nil if it's
+// malformed.
+func parseCallbacksEnabledValue(value json.RawMessage) []string {
+	var names []string
+	if json.Unmarshal(value, &names) != nil {
+		return nil
+	}
+	return names
 }
 
 // unionCallbacksEnabled joins existing and pluginName into the comma-
