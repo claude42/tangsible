@@ -39,6 +39,21 @@ Debian-format changelog, rpm without signature, `%changelog`, or `%doc`
 marks (nFPM can't mark globbed files as docs), and rpmlint's spelling check
 on "ansible". Not done yet: signing, and a hosted apt/dnf repository.
 
+## apt repository
+
+The release workflow uploads each `.deb` to Forgejo's Debian package registry
+(`uploads:` in `.goreleaser.yaml`) as distribution `stable`, component
+`main`, under the `claude` owner. Forgejo generates and signs the repository
+metadata itself, with a key it creates for the owner; the user-facing setup
+is in `README.md` ("On Debian/Ubuntu").
+
+Needs the Forgejo Actions secret `FORGEJO_PACKAGES_TOKEN`: an access token of
+the `claude` account with only `package: Read and Write`. It is separate from
+`GITEA_TOKEN` (releases). Uploading a version that already exists is
+rejected, so re-running a finished release job fails at the upload step;
+delete the version first (`DELETE /api/packages/claude/debian/pool/stable/
+main/tangsible/<version>/<arch>`). The `.rpm` isn't uploaded yet.
+
 ## The callback plugin
 
 Nothing to install: `callback/tangsible_events.py` is compiled into the

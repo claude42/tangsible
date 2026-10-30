@@ -193,3 +193,18 @@ gitea_urls:
   api: https://code.aw.net/api/v1
   download: https://code.aw.net
   skip_tls_verify: false
+
+# Publishes the .deb files to Forgejo's Debian package registry, which users
+# add to apt (PACKAGING.md, "apt repository"). One PUT per file; Forgejo reads
+# the architecture from the .deb itself, so the target has no file name.
+# Needs a token with write:package for the registry owner in the
+# PACKAGES_TOKEN env var (a Forgejo Actions secret in CI).
+uploads:
+  - name: forgejo-deb
+    ids: [tangsible]
+    exts: [deb]
+    method: PUT
+    custom_artifact_name: true       # target below is the whole URL
+    username: claude
+    password: "{{ .Env.PACKAGES_TOKEN }}"
+    target: https://code.aw.net/api/packages/claude/debian/pool/stable/main/upload

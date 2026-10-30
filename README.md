@@ -139,6 +139,22 @@ curl -fsSL https://gettangsible.aw.net/ | sh -s -- --yes
 Will install into the users home directory (i.e. `~/.local/bin`,
 `~/.local/share`) but will also honor `--prefix`.
 
+### On Debian/Ubuntu (apt)
+
+Releases are published to an apt repository (Debian 12+/Ubuntu 22.04+,
+amd64 and arm64; `ansible-core` is pulled in as a dependency):
+
+```
+sudo curl -fsSL https://code.aw.net/api/packages/claude/debian/repository.key \
+  -o /etc/apt/keyrings/tangsible.asc
+echo "deb [signed-by=/etc/apt/keyrings/tangsible.asc] https://code.aw.net/api/packages/claude/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/tangsible.list
+sudo apt update && sudo apt install tangsible
+```
+
+Each release also carries the `.deb` and `.rpm` files for a manual install
+(`sudo apt install ./tangsible_<version>_amd64.deb`).
+
 ### From a binary archive
 
 Go to [Releases](https://code.aw.net/claude/tangsible/releases) and download
