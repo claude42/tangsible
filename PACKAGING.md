@@ -23,11 +23,11 @@ Building from source instead of the tarball: `go build .` for the binary;
 
 Each release also carries `tangsible_<version>_<arch>.deb` (amd64, arm64),
 built by GoReleaser's `nfpms` block in `.goreleaser.yaml` with the layout
-above (plus `Changelog.md` and `examples/` under `/usr/share/doc/tangsible/`). It depends on
+above (plus a gzipped changelog and `examples/` under `/usr/share/doc/tangsible/`). It depends on
 `ansible-core`, so it needs Debian 12+/Ubuntu 22.04+. Try it locally with
 `goreleaser release --snapshot --clean`, then `dpkg -I`/`dpkg -c` on the
-file in `dist/`. Not done yet: gzipped man pages (lintian warns), `.rpm`,
-and a hosted apt repository.
+file in `dist/`. The man pages and changelog are gzipped by a before-hook into `pkg-gz/`
+(gitignored); the Debian-format `copyright` is `packaging/deb/copyright`. Not done yet: `.rpm` and a hosted apt repository.
 
 ## The callback plugin
 

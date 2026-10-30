@@ -20,6 +20,11 @@ before:
   hooks:
     - go mod tidy
     - go vet ./...
+    # Debian policy wants man pages and the changelog gzipped, and nFPM
+    # doesn't do it. -n drops the name/mtime so the output is reproducible.
+    # Not under dist/: GoReleaser refuses a non-empty dist/ even after hooks
+    # ran. Gitignored.
+    - sh -c 'rm -rf pkg-gz && mkdir pkg-gz && for f in man/*.1 Changelog.md; do gzip -9n -c "$f" > "pkg-gz/$(basename "$f").gz"; done'
 
 builds:
   - id: tangsible
@@ -91,7 +96,13 @@ nfpms:
     file_name_template: "{{ .ConventionalFileName }}"
     vendor: AW/NET
     maintainer: Tangsible Maintainer <tangsible@aw.net>
-    description: TUI wrapper for ansible-playbook
+    description: |-
+      TUI wrapper for ansible-playbook
+      Tangsible runs ansible-playbook and shows the run as a live,
+      navigable tree of plays, tasks and hosts, with per-task output,
+      diffs, resolved variables and module docs one keystroke away.
+      It can also re-run failed tasks, replay saved runs, render
+      templates, inspect hosts and edit vaults.
     homepage: https://code.aw.net/claude/tangsible
     license: Apache-2.0
     section: admin
@@ -101,7 +112,7 @@ nfpms:
     dependencies:
       - ansible-core
     contents:
-      - src: man/*.1
+      - src: pkg-gz/*.1.gz
         dst: /usr/share/man/man1/
         file_info:
           mode: 0644
@@ -117,12 +128,12 @@ nfpms:
         dst: /usr/share/doc/tangsible/README.md
         file_info:
           mode: 0644
-      - src: LICENSE
+      - src: packaging/deb/copyright
         dst: /usr/share/doc/tangsible/copyright
         file_info:
           mode: 0644
-      - src: Changelog.md
-        dst: /usr/share/doc/tangsible/Changelog.md
+      - src: pkg-gz/Changelog.md.gz
+        dst: /usr/share/doc/tangsible/changelog.gz
         file_info:
           mode: 0644
       - src: examples/*
