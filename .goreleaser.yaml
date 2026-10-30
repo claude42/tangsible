@@ -91,8 +91,8 @@ nfpms:
   - id: tangsible
     package_name: tangsible
     ids: [tangsible]
-    formats: [deb]
-    # tangsible_0.3.0_amd64.deb
+    formats: [deb, rpm]
+    # tangsible_0.3.0_amd64.deb, tangsible-0.3.0-1.x86_64.rpm
     file_name_template: "{{ .ConventionalFileName }}"
     vendor: AW/NET
     maintainer: Tangsible Maintainer <tangsible@aw.net>
@@ -111,6 +111,8 @@ nfpms:
     # all shipped by ansible-core.
     dependencies:
       - ansible-core
+    rpm:
+      group: Development/Tools
     contents:
       - src: pkg-gz/*.1.gz
         dst: /usr/share/man/man1/
@@ -126,14 +128,32 @@ nfpms:
           mode: 0644
       - src: README.md
         dst: /usr/share/doc/tangsible/README.md
+        type: doc
         file_info:
           mode: 0644
+      # Debian-only: the copyright file and the changelog's Debian name.
       - src: packaging/deb/copyright
         dst: /usr/share/doc/tangsible/copyright
+        packager: deb
         file_info:
           mode: 0644
       - src: pkg-gz/Changelog.md.gz
         dst: /usr/share/doc/tangsible/changelog.gz
+        packager: deb
+        file_info:
+          mode: 0644
+      # rpm-only: the license goes under /usr/share/licenses, the changelog
+      # stays a plain doc.
+      - src: LICENSE
+        dst: /usr/share/licenses/tangsible/LICENSE
+        type: license
+        packager: rpm
+        file_info:
+          mode: 0644
+      - src: pkg-gz/Changelog.md.gz
+        dst: /usr/share/doc/tangsible/Changelog.md.gz
+        type: doc
+        packager: rpm
         file_info:
           mode: 0644
       - src: examples/*

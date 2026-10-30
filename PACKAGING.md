@@ -19,15 +19,25 @@ ship with a default config file.
 Building from source instead of the tarball: `go build .` for the binary;
 `man/*.1` are already-generated, checked-in files, no extra build step.
 
-## Official `.deb`
+## Official `.deb` and `.rpm`
 
-Each release also carries `tangsible_<version>_<arch>.deb` (amd64, arm64),
-built by GoReleaser's `nfpms` block in `.goreleaser.yaml` with the layout
-above (plus a gzipped changelog and `examples/` under `/usr/share/doc/tangsible/`). It depends on
-`ansible-core`, so it needs Debian 12+/Ubuntu 22.04+. Try it locally with
-`goreleaser release --snapshot --clean`, then `dpkg -I`/`dpkg -c` on the
-file in `dist/`. The man pages and changelog are gzipped by a before-hook into `pkg-gz/`
-(gitignored); the Debian-format `copyright` is `packaging/deb/copyright`. Not done yet: `.rpm` and a hosted apt repository.
+Each release also carries `tangsible_<version>_<arch>.deb` and
+`tangsible-<version>-1.<arch>.rpm` (amd64/x86_64, arm64/aarch64), built by
+GoReleaser's `nfpms` block in `.goreleaser.yaml` with the layout above (plus
+a gzipped changelog and `examples/` under `/usr/share/doc/tangsible/`). Both
+depend on `ansible-core` (Debian 12+/Ubuntu 22.04+, Fedora, RHEL 8+).
+
+Per format: the deb gets a Debian-format `copyright`
+(`packaging/deb/copyright`) and `changelog.gz`; the rpm gets `LICENSE` under
+`/usr/share/licenses/tangsible/` and `Changelog.md.gz` as a doc. The man
+pages and changelog are gzipped by a before-hook into `pkg-gz/` (gitignored).
+
+Try it locally with `goreleaser release --snapshot --clean`, then
+`dpkg -I`/`dpkg -c`/`lintian` or `rpm -qpi`/`rpm -qpl`/`rpmlint` on the files
+in `dist/`. Known, accepted findings: a statically linked binary (Go), no
+Debian-format changelog, rpm without signature, `%changelog`, or `%doc`
+marks (nFPM can't mark globbed files as docs), and rpmlint's spelling check
+on "ansible". Not done yet: signing, and a hosted apt/dnf repository.
 
 ## The callback plugin
 
