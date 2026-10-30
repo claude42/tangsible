@@ -19,6 +19,16 @@ ship with a default config file.
 Building from source instead of the tarball: `go build .` for the binary;
 `man/*.1` are already-generated, checked-in files, no extra build step.
 
+## Official `.deb`
+
+Each release also carries `tangsible_<version>_<arch>.deb` (amd64, arm64),
+built by GoReleaser's `nfpms` block in `.goreleaser.yaml` with the layout
+above (plus `Changelog.md` and `examples/` under `/usr/share/doc/tangsible/`). It depends on
+`ansible-core`, so it needs Debian 12+/Ubuntu 22.04+. Try it locally with
+`goreleaser release --snapshot --clean`, then `dpkg -I`/`dpkg -c` on the
+file in `dist/`. Not done yet: gzipped man pages (lintian warns), `.rpm`,
+and a hosted apt repository.
+
 ## The callback plugin
 
 Nothing to install: `callback/tangsible_events.py` is compiled into the

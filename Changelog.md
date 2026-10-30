@@ -16,6 +16,7 @@
 - `host`: More information in the Summary tab
 - Roles outside the project (`~/.ansible/roles`, `/etc/ansible/roles`, `roles_path`, ...) are now found by `role`, shown in the Task definition tab and recognized as roles by Details/Resolved/`template`; completions follow `$ANSIBLE_ROLES_PATH`
 - New verb: `tangsible help [verb]` lists every verb in one line, or one verb's synopsis
+- Releases include a `.deb` package (amd64, arm64)
 
 ### Changed
 
