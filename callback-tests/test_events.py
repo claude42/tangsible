@@ -60,6 +60,9 @@ class Base(unittest.TestCase):
     # None: the plugin under test, writing to its event fd. Any other value
     # is run as the stdout callback and its stdout is the event stream.
     callback = None
+    # With the plugin under test: "fd" hands it an inherited descriptor,
+    # "file" names a path through TANGSIBLE_EVENT_FILE instead.
+    transport = "fd"
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="events-test-")
@@ -94,13 +97,16 @@ class Base(unittest.TestCase):
         else:
             full_env["ANSIBLE_CALLBACK_PLUGINS"] = PLUGIN_DIR
             sink = open(os.path.join(self.tmp, "events.out"), "w+")
-            full_env["TANGSIBLE_EVENT_FD"] = str(sink.fileno())
+            if self.transport == "file":
+                full_env["TANGSIBLE_EVENT_FILE"] = sink.name
+            else:
+                full_env["TANGSIBLE_EVENT_FD"] = str(sink.fileno())
         full_env.update(env or {})
         proc = subprocess.run(
             ["ansible-playbook", "-i", os.path.join(self.tmp, inventory),
              *args, path],
             capture_output=True, text=True, env=full_env, cwd=self.tmp,
-            pass_fds=(sink.fileno(),) if sink else (),
+            pass_fds=(sink.fileno(),) if sink and self.transport == "fd" else (),
         )
         self.proc = proc
         # The event stream: the event fd's contents, or stdout for a plain
@@ -192,6 +198,58 @@ class OutputFormatTests(Base):
         cfg = self.write("ansible.cfg", "[defaults]\njson_indent = 2\n")
         self.run_play(self.PLAY, env={"ANSIBLE_CONFIG": cfg})
         self.assertIn('  "_event":"v2_playbook_on_play_start",', self.raw)
+
+
+class EventFileTransportTests(OutputFormatTests):
+    """The same format checks, with the stream delivered to a path."""
+    transport = "file"
+
+
+class EventFdPrecedenceTests(Base):
+    def test_fd_wins_when_both_are_set(self):
+        other = os.path.join(self.tmp, "other.out")
+        self.run_play(OutputFormatTests.PLAY, env={"TANGSIBLE_EVENT_FILE": other})
+        self.assertTrue(self.raw)
+        self.assertFalse(os.path.exists(other) and os.path.getsize(other))
+
+
+class EventFifoTests(Base):
+    def test_events_reach_a_reader_through_a_fifo(self):
+        fifo = os.path.join(self.tmp, "events.fifo")
+        os.mkfifo(fifo)
+        # The reader holds the FIFO open read-write, as the host side must:
+        # the plugin's open-for-write blocks without a reader.
+        reader = os.open(fifo, os.O_RDWR)
+        self.addCleanup(os.close, reader)
+        path = self.write("play.yml", """
+            - hosts: all
+              gather_facts: false
+              tasks:
+                - debug: msg=hi
+        """)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+        env.update(ANSIBLE_CALLBACK_PLUGINS=PLUGIN_DIR, ANSIBLE_NOCOLOR="1",
+                   ANSIBLE_HOME=os.path.join(self.tmp, "home"),
+                   TANGSIBLE_EVENT_FILE=fifo)
+        proc = subprocess.run(
+            ["ansible-playbook", "-i", os.path.join(self.tmp, "inventory"), path],
+            capture_output=True, text=True, env=env, cwd=self.tmp, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # Everything is already in the pipe; drain it without blocking.
+        os.set_blocking(reader, False)
+        data = b""
+        while True:
+            try:
+                chunk = os.read(reader, 65536)
+            except BlockingIOError:
+                break
+            if not chunk:
+                break
+            data += chunk
+        kinds = [json.loads(l)["_event"] for l in data.decode().splitlines()]
+        self.assertEqual(kinds[0], "v2_playbook_on_play_start")
+        self.assertEqual(kinds[-1], "v2_playbook_on_stats")
+        self.assertNotIn("v2_playbook_on_play_start", proc.stdout)
 
 
 class EventStreamTests(Base):
