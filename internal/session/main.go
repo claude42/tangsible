@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/ansibleconfig"
@@ -882,7 +884,45 @@ func Main(build BuildInfo) {
 		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.OutLog, pending.RunID, pending.First)
 	}
 
+	// SIGTERM (plain kill, a session manager, shutdown) and SIGHUP (the
+	// terminal going away) used to end the process on the spot, orphaning
+	// the running generation - for an execution environment run, a container
+	// that kept going - and leaving the session's temp files behind. They now
+	// take the same path as quitting: signal the child (and, if it ignores
+	// that for the grace period, kill its container), stop the app, and let
+	// everything below run - saved stderr printed, cleanup done - before
+	// exiting with the conventional 128+signal status.
+	var signalExit atomic.Int32
+	runDone := make(chan struct{})
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		var sig os.Signal
+		select {
+		case sig = <-sigc:
+		case <-runDone:
+			return
+		}
+		if s, ok := sig.(syscall.Signal); ok {
+			signalExit.Store(int32(s))
+		}
+		quitting.Store(true)
+		interruptChildAndWait(&procH, &processDone, interruptGraceDefault)
+		// Stop() does nothing before Run has started, so a signal landing
+		// in that instant must keep trying until Run has returned.
+		for {
+			app.Stop()
+			select {
+			case <-runDone:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}()
+
 	runErr := uikit.RunWithTitleStack(app)
+	close(runDone)
+	signal.Stop(sigc)
 	quitting.Store(true) // defensive: also stop the streamer if Run() ever
 	// returns for a reason other than our own Stop()
 
@@ -913,6 +953,10 @@ func Main(build BuildInfo) {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
 		}
+	}
+
+	if sig := signalExit.Load(); sig != 0 {
+		exitCleanly(128 + int(sig))
 	}
 
 	if runErr != nil {

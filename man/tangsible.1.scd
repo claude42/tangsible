@@ -137,6 +137,9 @@ because it exposes private keys to the image) and *extra_mounts* (a list of *hos
 *2*
 	Usage error: a required argument was missing, or no playbook could be resolved.
 
+*129*, *143*
+	Tangsible was ended by *SIGHUP* (its terminal went away) or *SIGTERM* while running a playbook with *run*, *rerun*, *role* or *debug*. The running playbook (or its container) is stopped and scratch files are removed first.
+
 # LIMITATIONS
 
 - *strategy: free* is not supported

@@ -187,6 +187,11 @@ The playbook genuinely failed (any exit code other than the two benign cases abo
 Usage error: a required argument was missing, or no playbook could be resolved.\&
 .PP
 .RE
+\fB129\fR, \fB143\fR
+.RS 4
+Tangsible was ended by \fBSIGHUP\fR (its terminal went away) or \fBSIGTERM\fR while running a playbook with \fBrun\fR, \fBrerun\fR, \fBrole\fR or \fBdebug\fR.\& The running playbook (or its container) is stopped and scratch files are removed first.\&
+.PP
+.RE
 .SH LIMITATIONS
 .PP
 .PD 0

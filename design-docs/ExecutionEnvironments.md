@@ -341,16 +341,18 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   run a different ansible. Note this exercises a Fedora *target*, not
   SELinux on tangsible's own host: that path (`selinux = auto|disable|z|Z`)
   still has only unit-test coverage.
-- **Finding, not changed: killing tangsible leaves temp files behind.** The
-  live session (`run`/`rerun`/`role`) has no SIGTERM/SIGHUP handling (only
-  `vault` and `template` do), so a killed tangsible (e.g. `tmux
-  kill-session` mid-run) leaves its scratch files - role stub, start-at-play
-  copy and, in EE mode, the empty event-FIFO directory under `$TMPDIR` -
-  and a plain SIGTERM to tangsible alone (not the terminal's SIGHUP, which
-  podman receives too) leaves the container running to completion, just as
-  it leaves a host-mode `ansible-playbook` running. Parity with host mode,
-  but worth a handler (forward to the child, `KillActiveContainer`, remove
-  scratch files) if it ever matters.
+- **Finding, fixed: killing tangsible left its child and temp files
+  behind.** The live session had no SIGTERM/SIGHUP handling (only `vault`
+  and `template` did), so a killed tangsible (e.g. `tmux kill-session` mid-run)
+  left its scratch files - role stub, start-at-play copy, and in EE mode the
+  event-FIFO directory - and a SIGTERM to tangsible alone left the playbook
+  (in EE mode: the container) running to completion. `session.Main` now turns
+  SIGTERM/SIGHUP into the normal quit path (see `CLAUDE.md`) and exits
+  128+signal; `e2e_signal_test.go` (host mode, no podman) and
+  `TestE2E_EE_SIGTERMRemovesContainerAndScratch` cover it, and fail without
+  the handler (ansible-playbook / container still alive after the signal).
+  Not covered: signals during the pre-flight gate (before any TUI), and
+  `revisit`'s sessions.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the
