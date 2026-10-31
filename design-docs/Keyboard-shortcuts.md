@@ -355,8 +355,9 @@ Opened with `r` from the main tree, only once the playbook has finished
 (see Rerun.md and design-docs/StartWithPlay.md). A real form with five
 text fields - Start with play, Limit tags to, Skip tags, Limit hosts to and
 Execution environment (a container image, empty for the host; see
-ExecutionEnvironments.md; absent in debug) - plus Cancel/Re-run buttons, right-aligned in that order
-(Cancel left, Re-run right).
+ExecutionEnvironments.md; absent in debug; last, after the "Only failed" /
+"Only unreachable" checkboxes when those are shown) - plus Cancel/Re-run
+buttons, right-aligned in that order (Cancel left, Re-run right).
 
 * Tab / Backtab    - move to the next / previous field, then to the
                      Cancel/Re-run buttons (wraps back to the first field

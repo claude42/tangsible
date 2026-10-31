@@ -442,6 +442,9 @@ thin constructor/wiring shell.
   it inside a real tmux pane, so it has no direct dependency on any
   package's internals and stays at the root regardless of what moves
   around underneath it.
+- **e2e_ee_test.go** - same tier, for execution environments; also
+  needs rootless podman and `TANGSIBLE_EE_IMAGE=<pulled image>`
+  (skipped otherwise).
 
 ## screenrecordings/
 
