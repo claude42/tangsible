@@ -27,7 +27,7 @@ proceeds. Any trailing arguments are passed straight through to
 	Don't show run dialog, potentially overrides the *run_dialog* setting (*tangsible*(1)) for this invocation.
 
 *--ee* _image_
-	Run ansible-playbook inside this execution environment image (podman), instead of on the host; overrides the *image* in the *[execution_environment]* table of *config.toml* (*tangsible*(1)). The project directory, the SSH agent and *~/.ssh* are made available inside the container.
+	Run ansible-playbook inside this execution environment image (podman), instead of on the host; overrides the *image* in the *[execution_environment]* table of *config.toml* (*tangsible*(1)). The project directory and the SSH agent are made available inside the container.
 
 *--no-ee*
 	Run on the host even if *config.toml* names an execution environment image.
