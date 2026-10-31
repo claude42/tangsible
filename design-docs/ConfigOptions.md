@@ -131,7 +131,7 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 |---|---|---|---|
 | `image` | string | *(none — host run)* | e.g. `ghcr.io/ansible-community/community-ee-base:latest`; pulled before the TUI starts if missing |
 | `engine` | string: `"podman"` | `"podman"` | docker is not supported yet; another value warns and uses podman |
-| `network` | string | *(engine default)* | `"host"` to reach real remote hosts - a container has its own network namespace otherwise |
+| `network` | string | *(engine default)* | `"host"` shares the host's network stack (its resolver, routes, VPN) instead of the container's own; use it when host names don't resolve or targets are only reachable through host-side routing. The cost: the container can then reach services listening on the host's loopback |
 | `selinux` | string: `"auto"` \| `"disable"` \| `"z"` \| `"Z"` \| `"none"` | `"auto"` | auto = `disable` (`--security-opt label=disable`) only when SELinux is enforcing, `none` otherwise; `z`/`Z` relabel the project directory permanently |
 | `read_only` | bool | `false` | mount the project read-only |
 | `ssh_agent` | bool | `true` | mount `$SSH_AUTH_SOCK` into the container |
