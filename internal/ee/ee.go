@@ -117,7 +117,7 @@ func Build(in Inputs) (*Plan, error) {
 		root = commonAncestor(root, pbDir)
 	}
 	if root == string(filepath.Separator) {
-		return nil, fmt.Errorf("the playbook and the working directory share no directory below /; run from a common parent")
+		return nil, fmt.Errorf("execution environment: %s and the working directory %s share no directory below /; run from a common parent", in.Playbook, in.Cwd)
 	}
 
 	p := &Plan{Engine: engine}
@@ -152,7 +152,7 @@ func Build(in Inputs) (*Plan, error) {
 	}
 	p.Mounts = append(p.Mounts, extra...)
 
-	fixed := []string{"HOME=" + ContainerHome}
+	var fixed []string
 	if in.PluginDir != "" {
 		fixed = append(fixed, "ANSIBLE_CALLBACK_PLUGINS="+ContainerPlugin)
 	}
@@ -169,7 +169,12 @@ func Build(in Inputs) (*Plan, error) {
 	if in.Name != "" {
 		argv = append(argv, "--name", in.Name)
 	}
-	argv = append(argv, "--userns=keep-id")
+	// keep-id alone makes podman put the working directory (the project!)
+	// in as the user's home, overriding any -e HOME: ansible would then
+	// drop ~/.ansible/tmp into the project and ssh would look for
+	// ~/.ssh there instead of at the mount. --passwd-entry fixes the home.
+	argv = append(argv, "--userns=keep-id",
+		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:"+ContainerHome+":/bin/sh")
 	if in.Network != "" {
 		argv = append(argv, "--network="+in.Network)
 	}

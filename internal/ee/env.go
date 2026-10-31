@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-var proxyVars = map[string]bool{
+// passthroughVars are non-ANSIBLE_ host variables that still shape what
+// ansible does inside the container: proxies and the no-color preference.
+var passthroughVars = map[string]bool{
+	"NO_COLOR":   true,
 	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true, "ALL_PROXY": true,
 	"http_proxy": true, "https_proxy": true, "no_proxy": true, "all_proxy": true,
 }
@@ -45,7 +48,7 @@ func forwardEnv(host, extra, fixed []string) (env, dropped []string) {
 			continue
 		}
 		switch {
-		case proxyVars[name]:
+		case passthroughVars[name]:
 			picked[name] = val
 		case strings.HasPrefix(name, "ANSIBLE_"):
 			if hostPathy(name) {

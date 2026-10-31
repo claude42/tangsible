@@ -105,6 +105,18 @@ render against without an explicit confirmation prompt, once its own
 comma-separated hostname/group argument (or the *all* keyword) expands
 past this count.
 
+*[execution_environment]* runs *run*, *rerun* and *role* inside a container
+image built for Ansible (an execution environment) instead of with the
+host's own ansible-core, so a playbook can be checked against what CI or AWX
+will use. It needs *podman* (Linux only for now). Keys: *image* (without
+one, nothing changes), *engine* (only *"podman"*), *network* (*"host"* to
+reach real remote hosts), *selinux* (*"auto"*, *"disable"*, *"z"*, *"Z"*,
+*"none"*; auto disables label separation only when SELinux is enforcing),
+*read_only* (mount the project read-only), *ssh_agent* and *ssh_dir*
+(forward *$SSH_AUTH_SOCK* and mount *~/.ssh* read-only; both default to
+true) and *extra_mounts* (a list of *host:container[:ro]*). *--ee* and
+*--no-ee* override the image per invocation. See *tangsible-run*(1).
+
 # FILES
 
 *$XDG_CONFIG_HOME/tangsible/config.toml* (default *~/.config/tangsible/config.toml*)
@@ -128,7 +140,7 @@ past this count.
 
 - *strategy: free* is not supported
 - Interactive playbook elements (e.g. a bare *pause* task or *--step*) are not supported
-- Execution environments are not supported
+- Execution environments (podman only) apply to *run*, *rerun* and *role*; *debug* and the standalone verbs run on the host
 - Tangsible is developed and tested against inventories on the order of ten hosts, not fleet scale.
 
 # SEE ALSO

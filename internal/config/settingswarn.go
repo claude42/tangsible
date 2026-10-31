@@ -57,6 +57,13 @@ func settingsWarnings(path string, cfg SettingsConfig, undecoded []toml.Key) []s
 	for _, k := range undecoded {
 		warnings = append(warnings, fmt.Sprintf("tangsible: %s: unknown setting %s, ignored", path, k))
 	}
+	e := cfg.ExecutionEnvironment
+	if e.Engine != "" && !containsString(eeEngines, strings.ToLower(e.Engine)) {
+		warnings = append(warnings, fmt.Sprintf("tangsible: %s: unsupported value %q for [execution_environment] engine (supported: %s), using %q", path, e.Engine, strings.Join(eeEngines, ", "), "podman"))
+	}
+	if e.SELinux != "" && !containsString(eeSELinuxModes, e.SELinux) {
+		warnings = append(warnings, fmt.Sprintf("tangsible: %s: invalid value %q for [execution_environment] selinux (allowed: %s), using \"auto\"", path, e.SELinux, strings.Join(eeSELinuxModes, ", ")))
+	}
 	for _, c := range generalChoices {
 		v := c.get(cfg)
 		if v == "" || slices.ContainsFunc(c.allowed, func(a string) bool { return strings.EqualFold(a, v) }) {

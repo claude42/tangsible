@@ -152,6 +152,31 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   `*CONFIG*`, `*HOME*`, `*DIR*`, `*PLUGINS*`, `LIBRARY`, `*TMP*`,
   `ANSIBLE_INVENTORY`) are dropped; `~/...` arguments can't be mapped and
   warn; the project mount is read-write unless `ReadOnly`.
+- **Phase 3 done:** `[execution_environment]` config (`config/ee.go`:
+  image, engine, network, selinux, read_only, ssh_agent, ssh_dir,
+  extra_mounts; cascades like `[general]`), `--ee`/`--no-ee` (stripped like
+  `--dialog`; other verbs reject them, `debug` rejects with its own
+  message unless `--no-ee`), `runner/ee.go` (process-wide active setting,
+  `EnsureImage` before any TUI, per-generation FIFO, `KillActiveContainer`
+  fallback after Ctrl-C's grace period), `SpawnGeneration` branching on
+  host vs. EE. Verified live in tmux: run, `o` view, Ctrl-C (exit path,
+  no container or scratch dir left), rerun from the dialog, and the
+  agent socket (`ssh-add -l` inside the container lists the host's key).
+  The FIFO's EOF is driven by a held write end that closes when the engine
+  process's stderr ends (`eeRun.finish`). Engine failures need no special
+  mapping: podman's own stderr already surfaces as the failure text.
+  Warnings from the builder are queued (`config.QueueWarning`) and printed
+  after the TUI closes. Still open from phase 3's list: nothing, except
+  that the side processes (phase 4) and the history/rerun-dialog EE
+  field (phase 5) are not done - until then a rerun uses the session's EE.
+- **keep-id and HOME (found after phase 3's first live run):**
+  `--userns=keep-id` makes podman inject a passwd entry whose home is the
+  *working directory*, and that overrides `-e HOME=...` - so ansible
+  created `.ansible/tmp` inside the user's project and `~/.ssh` would have
+  resolved there instead of at the `/runner/.ssh` mount. The builder now
+  passes `--passwd-entry='$USERNAME:*:$UID:$GID:tangsible:/runner:/bin/sh'`
+  (podman substitutes the variables), giving `HOME=/runner`, with
+  `.ansible` in the container's own filesystem.
 - **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
   socket mount (wanted - the dev VM has an agent to test with), real
   remote hosts / `--network=host`.

@@ -149,54 +149,85 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle, outLog *
 	cmdArgs = append(cmdArgs, playbook)
 	cmdArgs = append(cmdArgs, args...)
 	cmdArgs = append(cmdArgs, "--diff")
-	cmd = exec.Command("ansible-playbook", cmdArgs...)
+	// Where the events come from differs by mode, everything else below is
+	// shared: a host run hands the plugin an inherited pipe (ExtraFiles),
+	// an execution-environment run (ee.go) a FIFO in a bind-mounted
+	// scratch directory, since an fd can't cross a container boundary.
+	var (
+		eventR *os.File
+		eventW *os.File // host mode only: our copy of the child's write end
+		eeR    *eeRun
+	)
+	if s := ExecutionEnvironment(); s != nil {
+		eeR, err = newEERun(s, playbook, cmdArgs[1:])
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+		cmd, eventR = eeR.cmd, eeR.events
+	} else {
+		cmd = exec.Command("ansible-playbook", cmdArgs...)
 
-	pluginEnv, err := CallbackPluginEnv()
-	if err != nil {
-		return nil, nil, nil, "", err
+		pluginEnv, err := CallbackPluginEnv()
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+
+		// The plugin (design-docs/OwnCallbackPlugin.md) is an 'aggregate'
+		// callback, not a 'stdout' one, so it needs a dedicated transport
+		// rather than the stdout pipe: a pipe whose write end is inherited
+		// by the child as fd 3 (ExtraFiles' documented numbering - fd 3 is
+		// the first slot after the child's own stdin/stdout/stderr), named
+		// to the plugin via TANGSIBLE_EVENT_FD. This frees stdout for the
+		// user's own stdout callback (left at ansible-playbook's default
+		// unless the user configured one), collected into outLog.
+		eventR, eventW, err = os.Pipe()
+		if err != nil {
+			return nil, nil, nil, "", fmt.Errorf("failed to create event pipe: %w", err)
+		}
+		cmd.ExtraFiles = []*os.File{eventW}
+		cmd.Env = append(append(append(os.Environ(), pluginEnv...), forceColorEnv()...), "TANGSIBLE_EVENT_FD=3")
 	}
-
-	// The plugin (design-docs/OwnCallbackPlugin.md) is an 'aggregate'
-	// callback, not a 'stdout' one, so it needs a dedicated transport
-	// rather than the stdout pipe: a pipe whose write end is inherited by
-	// the child as fd 3 (ExtraFiles' documented numbering - fd 3 is the
-	// first slot after the child's own stdin/stdout/stderr), named to the
-	// plugin via TANGSIBLE_EVENT_FD. This frees stdout for the user's own
-	// stdout callback (left at ansible-playbook's default unless the user
-	// configured one), collected into outLog.
+	// failStart undoes the transport setup when the child never ran.
+	failStart := func() {
+		if eeR != nil {
+			eeR.abort()
+			return
+		}
+		eventR.Close()
+		eventW.Close()
+	}
 	if extraStdout != nil {
 		cmd.Stdout = io.MultiWriter(outLog.Stdout(), extraStdout)
 	} else {
 		cmd.Stdout = outLog.Stdout()
 	}
-	eventR, eventW, err := os.Pipe()
-	if err != nil {
-		return nil, nil, nil, "", fmt.Errorf("failed to create event pipe: %w", err)
-	}
-	cmd.ExtraFiles = []*os.File{eventW}
-
-	cmd.Env = append(append(append(os.Environ(), pluginEnv...), forceColorEnv()...), "TANGSIBLE_EVENT_FD=3")
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		eventR.Close()
-		eventW.Close()
+		failStart()
 		return nil, nil, nil, "", fmt.Errorf("failed to attach stderr: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		eventR.Close()
-		eventW.Close()
-		if msg := execerr.NotFoundMessage("ansible-playbook", err); msg != "" {
+		failStart()
+		binary := "ansible-playbook"
+		if eeR != nil {
+			binary = cmd.Path
+		}
+		if msg := execerr.NotFoundMessage(binary, err); msg != "" {
 			return nil, nil, nil, "", errors.New(msg)
 		}
-		return nil, nil, nil, "", fmt.Errorf("failed to start ansible-playbook: %w", err)
+		return nil, nil, nil, "", fmt.Errorf("failed to start %s: %w", binary, err)
 	}
 	procH.Store(cmd.Process)
 
 	// Our own copy of the write end must close now, not just the child's:
 	// eventR only sees EOF once every copy of the write end is closed, and
-	// exec.Cmd never closes ExtraFiles entries itself.
-	eventW.Close()
+	// exec.Cmd never closes ExtraFiles entries itself. (Execution
+	// environment runs have no such copy; their FIFO's own holder closes
+	// when stderr ends, below.)
+	if eventW != nil {
+		eventW.Close()
+	}
 
 	runID = config.NewRunID(time.Now())
 	logFile := config.CreateRunLog(config.TangsibleStatePath, runID)
@@ -214,7 +245,14 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle, outLog *
 	// The tee lands every raw stderr line in outLog before StreamStderr
 	// itself returns, so "stderrLines delivered" also means "outLog has
 	// all of stderr" (RunOneGeneration relies on this before Finish).
-	go func() { lines <- StreamStderr(io.TeeReader(stderr, outLog.Stderr())) }()
+	go func() {
+		lines <- StreamStderr(io.TeeReader(stderr, outLog.Stderr()))
+		// The engine closing its stderr means it is gone, so the FIFO
+		// can now end (after delivering what is already buffered).
+		if eeR != nil {
+			eeR.finish()
+		}
+	}()
 
 	return cmd, stdoutCh, lines, runID, nil
 }

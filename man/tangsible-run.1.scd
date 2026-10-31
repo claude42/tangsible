@@ -6,7 +6,7 @@ tangsible-run - run a playbook with a live, navigable tree UI
 
 # SYNOPSIS
 
-*tangsible run* [_playbook.yml_] [--start-at-play _name_] [--dialog | --no-dialog] [_ansible-playbook args_ ...]
+*tangsible run* [_playbook.yml_] [--start-at-play _name_] [--dialog | --no-dialog] [--ee _image_ | --no-ee] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -25,6 +25,12 @@ proceeds. Any trailing arguments are passed straight through to
 
 *--no-dialog*
 	Don't show run dialog, potentially overrides the *run_dialog* setting (*tangsible*(1)) for this invocation.
+
+*--ee* _image_
+	Run ansible-playbook inside this execution environment image (podman), instead of on the host; overrides the *image* in the *[execution_environment]* table of *config.toml* (*tangsible*(1)). The project directory, the SSH agent and *~/.ssh* are made available inside the container.
+
+*--no-ee*
+	Run on the host even if *config.toml* names an execution environment image.
 
 # KEY BINDINGS
 

@@ -119,6 +119,31 @@ the matching sub-table; a terminal that can't be asked, or isn't a terminal
 at all, gets `"dark"` (`ColorConfig.md`, "Auto-detection"). Set `"dark"` or
 `"light"` to skip the query.
 
+## `[execution_environment]`
+
+Runs `run`/`rerun`/`role` (and a rerun started from `revisit`) inside an
+execution environment container (`ExecutionEnvironments.md`). Every key
+cascades project → global → system like `[general]`'s; an absent `image`
+means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
+`image` per invocation.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `image` | string | *(none — host run)* | e.g. `ghcr.io/ansible-community/community-ee-base:latest`; pulled before the TUI starts if missing |
+| `engine` | string: `"podman"` | `"podman"` | docker is not supported yet; another value warns and uses podman |
+| `network` | string | *(engine default)* | `"host"` to reach real remote hosts - a container has its own network namespace otherwise |
+| `selinux` | string: `"auto"` \| `"disable"` \| `"z"` \| `"Z"` \| `"none"` | `"auto"` | auto = `disable` (`--security-opt label=disable`) only when SELinux is enforcing, `none` otherwise; `z`/`Z` relabel the project directory permanently |
+| `read_only` | bool | `false` | mount the project read-only |
+| `ssh_agent` | bool | `true` | mount `$SSH_AUTH_SOCK` into the container |
+| `ssh_dir` | bool | `true` | mount `~/.ssh` read-only (known_hosts, config; also exposes private keys to the container - set `false` to rely on the agent alone) |
+| `extra_mounts` | array of strings | `[]` | `"/host/path:/container/path[:ro]"`; the first tier that sets a non-empty list wins |
+
+Host `ANSIBLE_*` variables are forwarded except those holding host paths
+(`*PATH*`, `*FILE*`, `*CONFIG*`, `*HOME*`, `*DIR*`, `*PLUGINS*`,
+`ANSIBLE_LIBRARY`, `*TMP*`, `ANSIBLE_INVENTORY`), and so are proxy
+variables and `NO_COLOR`; the host's `ansible.cfg` is not read, only one
+inside the mounted project directory.
+
 ## Example
 
 ```toml
@@ -134,6 +159,10 @@ notify_task_failed_max = 5
 template_hosts_max = 10
 color_scheme = "dark"
 # theme = "solarized"
+
+[execution_environment]
+image = "ghcr.io/ansible-community/community-ee-base:latest"
+network = "host"
 ```
 
 Every key in the table is optional; an absent key always means "use the
