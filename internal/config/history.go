@@ -71,6 +71,12 @@ type InvocationRecord struct {
 	// the retention cap (design-docs/Revisit.md, "Pin runs"). Per run: a
 	// rerun starts unpinned.
 	Pinned bool `toml:"pinned,omitempty"`
+	// EE is the execution environment this run used
+	// (design-docs/ExecutionEnvironments.md): its image, "host" for a
+	// host run made while an image was configured (so a rerun doesn't
+	// quietly switch to the configured image), or "" - not recorded,
+	// which is every run without an execution environment configured.
+	EE string `toml:"ee,omitempty"`
 }
 
 // PlaybookHistory is one [[history]] entry in state.toml: either a
@@ -272,9 +278,15 @@ func ReadState(path string) StateConfig {
 // DeleteRunLog's own already-documented best-effort tolerance for a
 // mid-delete failure.
 func AppendInvocation(path, playbook, role, argsString string) error {
+	return AppendInvocationEE(path, playbook, role, argsString, "")
+}
+
+// AppendInvocationEE is AppendInvocation that also records the run's
+// execution environment (InvocationRecord.EE).
+func AppendInvocationEE(path, playbook, role, argsString, ee string) error {
 	cfg := ReadState(path)
 
-	next := InvocationRecord{Args: argsString, Time: time.Now().UTC().Format(time.RFC3339)}
+	next := InvocationRecord{Args: argsString, Time: time.Now().UTC().Format(time.RFC3339), EE: ee}
 
 	found := false
 	var evicted []InvocationRecord

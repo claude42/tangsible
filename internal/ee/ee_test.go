@@ -390,3 +390,17 @@ func TestResolveSELinux(t *testing.T) {
 		}
 	}
 }
+
+func TestShortImageName(t *testing.T) {
+	for in, want := range map[string]string{
+		"ghcr.io/ansible-community/community-ee-base:latest":  "community-ee-base:latest",
+		"quay.io/ansible/ee-minimal":                          "ee-minimal",
+		"localhost:5000/team/ee:2":                            "ee:2",
+		"ee:1":                                                "ee:1",
+		"reg.io/a/ee@sha256:0123456789abcdef0123456789abcdef": "ee@sha256:0123456789ab",
+	} {
+		if got := ShortImageName(in); got != want {
+			t.Errorf("ShortImageName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

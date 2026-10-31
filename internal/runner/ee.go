@@ -31,6 +31,12 @@ func SetExecutionEnvironment(s *config.EESettings) { eeActive.Store(s) }
 // ExecutionEnvironment returns the active setting, or nil for host runs.
 func ExecutionEnvironment() *config.EESettings { return eeActive.Load() }
 
+// EEHistoryValue is what to record in invocation history for the current
+// generation's execution environment (config.EEHistoryValue).
+func EEHistoryValue() string {
+	return config.EEHistoryValue(config.MergedSettingsConfig(), ExecutionEnvironment())
+}
+
 const selinuxEnforcePath = "/sys/fs/selinux/enforce"
 
 // EnsureImage makes sure the active image is present locally, pulling it

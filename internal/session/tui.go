@@ -551,7 +551,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// own type doc comment for exactly what it does and doesn't own (in
 	// particular: not s.rerunForm above, which openRerunDialog/submitRerun
 	// below and SetMouseCapture/SetInputCapture still reach directly).
-	s.rerunFields = newRerunFieldSync(s.rerunForm, state, knownTags, knownPlayNames, knownGroups, initialRerunDefaults)
+	s.rerunFields = newRerunFieldSync(s.rerunForm, state, knownTags, knownPlayNames, knownGroups, initialRerunDefaults, !s.debugMode)
 
 	// s.outputTask/s.outputHost track which (task, host) pair the output page
 	// is currently showing, so navigateOutputTask (below) knows where

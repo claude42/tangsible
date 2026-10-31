@@ -45,7 +45,14 @@ every dialog field simply starts empty.\&
 .PP
 The rerun dialog itself offers options for \fBStart with play\fR, \fBStart with
 task\fR, \fBLimit tags\fR, \fBSkip tags\fR, and \fBLimit hosts\fR - each corresponding to
-the respective options.\&
+the respective options - and \fBExecution environment\fR, the container image to
+run in (empty: the host), which starts as the environment the session
+currently uses.\&
+.PP
+The execution environment of an earlier run is recorded in its history entry:
+\fBrerun\fR without \fB--ee\fR/\fB--no-ee\fR reuses the environment that run used (a host
+run stays a host run) before falling back to \fBconfig.\&toml\fR, and so does a
+re-run started from \fBtangsible-revisit\fR(1).\&
 .PP
 .SH ADDITIONAL OPTIONS
 .PP

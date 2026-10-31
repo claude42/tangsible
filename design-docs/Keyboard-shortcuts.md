@@ -353,8 +353,9 @@ outside the box does nothing. Neither button is Tab-reachable - see below.
 
 Opened with `r` from the main tree, only once the playbook has finished
 (see Rerun.md and design-docs/StartWithPlay.md). A real form with five
-fields - Start with play, Start with task, Limit tags to, Skip tags,
-Limit hosts to - plus Cancel/Re-run buttons, right-aligned in that order
+text fields - Start with play, Limit tags to, Skip tags, Limit hosts to and
+Execution environment (a container image, empty for the host; see
+ExecutionEnvironments.md; absent in debug) - plus Cancel/Re-run buttons, right-aligned in that order
 (Cancel left, Re-run right).
 
 * Tab / Backtab    - move to the next / previous field, then to the

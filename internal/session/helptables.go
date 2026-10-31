@@ -184,6 +184,7 @@ var rerunHelp = uikit.HelpScreen{
 			{Keys: "Limit tags to", Desc: "--tags: comma-separated tags (offers completions)"},
 			{Keys: "Skip tags", Desc: "--skip-tags: comma-separated tags (offers completions)"},
 			{Keys: "Limit hosts to", Desc: "--limit: comma-separated hosts or groups (offers completions)"},
+			{Keys: "Execution environment", Desc: "Container image to run in (podman); empty runs on the host. Starts as what this session runs in, and from here on is what every re-run uses. Not offered in debug"},
 		}},
 		{Title: "Checkboxes - shown only when they apply to the last run", Entries: []uikit.HelpEntry{
 			{Keys: "Resume where failed", Desc: "Start with the earliest play that had a failure, and only on the hosts that failed (checks \"Only failed\" too)"},

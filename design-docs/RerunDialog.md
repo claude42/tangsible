@@ -1,5 +1,8 @@
 # Rerund dialog options
 
+(The dialog's "Execution environment" field, the last text field, is
+described in ExecutionEnvironments.md, "Phase 5".)
+
 ## Situation
 
 I have a small feature idea. Currently tangsible run starts the run directly

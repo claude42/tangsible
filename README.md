@@ -442,7 +442,10 @@ or set `image` in the `[execution_environment]` table of `config.toml` (see
 Configuration) and use `--no-ee` for a host run. The project is mounted into
 the container, your SSH agent is forwarded, and the UI
 works exactly as for a host run. Use `network = "host"` to reach real remote
-hosts.
+hosts. The re-run dialog (`r`) has an "Execution environment" field to switch
+a re-run to another image, or to the host by emptying it; the image of every
+run is recorded, so `tangsible rerun` and re-runs from `tangsible revisit` use
+the environment that run used.
 
 ## Configuration
 

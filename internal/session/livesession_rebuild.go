@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	eepkg "code.aw.net/claude/tangsible/internal/ee"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
@@ -192,6 +193,19 @@ func (s *liveSession) currentMainBottomBarText() string {
 // topBarLabel is the top/split bars' first field name - see
 // uikit.TopBarLabel.
 func (s *liveSession) topBarLabel() string { return uikit.TopBarLabel(s.isRole, s.checkMode) }
+
+// topBarName is the top/split bars' playbook (or role) name, followed by
+// the execution environment's image when the session runs in one - a
+// textual indicator that needs no color. Read fresh on every call: a rerun
+// can switch the environment (the re-run dialog's own field). A frozen
+// revisit replay shows the plain name - the setting says nothing about the
+// run on screen.
+func (s *liveSession) topBarName() string {
+	if ee := runner.ExecutionEnvironment(); ee != nil && !s.revisitActive && !s.debugMode {
+		return s.playbookName + " (EE: " + eepkg.ShortImageName(ee.Image) + ")"
+	}
+	return s.playbookName
+}
 
 // chromeColorName is s.chromeBg's own tag-name equivalent - "navy"/
 // "olive"/"purple" - for the progress-fill lines (TopBarText/
@@ -375,7 +389,7 @@ func (s *liveSession) rebuild() {
 				hostAndTask = s.outputHost + "   " + s.outputTask.Name
 			}
 			s.splitHeader.SetText(uikit.ProgressFillLine(
-				uikit.ComposeSplitHeaderLine(s.playbookName, s.topBarLabel(), hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.splitTreeWidth(totalWidth), s.showElapsed()),
+				uikit.ComposeSplitHeaderLine(s.topBarName(), s.topBarLabel(), hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.splitTreeWidth(totalWidth), s.showElapsed()),
 				progressPos, progressTotal, frozen, s.chromeColorName()))
 		} else {
 			// Padded to the full terminal width before the fill is
@@ -477,7 +491,7 @@ func (s *liveSession) rebuild() {
 		// mode, where s.splitHeader (above) shows this same information
 		// instead - s.topBar itself sits unused, off-page, for the
 		// duration of a split session.
-		s.topBar.SetText(uikit.TopBarText(s.playbookName, s.topBarLabel(), s.state.AllHosts, elapsed, frozen, s.currentFilter, progressPos, progressTotal, width, s.chromeColorName(), s.showElapsed()))
+		s.topBar.SetText(uikit.TopBarText(s.topBarName(), s.topBarLabel(), s.state.AllHosts, elapsed, frozen, s.currentFilter, progressPos, progressTotal, width, s.chromeColorName(), s.showElapsed()))
 	}
 
 	// One-time, right on the running-to-frozen transition: for a

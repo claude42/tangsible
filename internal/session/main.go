@@ -425,7 +425,7 @@ func Main(build BuildInfo) {
 			// future "tangsible rerun" should replay the real playbook with
 			// real ansible-playbook args, not reach for a temp file that may
 			// already be gone.
-			if err := config.AppendInvocation(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(rest)); err != nil {
+			if err := config.AppendInvocationEE(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(rest), runner.EEHistoryValue()); err != nil {
 				fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
 			}
 			originalArgs = config.ParsePassthroughArgs(rest)
@@ -483,7 +483,7 @@ func Main(build BuildInfo) {
 			// already has, and for the same reason: losing the ability to
 			// pre-fill a future rerun is never worth aborting the run the user
 			// actually asked for.
-			if err := config.AppendInvocation(config.TangsibleStatePath, "", roleName, config.ArgsToHistoryString(rest)); err != nil {
+			if err := config.AppendInvocationEE(config.TangsibleStatePath, "", roleName, config.ArgsToHistoryString(rest), runner.EEHistoryValue()); err != nil {
 				fmt.Fprintf(os.Stderr, "tangsible: couldn't record invocation history in %s: %v\n", config.TangsibleStatePath, err)
 			}
 			originalArgs = config.ParsePassthroughArgs(rest)
@@ -549,8 +549,11 @@ func Main(build BuildInfo) {
 		}
 		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, true)
 
-		// --ee/--no-ee: see "run" above.
-		rerunArgs = setupExecutionEnvironment(config.VerbRerun, rerunArgs)
+		// --ee/--no-ee: see "run" above - but activated only once
+		// ResolveRerun below has found what the earlier run recorded,
+		// which sits between the flags and the configuration.
+		var eeOverride config.EEOverride
+		eeOverride, rerunArgs = extractEEFlags(config.VerbRerun, rerunArgs)
 
 		// --only-failed/--only-unreachable/--resume-where-failed
 		// (design-docs/Rerun.md's "Extend rerun dialog", item 7) are
@@ -581,6 +584,7 @@ func Main(build BuildInfo) {
 			fmt.Fprintln(os.Stderr, "no playbook or role given, and nothing has ever been run in this project to rerun")
 			os.Exit(2)
 		}
+		activateExecutionEnvironment(eeOverride, res.EE)
 
 		// rerunDefaults (runner.InitialRerunDefaults) is what the re-run
 		// dialog's three checkboxes need for their very first appearance -

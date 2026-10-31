@@ -764,6 +764,11 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 	knownPlayNames := source.ListTopLevelPlayNames(playbook)
 
 	settings := config.MergedSettingsConfig()
+	// A rerun from this entry runs in the execution environment the entry
+	// itself used (config.InvocationRecord.EE); an imported run records
+	// none, so the configuration applies. Set per opened entry - the list
+	// shows runs from different environments.
+	runner.SetExecutionEnvironment(config.ResolveEEWithHistory(settings, config.EEOverride{}, e.EE))
 	invArgs := config.ParsePassthroughArgs(config.HistoryStringToArgs(e.Args))
 	// knownGroups mirrors main.go's own best-effort inventory scan for the
 	// re-run dialog's "Limit hosts to:" autocomplete - see NewLiveTUIFunc's

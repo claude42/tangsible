@@ -191,6 +191,40 @@ func TestAppendInvocationAndLastInvocation(t *testing.T) {
 	}
 }
 
+// The execution environment a run used is recorded per invocation and comes
+// back through ResolveRerun, for both the explicit-playbook and the
+// bare-rerun forms.
+func TestAppendInvocationEERecordedAndResolved(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".tangsible", "state.toml")
+	if err := AppendInvocationEE(path, "site.yml", "", "-l a", "reg.example/ee:1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendInvocationEE(path, "other.yml", "", "", EEHostRecord); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendInvocation(path, "plain.yml", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	cfg := ReadState(path)
+
+	if rec, _ := LastInvocationRecord(cfg, "site.yml"); rec.EE != "reg.example/ee:1" {
+		t.Errorf("site.yml EE = %q", rec.EE)
+	}
+	if rec, _ := LastInvocationRecord(cfg, "plain.yml"); rec.EE != "" {
+		t.Errorf("an unrecorded run must stay empty, got %q", rec.EE)
+	}
+	if res, _ := ResolveRerun([]string{"site.yml"}, cfg); res.EE != "reg.example/ee:1" {
+		t.Errorf("explicit rerun EE = %q", res.EE)
+	}
+	if res, _ := ResolveRerun([]string{"other.yml"}, cfg); res.EE != EEHostRecord {
+		t.Errorf("explicit rerun of a host run: EE = %q", res.EE)
+	}
+	// plain.yml was the most recent: a bare rerun resolves to it.
+	if res, _ := ResolveRerun(nil, cfg); res.Playbook != "plain.yml" || res.EE != "" {
+		t.Errorf("bare rerun = %+v", res)
+	}
+}
+
 // TestAppendInvocationNeverTouchesConfigFile proves the actual guarantee
 // the .tangsible/config.toml + state.toml split
 // (design-docs/Dottangsible-directory.md) exists to provide: config.toml

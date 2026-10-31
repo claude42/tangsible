@@ -295,6 +295,7 @@ type liveSession struct {
 	tagsPreFilled     bool
 	skipTagsPreFilled bool
 	hostsPreFilled    bool
+	eePreFilled       bool
 
 	// --- output drill-down ---
 	// showOutput/showOutputFromRecap are struct fields (not local

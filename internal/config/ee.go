@@ -133,6 +133,39 @@ func ExtractEEFlags(args []string) (o EEOverride, rest []string, err error) {
 	return o, out, nil
 }
 
+// EEHostRecord is the InvocationRecord.EE value of a host run made while an
+// image was configured.
+const EEHostRecord = "host"
+
+// EEHistoryValue is what to record in invocation history for the active
+// setting (nil: host run) given the configured one: the image, EEHostRecord
+// for a host run when cfg names an image, "" otherwise.
+func EEHistoryValue(cfg SettingsConfig, active *EESettings) string {
+	switch {
+	case active != nil:
+		return active.Image
+	case EEFromSettings(cfg).Image != "":
+		return EEHostRecord
+	}
+	return ""
+}
+
+// ResolveEEWithHistory is ResolveEE for a rerun of something recorded
+// earlier: an explicit --ee/--no-ee wins, then what that run recorded
+// (EEHostRecord means host), then the configuration.
+func ResolveEEWithHistory(cfg SettingsConfig, o EEOverride, recorded string) *EESettings {
+	if o.Image == "" && !o.Disable {
+		switch recorded {
+		case "":
+		case EEHostRecord:
+			o.Disable = true
+		default:
+			o.Image = recorded
+		}
+	}
+	return ResolveEE(cfg, o)
+}
+
 // ResolveEE applies an override on top of the configured settings: nil
 // means a plain host run.
 func ResolveEE(cfg SettingsConfig, o EEOverride) *EESettings {

@@ -4,7 +4,7 @@
 
 ### Added
 
-- Execution environments (`run`, `rerun`, `role`, and reruns from `revisit`; podman, Linux): `--ee <image>` / `--no-ee` and an `[execution_environment]` config table run ansible-playbook inside a container image, with the project mounted and the SSH agent forwarded
+- Execution environments (`run`, `rerun`, `role`, and reruns from `revisit`; podman, Linux): `--ee <image>` / `--no-ee` and an `[execution_environment]` config table run ansible-playbook inside a container image, with the project mounted and the SSH agent forwarded; the top bar shows the image, the re-run dialog can switch it, and history remembers it
 - Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
 - `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
 - Progress is also shown in the terminal's own progress indicator (OSC 9;4) where supported; `terminal_progress = "auto" | "on" | "off"`

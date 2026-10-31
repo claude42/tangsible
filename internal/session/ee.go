@@ -16,19 +16,32 @@ import (
 // image is present - pulling it now, before any TUI owns the terminal.
 // Exits on a usage or pull error, like the surrounding startup code.
 func setupExecutionEnvironment(v config.Verb, args []string) []string {
+	o, rest := extractEEFlags(v, args)
+	activateExecutionEnvironment(o, "")
+	return rest
+}
+
+// extractEEFlags strips --ee/--no-ee from args, exiting on a usage error.
+func extractEEFlags(v config.Verb, args []string) (config.EEOverride, []string) {
 	o, rest, err := config.ExtractEEFlags(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, config.UsageLine(v))
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	s := config.ResolveEE(config.MergedSettingsConfig(), o)
+	return o, rest
+}
+
+// activateExecutionEnvironment resolves o against the configuration (and,
+// for a rerun, what the earlier run recorded), makes the result the one
+// every generation spawns with, and ensures its image is present.
+func activateExecutionEnvironment(o config.EEOverride, recorded string) {
+	s := config.ResolveEEWithHistory(config.MergedSettingsConfig(), o, recorded)
 	runner.SetExecutionEnvironment(s)
 	if err := runner.EnsureImage(os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "tangsible:", err)
 		os.Exit(1)
 	}
-	return rest
 }
 
 // rejectExecutionEnvironmentForDebug keeps debug on the host for now
