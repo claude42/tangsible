@@ -141,6 +141,17 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
 - **Phase 1 done:** the plugin opens `TANGSIBLE_EVENT_FILE` itself (fd
   still wins if both are set); verified in the container (17/17 events
   through the FIFO) and covered by `callback-tests/`.
+- **Phase 2 done:** `internal/ee` (`Build`) is table-tested, and a
+  real-podman smoke test (`TANGSIBLE_EE_IMAGE=... go test -run Smoke
+  ./internal/ee`) runs `testdata/outcomes.yml` through its output.
+  Choices made there: the project root is the common ancestor of cwd and
+  the playbook's directory (error if that is `/`); the playbook is passed
+  as an absolute container path; forwarded env values travel as bare
+  `-e NAME` plus the engine process's own environment, never on the
+  command line; host-path-like `ANSIBLE_*` variables (`*PATH*`, `*FILE*`,
+  `*CONFIG*`, `*HOME*`, `*DIR*`, `*PLUGINS*`, `LIBRARY`, `*TMP*`,
+  `ANSIBLE_INVENTORY`) are dropped; `~/...` arguments can't be mapped and
+  warn; the project mount is read-write unless `ReadOnly`.
 - **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
   socket mount (wanted - the dev VM has an agent to test with), real
   remote hosts / `--network=host`.
