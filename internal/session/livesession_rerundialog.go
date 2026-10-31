@@ -414,14 +414,17 @@ func (r *rerunFieldSync) rebuild() {
 	r.form.AddFormItem(r.tagsField)
 	r.form.AddFormItem(r.skipTagsField)
 	r.form.AddFormItem(r.hostsField)
-	if r.showEE {
-		r.form.AddFormItem(r.eeField)
-	}
 	if len(r.currentFailedHosts) > 0 {
 		r.form.AddFormItem(r.onlyFailedCheckbox)
 	}
 	if len(r.currentUnreachableHosts) > 0 {
 		r.form.AddFormItem(r.onlyUnreachableCheckbox)
+	}
+	// Last, after the checkboxes: they belong with the hosts field they
+	// write into, and the run-wide environment choice is a different kind
+	// of option that shouldn't split them.
+	if r.showEE {
+		r.form.AddFormItem(r.eeField)
 	}
 
 	if !r.appliedInitialRerunFlags {

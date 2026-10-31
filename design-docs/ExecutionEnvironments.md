@@ -2,10 +2,16 @@
 
 ## Status
 
-**Decided (see "Decisions" below), nothing built.** Originated from a question
-about whether Tangsible should interface with `ansible-runner`
-(`OwnCallbackPlugin.md` was the trigger - see "Why this isn't
-`ansible-runner` support" below for how the two got untangled). The real
+**Implemented** for `run`, `rerun` and `role` (and reruns started from
+`revisit`) with podman on Linux. Not supported: docker, macOS, `debug`,
+and the standalone verbs (`host`, `template`, ...). The sections after this
+one record how we got here: "Decisions", the phase-by-phase findings
+(including what live testing changed), and, last, the original
+investigation, which predates the implementation and is partly superseded
+(see the note before it).
+
+Originated from a question about whether Tangsible should interface with
+`ansible-runner` (`OwnCallbackPlugin.md` was the trigger). The real
 motivation turned out to be narrower and more useful than "support
 ansible-runner": when developing a playbook/role, verify it actually runs
 correctly inside the target *execution environment* (EE) - the
@@ -13,11 +19,58 @@ correctly inside the target *execution environment* (EE) - the
 against in CI/AWX/Controller - not just against whatever `ansible-core`
 happens to be on the developer's host.
 
-Findings below come from reading `ansible-runner`'s actual container
-invocation code (`ansible_runner/config/_base.py`,
-`wrap_args_for_containerization`), not from memory - the same
-live-spike-before-writing-conclusions discipline `OwnCallbackPlugin.md`
-uses.
+## How it works
+
+- **Selecting it:** `[execution_environment]` in `config.toml` (`image`,
+  `engine`, `network`, `selinux`, `read_only`, `ssh_agent`,
+  `ssh_known_hosts`, `ssh_dir`, `extra_mounts`; `ConfigOptions.md`),
+  `--ee <image>` / `--no-ee` per invocation, the re-run dialog's
+  "Execution environment" field per re-run. What a run used is recorded in
+  history; `rerun` and reruns from `revisit` default to it (flag >
+  recorded > config).
+- **One command, wrapped:** `internal/ee.Build` (pure) turns the resolved
+  inputs into a `podman run --rm -i ... <image> ansible-playbook ...`
+  line. Tangsible still spawns one process and owns its stdio; Ctrl-C is
+  forwarded to podman, which proxies it into the container.
+- **Identity mounts:** the project root (where the working directory and
+  the playbook meet) and every path an argument names are mounted at their
+  own host path, never translated - event `task.path`, saved logs and the
+  host-side source index must agree.
+- **Events:** the callback plugin is mounted read-only and writes to a FIFO
+  in a mounted scratch directory (`TANGSIBLE_EVENT_FILE`); an inherited fd
+  can't cross a container boundary. stdout stays the user's own callback
+  output.
+- **Credentials:** the SSH agent socket is forwarded and `known_hosts`
+  mounted read-only; private keys stay out unless `ssh_dir = true`.
+- **Everything that runs ansible for display** (probe, `ansible-doc`,
+  Docs/File/Resolved stubs, the condition resolver) goes through
+  `runner.NewToolCommand`, so it uses the same ansible and collections as
+  the run.
+- **Code:** `internal/ee` (builder), `internal/runner/ee.go` (active
+  setting, pull, FIFO, tool commands), `internal/config/ee.go`
+  (settings, flags, history precedence), `internal/session/ee.go`
+  (startup), the dialog field in `livesession_rerundialog.go`.
+- **Tests:** unit tests per package; `TANGSIBLE_EE_IMAGE=<image> go test
+  -run Smoke ./internal/ee` (real podman, builder output); `TANGSIBLE_EE_IMAGE=<image>
+  go test -tags e2e -run EE .` (tmux: indicator, dialog switch to host and
+  back, `rerun` reusing the recorded image, Ctrl-C and cleanup, flag
+  errors). The plugin's `callback-tests/` cover the FIFO transport; it was
+  also run by hand on Python 3.9 / ansible-core 2.15.
+
+## Not verified, or open
+
+- **SELinux:** `selinux = auto|disable|z|Z|none` is covered by builder unit
+  tests only; the dev machines had no SELinux, so `--security-opt
+  label=disable` and `:z`/`:Z` were never run against an enforcing host.
+- **docker, macOS, `debug`:** deliberately out of scope (`debug` is
+  designed for - see "Debug mode in an EE" - not built).
+- **Real-host coverage** came from one target (Debian 13, ssh agent
+  authentication, `become`); other connection types (password prompts,
+  `ansible_connection=winrm`, jump hosts via `~/.ssh/config`, which the
+  container does not see unless `ssh_dir = true`) were not tried.
+- Findings that depend on the machine (default-network DNS failing behind
+  WireGuard policy routing, `network = "host"`) are in the real-host notes
+  below.
 
 ## Decisions
 
@@ -89,7 +142,7 @@ filesystem as the project and is then mounted as the project root;
 symlinks pointing outside the mount root break. The stdout-jsonl
 fallback would rule `debug` out (no return channel).
 
-### Phasing
+### Phasing (all phases done)
 
 0. Spike by hand: `podman run` against
    `ghcr.io/ansible-community/community-ee-base`, plugin + FIFO mounted;
@@ -110,7 +163,7 @@ fallback would rule `debug` out (no return channel).
    changelog, `Codemap.md`.
 6. tmux e2e gated on podman; rewrite this doc as "implemented".
 
-### Phase 0 spike findings (2026-10-31)
+### Phase-by-phase findings (spike through real-host testing, 2026-10-31)
 
 Hand-run `podman run` (podman 5.4.2, rootless, crun, Debian 13 VM, no
 SELinux) against `ghcr.io/ansible-community/community-ee-base:latest`
@@ -219,7 +272,7 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   also returns the recorded one); `OpenRevisitEntry` sets it per opened
   entry, so a rerun from revisit uses that run's environment (imported
   runs record none: config applies). (2) *Dialog:* an "Execution
-  environment" text field (last field; omitted in debug), pre-filled once
+  environment" text field (last field, after the checkboxes that belong with "Limit hosts to"; omitted in debug), pre-filled once
   from the active image; on confirm it sets the process-wide setting
   (`ResolveEE` with the typed image, or host if empty) before
   `requestRerun`, so no signature changed. A rerun that names an
@@ -273,9 +326,31 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
     runs.
   - Decided: `network` stays unset by default (isolation); the docs
     point to `network = "host"` for DNS/routing problems.
-- **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
-  socket mount (wanted - the dev VM has an agent to test with), real
-  remote hosts / `--network=host`.
+- **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
+  `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
+  run, the dialog switching to the host and back, `rerun` reusing the
+  recorded image and `--no-ee` overriding it, Ctrl-C reaching ansible and
+  the container disappearing, and the flags' usage errors. The tests work
+  in a temp dir holding a copy of the playbook (a playbook elsewhere would
+  put the mount root at `/`, which is rejected). Writing them found
+  two things: (1) my phase 5 had put the new dialog field between "Limit
+  hosts to" and the two checkboxes that write into it, which broke two
+  existing e2e tests' Tab counts - the field now comes last, after the
+  checkboxes (and a unit test pins that); (2) a test must not trust text
+  already on screen: the previous generation's banner, or the typed command
+  line, satisfies `waitFor` too early. **Older Python:** the plugin was run
+  by hand on Python 3.9.25 with ansible-core 2.15.13 (`python:3.9-slim`
+  with `pip install "ansible-core<2.16"`): syntax fine, all 17 events of
+  `outcomes.yml` arrived over `TANGSIBLE_EVENT_FILE`.
+
+> **Everything from here on is the original investigation**, written before
+> anything was built. Where it disagrees with the sections above, the
+> sections above win. Superseded: the `/runner/project` layout and
+> translated arguments (now identity mounts), the stdout-jsonl fallback
+> (the FIFO transport needs none), `ansible.posix.jsonl` and the "GPL
+> fork" (the plugin is now our own clean-room one), the config sketch (the
+> real table is in `ConfigOptions.md`), and the effort estimate and
+> phasing at the very end.
 
 ## Motivation
 

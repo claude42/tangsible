@@ -358,3 +358,22 @@ func TestRerunFieldSyncEEFieldOnlyWhenShown(t *testing.T) {
 		}
 	}
 }
+
+// The Execution environment field comes last, after the checkboxes that
+// belong with "Limit hosts to" (moved there after it split them and broke
+// the e2e tests' Tab counts).
+func TestRerunFieldSyncEEFieldIsLastItem(t *testing.T) {
+	form := tview.NewForm()
+	r := newRerunFieldSync(form, &playbook.PlaybookState{}, nil, nil, nil, runner.InitialRerunDefaults{
+		FailedHosts:      []string{"web2"},
+		UnreachableHosts: []string{"ghost"},
+	}, true)
+	r.rebuild()
+	n := form.GetFormItemCount()
+	if n < 2 || form.GetFormItem(n-1) != r.eeField {
+		t.Fatalf("EE field is not the last of %d form items", n)
+	}
+	if form.GetFormItem(n-2) != r.onlyUnreachableCheckbox {
+		t.Errorf("the checkboxes must stay directly above the EE field")
+	}
+}

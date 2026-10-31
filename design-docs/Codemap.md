@@ -511,6 +511,9 @@ thin constructor/wiring shell.
   collection outside the project (`ANSIBLE_COLLECTIONS_PATH`): `role
   ns.coll.role` with a meta dependency, and a `collections:`-keyword short
   name - both must get a Task definition tab.
+- **e2e_ee_test.go** - same tier, for execution environments; also
+  needs rootless podman and `TANGSIBLE_EE_IMAGE=<pulled image>`
+  (skipped otherwise).
 
 ## screenrecordings/
 

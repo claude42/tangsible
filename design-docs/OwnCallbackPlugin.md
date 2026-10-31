@@ -405,18 +405,18 @@ without a translation shim - and with the fork being an accepted GPL
 derivative, its one real remaining advantage (licensing distance from
 jsonl's schema) no longer applies.
 
-### Note: this transport is host-process-only
+### Note: the fd transport is host-process-only - containers use a FIFO
 
-`ExecutionEnvironments.md` (a separate, independent effort) found that
-`ansible-runner`'s own container-invocation code never uses fd-passthrough
-(no `--preserve-fds`, no docker equivalent) - there is no portable way to
-hand a container process an arbitrary inherited fd the way `cmd.ExtraFiles`
-hands one to a plain child process. So the dedicated-fd transport below
-works for direct `ansible-playbook` execution but **cannot extend to a
-future containerized/execution-environment mode** - that mode would need
-to fall back to plain stdout-jsonl (today's mechanism) regardless of what
-ships here. Not a blocker on either doc, but worth keeping in mind before
-treating the fd transport as the only one Tangsible will ever need.
+`ExecutionEnvironments.md` found that there is no portable way to hand a
+container process an arbitrary inherited fd the way `cmd.ExtraFiles` hands
+one to a plain child process (`ansible-runner` never uses podman's
+`--preserve-fds` either, and docker has no equivalent). So the
+dedicated-fd transport below only serves direct `ansible-playbook`
+execution. Execution-environment runs (now implemented) use the same plugin
+with `TANGSIBLE_EVENT_FILE=<path>` instead: a FIFO in a bind-mounted scratch
+directory, which the plugin opens for writing (`TANGSIBLE_EVENT_FD` wins if
+both are set). No stdout-jsonl fallback was needed, so stdout stays free for
+the user's own callback in both modes.
 
 ### Transport: dedicated inherited fd
 
