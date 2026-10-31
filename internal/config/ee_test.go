@@ -49,7 +49,7 @@ func TestHasEEFlag(t *testing.T) {
 
 func TestEEFromSettingsDefaults(t *testing.T) {
 	got := EEFromSettings(SettingsConfig{})
-	want := EESettings{Engine: "podman", SSHAgent: true}
+	want := EESettings{Engine: "podman", SSHAgent: true, SSHKnownHosts: true}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults = %+v, want %+v", got, want)
 	}
@@ -61,11 +61,11 @@ func TestEEFromSettingsValues(t *testing.T) {
 	e := &cfg.ExecutionEnvironment
 	e.Image, e.Engine, e.Network, e.SELinux = " img:1 ", "Podman", "host", "Z"
 	tr := true
-	e.SSHAgent, e.SSHDir = &f, &tr
+	e.SSHAgent, e.SSHDir, e.SSHKnownHosts = &f, &tr, &f
 	e.ExtraMounts = []string{"/a:/b"}
 	got := EEFromSettings(cfg)
 	want := EESettings{Image: "img:1", Engine: "podman", Network: "host", SELinux: "Z",
-		SSHAgent: false, SSHDir: true, ExtraMounts: []string{"/a:/b"}}
+		SSHAgent: false, SSHDir: true, SSHKnownHosts: false, ExtraMounts: []string{"/a:/b"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}

@@ -233,6 +233,33 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   `rerun --no-dialog` reuses the recorded image and `--no-ee` overrides it.
   Not exercised live: rerun from `revisit` (unit-level only: the
   precedence is covered by `TestResolveEEWithHistory`).
+- **Real remote host (shunya.aw.net, Debian 13, ssh as `ansible` with
+  passwordless sudo, key only in the agent) - findings:**
+  - Host baseline and EE with `network = "host"` both complete the same
+    4-task playbook (ping, command, `become`, copy): agent-only
+    authentication works from inside the container (no private key
+    mounted), and so does `become`.
+  - **Default container network: the hostname does not resolve**
+    (`Could not resolve hostname ...: Temporary failure in name
+    resolution`) while the same run works on the host - rootless
+    podman's default network can't reach the host's resolver here
+    (typically a `127.0.0.53` systemd-resolved stub). `network = "host"`
+    fixes it. So the config is effectively required for real hosts; see
+    "Open" below.
+  - **Host-key checking:** with no `known_hosts` in the container,
+    `Host key verification failed` (ansible's message gives no hint it is
+    the container's missing file). Fixes verified: mount all of `~/.ssh`,
+    mount only `known_hosts`, or `ANSIBLE_HOST_KEY_CHECKING=False`. Added
+    `ssh_known_hosts` (default true): only `~/.ssh/known_hosts` is
+    mounted read-only - public host keys, no private keys - unless
+    `ssh_dir` already covers it. Verified with defaults + `network =
+    "host"`: works.
+  - **File tab on a remote host** works through the container (fetch stub:
+    agent, `known_hosts`, scratch dir, our plugin on stdout); the fetched
+    text was the remote file's. Unreachable hosts are reported as on the
+    host. No container or scratch directory is left over after any of the
+    runs.
+  - Open: whether `network` should default to `host`.
 - **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
   socket mount (wanted - the dev VM has an agent to test with), real
   remote hosts / `--network=host`.
