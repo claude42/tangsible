@@ -38,7 +38,7 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # override it per invocation.
 # [execution_environment]
 # image = "ghcr.io/ansible-community/community-ee-base:latest"
-# network = "host"            # needed to reach real remote hosts
+# network = "host"            # share the host's network stack - for DNS/routing problems
 # selinux = "auto"            # "auto" | "disable" | "z" | "Z" | "none"
 # read_only = false           # mount the project read-only
 # ssh_agent = true            # forward $SSH_AUTH_SOCK

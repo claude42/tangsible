@@ -239,13 +239,24 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
     4-task playbook (ping, command, `become`, copy): agent-only
     authentication works from inside the container (no private key
     mounted), and so does `become`.
-  - **Default container network: the hostname does not resolve**
+  - **Default container network: the hostname did not resolve** here
     (`Could not resolve hostname ...: Temporary failure in name
-    resolution`) while the same run works on the host - rootless
-    podman's default network can't reach the host's resolver here
-    (typically a `127.0.0.53` systemd-resolved stub). `network = "host"`
-    fixes it. So the config is effectively required for real hosts; see
-    "Open" below.
+    resolution`) while the same run worked on the host - but the cause
+    is this VM's routing, not a general weakness of the default network
+    and not the local resolver (unbound on `127.0.0.1`, which podman's
+    pasta backend handles by handing the container a forwarder at
+    `169.254.1.1`). The VM has no IPv4 default route in its main table
+    (WireGuard full-tunnel policy routing, `ip rule ... lookup 51820`);
+    pasta copies the main table, so inside the container every IPv4
+    address - the `169.254.1.1` forwarder and the `8.8.8.8` fallbacks -
+    is "Network is unreachable", while IPv6 works. Verified: default
+    network + only a reachable IPv6 resolver (`--dns`) resolves, and so
+    does `network = "host"` (the host's own stack, routes and resolver).
+    (An earlier version of this note blamed the loopback resolver and
+    recommended defaulting `network` to `host`; both were wrong or
+    overstated.) So `network = "host"` stays an opt-in workaround for
+    DNS/routing oddities and for the odd target only reachable through
+    host-side routing, not a default.
   - **Host-key checking:** with no `known_hosts` in the container,
     `Host key verification failed` (ansible's message gives no hint it is
     the container's missing file). Fixes verified: mount all of `~/.ssh`,
@@ -253,13 +264,15 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
     `ssh_known_hosts` (default true): only `~/.ssh/known_hosts` is
     mounted read-only - public host keys, no private keys - unless
     `ssh_dir` already covers it. Verified with defaults + `network =
-    "host"`: works.
+    "host"`: works (host networking was needed only because of the
+    routing issue above).
   - **File tab on a remote host** works through the container (fetch stub:
     agent, `known_hosts`, scratch dir, our plugin on stdout); the fetched
     text was the remote file's. Unreachable hosts are reported as on the
     host. No container or scratch directory is left over after any of the
     runs.
-  - Open: whether `network` should default to `host`.
+  - Decided: `network` stays unset by default (isolation); the docs
+    point to `network = "host"` for DNS/routing problems.
 - **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
   socket mount (wanted - the dev VM has an agent to test with), real
   remote hosts / `--network=host`.
