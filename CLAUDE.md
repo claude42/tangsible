@@ -64,7 +64,8 @@ primitives: shadow-copy/splice, the live process driver + breakpoint
 policy, and skeleton-seeded state/event resolution, respectively -
 `internal/session` is their only caller, same as any other verb-specific
 package above) · `internal/inventory`, `internal/ansibledoc`, `internal/rolepath` (small
-shared clients). Only `internal/session` (its `tui.go` and `livesession*.go`) and
+shared clients) · `internal/ee` (execution-environment podman command
+builder, pure; `design-docs/ExecutionEnvironments.md`). Only `internal/session` (its `tui.go` and `livesession*.go`) and
 `internal/uikit` touch `tview`/`tcell`; `session/main.go` doesn't, and
 neither does any of debug mode's own three packages.
 

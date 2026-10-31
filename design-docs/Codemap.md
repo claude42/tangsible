@@ -104,6 +104,20 @@ package reads.
   `ansible-config dump`, built-in defaults as fallback), `Find` a role by
   name, `FromPath` the role a file belongs to.
 
+## internal/ee
+
+Execution-environment command builder (`design-docs/ExecutionEnvironments.md`)
+- pure, not yet wired into `runner`.
+
+- **ee.go** - `Build`: `Inputs` (config, cwd, playbook, passthrough args,
+  plugin/event dirs, ssh agent/dir, host env) to a `Plan` (podman argv,
+  extra env, mounts, warnings); mount-root choice, path mapper,
+  `ResolveSELinux`.
+- **args.go** - `rewriteArgs`: host paths in known ansible-playbook flags
+  to container paths (outside-root paths get read-only mounts).
+- **env.go** - `forwardEnv`: which host variables enter the container.
+- **smoke_test.go** - real-podman test, opt in via `TANGSIBLE_EE_IMAGE`.
+
 ## internal/source
 
 - **source.go** - `BuildTaskSourceIndex`: finds a task's own YAML
