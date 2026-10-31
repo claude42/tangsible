@@ -35,6 +35,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -255,6 +256,37 @@ func TestE2E_EE_CtrlCStopsPlaybookAndRemovesContainer(t *testing.T) {
 	s.waitFor("Playbook stopped", 20*time.Second)
 	waitNoContainers(t, 10*time.Second)
 	s.send("q")
+}
+
+// SIGTERM must take the container down with it and leave no scratch
+// directory behind (tangsible's TMPDIR is a directory of the test's own).
+func TestE2E_EE_SIGTERMRemovesContainerAndScratch(t *testing.T) {
+	image := requireEE(t)
+	tmp := t.TempDir()
+	s, pid := startSlowSession(t, tmp, "--ee", image)
+	deadline := time.Now().Add(30 * time.Second)
+	for len(tangsibleContainers(t)) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("no container appeared; pane:\n%s", s.capture())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if entries, _ := os.ReadDir(tmp); len(entries) == 0 {
+		t.Fatal("expected the event FIFO's scratch directory while the run is live")
+	}
+
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("exit=143", 30*time.Second)
+	waitNoContainers(t, 15*time.Second)
+	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("scratch files left behind: %v", names)
+	}
 }
 
 // The flags' usage errors need no TTY or container: they fail before either.

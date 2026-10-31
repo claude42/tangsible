@@ -129,6 +129,13 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   exception: `q` (not Ctrl-C) while its own F5/F10/F11 drive loop is in
   flight requests a soft stop instead of touching the real process -
   `design-docs/DebugMode.md`'s "q's own soft stop while actively driving".
+- **SIGTERM/SIGHUP** (the live session in `session.Main`): handled like
+  quitting - forward SIGINT to the child via `interruptChildAndWait` (which
+  kills an EE container if it ignores that), `app.Stop()` (repeated until
+  `Run` returns, since a `Stop` before `Run` is a no-op), then the normal
+  tail runs (saved stderr, `cleanup`) and exit is `128+signal`. Not covered:
+  the pre-flight gate before the TUI exists, and `revisit`'s own sessions
+  (it can't import `session`).
 - **Exit codes**: 99 = user interrupt (unambiguous, only tangsible sends
   SIGINT); 4 = unreachable *or* parse error, disambiguated by
   `state.HadUnreachable`. `uikit.GenuineFailure` is the shared predicate.

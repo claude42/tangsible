@@ -33,6 +33,7 @@
 - `debug`: the variable watch shows now also shows its origin
 - `debug`: vaulted values show as `<vaulted>` in the Resolved tab and the variable watch's autocomplete (the watch itself still shows them)
 - `debug`: the Resolved tab shows a task's registered value inline, as `register: name = value`
+- `run`, `rerun`, `role` and `debug` now stop the running playbook (or its container), remove their scratch files and exit 129/143 on SIGHUP/SIGTERM instead of dying on the spot and leaving both behind
 - Execution environments (`run`, `rerun`, `role`, and reruns from `revisit`; podman, Linux): `--ee <image>` / `--no-ee` and an `[execution_environment]` config table run ansible-playbook inside a container image, with the project mounted and the SSH agent forwarded; the top bar shows the image, the re-run dialog can switch it, and history remembers it
 - Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
 - `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
