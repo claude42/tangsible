@@ -404,3 +404,20 @@ func TestShortImageName(t *testing.T) {
 		}
 	}
 }
+
+func TestSSHKnownHostsMount(t *testing.T) {
+	in := base()
+	in.SSHKnownHosts = "/home/u/.ssh/known_hosts"
+	p := build(t, in)
+	if !hasPair(p.Argv, "-v", "/home/u/.ssh/known_hosts:/runner/.ssh/known_hosts:ro") {
+		t.Errorf("known_hosts not mounted read-only: %q", p.Argv)
+	}
+	// The whole directory already carries it: no nested second mount.
+	in.SSHDir = "/home/u/.ssh"
+	p = build(t, in)
+	for _, mt := range p.Mounts {
+		if mt.Container == "/runner/.ssh/known_hosts" {
+			t.Errorf("known_hosts mounted on top of the ssh dir: %v", p.Mounts)
+		}
+	}
+}

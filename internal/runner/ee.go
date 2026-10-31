@@ -204,6 +204,14 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 			}
 		}
 	}
+	if s.SSHKnownHosts && in.SSHDir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			f := filepath.Join(home, ".ssh", "known_hosts")
+			if fi, err := os.Stat(f); err == nil && fi.Mode().IsRegular() {
+				in.SSHKnownHosts = f
+			}
+		}
+	}
 	return in, nil
 }
 

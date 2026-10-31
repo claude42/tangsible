@@ -42,6 +42,7 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # selinux = "auto"            # "auto" | "disable" | "z" | "Z" | "none"
 # read_only = false           # mount the project read-only
 # ssh_agent = true            # forward $SSH_AUTH_SOCK
+# ssh_known_hosts = true      # mount just ~/.ssh/known_hosts (public host keys)
 # ssh_dir = false             # mount ~/.ssh read-only (known_hosts, config - but also your keys)
 # extra_mounts = []           # ["/host/path:/container/path:ro"]
 

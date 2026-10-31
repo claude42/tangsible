@@ -152,9 +152,10 @@ will use.\& It needs \fBpodman\fR (Linux only for now).\& Keys: \fBimage\fR (wit
 one, nothing changes), \fBengine\fR (only \fB"podman"\fR), \fBnetwork\fR (\fB"host"\fR to
 reach real remote hosts), \fBselinux\fR (\fB"auto"\fR, \fB"disable"\fR, \fB"z"\fR, \fB"Z"\fR,
 \fB"none"\fR; auto disables label separation only when SELinux is enforcing),
-\fBread_only\fR (mount the project read-only), \fBssh_agent\fR and \fBssh_dir\fR
-(forward \fB$SSH_AUTH_SOCK\fR, default true, and mount \fB~/.\&ssh\fR read-only,
-default false because it exposes private keys to the image) and \fBextra_mounts\fR (a list of \fBhost:container[:ro]\fR).\& \fB--ee\fR and
+\fBread_only\fR (mount the project read-only), \fBssh_agent\fR, \fBssh_known_hosts\fR and \fBssh_dir\fR
+(forward \fB$SSH_AUTH_SOCK\fR, default true; mount just \fB~/.\&ssh/known_hosts\fR
+read-only, default true; and mount all of \fB~/.\&ssh\fR read-only, default false
+because it exposes private keys to the image) and \fBextra_mounts\fR (a list of \fBhost:container[:ro]\fR).\& \fB--ee\fR and
 \fB--no-ee\fR override the image per invocation.\& See \fBtangsible-run\fR(1).\&
 .PP
 .SH FILES

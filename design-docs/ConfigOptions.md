@@ -135,7 +135,8 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 | `selinux` | string: `"auto"` \| `"disable"` \| `"z"` \| `"Z"` \| `"none"` | `"auto"` | auto = `disable` (`--security-opt label=disable`) only when SELinux is enforcing, `none` otherwise; `z`/`Z` relabel the project directory permanently |
 | `read_only` | bool | `false` | mount the project read-only |
 | `ssh_agent` | bool | `true` | mount `$SSH_AUTH_SOCK` into the container |
-| `ssh_dir` | bool | `false` | mount `~/.ssh` read-only (known_hosts, config). Off by default because it also exposes private keys to the image; without it, host key checking inside the container has no `known_hosts` (use `ANSIBLE_HOST_KEY_CHECKING=False`, or `extra_mounts` for just that file) |
+| `ssh_known_hosts` | bool | `true` | mount just `~/.ssh/known_hosts` read-only (public host keys only), so host-key checking behaves as on the host; skipped when `ssh_dir` is true |
+| `ssh_dir` | bool | `false` | mount `~/.ssh` read-only (known_hosts, config). Off by default because it also exposes private keys to the image |
 | `extra_mounts` | array of strings | `[]` | `"/host/path:/container/path[:ro]"`; the first tier that sets a non-empty list wins |
 
 Host `ANSIBLE_*` variables are forwarded except those holding host paths

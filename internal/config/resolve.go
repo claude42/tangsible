@@ -154,14 +154,15 @@ type SettingsConfig struct {
 	// (design-docs/ExecutionEnvironments.md); see EESettings for the
 	// defaults each key gets.
 	ExecutionEnvironment struct {
-		Image       string   `toml:"image"`
-		Engine      string   `toml:"engine"`
-		Network     string   `toml:"network"`
-		SELinux     string   `toml:"selinux"`
-		ReadOnly    *bool    `toml:"read_only"`
-		SSHAgent    *bool    `toml:"ssh_agent"`
-		SSHDir      *bool    `toml:"ssh_dir"`
-		ExtraMounts []string `toml:"extra_mounts"`
+		Image         string   `toml:"image"`
+		Engine        string   `toml:"engine"`
+		Network       string   `toml:"network"`
+		SELinux       string   `toml:"selinux"`
+		ReadOnly      *bool    `toml:"read_only"`
+		SSHAgent      *bool    `toml:"ssh_agent"`
+		SSHDir        *bool    `toml:"ssh_dir"`
+		SSHKnownHosts *bool    `toml:"ssh_known_hosts"`
+		ExtraMounts   []string `toml:"extra_mounts"`
 	} `toml:"execution_environment"`
 
 	// Colors is design-docs/ColorConfig.md's own `[colors]` table - see

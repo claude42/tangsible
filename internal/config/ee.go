@@ -9,14 +9,17 @@ import (
 // (design-docs/ExecutionEnvironments.md) with every default applied. Image
 // "" means no execution environment is configured.
 type EESettings struct {
-	Image       string
-	Engine      string
-	Network     string
-	SELinux     string // "", "disable", "z", "Z" or "none"; "" is auto
-	ReadOnly    bool
-	SSHAgent    bool
-	SSHDir      bool
-	ExtraMounts []string
+	Image    string
+	Engine   string
+	Network  string
+	SELinux  string // "", "disable", "z", "Z" or "none"; "" is auto
+	ReadOnly bool
+	SSHAgent bool
+	SSHDir   bool
+	// SSHKnownHosts mounts just ~/.ssh/known_hosts (public host keys) so
+	// host-key checking works without exposing private keys.
+	SSHKnownHosts bool
+	ExtraMounts   []string
 }
 
 // eeEngines and eeSELinuxModes are the accepted values of the two
@@ -37,6 +40,7 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 		m.ReadOnly = firstNonNil(m.ReadOnly, e.ReadOnly)
 		m.SSHAgent = firstNonNil(m.SSHAgent, e.SSHAgent)
 		m.SSHDir = firstNonNil(m.SSHDir, e.SSHDir)
+		m.SSHKnownHosts = firstNonNil(m.SSHKnownHosts, e.SSHKnownHosts)
 		if len(m.ExtraMounts) == 0 {
 			m.ExtraMounts = e.ExtraMounts
 		}
@@ -50,13 +54,14 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 func EEFromSettings(cfg SettingsConfig) EESettings {
 	e := cfg.ExecutionEnvironment
 	s := EESettings{
-		Image:       strings.TrimSpace(e.Image),
-		Engine:      "podman",
-		Network:     e.Network,
-		ReadOnly:    e.ReadOnly != nil && *e.ReadOnly,
-		SSHAgent:    e.SSHAgent == nil || *e.SSHAgent,
-		SSHDir:      e.SSHDir != nil && *e.SSHDir,
-		ExtraMounts: e.ExtraMounts,
+		Image:         strings.TrimSpace(e.Image),
+		Engine:        "podman",
+		Network:       e.Network,
+		ReadOnly:      e.ReadOnly != nil && *e.ReadOnly,
+		SSHAgent:      e.SSHAgent == nil || *e.SSHAgent,
+		SSHDir:        e.SSHDir != nil && *e.SSHDir,
+		SSHKnownHosts: e.SSHKnownHosts == nil || *e.SSHKnownHosts,
+		ExtraMounts:   e.ExtraMounts,
 	}
 	if eng := strings.ToLower(e.Engine); containsString(eeEngines, eng) {
 		s.Engine = eng

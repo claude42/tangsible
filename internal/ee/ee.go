@@ -62,12 +62,15 @@ type Inputs struct {
 	PluginDir string
 	EventDir  string
 	EventFile string
-	// SSHAuthSock and SSHDir are mounted when non-empty; SSHDir read-only.
-	SSHAuthSock string
-	SSHDir      string
-	HostEnv     []string // os.Environ()
-	ExtraEnv    []string // NAME=value set in the container (colors, json indent)
-	Name        string   // container name, for a fallback kill
+	// SSHAuthSock, SSHDir and SSHKnownHosts are mounted when non-empty
+	// (the last two read-only). SSHKnownHosts is a single file, only
+	// the public host keys, and is left out when SSHDir covers it.
+	SSHAuthSock   string
+	SSHDir        string
+	SSHKnownHosts string
+	HostEnv       []string // os.Environ()
+	ExtraEnv      []string // NAME=value set in the container (colors, json indent)
+	Name          string   // container name, for a fallback kill
 	// Exists reports whether a host path exists; nil means os.Stat.
 	Exists func(string) bool
 }
@@ -160,6 +163,9 @@ func Build(in Inputs) (*Plan, error) {
 	}
 	if in.SSHDir != "" {
 		p.Mounts = append(p.Mounts, Mount{Host: in.SSHDir, Container: ContainerHome + "/.ssh", ReadOnly: true})
+	}
+	if in.SSHKnownHosts != "" && in.SSHDir == "" {
+		p.Mounts = append(p.Mounts, Mount{Host: in.SSHKnownHosts, Container: ContainerHome + "/.ssh/known_hosts", ReadOnly: true})
 	}
 	if in.SSHAuthSock != "" {
 		p.Mounts = append(p.Mounts, Mount{Host: in.SSHAuthSock, Container: ContainerSock})
