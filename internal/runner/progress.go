@@ -70,7 +70,6 @@ package runner
 
 import (
 	"bytes"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -211,9 +210,11 @@ func BuildProgressSkeleton(playbook string, passthroughArgs []string) []Progress
 // every other caller treats a failed probe as silently tolerable and
 // has no use for the extra return value.
 func BuildProgressSkeletonVerbose(playbook string, passthroughArgs []string) (entries []ProgressEntry, stderrText string) {
-	args := append([]string{playbook}, passthroughArgs...)
-	args = append(args, "--list-tasks", "--list-hosts")
-	cmd := exec.Command("ansible-playbook", args...)
+	args := append(append([]string{}, passthroughArgs...), "--list-tasks", "--list-hosts")
+	cmd, err := NewToolCommand("ansible-playbook", args, ToolOptions{Playbook: playbook})
+	if err != nil {
+		return nil, err.Error()
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

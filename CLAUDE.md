@@ -320,6 +320,21 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   redo/continue/step - only valid while the current selection is exactly
   the live pause (`debugIsPaused`), since that's the only task/host
   `task_vars` exists for right now.
+- **Execution environments** (`ExecutionEnvironments.md`): `run`/`rerun`/
+  `role` (and a rerun from `revisit`) run in a podman container when
+  `[execution_environment]` or `--ee` names an image (`--no-ee` forces the
+  host); `debug` rejects it. `internal/ee.Build` is pure; `runner/ee.go`
+  owns the active setting, the image pull (before any TUI) and the
+  per-generation event FIFO (opened non-blocking plus a held write end
+  that closes when the engine's stderr ends - never rely on the fd
+  transport, it can't cross the container boundary). **Identity mounts:**
+  the project and every path an argument names are mounted at their own
+  host path, never translated, because event `task.path`, saved logs and
+  the source index must agree with the host. **Every** spawn of an ansible
+  tool for display purposes (probe, `ansible-doc`, stubs, `python3`) goes
+  through `runner.NewToolCommand` so it follows the active EE - a new one
+  must too. `--userns=keep-id` alone makes the *project dir* the user's
+  home (overriding `-e HOME`); `--passwd-entry` pins it.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

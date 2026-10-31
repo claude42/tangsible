@@ -56,8 +56,8 @@ func TestBuildMinimal(t *testing.T) {
 	p := build(t, in)
 	want := []string{"run", "--rm", "-i", "--name", "tgs-1", "--userns=keep-id",
 		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:/runner:/bin/sh",
-		"-w", "/runner/project", "-v", "/home/u/proj:/runner/project",
-		"img:1", "ansible-playbook", "/runner/project/site.yml"}
+		"-w", "/home/u/proj", "-v", "/home/u/proj:/home/u/proj",
+		"img:1", "ansible-playbook", "site.yml"}
 	if !reflect.DeepEqual(p.Argv, want) {
 		t.Errorf("argv = %q\nwant   %q", p.Argv, want)
 	}
@@ -65,12 +65,13 @@ func TestBuildMinimal(t *testing.T) {
 
 func TestBuildErrors(t *testing.T) {
 	cases := map[string]func(*Inputs){
-		"engine":   func(in *Inputs) { in.Engine = "docker" },
-		"no image": func(in *Inputs) { in.Image = "" },
-		"selinux":  func(in *Inputs) { in.SELinux = "maybe" },
-		"relative": func(in *Inputs) { in.Cwd = "proj" },
-		"mount":    func(in *Inputs) { in.ExtraMounts = []string{"nocolon"} },
-		"mount ro": func(in *Inputs) { in.ExtraMounts = []string{"/a:/b:zz"} },
+		"engine":     func(in *Inputs) { in.Engine = "docker" },
+		"no image":   func(in *Inputs) { in.Image = "" },
+		"selinux":    func(in *Inputs) { in.SELinux = "maybe" },
+		"relative":   func(in *Inputs) { in.Cwd = "proj" },
+		"mount":      func(in *Inputs) { in.ExtraMounts = []string{"nocolon"} },
+		"mount ro":   func(in *Inputs) { in.ExtraMounts = []string{"/a:/b:zz"} },
+		"system dir": func(in *Inputs) { in.Cwd = "/usr/share/proj" },
 		"no common dir": func(in *Inputs) {
 			in.Cwd = "/home/u/proj"
 			in.Playbook = "/srv/site.yml"
@@ -87,27 +88,64 @@ func TestBuildErrors(t *testing.T) {
 
 func TestMountRoot(t *testing.T) {
 	cases := []struct {
-		name, cwd, playbook, root, workdir, pb string
+		name, cwd, playbook, root string
 	}{
-		{"playbook in cwd", "/h/p", "site.yml", "/h/p", "/runner/project", "/runner/project/site.yml"},
-		{"playbook in subdir", "/h/p", "pb/site.yml", "/h/p", "/runner/project", "/runner/project/pb/site.yml"},
-		{"playbook above cwd", "/h/p/sub", "../site.yml", "/h/p", "/runner/project/sub", "/runner/project/site.yml"},
-		{"sibling dir", "/h/p/a", "../b/site.yml", "/h/p", "/runner/project/a", "/runner/project/b/site.yml"},
-		{"absolute playbook", "/h/p", "/h/p/x/site.yml", "/h/p", "/runner/project", "/runner/project/x/site.yml"},
+		{"playbook in cwd", "/h/p", "site.yml", "/h/p"},
+		{"playbook in subdir", "/h/p", "pb/site.yml", "/h/p"},
+		{"playbook above cwd", "/h/p/sub", "../site.yml", "/h/p"},
+		{"sibling dir", "/h/p/a", "../b/site.yml", "/h/p"},
+		{"absolute playbook", "/h/p", "/h/p/x/site.yml", "/h/p"},
+		{"playbook above, absolute", "/h/p/a/b", "/h/q/site.yml", "/h"},
 	}
 	for _, c := range cases {
 		in := base()
 		in.Cwd, in.Playbook = c.cwd, c.playbook
 		p := build(t, in)
-		if p.Mounts[0].Host != c.root {
-			t.Errorf("%s: root = %s, want %s", c.name, p.Mounts[0].Host, c.root)
+		// The root is mounted at its own path, and the working directory
+		// and the playbook argument stay exactly as given.
+		if want := (Mount{Host: c.root, Container: c.root}); p.Mounts[0] != want {
+			t.Errorf("%s: root mount = %+v, want %+v", c.name, p.Mounts[0], want)
 		}
-		if p.Workdir != c.workdir {
-			t.Errorf("%s: workdir = %s, want %s", c.name, p.Workdir, c.workdir)
+		if p.Workdir != c.cwd {
+			t.Errorf("%s: workdir = %s, want %s", c.name, p.Workdir, c.cwd)
 		}
-		if got := tail(p)[1]; got != c.pb {
-			t.Errorf("%s: playbook = %s, want %s", c.name, got, c.pb)
+		if got := tail(p)[1]; got != c.playbook {
+			t.Errorf("%s: playbook = %s, want %s", c.name, got, c.playbook)
 		}
+	}
+}
+
+func TestCommandAndScratch(t *testing.T) {
+	in := base()
+	in.Command = "ansible-doc"
+	in.Args = []string{"ansible.builtin.copy"}
+	p := build(t, in)
+	if got := tail(p); got != nil {
+		t.Errorf("found ansible-playbook in %q", p.Argv)
+	}
+	if n := len(p.Argv); p.Argv[n-2] != "ansible-doc" || p.Argv[n-1] != "ansible.builtin.copy" {
+		t.Errorf("argv tail = %q", p.Argv[len(p.Argv)-3:])
+	}
+
+	// A stub playbook in a scratch dir needs no further mount; the dir is
+	// mounted read-write at its own path.
+	in = base()
+	in.Scratch = []string{"/tmp/tangsible-resolve-1"}
+	in.Playbook = "/tmp/tangsible-resolve-1/stub.yml"
+	in.Args = []string{"--extra-vars", "@/tmp/tangsible-resolve-1/vars.json"}
+	in.Exists = existsIn("/tmp/tangsible-resolve-1/stub.yml", "/tmp/tangsible-resolve-1/vars.json")
+	p = build(t, in)
+	if !hasPair(p.Argv, "-v", "/tmp/tangsible-resolve-1:/tmp/tangsible-resolve-1") {
+		t.Errorf("scratch not mounted rw: %q", p.Argv)
+	}
+	mounts := 0
+	for _, mt := range p.Mounts {
+		if strings.HasPrefix(mt.Host, "/tmp/") {
+			mounts++
+		}
+	}
+	if mounts != 1 || len(p.Warnings) != 0 {
+		t.Errorf("mounts = %v, warnings = %q", p.Mounts, p.Warnings)
 	}
 }
 
@@ -124,12 +162,12 @@ func TestReadOnlyProject(t *testing.T) {
 	in := base()
 	in.ReadOnly = true
 	p := build(t, in)
-	if !hasPair(p.Argv, "-v", "/home/u/proj:/runner/project:ro") {
+	if !hasPair(p.Argv, "-v", "/home/u/proj:/home/u/proj:ro") {
 		t.Errorf("argv = %q", p.Argv)
 	}
 }
 
-func TestArgRewriting(t *testing.T) {
+func TestArgMounting(t *testing.T) {
 	in := base()
 	in.Playbook = "site.yml"
 	in.Exists = existsIn(
@@ -148,36 +186,30 @@ func TestArgRewriting(t *testing.T) {
 		"-t", "tag", "-vvv", "--check",
 	}
 	p := build(t, in)
-	got := tail(p)[2:]
-	// Outside paths get ordered read-only mounts: ini=1, vault=2, key=3.
-	exp := []string{
-		"-i", "/runner/project/inv/hosts,localhost,/runner/ext/1/outside.ini",
-		"--inventory=localhost,",
-		"-e", "@/runner/project/vars.yml", "-e", "k=v", "-e@/runner/project/vars.yml",
-		"--extra-vars=@/runner/ext/2/vault.txt",
-		"--vault-password-file", "/runner/ext/2/vault.txt",
-		"--private-key=/runner/ext/3/key",
-		"-M", "/runner/project/lib:/nonexistent",
-		"--limit", "@/runner/project/vars.yml", "--limit", "web",
-		"--vault-id", "dev@/runner/ext/2/vault.txt", "--vault-id", "@prompt",
-		"-t", "tag", "-vvv", "--check",
+	// Paths are never rewritten...
+	if got := tail(p)[2:]; !reflect.DeepEqual(got, in.Args) {
+		t.Errorf("args changed:\n%q\nwant\n%q", got, in.Args)
 	}
-	if !reflect.DeepEqual(got, exp) {
-		t.Errorf("args =\n%q\nwant\n%q", got, exp)
-	}
+	// ...only the ones outside the project root are mounted, read-only, at
+	// their own path, in order of first use and once each.
 	var ext []Mount
-	for _, mt := range p.Mounts {
-		if strings.HasPrefix(mt.Container, "/runner/ext/") {
-			ext = append(ext, mt)
-		}
+	for _, mt := range p.Mounts[1:] {
+		ext = append(ext, mt)
 	}
 	wantExt := []Mount{
-		{"/etc/ans/outside.ini", "/runner/ext/1/outside.ini", true},
-		{"/home/u/vault.txt", "/runner/ext/2/vault.txt", true},
-		{"/home/u/key", "/runner/ext/3/key", true},
+		{"/etc/ans/outside.ini", "/etc/ans/outside.ini", true},
+		{"/home/u/vault.txt", "/home/u/vault.txt", true},
+		{"/home/u/key", "/home/u/key", true},
 	}
 	if !reflect.DeepEqual(ext, wantExt) {
 		t.Errorf("ext mounts = %v, want %v", ext, wantExt)
+	}
+	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "/nonexistent") {
+		// -M lib:/nonexistent: the missing entry is a plain list entry,
+		// left alone silently; nothing else may warn.
+		if len(p.Warnings) != 0 {
+			t.Errorf("warnings = %q", p.Warnings)
+		}
 	}
 }
 
@@ -185,7 +217,7 @@ func TestArgRewritingEdgeCases(t *testing.T) {
 	in := base()
 	in.Exists = existsIn()
 	in.Args = []string{
-		"--private-key", "/missing/key", // outside, absent: unchanged + warning
+		"--private-key", "/missing/key", // outside, absent: warning
 		"--vault-password-file=~/pw", // tilde: unchanged + warning
 		"/abs/looks/like/path",       // stray absolute arg: warning
 		"--tags=/odd",                // unknown flag with path-ish value: warning
@@ -261,11 +293,11 @@ func TestNetworkAndSELinux(t *testing.T) {
 		wantOpt  bool
 		rootSpec string
 	}{
-		{"", false, "/home/u/proj:/runner/project"},
-		{"none", false, "/home/u/proj:/runner/project"},
-		{"disable", true, "/home/u/proj:/runner/project"},
-		{"z", false, "/home/u/proj:/runner/project:z"},
-		{"Z", false, "/home/u/proj:/runner/project:Z"},
+		{"", false, "/home/u/proj:/home/u/proj"},
+		{"none", false, "/home/u/proj:/home/u/proj"},
+		{"disable", true, "/home/u/proj:/home/u/proj"},
+		{"z", false, "/home/u/proj:/home/u/proj:z"},
+		{"Z", false, "/home/u/proj:/home/u/proj:Z"},
 	}
 	for _, c := range cases {
 		in := base()
@@ -285,7 +317,7 @@ func TestNetworkAndSELinux(t *testing.T) {
 	in := base()
 	in.SELinux = "Z"
 	in.ReadOnly = true
-	if !hasPair(build(t, in).Argv, "-v", "/home/u/proj:/runner/project:ro,Z") {
+	if !hasPair(build(t, in).Argv, "-v", "/home/u/proj:/home/u/proj:ro,Z") {
 		t.Error("ro,Z combination missing")
 	}
 }

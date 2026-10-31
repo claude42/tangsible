@@ -27,12 +27,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
@@ -102,13 +103,15 @@ func fetchRemoteFileContents(remotePath, host string, rest []string) (string, er
 		return "", fmt.Errorf("run used an interactive credential prompt")
 	}
 
-	outFile, err := os.CreateTemp("", "tangsible-fetch-out-*")
+	// One scratch directory for the stub and the fetched file, so an
+	// execution environment run can mount just it (read-write: the fetch
+	// writes dest from inside the container).
+	tmpDir, err := os.MkdirTemp("", "tangsible-fetch-*")
 	if err != nil {
 		return "", err
 	}
-	destPath := outFile.Name()
-	outFile.Close()
-	defer os.Remove(destPath)
+	defer os.RemoveAll(tmpDir)
+	destPath := filepath.Join(tmpDir, "out")
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "- hosts: %s\n", host)
@@ -121,23 +124,20 @@ func fetchRemoteFileContents(remotePath, host string, rest []string) (string, er
 	fmt.Fprintf(&b, "        dest: %s\n", destPath)
 	b.WriteString("        flat: true\n")
 
-	stubFile, err := os.CreateTemp("", "tangsible-fetch-stub-*.yml")
+	stubPath := filepath.Join(tmpDir, "stub.yml")
+	if err := os.WriteFile(stubPath, []byte(b.String()), 0o600); err != nil {
+		return "", err
+	}
+
+	// Our own callback plugin (events arrive on stdout when no event fd is
+	// set), not ansible.posix.jsonl: an execution environment image need
+	// not ship that collection.
+	cmd, err := runner.NewToolCommand("ansible-playbook", rest, runner.ToolOptions{
+		Playbook: stubPath, Scratch: []string{tmpDir}, Plugin: true,
+	})
 	if err != nil {
 		return "", err
 	}
-	stubPath := stubFile.Name()
-	defer os.Remove(stubPath)
-	if _, err := stubFile.WriteString(b.String()); err != nil {
-		stubFile.Close()
-		return "", err
-	}
-	stubFile.Close()
-
-	cmd := exec.Command("ansible-playbook", append([]string{stubPath}, rest...)...)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl",
-		"ANSIBLE_JSON_INDENT=0",
-	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()

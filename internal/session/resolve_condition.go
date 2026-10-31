@@ -37,11 +37,12 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"code.aw.net/claude/tangsible/internal/runner"
 )
 
 //go:embed resolve_condition.py
@@ -205,7 +206,10 @@ func resolveConditionExprs(snapshot json.RawMessage, exprs []string) ([]string, 
 		return nil, err
 	}
 
-	cmd := exec.Command("python3", "-c", resolveConditionScript)
+	cmd, err := runner.NewToolCommand("python3", []string{"-c", resolveConditionScript}, runner.ToolOptions{})
+	if err != nil {
+		return nil, err
+	}
 	cmd.Stdin = bytes.NewReader(reqJSON)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -474,7 +474,7 @@ and should best be gitignored.
 Tangsible is currently aimed at the common interactive use case rather than
 complete `ansible-playbook` feature parity.
 
-- **Execution environments** (see "Running in an execution environment") work with podman on Linux for `run`/`rerun`/`role` only; docker, macOS and `debug` are not supported yet, and the File/Resolved/Docs tabs and the progress estimate still use the host's ansible. **ansible-runner** is not supported.
+- **Execution environments** (see "Running in an execution environment") work with podman on Linux for `run`/`rerun`/`role` only; docker, macOS and `debug` are not supported yet, **ansible-runner** is not supported.
 - **Interactive input after the TUI starts is not supported** in `run`/`rerun`/`role`. For example, a bare pause: task does not wait for input, and `--step` will not work. (`tangsible debug` is the dedicated way to drive ansible-core's own task debugger - see "Debugging a playbook" above; it isn't available from inside the regular live tree.)
   
   Timed pauses work normally.

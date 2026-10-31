@@ -125,10 +125,6 @@ var activeContainer atomic.Pointer[string]
 // newEERun builds the engine command for one generation and its event
 // FIFO. args are the full ansible-playbook arguments (including --diff).
 func newEERun(s *config.EESettings, playbook string, args []string) (*eeRun, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
 	pluginDir, err := ResolveCallbackPluginDir()
 	if err != nil {
 		return nil, err
@@ -140,6 +136,41 @@ func newEERun(s *config.EESettings, playbook string, args []string) (*eeRun, err
 	run := &eeRun{events: reader, holder: holder, dir: dir,
 		name: fmt.Sprintf("tangsible-%d-%d", os.Getpid(), containerSeq.Add(1))}
 
+	in, err := baseEEInputs(s)
+	if err != nil {
+		run.abort()
+		return nil, err
+	}
+	in.Playbook = playbook
+	in.Args = args
+	in.PluginDir = pluginDir
+	in.EventDir = dir
+	in.EventFile = "events"
+	in.ExtraEnv = append(forceColorEnv(), "ANSIBLE_JSON_INDENT=0")
+	in.Name = run.name
+	plan, err := ee.Build(in)
+	if err != nil {
+		run.abort()
+		return nil, err
+	}
+	for _, w := range plan.Warnings {
+		config.QueueWarning("tangsible: execution environment: " + w)
+	}
+	run.cmd = exec.Command(plan.Engine, plan.Argv...)
+	run.cmd.Env = append(os.Environ(), plan.Env...)
+	name := run.name
+	activeContainer.Store(&name)
+	return run, nil
+}
+
+// baseEEInputs fills in what every container invocation shares: the
+// working directory, the engine settings, the SSH agent socket and
+// (opt-in) ~/.ssh, and the host environment.
+func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ee.Inputs{}, err
+	}
 	in := ee.Inputs{
 		Config: ee.Config{
 			Image:       s.Image,
@@ -149,15 +180,8 @@ func newEERun(s *config.EESettings, playbook string, args []string) (*eeRun, err
 			SELinux:     ee.ResolveSELinux(s.SELinux, ee.SELinuxEnforcing(selinuxEnforcePath)),
 			ReadOnly:    s.ReadOnly,
 		},
-		Cwd:       cwd,
-		Playbook:  playbook,
-		Args:      args,
-		PluginDir: pluginDir,
-		EventDir:  dir,
-		EventFile: "events",
-		HostEnv:   os.Environ(),
-		ExtraEnv:  append(forceColorEnv(), "ANSIBLE_JSON_INDENT=0"),
-		Name:      run.name,
+		Cwd:     cwd,
+		HostEnv: os.Environ(),
 	}
 	if s.SSHAgent {
 		if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
@@ -174,19 +198,75 @@ func newEERun(s *config.EESettings, playbook string, args []string) (*eeRun, err
 			}
 		}
 	}
+	return in, nil
+}
+
+// ToolOptions describe one short-lived ansible tool run for NewToolCommand.
+type ToolOptions struct {
+	// Playbook, if set, is the first argument (ansible-playbook's
+	// playbook); it is separate from args so a container run can make it
+	// reachable.
+	Playbook string
+	// Scratch are host directories the tool reads from and writes to
+	// (stub playbooks, outputs); in a container they are mounted
+	// read-write at the same path.
+	Scratch []string
+	// Plugin loads the callback plugin, whose events then arrive on the
+	// tool's stdout (there is no event fd/FIFO for a one-shot run).
+	Plugin bool
+	// Env is extra NAME=value for the tool.
+	Env []string
+}
+
+// NewToolCommand builds the command for a one-shot run of an ansible tool
+// (ansible-playbook for a probe or stub, ansible-doc, python3 with ansible
+// importable) - on the host, or in the active execution environment so the
+// answer describes the same ansible, collections and Python the real run
+// used. The caller sets Stdin/Stdout/Stderr and runs it.
+func NewToolCommand(binary string, args []string, o ToolOptions) (*exec.Cmd, error) {
+	s := ExecutionEnvironment()
+	if s == nil {
+		argv := args
+		if o.Playbook != "" {
+			argv = append([]string{o.Playbook}, args...)
+		}
+		cmd := exec.Command(binary, argv...)
+		cmd.Env = os.Environ()
+		if o.Plugin {
+			pluginEnv, err := CallbackPluginEnv()
+			if err != nil {
+				return nil, err
+			}
+			cmd.Env = append(cmd.Env, pluginEnv...)
+		}
+		cmd.Env = append(cmd.Env, o.Env...)
+		return cmd, nil
+	}
+	in, err := baseEEInputs(s)
+	if err != nil {
+		return nil, err
+	}
+	in.Command = binary
+	in.Playbook = o.Playbook
+	in.Args = args
+	in.Scratch = o.Scratch
+	in.ExtraEnv = o.Env
+	if o.Plugin {
+		if in.PluginDir, err = ResolveCallbackPluginDir(); err != nil {
+			return nil, err
+		}
+		in.ExtraEnv = append([]string{"ANSIBLE_JSON_INDENT=0"}, o.Env...)
+	}
 	plan, err := ee.Build(in)
 	if err != nil {
-		run.abort()
 		return nil, err
 	}
 	for _, w := range plan.Warnings {
 		config.QueueWarning("tangsible: execution environment: " + w)
 	}
-	run.cmd = exec.Command(plan.Engine, plan.Argv...)
-	run.cmd.Env = append(os.Environ(), plan.Env...)
-	name := run.name
-	activeContainer.Store(&name)
-	return run, nil
+	cmd := exec.Command(plan.Engine, plan.Argv...)
+	cmd.Env = append(os.Environ(), plan.Env...)
+	return cmd, nil
 }
 
 // KillActiveContainer force-stops the most recent generation's container,

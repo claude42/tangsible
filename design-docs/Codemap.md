@@ -116,8 +116,9 @@ Execution-environment command builder (`design-docs/ExecutionEnvironments.md`)
   plugin/event dirs, ssh agent/dir, host env) to a `Plan` (podman argv,
   extra env, mounts, warnings); mount-root choice, path mapper,
   `ResolveSELinux`.
-- **args.go** - `rewriteArgs`: host paths in known ansible-playbook flags
-  to container paths (outside-root paths get read-only mounts).
+- **args.go** - `rewriteArgs`: finds the host paths in known
+  ansible-playbook flags so they get mounted (at their own path; the
+  arguments themselves are unchanged).
 - **env.go** - `forwardEnv`: which host variables enter the container.
 - **smoke_test.go** - real-podman test, opt in via `TANGSIBLE_EE_IMAGE`.
 
@@ -227,6 +228,7 @@ run/rerun/role session and by revisit's own rerun.
 - **ee.go** - execution-environment mode: the process-wide active
   setting, `EnsureImage` (pull before the TUI), the per-generation event
   FIFO and engine command (`newEERun`, built by `internal/ee`),
+  `NewToolCommand` (every one-shot ansible tool run, host or EE),
   `KillActiveContainer`.
 - **progress.go** - `ProgressTracker`: the "Task x/y" top-bar progress
   indicator, predicted from a throwaway `--list-tasks --list-hosts`

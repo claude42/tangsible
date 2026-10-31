@@ -10,20 +10,21 @@ package ee
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 )
 
-// Fixed container-side layout. /runner/project is where the project is
-// mounted (what ansible-navigator users expect); the rest sits beside it.
+// Fixed container-side layout for what tangsible itself adds. User files
+// are never moved: the project and every other path an argument names are
+// mounted at their own host path, so the paths ansible reports (task.path
+// in events, saved run logs, playbook_dir, stub playbooks' absolute
+// references) mean the same thing on both sides - see "Identity mounts" in
+// design-docs/ExecutionEnvironments.md.
 const (
-	ContainerRoot   = "/runner/project"
 	ContainerPlugin = "/runner/plugin"
 	ContainerEvents = "/runner/events"
 	ContainerHome   = "/runner"
 	ContainerSock   = "/runner/ssh-agent.sock"
-	containerExt    = "/runner/ext"
 )
 
 // DefaultEngine is the only engine supported so far.
@@ -46,9 +47,16 @@ type Config struct {
 // agent, should ~/.ssh be mounted) and passes plain values.
 type Inputs struct {
 	Config
-	Cwd      string   // host working directory, absolute
-	Playbook string   // host path, "" if there is none (e.g. --version)
+	Cwd string // host working directory, absolute
+	// Command is the program to run in the container; "" means
+	// ansible-playbook. Playbook is the host path handed to it first, ""
+	// if there is none (e.g. --version, or ansible-doc).
+	Command  string
+	Playbook string
 	Args     []string // passthrough args, host paths as the user typed them
+	// Scratch are directories (stub playbooks, outputs) mounted read-write
+	// at their own path; paths inside them need no further mapping.
+	Scratch []string
 	// PluginDir holds the callback plugin; EventDir is a writable scratch
 	// directory holding the event FIFO named EventFile.
 	PluginDir string
@@ -111,19 +119,38 @@ func Build(in Inputs) (*Plan, error) {
 		exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
 	}
 
+	// The root is where cwd and the playbook meet - unless the playbook is
+	// a stub inside a scratch directory, which is mounted by itself and
+	// must not pull the project root up towards /.
 	root := filepath.Clean(in.Cwd)
 	if in.Playbook != "" {
-		pbDir := filepath.Dir(absPath(in.Cwd, in.Playbook))
-		root = commonAncestor(root, pbDir)
+		pb := absPath(in.Cwd, in.Playbook)
+		inScratch := false
+		for _, d := range in.Scratch {
+			if d = filepath.Clean(d); pb == d || strings.HasPrefix(pb, d+string(filepath.Separator)) {
+				inScratch = true
+			}
+		}
+		if !inScratch {
+			root = commonAncestor(root, filepath.Dir(pb))
+		}
 	}
 	if root == string(filepath.Separator) {
 		return nil, fmt.Errorf("execution environment: %s and the working directory %s share no directory below /; run from a common parent", in.Playbook, in.Cwd)
 	}
+	if d := systemDir(root); d != "" {
+		return nil, fmt.Errorf("execution environment: the project directory %s lies inside %s, which the image needs for itself; run from elsewhere", root, d)
+	}
 
 	p := &Plan{Engine: engine}
 	m := &mapper{cwd: in.Cwd, root: root, exists: exists, plan: p}
-	p.Mounts = append(p.Mounts, Mount{Host: root, Container: ContainerRoot, ReadOnly: in.ReadOnly})
-	p.Workdir = m.inside(filepath.Clean(in.Cwd))
+	p.Mounts = append(p.Mounts, Mount{Host: root, Container: root, ReadOnly: in.ReadOnly})
+	p.Workdir = filepath.Clean(in.Cwd)
+	for _, d := range in.Scratch {
+		d = filepath.Clean(d)
+		m.scratch = append(m.scratch, d)
+		p.Mounts = append(p.Mounts, Mount{Host: d, Container: d})
+	}
 
 	if in.PluginDir != "" {
 		p.Mounts = append(p.Mounts, Mount{Host: in.PluginDir, Container: ContainerPlugin, ReadOnly: true})
@@ -191,7 +218,11 @@ func Build(in Inputs) (*Plan, error) {
 	for _, kv := range p.Env {
 		argv = append(argv, "-e", kv[:strings.IndexByte(kv, '=')])
 	}
-	argv = append(argv, in.Image, "ansible-playbook")
+	command := in.Command
+	if command == "" {
+		command = "ansible-playbook"
+	}
+	argv = append(argv, in.Image, command)
 	if playbook != "" {
 		argv = append(argv, playbook)
 	}
@@ -277,61 +308,66 @@ func commonAncestor(a, b string) string {
 	return strings.Join(out, string(filepath.Separator))
 }
 
-// mapper turns host paths into container paths: inside the mount root by
-// relative position, outside it through a dedicated read-only mount.
+// systemDir returns the system directory path lies in or is, "" if none:
+// mounting a project over one of these would replace what the image runs
+// from.
+func systemDir(path string) string {
+	for _, d := range []string{"/usr", "/etc", "/bin", "/sbin", "/lib", "/lib64", "/proc", "/sys", "/dev", "/run", "/runner"} {
+		if path == d || strings.HasPrefix(path, d+"/") {
+			return d
+		}
+	}
+	return ""
+}
+
+// mapper makes the paths an invocation names available in the container.
+// Paths are never rewritten: one inside the project root or a scratch
+// directory is already mounted, one outside gets its own read-only mount at
+// its own path.
 type mapper struct {
 	cwd, root string
+	scratch   []string
 	exists    func(string) bool
 	plan      *Plan
-	ext       map[string]string
+	mounted   map[string]bool
 }
 
-func (m *mapper) within(abs string) (string, bool) {
-	rel, err := filepath.Rel(m.root, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
+func (m *mapper) covered(abs string) bool {
+	for _, d := range append([]string{m.root}, m.scratch...) {
+		if abs == d || strings.HasPrefix(abs, d+string(filepath.Separator)) {
+			return true
+		}
 	}
-	return rel, true
+	return false
 }
 
-func (m *mapper) inside(abs string) string {
-	rel, _ := m.within(abs)
-	if rel == "." {
-		return ContainerRoot
-	}
-	return path.Join(ContainerRoot, filepath.ToSlash(rel))
-}
-
-// translate maps a host path the user typed. A path outside the root that
-// doesn't exist is left alone (and warned about): mounting it would make
-// the engine fail before ansible could report the real problem.
+// translate ensures the host path p, as the user typed it, is reachable
+// and returns it unchanged. A path outside the root that doesn't exist is
+// left alone (and warned about): mounting it would make the engine fail
+// before ansible could report the real problem.
 func (m *mapper) translate(p string) string {
 	if strings.HasPrefix(p, "~") {
 		m.plan.Warnings = append(m.plan.Warnings, fmt.Sprintf("%s starts with ~ and can't be mapped; passed through unchanged", p))
 		return p
 	}
 	abs := absPath(m.cwd, p)
-	if _, ok := m.within(abs); ok {
-		return m.inside(abs)
+	if m.covered(abs) || m.mounted[abs] {
+		return p
 	}
 	if !m.exists(abs) {
 		m.plan.Warnings = append(m.plan.Warnings, fmt.Sprintf("%s does not exist; passed through unchanged", p))
 		return p
 	}
-	if c, ok := m.ext[abs]; ok {
-		return c
+	if m.mounted == nil {
+		m.mounted = map[string]bool{}
 	}
-	if m.ext == nil {
-		m.ext = map[string]string{}
-	}
-	c := fmt.Sprintf("%s/%d/%s", containerExt, len(m.ext)+1, filepath.Base(abs))
-	m.ext[abs] = c
-	m.plan.Mounts = append(m.plan.Mounts, Mount{Host: abs, Container: c, ReadOnly: true})
-	return c
+	m.mounted[abs] = true
+	m.plan.Mounts = append(m.plan.Mounts, Mount{Host: abs, Container: abs, ReadOnly: true})
+	return p
 }
 
-// translateExisting maps p only if it is an existing host path (a list
-// entry that may instead be a hostname or pattern).
+// translateExisting is translate for a list entry that may instead be a
+// hostname or pattern: only an existing path is touched.
 func (m *mapper) translateExisting(p string) string {
 	if p == "" || strings.HasPrefix(p, "~") || !m.exists(absPath(m.cwd, p)) {
 		return p
