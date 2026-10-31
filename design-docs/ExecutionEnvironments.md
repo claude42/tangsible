@@ -2,7 +2,7 @@
 
 ## Status
 
-**Investigated, not decided, nothing built.** Originated from a question
+**Decided (see "Decisions" below), nothing built.** Originated from a question
 about whether Tangsible should interface with `ansible-runner`
 (`OwnCallbackPlugin.md` was the trigger - see "Why this isn't
 `ansible-runner` support" below for how the two got untangled). The real
@@ -18,6 +18,132 @@ invocation code (`ansible_runner/config/_base.py`,
 `wrap_args_for_containerization`), not from memory - the same
 live-spike-before-writing-conclusions discipline `OwnCallbackPlugin.md`
 uses.
+
+## Decisions
+
+Settled in discussion after the investigation below. Where they conflict
+with the investigation text, this section wins - the investigation was
+written before the clean-room plugin (`OwnCallbackPlugin.md`) existed
+and still assumes `ansible.posix.jsonl` on stdout. Today's plugin
+(`callback/tangsible_events.py`) has *only* an fd sink
+(`TANGSIBLE_EVENT_FD`), so there is no stdout-jsonl mode to fall back to
+without building one.
+
+- **Platform:** Linux only for now. macOS (engine in a VM, so FIFO and
+  `SSH_AUTH_SOCK` mounts are unreliable) is out of scope.
+- **Engine:** podman only in v1. The command builder takes the engine as
+  a parameter so docker (`--user` instead of `--userns=keep-id`, other
+  group/IPC flags) is a small later delta. `engine` accepts only
+  `"podman"`; anything else warns and falls back, saying docker isn't
+  supported yet.
+- **Event transport:** a FIFO in a bind-mounted scratch dir, named to the
+  plugin via a new `TANGSIBLE_EVENT_FILE=<container path>` (plugin opens
+  it instead of using an fd). Same mechanism for any engine; keeps stdout
+  free, so the `o` view and the user's own stdout callback keep working.
+  Fallback if the spike shows FIFOs misbehaving: a plugin stdout-jsonl
+  mode (costs the `o` view in EE mode). `--preserve-fds` (podman-only) was
+  considered and rejected as non-portable to docker.
+- **Verbs:** `run`, `rerun`, `role` in v1. `revisit` needs no EE support
+  itself, but a rerun started from inside revisit must work. `debug`
+  rejects EE mode with a clear message in v1 (like its `--step`
+  rejection), but is wanted later - see below. `host`/`template` stay
+  host-only.
+- **Side processes** (progress probe, `ansible-doc`, File/Resolved tabs,
+  start-with-play, `role` stub) run in the same EE, otherwise the tabs
+  describe the host's collections rather than the EE's.
+- **Rerun from revisit:** the EE image is recorded in the run's history
+  entry; a rerun defaults to it, shown editable in the rerun dialog
+  (clearable to run on the host).
+- **Mounts:** nearest common ancestor of playbook, inventory and roles,
+  capped at the cwd, mounted at `/runner/project` (workdir), not
+  `/workdir` - same technical effect, but `ansible-navigator` users
+  expect it. Known path arguments (`-i`, `-e @file`,
+  `--vault-password-file`, `--private-key`, `--limit @file`) are
+  translated; those outside the root get their own read-only mount.
+  Anything else that looks like an absolute host path warns.
+- **SELinux:** when enforcing (`/sys/fs/selinux/enforce`), default to
+  `--security-opt label=disable` rather than `:Z` (which permanently
+  relabels the host project dir); `selinux = "disable" | "z" | "Z" |
+  "none"` overrides. Low priority if dev machines don't run SELinux.
+- **Config/flags:** `[execution_environment]` in `config.toml` is the
+  primary place (cascades like every key); `--ee <image>` overrides per
+  run, `--no-ee` forces host. No env var for now. Update `completions/`,
+  `README.md`, `man/`.
+- **Smaller points:** the plugin runs on the EE's Python (possibly 3.9 or
+  older - test for it); pull before the TUI starts with printed
+  progress; map engine exit codes 125-127 apart from ansible's own (99,
+  4); `--name` the container for fallback `kill`; `--userns=keep-id` on
+  rootless podman; set `HOME` explicitly so `~/.ssh` resolves; forward
+  `ANSIBLE_*` and proxy variables but not `ANSIBLE_CONFIG` or the host's
+  `ansible.cfg`.
+
+### Debug mode in an EE (later, not v1)
+
+`debug` drives ansible over a second pipe pair (breakpoint notifications
+out, commands in) next to the event stream. The FIFO transport extends to
+it: two more FIFOs in the same scratch dir. No substantial blocker, but:
+the debugger plugin/strategy code must be mounted and run on the EE's
+ansible-core/Python; the hardlink shadow copy must stay on the same
+filesystem as the project and is then mounted as the project root;
+symlinks pointing outside the mount root break. The stdout-jsonl
+fallback would rule `debug` out (no return channel).
+
+### Phasing
+
+0. Spike by hand: `podman run` against
+   `ghcr.io/ansible-community/community-ee-base`, plugin + FIFO mounted;
+   verify events flow, SIGINT reaches the container, ownership under
+   rootless podman. Findings go back into this doc; confirms FIFO vs
+   stdout. (Needs rootless podman that works - not an unprivileged LXC
+   without matching subuid ranges and nesting.)
+1. Plugin: `TANGSIBLE_EVENT_FILE` mode, Python tests in
+   `callback-tests/` incl. old-Python compatibility.
+2. Pure command builder (`internal/ee`): engine detection, mount planner,
+   path rewriting, env passthrough, flags; table-tested.
+3. Wire into `SpawnGeneration`: config + `--ee`/`--no-ee`, pull step,
+   exit-code mapping, container cleanup, Ctrl-C/exit-99 check.
+4. Side processes in the EE (probe, `ansible-doc`, File/Resolved tabs,
+   start-with-play, role stub).
+5. UX: top-bar indicator, rerun-dialog field, history, help tables and
+   bottom bars, `Keyboard-shortcuts.md`, completions, README, man,
+   changelog, `Codemap.md`.
+6. tmux e2e gated on podman; rewrite this doc as "implemented".
+
+### Phase 0 spike findings (2026-10-31)
+
+Hand-run `podman run` (podman 5.4.2, rootless, crun, Debian 13 VM, no
+SELinux) against `ghcr.io/ansible-community/community-ee-base:latest`
+(Python 3.14, ansible-core 2.21, `ansible.posix`/`utils`/`windows`
+bundled, default `HOME=/runner`, entrypoint `dumb-init`).
+
+- **FIFO transport works.** Host `mkfifo` in a scratch dir, bind-mounted
+  rw; the container opened it as fd 3 (`exec 3>.../events`, then the
+  existing `TANGSIBLE_EVENT_FD=3`) and all 17 events of
+  `testdata/outcomes.yml` arrived on the host reader, stdout staying
+  separate. The unmodified plugin ran fine on Python 3.14. So the
+  stdout-jsonl fallback is not needed; phase 1 only has to let the
+  plugin open a path (`TANGSIBLE_EVENT_FILE`) instead of an fd. Host side
+  must have the FIFO open for reading before the plugin opens it for
+  writing (open-for-write blocks otherwise), and keep a read end open to
+  avoid a spurious EOF.
+- **SIGINT:** `kill -INT` on the `podman run -i` process (no `-t`)
+  reaches ansible in the container ("User interrupted execution"),
+  podman exits **99** (ansible's own code passed through, matching the
+  existing exit-99 contract), and `--rm` leaves no container behind.
+- **Ownership:** with `--userns=keep-id`, a file the playbook wrote into a
+  rw mount is owned by the host uid, but its *group* shows up as a
+  subgid (100000), not the user's primary group - cosmetic, but worth
+  knowing (`--userns=keep-id:uid=...,gid=...` is the knob if it matters).
+- **Engine failures:** a missing image (`--pull=never`) gives exit **125**;
+  a nonexistent command inside the container gave 2 here (not 127), so
+  only 125 can be reliably attributed to the engine - the exit-code
+  mapping must not assume 126/127.
+- **Phase 1 done:** the plugin opens `TANGSIBLE_EVENT_FILE` itself (fd
+  still wins if both are set); verified in the container (17/17 events
+  through the FIFO) and covered by `callback-tests/`.
+- **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
+  socket mount (wanted - the dev VM has an agent to test with), real
+  remote hosts / `--network=host`.
 
 ## Motivation
 

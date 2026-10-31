@@ -23,7 +23,10 @@ description:
     run while it is still in progress. Nothing is accumulated in memory.
   - Runs alongside the user's own stdout callback instead of replacing it.
   - Events go to the file descriptor named by the C(TANGSIBLE_EVENT_FD)
-    environment variable when it is set, otherwise to normal display output.
+    environment variable when it is set, else to the path named by
+    C(TANGSIBLE_EVENT_FILE) (opened for writing, so a FIFO works - the way to
+    reach a consumer across a container boundary, where an inherited file
+    descriptor cannot), otherwise to normal display output.
   - The document layout follows the C(ansible.posix.jsonl) stdout callback;
     the differences are listed in the notes.
 options:
@@ -118,8 +121,12 @@ class CallbackModule(CallbackBase):
         self.set_options()
         self._sink = None
         fd = os.environ.get("TANGSIBLE_EVENT_FD")
+        path = os.environ.get("TANGSIBLE_EVENT_FILE")
         if fd:
             self._sink = os.fdopen(int(fd), "w")
+        elif path:
+            # A FIFO blocks here until the consumer has its read end open.
+            self._sink = open(path, "w")
 
     # -- helpers ---------------------------------------------------------
 

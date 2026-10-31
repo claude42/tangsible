@@ -1,0 +1,16 @@
+Fun fact: another incarnation of you (running in Claude Code) actually persuaded me not to use ansible-runner (even for execution environments) because tangsible could easily do itself what ansible-runner does ;-)
+
+Ha, then the two of us are at least partly in agreement. I said runner earns its keep for execution environments, but “earns its keep” isn’t the same as “is required”. Running in an EE without runner mostly means assembling the right podman run / docker run command line and calling ansible-playbook inside the container. Runner doesn’t do much more than that, so the other incarnation had a point.
+
+The fiddly bits are where runner has absorbed years of edge cases, so those are worth getting right in Tangsible:
+
+SSH agent forwarding into the container, plus mounting keys and known_hosts sensibly.
+UID/GID mapping, so files written to mounted volumes don’t end up owned by root, especially with rootless Podman versus Docker.
+SELinux volume labels (:z/:Z) on Fedora and RHEL hosts.
+Environment passthrough: which ANSIBLE_* variables, proxies and credentials get forwarded, and which deliberately don’t.
+Your callback plugin, which has to be mounted into the container and referenced by its in-container path.
+Signal handling, so Ctrl-C cleanly stops the playbook and removes the container.
+
+If Tangsible handles those, you’ve covered most of what runner would have given you, without the extra layer.
+
+

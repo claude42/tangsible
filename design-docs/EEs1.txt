@@ -1,0 +1,720 @@
+
+I have a few questions regarding execution environments with ansible-navigator.
+
+So I understand it's a standard container with all the necessary tools (ansible and otherwise) to execute a playbook.
+
+What I haven't found: what commands are executed by ansible-runner in the container? How are the playbooks provided - bind mount I guess, but what, where?
+Yes — your mental model is basically right, and the interesting bit is that ansible-runner provides a fairly well-defined filesystem layout inside the EE.
+
+For a normal ansible-navigator run playbook.yml, the important pieces look roughly like this:
+
+Host                                      Execution Environment
+─────────────────────────────────────     ─────────────────────────
+<your project directory> ───────────────► /runner/project/
+                                           ├── playbook.yml
+                                           ├── inventory
+                                           ├── roles/
+                                           ├── collections/ ...
+                                           └── ...
+
+runner's temporary dir ─────────────────► /runner/
+                                           ├── artifacts/
+                                           │   └── <job-id>/
+                                           │       ├── command
+                                           │       ├── stdout
+                                           │       ├── stderr
+                                           │       └── job_events/
+                                           └── ...
+
+~/.ssh/ ─────────────────────────────────► /root/.ssh/ or /home/runner/.ssh/
+The exact mounts depend on the invocation and configuration, but /runner/project is the important standard location.
+
+What actually gets executed?
+Ultimately, ansible-runner invokes the container runtime, rather than doing anything particularly magical inside the container.
+
+A simplified command looks like:
+
+podman run --rm \
+    --workdir /runner/project \
+    -v /some/project:/runner/project:Z \
+    -v /some/runner-private-data:/runner:Z \
+    ... \
+    <execution-environment-image> \
+    ansible-playbook playbook.yml ...
+
+And that's quite literally what ansible-runner constructs internally. Its current source has the default container working directory as /runner/project. 
+
+There are some additional mounts for SSH, artifacts, inventory files, vault passwords, etc., depending on what was supplied.
+
+For example, ansible-navigator debug output has shown commands along these lines:
+
+podman run --rm --tty --interactive
+  --workdir /runner/project
+  -v /tmp/.../artifacts/:/runner/artifacts/:Z
+  -v /tmp/.../:/runner/:Z
+  -v /home/user/.ssh/:/home/runner/.ssh/
+  ...
+  <execution-environment-image>
+  /usr/bin/python3 /home/user/.cache/ansible-navigator/image_introspect.py
+``` :chatgpt-content-reference{index="1"}
+
+
+For an actual playbook run, the final command will instead be something conceptually like:
+
+```text
+... <EE image> ansible-playbook playbook.yml
+with whatever -i, --limit, --tags, extra vars, etc. navigator/runner has passed through.
+
+Where does the playbook come from?
+Usually from the Runner project directory.
+
+Ansible Runner has a concept of a private data directory, whose standard structure is approximately:
+
+private_data_dir/
+├── project/
+│   ├── playbook.yml
+│   ├── inventory
+│   ├── roles/
+│   └── ...
+├── inventory/
+├── env/
+│   ├── settings
+│   ├── extravars
+│   └── ...
+└── artifacts/
+    └── <ident>/
+The project/ directory gets exposed to the container as:
+
+/runner/project/
+and Runner sets:
+
+WORKDIR /runner/project
+The Runner documentation explicitly describes /runner/project as the project location and shows the execution-environment mechanism as Runner executing Ansible inside the OCI container. 
+
+One particularly interesting detail
+Runner doesn't necessarily have to mount just the playbook.
+
+If you have:
+
+myproject/
+├── site.yml
+├── inventory/
+├── group_vars/
+├── host_vars/
+├── roles/
+└── collections/
+then the natural model is:
+
+-v /path/to/myproject:/runner/project
+so all of that becomes visible to Ansible.
+
+That's important because Ansible's normal filesystem-based mechanisms continue to work. For example:
+
+roles:
+  - my_role
+
+can find:
+
+/runner/project/roles/my_role/
+without Runner having to know anything about the role.
+
+Runner does have additional logic for detecting command-line path arguments and arranging appropriate mounts. The current implementation explicitly handles things such as inventory files and other Ansible command-line paths. 
+
+And the artifacts are separate
+This is also useful for understanding the architecture:
+
+/runner/project/       ← your Ansible project
+/runner/artifacts/     ← Runner's execution data
+Runner creates an artifact directory for each execution and records things such as the command, environment, stdout/stderr and JSON event data there. The Runner source actually writes the executed command and working directory to an artifacts/<id>/command file. 
+
+So conceptually:
+
+                 ansible-navigator
+                       │
+                       ▼
+                 ansible-runner
+                       │
+             construct container command
+                       │
+                       ▼
+              podman/docker run
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+   /runner/project             /runner/artifacts
+          │                         │
+     playbook etc.              events/results
+          │
+          ▼
+   ansible-playbook
+And the EE itself doesn't contain your playbook. The EE contains the runtime — Ansible Core, Python, collections, system packages, etc. Your actual project is supplied at execution time through the mounted /runner/project.
+
+That's one of the key conceptual distinctions of Execution Environments: the image is the execution environment, not the Ansible project. The latter is injected when Runner launches it. 
+
+If you're asking this because you're considering whether Tangsible could somehow reproduce the relevant part of ansible-navigator/`ansible-runner` without actually using Runner, that's actually a pretty interesting question — because the amount of Runner functionality you need for a local TUI may be surprisingly small.
+
+Yeah exactly. First I thought I would have to actually make use of ansible-runner (i.e. instead of calling ansible-playbook  tangsible calls ansible-runner) but I think that would be way to complex and I actually don't want to have another dependency.
+
+So I thought what would I really need to support execution environments? I certainly don't aim to mimic ansible-runner, I don't want to create the same artifacts as it does.
+
+So as far as I can see maybe a single call to podman with the right bind mounts (of course I need the right image first) could actually be enough.
+Yes. I think you're arriving at the right abstraction boundary.
+
+If Tangsible's goal is simply:
+
+"Run this Ansible playbook inside this Execution Environment, while retaining Tangsible's existing way of observing/interacting with the run."
+
+then you probably don't need ansible-runner at all.
+
+Conceptually, you could have two execution backends:
+
+Tangsible
+   │
+   ├── local
+   │     └── ansible-playbook ...
+   │
+   └── execution-environment
+         └── podman run ... ansible-playbook ...
+And the latter really can be surprisingly small.
+
+The minimal Podman invocation
+Something along these lines:
+
+podman run --rm -it \
+    --workdir /runner/project \
+    -v "$PWD:/runner/project:Z" \
+    <execution-environment> \
+    ansible-playbook playbook.yml
+
+That's already the essential mechanism.
+
+If your existing Tangsible architecture is:
+
+Tangsible
+   │
+   └── exec("ansible-playbook", args...)
+          │
+          └── JSONL callback → stdout
+you could conceptually change that to:
+
+Tangsible
+   │
+   └── exec("podman", [
+          "run", "--rm", "-it",
+          "--workdir", "/runner/project",
+          "-v", "$project:/runner/project:Z",
+          EE_IMAGE,
+          "ansible-playbook",
+          ...
+       ])
+          │
+          └── JSONL callback → stdout
+And from Tangsible's perspective, everything after ansible-playbook can remain essentially identical.
+
+That's particularly attractive given what you've been doing with your JSONL callback fork.
+
+The interesting part is actually the mounts
+You'd need to distinguish between:
+
+Project files
+
+-v /my/ansible/project:/runner/project:Z
+This gives the EE access to:
+
+playbooks
+roles
+group_vars
+host_vars
+templates
+files
+collections installed into the project
+etc.
+Credentials / SSH
+
+Potentially:
+
+-v ~/.ssh:/home/runner/.ssh:ro
+although this gets more complicated because the container user and SSH setup depend on the EE.
+
+Vault password
+
+You'd probably want to avoid blindly mounting the host's vault-password file and instead construct the appropriate environment/file arrangement.
+
+Inventory
+
+If the inventory lives inside the project:
+
+/runner/project/inventory
+then there's nothing special to do.
+
+If the user gives Tangsible:
+
+-i /some/other/inventory
+
+then you'd need to make that path available inside the container, e.g.:
+
+-v /some/other/inventory:/runner/inventory:ro
+and rewrite the argument:
+
+-i /runner/inventory
+That's probably the first place where things start becoming "Runner-like".
+
+You also don't necessarily need /runner
+This is worth emphasizing.
+
+/runner/project isn't some magical requirement imposed by Ansible.
+
+It's a convention used by ansible-runner / execution environments.
+
+You could perfectly well do:
+
+podman run --rm \
+    -w /work \
+    -v "$PWD:/work:Z" \
+    ghcr.io/.../my-ee \
+    ansible-playbook site.yml
+
+Ansible doesn't care.
+
+Using /runner/project would nevertheless be sensible because it makes Tangsible behave in the way users familiar with EEs expect, and it makes compatibility with things expecting the standard Runner layout easier.
+
+And there is an even nicer possibility
+You don't actually need to know much about the EE image itself.
+
+An EE image is essentially:
+
+┌─────────────────────────────┐
+│ Execution Environment       │
+│                             │
+│ Python                      │
+│ ansible-core                │
+│ collections                 │
+│ system packages             │
+│ other tools                 │
+│                             │
+│ ENTRYPOINT / CMD            │
+└─────────────────────────────┘
+Tangsible can simply override the image's normal command with:
+
+ansible-playbook ...
+So the only information Tangsible fundamentally needs is:
+
+EE image = quay.io/foo/my-ee:latest
+and then:
+
+podman run ... quay.io/foo/my-ee:latest ansible-playbook ...
+
+One thing I'd investigate carefully: the callback
+This is where your particular architecture becomes interesting.
+
+Your current arrangement presumably does something like:
+
+ansible-playbook
+       │
+       ├── stdout
+       │
+       └── jsonl callback
+                │
+                ▼
+             Tangsible
+Inside an EE, the callback plugin has to exist inside the container, because it's Ansible running there.
+
+So your EE needs:
+
+EE
+├── ansible-core
+├── collections
+├── your jsonl callback
+└── ...
+That means you could potentially have Tangsible's EE support work beautifully with your existing callback architecture:
+
+Host
+┌─────────────────────────────────────────────────────┐
+│ Tangsible                                             │
+│                                                      │
+│   podman run                                          │
+│       │                                              │
+│       ▼                                              │
+│   ┌──────────────────────────────────────────────┐   │
+│   │ Execution Environment                        │   │
+│   │                                              │   │
+│   │  ansible-playbook                            │   │
+│   │       │                                      │   │
+│   │       └── your jsonl callback                │   │
+│   │                    │                         │   │
+│   └────────────────────┼─────────────────────────┘   │
+│                        │ stdout                      │
+│                        ▼                             │
+│                     Tangsible                       │
+└─────────────────────────────────────────────────────┘
+That is much simpler than introducing ansible-runner as another abstraction layer.
+
+There is one caveat I'd investigate before committing to this design: how much of the standard EE behavior ansible-navigator actually relies on beyond the simple container invocation — particularly environment variables, user IDs, SSH agent forwarding, execution environment settings, pull policy, network configuration, and volume handling.
+
+But that's a very different problem from "implement ansible-runner."
+
+You can basically say:
+
+Tangsible supports EEs by executing ansible-playbook in a container.
+
+and implement only the subset of container configuration that Tangsible actually needs.
+
+In fact, I'd be inclined to avoid calling it "ansible-runner support" entirely. It's more like:
+
+Execution Environment support via Podman/Docker
+
+with Runner being an implementation used by other Ansible tooling, but not a dependency of Tangsible.
+
+That fits Tangsible's philosophy rather nicely: don't reproduce the machinery around Ansible; just provide the TUI and get out of the way.
+
+How would authentication work? Would I copy ssh keys to the image?!?
+No — definitely don't copy SSH keys into the image. The image should remain completely credential-free.
+
+There are several ways to make SSH authentication available to the container, and the best one depends on what authentication method the user already uses.
+
+1. Mount the SSH directory
+The simplest approach is to make the host's SSH configuration and keys available inside the container:
+
+podman run --rm -it \
+  -v ~/.ssh:/home/runner/.ssh:ro \
+  ...
+  my-ee \
+  ansible-playbook site.yml
+
+The important part is that this is a runtime bind mount, not part of the image.
+
+So:
+
+Host                              Container
+
+~/.ssh/
+├── config                  ───►  /home/runner/.ssh/config
+├── known_hosts             ───►  /home/runner/.ssh/known_hosts
+├── id_ed25519              ───►  /home/runner/.ssh/id_ed25519
+└── ...                         /home/runner/.ssh/...
+The container can use the key, but the key isn't baked into the EE.
+
+I'd probably mount it :ro.
+
+2. Even better: SSH agent forwarding
+If the user has:
+
+ssh-add -l
+
+showing keys in their SSH agent, you don't need to expose the private key to the container at all.
+
+You can forward the agent socket:
+
+podman run --rm -it \
+  -v "$SSH_AUTH_SOCK:/ssh-agent" \
+  -e SSH_AUTH_SOCK=/ssh-agent \
+  ...
+  my-ee \
+  ansible-playbook site.yml
+
+Then:
+
+Host
+
+ssh-agent
+   │
+   │ Unix socket
+   ▼
+/tmp/.../agent.sock
+   │
+   │ bind mount
+   ▼
+Container
+
+/ssh-agent
+   │
+   ▼
+ssh
+   │
+   ▼
+remote host
+The private key never enters the container.
+
+That's actually a pretty nice solution for Tangsible.
+
+3. Password authentication
+If someone uses:
+
+ansible_password
+or SSH password authentication, that's a different matter.
+
+You could pass the password through Ansible's normal mechanisms, but you don't want it as a Podman command-line argument, because command lines can be visible to other processes/users.
+
+For example, an Ansible Vault password or SSH password could be provided through an environment variable or temporary file, depending on the authentication mechanism.
+
+4. SSH config and known_hosts
+There's another subtle issue that is easy to overlook.
+
+Suppose the user's host has:
+
+~/.ssh/config
+containing:
+
+Host myserver
+    HostName 2a01:...
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+Then simply mounting the key isn't enough. The container also needs the SSH configuration.
+
+Likewise, strict host-key checking needs known_hosts.
+
+So a practical mount is often:
+
+-v ~/.ssh:/home/runner/.ssh:ro
+
+rather than mounting individual keys.
+
+But there's a catch with the user ID
+This is probably the part worth paying attention to for Tangsible.
+
+Execution Environment images commonly have a non-root user, often runner. So you might have:
+
+container user: runner
+home: /home/runner
+while on the host:
+
+host user: claude
+home: /Users/claude
+You therefore can't blindly assume:
+
+-v ~/.ssh:/root/.ssh
+
+will work.
+
+You need to know which user Ansible is actually running as inside the EE and mount/configure the SSH credentials accordingly.
+
+Podman can also run the container with a particular UID/GID, but that has implications for file ownership and permissions.
+
+And there's an important alternative: --private-key
+Ansible itself supports:
+
+ansible-playbook \
+    --private-key ~/.ssh/id_ed25519 \
+    ...
+
+but inside the container that path has to exist.
+
+So Tangsible could mount:
+
+~/.ssh/id_ed25519
+        ↓
+/run/tangsible/id_ed25519
+and invoke:
+
+ansible-playbook \
+    --private-key /run/tangsible/id_ed25519 \
+    ...
+
+Again, the key exists only in the container's runtime filesystem, not the image.
+
+Personally, though, if you're aiming for good EE integration, I'd favor SSH-agent forwarding when available, with an SSH-directory/key mount as the fallback.
+
+This actually makes your "one Podman call" idea quite viable
+You could eventually have Tangsible construct something roughly like:
+
+podman run
+    --rm
+    --interactive
+    --tty
+
+    --workdir /runner/project
+
+    -v <project>:/runner/project:ro/rw
+    -v <ssh-agent>:/ssh-agent
+    -e SSH_AUTH_SOCK=/ssh-agent
+
+    <EE image>
+
+    ansible-playbook
+        <playbook>
+        <all the original arguments>
+And authentication remains outside the EE image.
+
+That's also conceptually exactly what you want: the EE describes what software is available; the user's runtime environment supplies credentials and the project.
+
+One thing I'd want to investigate next, though, is how ansible-navigator handles SSH agent forwarding and the container user in practice, because that will tell us which Podman flags Tangsible actually needs rather than guessing at a generic solution.
+
+What kind of image is typically being used?
+Typically, an Execution Environment image is just an OCI container image built specifically for Ansible. There isn't a special "EE image format."
+
+The most common starting point is one of the Ansible-provided EE images, especially:
+
+quay.io/ansible/creator-ee — intended for developing/building EEs.
+quay.io/ansible/ee-minimal — a relatively small EE with Ansible and the basic runtime.
+quay.io/ansible/ee-supported-rhel9 — Red Hat's supported EE, containing a broader set of Ansible content and system dependencies.
+The image typically contains something like:
+
+EE image
+├── Linux userspace
+├── Python
+├── ansible-core
+├── ansible collections
+│   ├── ansible.posix
+│   ├── community.general
+│   └── ...
+├── Python packages
+├── system packages
+│   ├── openssh-client
+│   ├── git
+│   ├── rsync
+│   └── ...
+└── your own stuff
+    ├── custom collections
+    ├── custom Python modules
+    └── custom tools
+The important distinction is that the image contains the execution environment, not normally the user's playbook.
+
+So you might have a custom image:
+
+FROM quay.io/ansible/ee-minimal
+
+RUN pip install jmespath
+RUN ansible-galaxy collection install community.crypto
+
+COPY ansible.posix /usr/share/ansible/collections/ansible_collections/ansible/posix/
+
+and then:
+
+podman run ... my-company-ansible-ee ansible-playbook site.yml
+
+with site.yml coming from a bind mount.
+
+For Tangsible, this is actually quite interesting
+You could potentially define a very simple configuration:
+
+execution_environment:
+  image: quay.io/ansible/ee-minimal
+
+and then Tangsible essentially does:
+
+             Tangsible
+                 │
+                 │ podman run
+                 ▼
+       ┌───────────────────┐
+       │ EE image           │
+       │                    │
+       │ ansible-playbook   │
+       │ your JSONL plugin  │
+       │ Python             │
+       │ collections        │
+       │ ssh                │
+       └─────────┬─────────┘
+                 │
+        /runner/project
+                 ▲
+                 │ bind mount
+                 │
+          user's project
+The custom callback plugin is probably the one unusual part for you. If Tangsible relies on your modified JSONL callback, then a completely arbitrary EE won't necessarily have it.
+
+You have two interesting choices:
+
+Require the EE to contain Tangsible's callback plugin.
+Mount Tangsible's callback plugin into the EE at runtime.
+The second is particularly attractive if you want Tangsible to work with existing EEs without requiring users to build a special "Tangsible EE."
+
+For example, conceptually:
+
+-v /path/to/tangsible-callback:/runner/tangsible-callback:ro
+
+and then tell Ansible to load that callback from there.
+
+That would make Tangsible's EE support much more independent of the image itself.
+
+There is one other important distinction: ansible-navigator doesn't require a particular image either. The user can specify an arbitrary EE image, and navigator/runner supplies the project and runtime configuration around it. So Tangsible can follow the same basic model without implementing ansible-runner.
+
+So I don't necessarily have to build a custom EE image, right? So you suggested quay.io/ansible/ee-minimal, is this the common default ee image?
+Right — you do not necessarily need to build a custom EE image. That's one of the nice things about the model.
+
+And I should correct something from my previous answer: quay.io/ansible/ee-minimal is not the current community default image I should have pointed you to.
+
+Today, the Ansible community documentation explicitly provides these ready-to-use images:
+
+ghcr.io/ansible-community/community-ee-minimal:latest — essentially ansible-core and the minimal runtime.
+ghcr.io/ansible-community/community-ee-base:latest — adds commonly used collections such as ansible.posix, ansible.utils, and ansible.windows. 
+So you could absolutely do something like:
+
+podman run --rm -it \
+  -v "$PWD:/runner/project:Z" \
+  --workdir /runner/project \
+  ghcr.io/ansible-community/community-ee-base:latest \
+  ansible-playbook site.yml
+
+No image building involved.
+
+Is there a "default EE"?
+There's a slight terminology trap here.
+
+ansible-navigator does use an EE by default. Its documentation says that by default it finds a container runtime and runs Ansible inside an EE; it can also be configured with a specific EE image. 
+
+But I wouldn't design Tangsible around the assumption that there is one universal:
+
+THE default Ansible EE
+Instead, think:
+
+                 Execution Environment
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+ community-ee-minimal          community-ee-base
+          │                             │
+       ansible-core          ansible-core + common
+                               collections
+          │                             │
+          └──────────────┬──────────────┘
+                         │
+                  custom EE images
+                         │
+              company/project specific
+The whole point of EEs is that the image defines the controller environment needed by a particular automation project. An EE bundles ansible-core, collections, Python dependencies and system dependencies. 
+
+This actually suggests a nice Tangsible UX
+I could imagine Tangsible having something as simple as:
+
+Execution environment:
+  ○ None (host)
+  ● community-ee-base:latest
+  ○ my-company/ansible-ee:latest
+or perhaps a command-line option:
+
+tangsible --execution-environment \
+    ghcr.io/ansible-community/community-ee-base:latest \
+    site.yml
+
+Then Tangsible doesn't care whether the user picked a generic community image or their company's carefully constructed EE.
+
+And if the project has unusual dependencies, the user builds an EE. That's exactly what the EE ecosystem is designed for. The current Ansible documentation explicitly describes custom EEs as the way to include project-specific collections and their Python/system dependencies. 
+
+One particularly relevant detail for Tangsible: ansible-runner itself is normally part of an EE, but that does not mean Tangsible has to use it. The current EE getting-started documentation lists ansible-runner among the standard packages in an EE. 
+
+So your architecture could still be:
+
+Tangsible
+    │
+    │ podman run
+    ▼
+┌──────────────────────────────┐
+│ community/custom EE          │
+│                              │
+│ ansible-playbook             │
+│ ansible-core                 │
+│ ansible-runner  ← irrelevant │
+│ collections                  │
+│ Python deps                  │
+└──────────────────────────────┘
+You don't have to invoke ansible-runner merely because it's installed in the image.
+
+And there's a nice bonus: ansible-navigator itself documents that the playbook directory is automatically mounted into the EE, and that a project-local ansible.cfg and collections/ directory can therefore just live alongside the playbook. 
+
+That makes your "just launch Podman" approach look even more plausible. The next thing I'd nail down is the minimum set of Podman mounts/options that navigator actually uses for a normal SSH-based playbook run. That's probably small enough that Tangsible could implement it without pulling in Runner at all.
+
+
+
+
+
