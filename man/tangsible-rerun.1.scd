@@ -32,7 +32,14 @@ every dialog field simply starts empty.
 
 The rerun dialog itself offers options for *Start with play*, *Start with
 task*, *Limit tags*, *Skip tags*, and *Limit hosts* - each corresponding to
-the respective options.
+the respective options - and *Execution environment*, the container image to
+run in (empty: the host), which starts as the environment the session
+currently uses.
+
+The execution environment of an earlier run is recorded in its history entry:
+*rerun* without *--ee*/*--no-ee* reuses the environment that run used (a host
+run stays a host run) before falling back to *config.toml*, and so does a
+re-run started from *tangsible-revisit*(1).
 
 # ADDITIONAL OPTIONS
 

@@ -36,6 +36,7 @@ type RevisitEntry struct {
 	RunID    string
 	Name     string // user-assigned label, "" if none
 	Pinned   bool   // sorts above all unpinned runs
+	EE       string // recorded execution environment, see config.InvocationRecord.EE
 	// Imported is set instead of RunID for an entry opened from an export
 	// file (export.go): its data comes from there, not from .tangsible/runs/.
 	Imported *ExportedRun
@@ -105,6 +106,7 @@ func NewRevisitEntry(h config.PlaybookHistory, inv config.InvocationRecord) Revi
 		RunID:    inv.RunID,
 		Name:     inv.Name,
 		Pinned:   inv.Pinned,
+		EE:       inv.EE,
 	}
 }
 

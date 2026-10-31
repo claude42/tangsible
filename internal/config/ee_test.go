@@ -147,3 +147,59 @@ netwrk = "host"
 		t.Errorf("valid table warned: %q", pendingWarnings)
 	}
 }
+
+func TestEEHistoryValue(t *testing.T) {
+	var none, configured SettingsConfig
+	configured.ExecutionEnvironment.Image = "cfg:1"
+	active := &EESettings{Image: "run:1"}
+	cases := []struct {
+		name   string
+		cfg    SettingsConfig
+		active *EESettings
+		want   string
+	}{
+		{"ee run", configured, active, "run:1"},
+		{"ee run without config", none, active, "run:1"},
+		{"host run while configured", configured, nil, EEHostRecord},
+		{"plain host run", none, nil, ""},
+	}
+	for _, c := range cases {
+		if got := EEHistoryValue(c.cfg, c.active); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestResolveEEWithHistory(t *testing.T) {
+	var cfg SettingsConfig
+	cfg.ExecutionEnvironment.Image = "cfg:1"
+	cfg.ExecutionEnvironment.Network = "host"
+	cases := []struct {
+		name     string
+		o        EEOverride
+		recorded string
+		want     string // "" means a host run
+	}{
+		{"nothing recorded: config", EEOverride{}, "", "cfg:1"},
+		{"recorded image beats config", EEOverride{}, "old:1", "old:1"},
+		{"recorded host beats config", EEOverride{}, EEHostRecord, ""},
+		{"--ee beats recorded", EEOverride{Image: "cli:1"}, "old:1", "cli:1"},
+		{"--ee beats recorded host", EEOverride{Image: "cli:1"}, EEHostRecord, "cli:1"},
+		{"--no-ee beats recorded", EEOverride{Disable: true}, "old:1", ""},
+	}
+	for _, c := range cases {
+		got := ResolveEEWithHistory(cfg, c.o, c.recorded)
+		switch {
+		case c.want == "" && got != nil:
+			t.Errorf("%s: got %+v, want host run", c.name, got)
+		case c.want != "" && (got == nil || got.Image != c.want):
+			t.Errorf("%s: got %+v, want image %s", c.name, got, c.want)
+		case got != nil && got.Network != "host":
+			t.Errorf("%s: the rest of the configuration must still apply: %+v", c.name, got)
+		}
+	}
+	// Without a configured image, a recorded one still stands on its own.
+	if got := ResolveEEWithHistory(SettingsConfig{}, EEOverride{}, "old:1"); got == nil || got.Image != "old:1" {
+		t.Errorf("recorded image with no config: %+v", got)
+	}
+}

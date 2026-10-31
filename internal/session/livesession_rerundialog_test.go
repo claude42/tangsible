@@ -51,7 +51,7 @@ func newTestRerunFieldSync(t *testing.T) *rerunFieldSync {
 		}},
 	}
 	form := tview.NewForm()
-	return newRerunFieldSync(form, state, []string{"deploy"}, []string{"main play"}, nil, runner.InitialRerunDefaults{})
+	return newRerunFieldSync(form, state, []string{"deploy"}, []string{"main play"}, nil, runner.InitialRerunDefaults{}, false)
 }
 
 // checked reports whether label's checkbox line would render checked -
@@ -99,7 +99,7 @@ func TestRerunFieldSyncRebuildOmitsResumeCheckboxForUnnamedFailingPlay(t *testin
 	form := tview.NewForm()
 	// knownPlayNames deliberately does NOT contain "localhost" - it was
 	// never a named play in the source YAML.
-	r := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{})
+	r := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{}, false)
 	r.rebuild()
 
 	if r.currentResumePlay != "" {
@@ -233,7 +233,7 @@ func TestRerunFieldSyncEditingPlayFieldByHandUnchecksResume(t *testing.T) {
 func TestRerunFieldSyncMatchHostsIncludesGroups(t *testing.T) {
 	state := &playbook.PlaybookState{AllHosts: []string{"web1", "web2"}}
 	form := tview.NewForm()
-	r := newRerunFieldSync(form, state, nil, nil, groupsOf("webservers", "dbservers"), runner.InitialRerunDefaults{})
+	r := newRerunFieldSync(form, state, nil, nil, groupsOf("webservers", "dbservers"), runner.InitialRerunDefaults{}, false)
 
 	if got := r.matchHosts("web"); !slicesEqualUnordered(got, []string{"web1", "web2", "webservers"}) {
 		t.Errorf(`matchHosts("web") = %v, want [web1 web2 webservers] in some order`, got)
@@ -244,7 +244,7 @@ func TestRerunFieldSyncMatchHostsIncludesGroups(t *testing.T) {
 	// A literal host from live state.AllHosts is still found even with no
 	// group data at all (nil knownGroups) - group support is additive, not
 	// a replacement for the existing host-only behavior.
-	r2 := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{})
+	r2 := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{}, false)
 	if got := r2.matchHosts("web1"); !slicesEqualUnordered(got, []string{"web1"}) {
 		t.Errorf(`matchHosts("web1") with no groups = %v, want [web1]`, got)
 	}
@@ -313,7 +313,7 @@ func TestRerunFieldSyncInitialRerunDefaultsAppliedOnce(t *testing.T) {
 		UnreachableHosts:       []string{"ghost"},
 		ResumePlay:             "main play",
 		CheckResumeWhereFailed: true,
-	})
+	}, false)
 
 	r.rebuild()
 	if !checked(r.resumeCheckbox) {
@@ -338,4 +338,23 @@ func groupsOf(names ...string) *atomic.Pointer[[]string] {
 	var p atomic.Pointer[[]string]
 	p.Store(&names)
 	return &p
+}
+
+// The Execution environment field (design-docs/ExecutionEnvironments.md) is
+// part of the form only where an execution environment can apply.
+func TestRerunFieldSyncEEFieldOnlyWhenShown(t *testing.T) {
+	for _, show := range []bool{true, false} {
+		form := tview.NewForm()
+		r := newRerunFieldSync(form, &playbook.PlaybookState{}, nil, nil, nil, runner.InitialRerunDefaults{}, show)
+		r.rebuild()
+		found := false
+		for i := 0; i < form.GetFormItemCount(); i++ {
+			if form.GetFormItem(i) == r.eeField {
+				found = true
+			}
+		}
+		if found != show {
+			t.Errorf("showEE=%v: field in form = %v", show, found)
+		}
+	}
 }

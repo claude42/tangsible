@@ -211,6 +211,28 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   lives in a container that is gone afterwards, so the File tab (already
   skipped for localhost) and anything inspecting local state afterwards
   see the host, not the run.
+- **Phase 5 done:** (1) *History:* `InvocationRecord.EE` holds the image,
+  `"host"` for a host run made while an image was configured (so a rerun
+  doesn't quietly switch to the configured image), or nothing;
+  `config.ResolveEEWithHistory` applies flag > recorded > config.
+  `rerun` activates the environment only after `ResolveRerun` (which now
+  also returns the recorded one); `OpenRevisitEntry` sets it per opened
+  entry, so a rerun from revisit uses that run's environment (imported
+  runs record none: config applies). (2) *Dialog:* an "Execution
+  environment" text field (last field; omitted in debug), pre-filled once
+  from the active image; on confirm it sets the process-wide setting
+  (`ResolveEE` with the typed image, or host if empty) before
+  `requestRerun`, so no signature changed. A rerun that names an
+  unpulled image pulls it inside the generation goroutine, with the
+  engine's output going to the `o` view (the TUI owns the terminal).
+  (3) *Top bar:* `Playbook: site.yml (EE: community-ee-base:latest)`,
+  read fresh on each rebuild; not shown for a frozen revisit replay or in
+  debug. (4) Help table, man page, README, Keyboard-shortcuts.md.
+  Verified live: indicator; clearing the field switches a rerun to the
+  host (indicator gone, history shows image then nothing); a fresh
+  `rerun --no-dialog` reuses the recorded image and `--no-ee` overrides it.
+  Not exercised live: rerun from `revisit` (unit-level only: the
+  precedence is covered by `TestResolveEEWithHistory`).
 - **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
   socket mount (wanted - the dev VM has an agent to test with), real
   remote hosts / `--network=host`.

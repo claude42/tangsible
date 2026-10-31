@@ -281,12 +281,23 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 		// call: losing the ability to pre-fill a *future* rerun is never
 		// worth disrupting the one the user just asked for.
 		if roleDisplayName != "" {
-			_ = config.AppendInvocation(config.TangsibleStatePath, "", roleDisplayName, config.ArgsToHistoryString(newArgs))
+			_ = config.AppendInvocationEE(config.TangsibleStatePath, "", roleDisplayName, config.ArgsToHistoryString(newArgs), EEHistoryValue())
 		} else {
-			_ = config.AppendInvocation(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(newArgs))
+			_ = config.AppendInvocationEE(config.TangsibleStatePath, playbook, "", config.ArgsToHistoryString(newArgs), EEHistoryValue())
 		}
 
 		go func() {
+			// A rerun may name an image that was never pulled (the dialog's
+			// Execution environment field). The TUI owns the terminal by
+			// now, so the engine's pull progress goes to the raw-output
+			// view instead.
+			if err := EnsureImage(outLog.Stderr()); err != nil {
+				if cleanupTemp != nil {
+					cleanupTemp()
+				}
+				fail(err)
+				return
+			}
 			cmd, stdoutCh, stderrLines, runID, err := SpawnGeneration(spawnPlaybook, newArgs, procH, outLog, nil)
 			if err != nil {
 				if cleanupTemp != nil {

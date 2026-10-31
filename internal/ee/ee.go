@@ -267,6 +267,24 @@ func parseExtraMounts(specs []string) ([]Mount, error) {
 	return out, nil
 }
 
+// ShortImageName shortens an image reference for display: the registry and
+// path go ("ghcr.io/ansible-community/community-ee-base:latest" becomes
+// "community-ee-base:latest"), and a digest is cut to its first 12
+// characters.
+func ShortImageName(image string) string {
+	if i := strings.LastIndex(image, "/"); i >= 0 {
+		image = image[i+1:]
+	}
+	if i := strings.Index(image, "@"); i >= 0 {
+		digest := image[i+1:]
+		if j := strings.Index(digest, ":"); j >= 0 && len(digest) > j+13 {
+			digest = digest[:j+13]
+		}
+		image = image[:i+1] + digest
+	}
+	return image
+}
+
 // SELinuxEnforcing reports whether the host's SELinux is in enforcing mode,
 // reading enforcePath (normally /sys/fs/selinux/enforce).
 func SELinuxEnforcing(enforcePath string) bool {

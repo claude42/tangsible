@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
@@ -48,10 +49,15 @@ type rerunFieldSync struct {
 	knownGroups          *atomic.Pointer[[]string] // nil, or not yet stored: no group suggestions (see main.go)
 	initialRerunDefaults runner.InitialRerunDefaults
 
-	playField               *tview.InputField
-	tagsField               *tview.InputField
-	skipTagsField           *tview.InputField
-	hostsField              *tview.InputField
+	playField     *tview.InputField
+	tagsField     *tview.InputField
+	skipTagsField *tview.InputField
+	hostsField    *tview.InputField
+	// eeField (design-docs/ExecutionEnvironments.md) is the image to run in,
+	// empty for the host; showEE is false where an execution environment
+	// can't apply (debug), which leaves the field out of the form.
+	eeField                 *tview.InputField
+	showEE                  bool
 	resumeCheckbox          *tview.Checkbox
 	onlyFailedCheckbox      *tview.Checkbox
 	onlyUnreachableCheckbox *tview.Checkbox
@@ -119,8 +125,9 @@ type rerunFieldSync struct {
 // initialRerunDefaults are copied in since NewLiveTUI's own parameters
 // aren't needed anywhere outside this subsystem (confirmed by grep before
 // this extraction) and so were never hoisted onto liveSession itself.
-func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], initialRerunDefaults runner.InitialRerunDefaults) *rerunFieldSync {
+func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], initialRerunDefaults runner.InitialRerunDefaults, showEE bool) *rerunFieldSync {
 	r := &rerunFieldSync{
+		showEE:               showEE,
 		form:                 form,
 		state:                state,
 		knownTags:            knownTags,
@@ -163,6 +170,7 @@ func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTag
 	r.tagsField = tview.NewInputField().SetLabel("Limit tags to: ")
 	r.skipTagsField = tview.NewInputField().SetLabel("Skip tags: ")
 	r.hostsField = tview.NewInputField().SetLabel("Limit hosts to: ")
+	r.eeField = tview.NewInputField().SetLabel("Execution environment: ")
 
 	r.resumeCheckbox = tview.NewCheckbox().SetLabel("Resume where failed")
 	r.onlyFailedCheckbox = tview.NewCheckbox().SetLabel("Only failed")
@@ -406,6 +414,9 @@ func (r *rerunFieldSync) rebuild() {
 	r.form.AddFormItem(r.tagsField)
 	r.form.AddFormItem(r.skipTagsField)
 	r.form.AddFormItem(r.hostsField)
+	if r.showEE {
+		r.form.AddFormItem(r.eeField)
+	}
 	if len(r.currentFailedHosts) > 0 {
 		r.form.AddFormItem(r.onlyFailedCheckbox)
 	}
@@ -468,6 +479,17 @@ func (s *liveSession) openRerunDialog() {
 		s.rerunFields.hostsField.SetText(s.initialHosts)
 		s.hostsPreFilled = true
 	}
+	if !s.eePreFilled {
+		// What this session runs in right now (empty: the host) - the
+		// process-wide setting main/revisit activated, runner.
+		// ExecutionEnvironment.
+		image := ""
+		if ee := runner.ExecutionEnvironment(); ee != nil {
+			image = ee.Image
+		}
+		s.rerunFields.eeField.SetText(image)
+		s.eePreFilled = true
+	}
 
 	// s.rerunFields.rebuild runs after the one-shot text pre-fills above,
 	// deliberately - on the "rerun" verb's very first open, its own
@@ -504,6 +526,17 @@ func (s *liveSession) submitRerun() {
 	tags := strings.TrimSpace(s.rerunFields.tagsField.GetText())
 	skipTags := strings.TrimSpace(s.rerunFields.skipTagsField.GetText())
 	hosts := strings.TrimSpace(s.rerunFields.hostsField.GetText())
+	if s.rerunFields.showEE {
+		// An image selects an execution environment (the rest of its
+		// settings come from the configuration), empty the host. Becomes
+		// the setting every later generation - and the history entry
+		// requestRerun records - uses.
+		o := config.EEOverride{Disable: true}
+		if image := strings.TrimSpace(s.rerunFields.eeField.GetText()); image != "" {
+			o = config.EEOverride{Image: image}
+		}
+		runner.SetExecutionEnvironment(config.ResolveEE(config.MergedSettingsConfig(), o))
+	}
 	s.closeDialogs()
 
 	s.requestRerun(startAtPlay, tags, skipTags, hosts) // resets

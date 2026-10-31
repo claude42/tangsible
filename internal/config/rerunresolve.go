@@ -44,6 +44,9 @@ type RerunResolution struct {
 	// own PruneMissingRunLogs call before ResolveRerun - the saved file has
 	// since gone missing).
 	RunID string
+	// EE is that invocation's recorded execution environment
+	// (InvocationRecord.EE), "" if none was recorded.
+	EE string
 }
 
 // ResolveRerun computes a rerunResolution from the "rerun" verb's own args
@@ -83,6 +86,7 @@ func ResolveRerun(args []string, cfg StateConfig) (res RerunResolution, ok bool)
 		res.Playbook = playbook
 		rec, _ := LastInvocationRecord(cfg, playbook)
 		res.RunID = rec.RunID
+		res.EE = rec.EE
 		histParsed = ParsePassthroughArgs(HistoryStringToArgs(rec.Args))
 	} else {
 		entry, has := LastTarget(cfg)
@@ -96,6 +100,7 @@ func ResolveRerun(args []string, cfg StateConfig) (res RerunResolution, ok bool)
 			last := entry.Invocations[len(entry.Invocations)-1]
 			hist = last.Args
 			res.RunID = last.RunID
+			res.EE = last.EE
 		}
 		histParsed = ParsePassthroughArgs(HistoryStringToArgs(hist))
 	}
