@@ -3,6 +3,13 @@
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
 
+* fallback_project
+
+* Statstics
+  * host timings
+  * task timings
+  * last run, all runs
+
 * Jump to first / next fail
 
 * Roles (see "Tangsible role.md")
@@ -11,8 +18,6 @@ immediately implemented.
   * support for roles in collection
 * tangsible host
   * uptime
-  * q ends, doesn't go back to list
-  * show when which role ran last
 
 * Debugger
   * remove timer
@@ -28,8 +33,6 @@ immediately implemented.
 
 * Details tab shows less info than before (really?)
 
-* Treeformatting broken when two-pane mode is active
-
 * Different tangsible vault approach
   * show vars in tui, edit with enter
 
@@ -39,10 +42,6 @@ immediately implemented.
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
 
-
-* Configurable colors
-
-* Work gracefully on white on black and black on white themes
 
 * "What differs?" functionality for a specific host
 
@@ -89,6 +88,10 @@ immediately implemented.
 * tangsible rerun --only-failed
 
 * Drop tangsible role?
+
+* systemd integration
+
+* Host - use tree in play tab
 
 ------
 
