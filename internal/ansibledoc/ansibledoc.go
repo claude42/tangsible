@@ -24,11 +24,11 @@ package ansibledoc
 import (
 	"bytes"
 	"errors"
-	"os/exec"
 	"regexp"
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/execerr"
+	"code.aw.net/claude/tangsible/internal/runner"
 )
 
 // ansiCSI matches an ANSI CSI escape sequence (ESC "[" ... final byte) -
@@ -64,7 +64,10 @@ func stripANSI(s string) string {
 // information the Docs tab shows rather than hides (see tui.go's
 // DocsTabHidden).
 func FetchAnsibleDoc(action string) (string, error) {
-	cmd := exec.Command("ansible-doc", action)
+	cmd, err := runner.NewToolCommand("ansible-doc", []string{action}, runner.ToolOptions{})
+	if err != nil {
+		return "", err
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

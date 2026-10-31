@@ -54,13 +54,14 @@ without building one.
 - **Rerun from revisit:** the EE image is recorded in the run's history
   entry; a rerun defaults to it, shown editable in the rerun dialog
   (clearable to run on the host).
-- **Mounts:** nearest common ancestor of playbook, inventory and roles,
-  capped at the cwd, mounted at `/runner/project` (workdir), not
-  `/workdir` - same technical effect, but `ansible-navigator` users
-  expect it. Known path arguments (`-i`, `-e @file`,
-  `--vault-password-file`, `--private-key`, `--limit @file`) are
-  translated; those outside the root get their own read-only mount.
-  Anything else that looks like an absolute host path warns.
+- **Mounts (identity mounts - revised in phase 4, see below):** the
+  project root (common ancestor of cwd and the playbook's directory) is
+  mounted at *its own host path*, and so is every other path a known
+  argument names (`-i`, `-e @file`, `--vault-password-file`,
+  `--private-key`, `--limit @file`, ...; read-only, outside the root).
+  Arguments are never rewritten. Anything else that looks like an
+  absolute host path warns. (Originally the root was to be mounted at
+  `/runner/project` with arguments translated.)
 - **SELinux:** when enforcing (`/sys/fs/selinux/enforce`), default to
   `--security-opt label=disable` rather than `:Z` (which permanently
   relabels the host project dir); `selinux = "disable" | "z" | "Z" |
@@ -177,6 +178,39 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   passes `--passwd-entry='$USERNAME:*:$UID:$GID:tangsible:/runner:/bin/sh'`
   (podman substitutes the variables), giving `HOME=/runner`, with
   `.ansible` in the container's own filesystem.
+- **Identity mounts (revised in phase 4):** the first live run showed
+  events carrying `task.path` as `/runner/project/...`, while everything
+  host-side keys on host paths - the task source index (Task definition
+  tab), the File tab, role detection, and `revisit`, which replays saved
+  logs - so a translated layout would silently break all of them unless
+  paths were also mapped back in the event stream, the saved logs and
+  revisit. Mounting the project at its own path avoids the whole class:
+  event paths, `playbook_dir`, stub playbooks' absolute references and
+  saved logs mean the same thing on both sides. Cost: the root can't lie
+  inside a directory the image needs (`/usr`, `/etc`, `/bin`, `/sbin`,
+  `/lib*`, `/proc`, `/sys`, `/dev`, `/run`, `/runner` - rejected with a
+  message). Only `HOME` (`/runner`), the plugin (`/runner/plugin`) and
+  the event dir (`/runner/events`) use fixed container paths.
+- **Phase 4 done:** every side process goes through
+  `runner.NewToolCommand` (host or EE): the progress probe
+  (`--list-tasks`), the Docs tab (`ansible-doc`), the Resolved tab's stub
+  render, the File tab's fetch stub, and the debug condition resolver
+  (`python3`). Stubs and their outputs live in one scratch dir mounted
+  read-write at its own path (`ee.Inputs.Scratch`; a stub playbook inside
+  one doesn't pull the project root towards `/`). One-shot runs have no
+  event fd/FIFO: the plugin's display fallback puts events on stdout, as
+  the host path always did. `fetchfile.go` used
+  `ANSIBLE_STDOUT_CALLBACK=ansible.posix.jsonl` (a leftover from before
+  the own plugin; an EE image needn't ship that collection) and now uses
+  our plugin like the other scrapes. Verified live: the Docs tab in EE mode
+  shows the module path inside the image's Python 3.14; Task definition
+  works; a throwaway test fetched the *image's* `/etc/os-release` through
+  the fetch stub. Start-with-play's trimmed copy and the role stub sit in
+  the project directory, so they need nothing extra (not exercised live).
+  Caveat inherent to EEs: with `localhost` as a target, what a run changes
+  lives in a container that is gone afterwards, so the File tab (already
+  skipped for localhost) and anything inspecting local state afterwards
+  see the host, not the run.
 - **Not yet checked:** older Pythons (EE images with 3.9), SSH-agent
   socket mount (wanted - the dev VM has an agent to test with), real
   remote hosts / `--network=host`.

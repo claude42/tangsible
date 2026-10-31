@@ -30,7 +30,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -273,14 +272,13 @@ func renderTaskValues(taskPath, wrapped, host string, rest []string, extraVarsFi
 		return "", err
 	}
 
-	pluginEnv, err := runner.CallbackPluginEnv()
+	cmdArgs := append(append([]string{}, rest...), "--extra-vars", "@"+extraVarsFile)
+	cmd, err := runner.NewToolCommand("ansible-playbook", cmdArgs, runner.ToolOptions{
+		Playbook: stubPath, Scratch: []string{tmpDir}, Plugin: true,
+	})
 	if err != nil {
 		return "", err
 	}
-	cmdArgs := append([]string{stubPath}, rest...)
-	cmdArgs = append(cmdArgs, "--extra-vars", "@"+extraVarsFile)
-	cmd := exec.Command("ansible-playbook", cmdArgs...)
-	cmd.Env = append(os.Environ(), pluginEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()

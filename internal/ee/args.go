@@ -37,10 +37,11 @@ var shortFlags = map[byte]argKind{
 	'M': kindPathList,
 }
 
-// rewriteArgs translates the host paths in ansible-playbook's own argument
-// list to container paths. Only flags known to take paths are touched; any
-// other argument that merely looks like an absolute host path is passed
-// through unchanged with a warning.
+// rewriteArgs makes the host paths in a tool's argument list reachable in
+// the container (see mapper.translate; the arguments come back unchanged
+// because paths are mounted where they are). Only flags known to take
+// paths are looked at; any other argument that merely looks like an
+// absolute host path gets a warning.
 func rewriteArgs(args []string, m *mapper) []string {
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
