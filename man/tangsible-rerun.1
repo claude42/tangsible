@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-rerun" "1" "2026-09-16" "Tangsible" "Tangsible Manual"
+.TH "tangsible-rerun" "1" "2026-10-31" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-rerun - repeat the last playbook run
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible rerun\fR [\fIplaybook.\&yml or role name\fR] [--start-at-play \fIname\fR] [--dialog | --no-dialog] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible rerun\fR [\fIplaybook.\&yml or role name\fR] [--start-at-play \fIname\fR] [--dialog | --no-dialog] [--ee \fIimage\fR | --no-ee] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -57,6 +57,16 @@ Show run dialog, potentially overrides the \fBrun_dialog\fR setting (\fBtangsibl
 \fB--no-dialog\fR
 .RS 4
 Skip the dialog and start rerun immediately.\&
+.PP
+.RE
+\fB--ee\fR \fIimage\fR
+.RS 4
+Run ansible-playbook inside this execution environment image (podman), instead of on the host; overrides the \fBimage\fR in the \fB[execution_environment]\fR table of \fBconfig.\&toml\fR (\fBtangsible\fR(1)).\& The project directory, the SSH agent and \fB~/.\&ssh\fR are made available inside the container.\&
+.PP
+.RE
+\fB--no-ee\fR
+.RS 4
+Run on the host even if \fBconfig.\&toml\fR names an execution environment image.\&
 .PP
 .RE
 .SH EXIT STATUS

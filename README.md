@@ -440,7 +440,7 @@ tangsible run site.yml -i hosts --ee ghcr.io/ansible-community/community-ee-base
 
 or set `image` in the `[execution_environment]` table of `config.toml` (see
 Configuration) and use `--no-ee` for a host run. The project is mounted into
-the container, your SSH agent and `~/.ssh` are made available, and the UI
+the container, your SSH agent is forwarded, and the UI
 works exactly as for a host run. Use `network = "host"` to reach real remote
 hosts.
 

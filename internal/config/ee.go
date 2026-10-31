@@ -44,8 +44,8 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 }
 
 // EEFromSettings reads cfg's [execution_environment] with defaults
-// applied: podman, auto SELinux, project mounted read-write, ssh agent and
-// ~/.ssh forwarded. An invalid engine or selinux value falls back to its
+// applied: podman, auto SELinux, project mounted read-write, ssh agent
+// forwarded (but not ~/.ssh: that would expose private keys to the image). An invalid engine or selinux value falls back to its
 // default (settingswarn.go reports it).
 func EEFromSettings(cfg SettingsConfig) EESettings {
 	e := cfg.ExecutionEnvironment
@@ -55,7 +55,7 @@ func EEFromSettings(cfg SettingsConfig) EESettings {
 		Network:     e.Network,
 		ReadOnly:    e.ReadOnly != nil && *e.ReadOnly,
 		SSHAgent:    e.SSHAgent == nil || *e.SSHAgent,
-		SSHDir:      e.SSHDir == nil || *e.SSHDir,
+		SSHDir:      e.SSHDir != nil && *e.SSHDir,
 		ExtraMounts: e.ExtraMounts,
 	}
 	if eng := strings.ToLower(e.Engine); containsString(eeEngines, eng) {
