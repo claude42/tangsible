@@ -10,7 +10,7 @@
 # template.go/host.go/inventory.go/revisit.go/vault.go) plus every flag
 # `ansible-playbook --help` lists, since every verb but vault/version
 # passes those straight through unchanged - and tangsible's own synthetic
-# flags (--start-at-play/--dialog/--no-dialog/--only-failed/
+# flags (--start-at-play/--dialog/--no-dialog/--ee/--no-ee/--only-failed/
 # --only-unreachable/--resume-where-failed, rerunargs.go/dialogflag.go;
 # --all-vars/-a, internal/debugverb/debugverb.go), each offered only
 # for the verbs whose own arg parser actually recognizes it
@@ -173,6 +173,8 @@ complete -c tangsible -n '__fish_seen_subcommand_from vault' -l ask-vault-pass -
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun' -l start-at-play -x -d 'Start at this play (by name), dropping every earlier one'
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l dialog -d 'Always show the re-run dialog at startup'
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l no-dialog -d 'Never show the re-run dialog at startup'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l ee -x -d 'Run inside this execution environment image (podman)'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l no-ee -d 'Run on the host even if an execution environment is configured'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-failed -d 'Limit to hosts that failed last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-unreachable -d 'Limit to hosts that were unreachable last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l resume-where-failed -d 'Start at the first play with a failure, limited to failed hosts'

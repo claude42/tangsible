@@ -90,6 +90,14 @@ func Main(build BuildInfo) {
 		os.Exit(2)
 	}
 
+	// --ee/--no-ee (design-docs/ExecutionEnvironments.md) likewise: run,
+	// rerun and role take them (setupExecutionEnvironment), debug has its
+	// own message (rejectExecutionEnvironmentForDebug).
+	if v != config.VerbRun && v != config.VerbRerun && v != config.VerbRole && v != config.VerbDebug && config.HasEEFlag(args) {
+		fmt.Fprintln(os.Stderr, "tangsible: --ee/--no-ee are only supported for run, rerun, and role")
+		os.Exit(2)
+	}
+
 	if v == config.VerbVersion {
 		os.Exit(RunVersion(build))
 	}
@@ -194,6 +202,10 @@ func Main(build BuildInfo) {
 	}
 	if v == config.VerbRevisit {
 		applyColors()
+		// A rerun started from inside revisit follows the configured
+		// execution environment (no image pull up front: the user may
+		// never rerun, and the engine pulls on demand).
+		runner.SetExecutionEnvironment(config.ResolveEE(config.MergedSettingsConfig(), config.EEOverride{}))
 		code := revisit.RunRevisitVerb(args, NewLiveTUI)
 		printStartupWarnings()
 		os.Exit(code)
@@ -351,6 +363,10 @@ func Main(build BuildInfo) {
 		}
 		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, false)
 
+		// --ee/--no-ee, same stripping reasoning; also activates the
+		// execution environment and pulls its image before any TUI.
+		rest = setupExecutionEnvironment(config.VerbRun, rest)
+
 		spawnPlaybook = playbook
 		if showDialog {
 			// Deferred start (design-docs/RerunDialog.md): mirror "rerun"'s
@@ -448,6 +464,9 @@ func Main(build BuildInfo) {
 		}
 		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, false)
 
+		// --ee/--no-ee: see "run" above.
+		rest = setupExecutionEnvironment(config.VerbRole, rest)
+
 		// StartRoleSession's own stub playbook is built unconditionally
 		// either way - only the actual ansible-playbook spawn below is what
 		// a forced dialog defers.
@@ -486,6 +505,7 @@ func Main(build BuildInfo) {
 		// --dialog handling is. Exits on any fatal error itself (same
 		// convention role.StartRoleSession already uses).
 		var debugCleanup func()
+		args = rejectExecutionEnvironmentForDebug(args)
 		debugPrep, debugCleanup = debugverb.PrepareSession(args)
 		playbook = debugPrep.Playbook
 		cleanup = debugCleanup
@@ -528,6 +548,9 @@ func Main(build BuildInfo) {
 			os.Exit(2)
 		}
 		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, true)
+
+		// --ee/--no-ee: see "run" above.
+		rerunArgs = setupExecutionEnvironment(config.VerbRerun, rerunArgs)
 
 		// --only-failed/--only-unreachable/--resume-where-failed
 		// (design-docs/Rerun.md's "Extend rerun dialog", item 7) are
@@ -973,6 +996,11 @@ func interruptChildAndWait(procH *runner.ProcHandle, processDone *atomic.Bool, g
 	deadline := time.Now().Add(grace)
 	for !processDone.Load() && time.Now().Before(deadline) {
 		time.Sleep(interruptPollInterval)
+	}
+	if !processDone.Load() {
+		// Only an execution-environment run has a container to leave
+		// behind if the engine process outlives its grace period.
+		runner.KillActiveContainer()
 	}
 }
 

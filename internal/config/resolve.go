@@ -150,6 +150,20 @@ type SettingsConfig struct {
 		Theme string `toml:"theme"`
 	} `toml:"general"`
 
+	// ExecutionEnvironment is the [execution_environment] table
+	// (design-docs/ExecutionEnvironments.md); see EESettings for the
+	// defaults each key gets.
+	ExecutionEnvironment struct {
+		Image       string   `toml:"image"`
+		Engine      string   `toml:"engine"`
+		Network     string   `toml:"network"`
+		SELinux     string   `toml:"selinux"`
+		ReadOnly    *bool    `toml:"read_only"`
+		SSHAgent    *bool    `toml:"ssh_agent"`
+		SSHDir      *bool    `toml:"ssh_dir"`
+		ExtraMounts []string `toml:"extra_mounts"`
+	} `toml:"execution_environment"`
+
 	// Colors is design-docs/ColorConfig.md's own `[colors]` table - see
 	// ColorsConfig's own doc comment (colorsconfig.go) for its shape and
 	// naming rule.
@@ -585,6 +599,7 @@ func MergedSettingsConfig() SettingsConfig {
 	merged.General.TemplateHostsMax = firstNonNil(project.General.TemplateHostsMax, global.General.TemplateHostsMax, system.General.TemplateHostsMax)
 	merged.General.ColorScheme = firstNonEmpty(project.General.ColorScheme, global.General.ColorScheme, system.General.ColorScheme)
 	merged.General.Theme = firstNonEmpty(project.General.Theme, global.General.Theme, system.General.Theme)
+	mergeEE(&merged, project, global, system)
 	merged.Colors = mergeColors(project.Colors, global.Colors, system.Colors)
 	return merged
 }

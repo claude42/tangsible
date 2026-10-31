@@ -33,9 +33,9 @@ type VerbInfo struct {
 
 // VerbHelpTable lists every verb in the order help prints them.
 var VerbHelpTable = []VerbInfo{
-	{VerbRun, "tangsible run [playbook.yml] [--start-at-play name] [--dialog | --no-dialog] [ansible-playbook args ...]", "run a playbook with a live, navigable tree UI"},
-	{VerbRerun, "tangsible rerun [playbook.yml or role name] [--start-at-play name] [--dialog | --no-dialog] [ansible-playbook args ...]", "repeat the last playbook run"},
-	{VerbRole, "tangsible role role_name [--dialog | --no-dialog] [ansible-playbook args ...]", "run a single role in isolation"},
+	{VerbRun, "tangsible run [playbook.yml] [--start-at-play name] [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook args ...]", "run a playbook with a live, navigable tree UI"},
+	{VerbRerun, "tangsible rerun [playbook.yml or role name] [--start-at-play name] [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook args ...]", "repeat the last playbook run"},
+	{VerbRole, "tangsible role role_name [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook args ...]", "run a single role in isolation"},
 	{VerbTemplate, "tangsible template path [hostSpec] [ansible-playbook args ...]", "debug a Jinja2 template against real inventory hosts"},
 	{VerbHost, "tangsible host hostname [playbook.yml] [ansible-playbook args ...]", "everything Tangsible can determine about one host"},
 	{VerbHosts, "tangsible hosts [playbook.yml] [ansible-playbook args ...]", "browse every inventory host"},

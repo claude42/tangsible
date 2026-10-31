@@ -32,6 +32,19 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # see design-docs/ColorConfig.md's own addendum.
 # theme = "solarized"
 
+# Run run/rerun/role inside an execution environment (podman, Linux) instead
+# of with the host's ansible-core - see design-docs/ExecutionEnvironments.md.
+# Without an image everything runs on the host; --ee <image> / --no-ee
+# override it per invocation.
+# [execution_environment]
+# image = "ghcr.io/ansible-community/community-ee-base:latest"
+# network = "host"            # needed to reach real remote hosts
+# selinux = "auto"            # "auto" | "disable" | "z" | "Z" | "none"
+# read_only = false           # mount the project read-only
+# ssh_agent = true            # forward $SSH_AUTH_SOCK
+# ssh_dir = true              # mount ~/.ssh read-only
+# extra_mounts = []           # ["/host/path:/container/path:ro"]
+
 [colors]
 # The whole TUI's own base background (every unstyled cell) - unlike
 # every other key below, this one is pushed into tview's own global

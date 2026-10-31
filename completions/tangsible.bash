@@ -12,7 +12,7 @@
 # template.go/host.go/inventory.go/revisit.go/vault.go) plus every flag
 # `ansible-playbook --help` lists, since every verb but vault/version
 # passes those straight through unchanged - and tangsible's own synthetic
-# flags (--start-at-play/--dialog/--no-dialog/--only-failed/
+# flags (--start-at-play/--dialog/--no-dialog/--ee/--no-ee/--only-failed/
 # --only-unreachable/--resume-where-failed, rerunargs.go/dialogflag.go;
 # --all-vars/-a, internal/debugverb/debugverb.go),
 # each offered only for the verbs whose own arg parser actually recognizes
@@ -62,6 +62,7 @@ _tangsible_ap_file_flags="-i --inventory --inventory-file \
 # error isn't "good enough," it's actively wrong.
 _tangsible_start_play_flag="--start-at-play"
 _tangsible_dialog_flags="--dialog --no-dialog"
+_tangsible_ee_flags="--ee --no-ee"
 _tangsible_rerun_only_flags="--only-failed --only-unreachable --resume-where-failed"
 _tangsible_debug_flags="--all-vars -a"
 
@@ -81,13 +82,13 @@ _tangsible_flags_for_verb()
 {
 	case "$1" in
 	run)
-		echo "$_tangsible_ap_flags $_tangsible_start_play_flag $_tangsible_dialog_flags"
+		echo "$_tangsible_ap_flags $_tangsible_start_play_flag $_tangsible_dialog_flags $_tangsible_ee_flags"
 		;;
 	rerun)
-		echo "$_tangsible_ap_flags $_tangsible_start_play_flag $_tangsible_dialog_flags $_tangsible_rerun_only_flags"
+		echo "$_tangsible_ap_flags $_tangsible_start_play_flag $_tangsible_dialog_flags $_tangsible_ee_flags $_tangsible_rerun_only_flags"
 		;;
 	role)
-		echo "$_tangsible_ap_flags $_tangsible_dialog_flags"
+		echo "$_tangsible_ap_flags $_tangsible_dialog_flags $_tangsible_ee_flags"
 		;;
 	template | host | hosts | inventory | revisit)
 		echo "$_tangsible_ap_flags"

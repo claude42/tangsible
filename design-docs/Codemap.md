@@ -64,6 +64,9 @@ package reads.
 - **resolve.go** - `SettingsConfig`, `Verb` parsing, the playbook
   resolution cascade (env var → project config → XDG config →
   `site.yml`).
+- **ee.go** - `[execution_environment]`: `EESettings`/`EEFromSettings`
+  (defaults), `--ee`/`--no-ee` (`ExtractEEFlags`, `HasEEFlag`),
+  `ResolveEE`, `QueueWarning`.
 - **settingswarn.go** - warnings for unknown `config.toml` keys and invalid
   fixed-choice `[general]` values, collected per file and printed after
   exit (`ConfigOptions.md`, "Mistakes in config.toml").
@@ -107,7 +110,7 @@ package reads.
 ## internal/ee
 
 Execution-environment command builder (`design-docs/ExecutionEnvironments.md`)
-- pure, not yet wired into `runner`.
+- pure; `internal/runner/ee.go` drives it.
 
 - **ee.go** - `Build`: `Inputs` (config, cwd, playbook, passthrough args,
   plugin/event dirs, ssh agent/dir, host env) to a `Plan` (podman argv,
@@ -221,6 +224,10 @@ run/rerun/role session and by revisit's own rerun.
 - **callbackplugin.go** - `ResolveCallbackPluginDir`: `$TANGSIBLE_CALLBACK_DIR`
   or the embedded plugin (`callback/embed.go`) extracted once per version
   into the XDG cache dir; `CallbackPluginEnv` for every spawn.
+- **ee.go** - execution-environment mode: the process-wide active
+  setting, `EnsureImage` (pull before the TUI), the per-generation event
+  FIFO and engine command (`newEERun`, built by `internal/ee`),
+  `KillActiveContainer`.
 - **progress.go** - `ProgressTracker`: the "Task x/y" top-bar progress
   indicator, predicted from a throwaway `--list-tasks --list-hosts`
   run.
@@ -285,6 +292,8 @@ Restructuring.md's own Phase 3 (now done) split `NewLiveTUI` itself
 across the `livesession*.go` files below - `tui.go` is now just its
 thin constructor/wiring shell.
 
+- **ee.go** - `setupExecutionEnvironment` (run/rerun/role startup: flags,
+  activation, image pull) and debug's rejection.
 - **main.go** - `Main()`: verb dispatch, generation lifecycle for
   run/rerun/role. Called by root `main.go`.
 - **tui.go** - `NewLiveTUI`: builds every widget, populates a

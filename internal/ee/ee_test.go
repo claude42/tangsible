@@ -55,8 +55,9 @@ func TestBuildMinimal(t *testing.T) {
 	in.Name = "tgs-1"
 	p := build(t, in)
 	want := []string{"run", "--rm", "-i", "--name", "tgs-1", "--userns=keep-id",
+		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:/runner:/bin/sh",
 		"-w", "/runner/project", "-v", "/home/u/proj:/runner/project",
-		"-e", "HOME=/runner", "img:1", "ansible-playbook", "/runner/project/site.yml"}
+		"img:1", "ansible-playbook", "/runner/project/site.yml"}
 	if !reflect.DeepEqual(p.Argv, want) {
 		t.Errorf("argv = %q\nwant   %q", p.Argv, want)
 	}
@@ -309,6 +310,7 @@ func TestEnvForwarding(t *testing.T) {
 		"ANSIBLE_INVENTORY_UNPARSED_WARNING=false",
 		"ANSIBLE_FORCE_COLOR=0",
 		"HTTPS_PROXY=http://proxy:3128",
+		"NO_COLOR=1",
 		"HOME=/home/u",
 		"SECRET=nope",
 	}
@@ -318,7 +320,7 @@ func TestEnvForwarding(t *testing.T) {
 	wantEnv := []string{
 		"ANSIBLE_FORCE_COLOR=1", "ANSIBLE_HOST_KEY_CHECKING=False",
 		"ANSIBLE_INVENTORY_UNPARSED_WARNING=false", "ANSIBLE_JSON_INDENT=0",
-		"HTTPS_PROXY=http://proxy:3128",
+		"HTTPS_PROXY=http://proxy:3128", "NO_COLOR=1",
 	}
 	if !reflect.DeepEqual(p.Env, wantEnv) {
 		t.Errorf("env = %q\nwant  %q", p.Env, wantEnv)

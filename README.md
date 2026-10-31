@@ -427,6 +427,23 @@ its usual immediate-interrupt behavior, even then.
 Mouse navigation is supported as well. Every view has `?`/`F1` help listing
 its shortcuts (F1 only in the re-run dialog).
 
+## Running in an execution environment
+
+To check that a playbook or role works with the ansible-core and collections
+your CI or AWX will use, rather than whatever is installed on your machine,
+run it in an [execution environment](https://docs.ansible.com/projects/ansible/latest/getting_started_ee/index.html)
+image. Tangsible needs only `podman` for that (Linux), not `ansible-runner`:
+
+```
+tangsible run site.yml -i hosts --ee ghcr.io/ansible-community/community-ee-base:latest
+```
+
+or set `image` in the `[execution_environment]` table of `config.toml` (see
+Configuration) and use `--no-ee` for a host run. The project is mounted into
+the container, your SSH agent and `~/.ssh` are made available, and the UI
+works exactly as for a host run. Use `network = "host"` to reach real remote
+hosts.
+
 ## Configuration
 
 When no playbook is given on the command line, Tangsible resolves one
@@ -457,7 +474,7 @@ and should best be gitignored.
 Tangsible is currently aimed at the common interactive use case rather than
 complete `ansible-playbook` feature parity.
 
-- **Execution environments** are so far not (yet) supported; neither is **ansible-runner**.
+- **Execution environments** (see "Running in an execution environment") work with podman on Linux for `run`/`rerun`/`role` only; docker, macOS and `debug` are not supported yet, and the File/Resolved/Docs tabs and the progress estimate still use the host's ansible. **ansible-runner** is not supported.
 - **Interactive input after the TUI starts is not supported** in `run`/`rerun`/`role`. For example, a bare pause: task does not wait for input, and `--step` will not work. (`tangsible debug` is the dedicated way to drive ansible-core's own task debugger - see "Debugging a playbook" above; it isn't available from inside the regular live tree.)
   
   Timed pauses work normally.
