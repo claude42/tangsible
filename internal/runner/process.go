@@ -319,7 +319,7 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 		} else {
 			_ = config.FinalizeInvocation(config.TangsibleStatePath, histPlaybook, "", ExitCodeOf(waitErr), runID)
 		}
-		for _, l := range childStderr {
+		for _, l := range DropWarningsRepeatingErrors(childStderr) {
 			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 		}
 		// This path exits without ever reaching main's own warning print,
@@ -468,7 +468,9 @@ func StreamStderr(r io.Reader) []string {
 // a parse error, a missing inventory - see its own doc comment), so
 // stderr - [WARNING]: lines included - is the *only* signal the user ever
 // gets; filtering there would risk silently swallowing the one clue
-// available. Only applied where a drill-down (live, or via a saved run log
+// available. It gets the much narrower DropWarningsRepeatingErrors
+// instead, which only removes a warning that says nothing its own error
+// doesn't. Only applied where a drill-down (live, or via a saved run log
 // through "revisit") genuinely already covers the same ground: main.go's
 // and revisit.go's own post-app.Run() dumps.
 func FilterRedundantWarnings(lines []string) []string {
@@ -478,6 +480,65 @@ func FilterRedundantWarnings(lines []string) []string {
 			continue
 		}
 		kept = append(kept, l)
+	}
+	return kept
+}
+
+// DropWarningsRepeatingErrors removes the "[WARNING]:" blocks from
+// ansible's stderr lines that merely repeat an "[ERROR]:" block: a failure
+// often arrives as both (a missing vault password file is reported as
+// "Error getting vault password file (default): The vault password file X
+// was not found" and as "The vault password file X was not found"), and
+// the error alone says it. A block is a marker line plus the lines after
+// it up to the next marker; anything before the first marker is kept. A
+// warning is dropped only when the first line of some error's message is
+// contained in the warning's own text - one that adds anything else (which
+// host pattern failed to match, say) stays, since on the pre-flight paths
+// stderr is all the user gets.
+func DropWarningsRepeatingErrors(lines []string) []string {
+	isMarker := func(l string) bool { return strings.HasPrefix(l, "[WARNING]:") || strings.HasPrefix(l, "[ERROR]:") }
+	type block struct {
+		warning bool
+		lines   []string
+	}
+	var preamble []string
+	var blocks []*block
+	var errMsgs []string
+	for _, l := range lines {
+		switch {
+		case isMarker(l):
+			b := &block{warning: strings.HasPrefix(l, "[WARNING]:"), lines: []string{l}}
+			blocks = append(blocks, b)
+			if !b.warning {
+				if msg := strings.TrimSpace(strings.TrimPrefix(l, "[ERROR]:")); msg != "" {
+					errMsgs = append(errMsgs, msg)
+				}
+			}
+		case len(blocks) == 0:
+			preamble = append(preamble, l)
+		default:
+			b := blocks[len(blocks)-1]
+			b.lines = append(b.lines, l)
+		}
+	}
+	if len(errMsgs) == 0 {
+		return lines
+	}
+	kept := preamble
+	for _, b := range blocks {
+		if b.warning {
+			text := strings.Join(b.lines, "\n")
+			repeats := false
+			for _, msg := range errMsgs {
+				if strings.Contains(text, msg) {
+					repeats = true
+				}
+			}
+			if repeats {
+				continue
+			}
+		}
+		kept = append(kept, b.lines...)
 	}
 	return kept
 }

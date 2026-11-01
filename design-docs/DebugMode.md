@@ -1335,16 +1335,27 @@ and only then ansible's own text - the headline blamed tangsible's
 bookkeeping for what is ansible failing, and the real message followed
 twice, as a `[WARNING]: Error getting vault password file (default)...`
 and as the `[ERROR]: The vault password file ... was not found` it
-duplicates. Now the message leads with the cause - `tangsible:
-ansible-playbook could not list this playbook's tasks, so there is nothing
-to debug:` followed directly by ansible's output (no separate
-"ansible-playbook said:" line) - and `summarizeProbeStderr` drops
-`[WARNING]:` blocks when an `[ERROR]:` block is present
-(`dropWarningsBesideErrors`; a block is a marker line plus its
-continuation lines). The argparse cut and the line cap are unchanged, and
-a probe that fails with no output at all says so instead of blaming a
-failure. Tested in `TestSummarizeProbeStderr` and checked live against
-the missing-vault-file setup.
+duplicates. `tangsible run` showed the same doubled pair on its
+pre-flight failure path.
+
+Now the debug message leads with the cause - `tangsible: ansible-playbook
+could not list this playbook's tasks, so there is nothing to debug:`
+followed directly by ansible's output (no separate "ansible-playbook
+said:" line; a probe that fails with no output at all says so instead of
+blaming a failure) - and both verbs drop a `[WARNING]:` block that merely
+repeats an `[ERROR]:` block: `runner.DropWarningsRepeatingErrors`
+(`summarizeProbeStderr` calls it after its argparse cut; the pre-flight
+dump in `StartFirstGeneration` calls it on the captured lines). A block is
+a marker line plus its continuation lines, and a warning is dropped only
+when the first line of some error's message is contained in the warning's
+text. A first version dropped *every* warning beside an error, which would
+have hidden `Could not match supplied host pattern, ignoring: <pattern>`
+next to the "no hosts to target" error - the error doesn't name the
+pattern - so the rule is deliberately the narrower "says nothing its error
+doesn't" (the pre-flight paths are the one place stderr is the user's only
+clue). Tested in `TestDropWarningsRepeatingErrors` and
+`TestSummarizeProbeStderr`, and checked live for both verbs with a missing
+vault file and a mistyped `-l`.
 
 ## Stage 4 follow-up round 2: drop unavailable's own styling, chrome-colored panel, bottom-bar hints, nav/delete fixes (2026-10-20)
 
