@@ -226,39 +226,6 @@ func extractAllVarsFlag(args []string) (allVars bool, rest []string) {
 	return allVars, out
 }
 
-// dropWarningsBesideErrors removes the "[WARNING]:" blocks from ansible's
-// stderr when it also holds an "[ERROR]:" block. A failure often arrives
-// as a warning and an error about the same thing (a missing vault password
-// file is reported both as "Error getting vault password file" and as
-// "The vault password file ... was not found"), and the error alone says
-// it. A block is a marker line plus the lines after it up to the next
-// marker; anything before the first marker is kept. Output without an
-// error block is returned unchanged.
-func dropWarningsBesideErrors(stderr string) string {
-	isMarker := func(l string) bool { return strings.HasPrefix(l, "[WARNING]:") || strings.HasPrefix(l, "[ERROR]:") }
-	lines := strings.Split(stderr, "\n")
-	hasError := false
-	for _, l := range lines {
-		if strings.HasPrefix(l, "[ERROR]:") {
-			hasError = true
-		}
-	}
-	if !hasError {
-		return stderr
-	}
-	var kept []string
-	inWarning := false
-	for _, l := range lines {
-		if isMarker(l) {
-			inWarning = strings.HasPrefix(l, "[WARNING]:")
-		}
-		if !inWarning {
-			kept = append(kept, l)
-		}
-	}
-	return strings.Join(kept, "\n")
-}
-
 // summarizeProbeStderr trims BuildProgressSkeletonVerbose's own raw
 // stderr down to what's actually worth showing: an unrecognized or
 // malformed flag makes ansible-playbook's own argparse print a short
@@ -278,8 +245,8 @@ func summarizeProbeStderr(stderr string) string {
 			return strings.Join(lines[:i+1], "\n")
 		}
 	}
-	stderr = dropWarningsBesideErrors(stderr)
-	lines = strings.Split(stderr, "\n")
+	lines = runner.DropWarningsRepeatingErrors(lines)
+	stderr = strings.Join(lines, "\n")
 	if len(lines) > maxLines {
 		return strings.Join(lines[:maxLines], "\n") + "\n... (truncated)"
 	}

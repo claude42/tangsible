@@ -104,20 +104,12 @@ func TestSummarizeProbeStderr(t *testing.T) {
 		}
 	})
 
-	t.Run("multi-line blocks: warnings go, the whole error stays", func(t *testing.T) {
-		stderr := "[WARNING]: first\ncontinued warning line\n" +
-			"[ERROR]: boom\nOrigin: /p/site.yml:3:1\n\n3 - hosts: all\n" +
-			"[WARNING]: later one"
-		want := "[ERROR]: boom\nOrigin: /p/site.yml:3:1\n\n3 - hosts: all"
-		if got := summarizeProbeStderr(stderr); got != want {
-			t.Errorf("summarizeProbeStderr(...) = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("warnings alone are kept", func(t *testing.T) {
-		stderr := "[WARNING]: something odd"
+	t.Run("a warning that adds something stays beside the error", func(t *testing.T) {
+		// A mistyped -l: the warning names the pattern, the error doesn't.
+		stderr := "[WARNING]: Could not match supplied host pattern, ignoring: shunyaa\n" +
+			"[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target."
 		if got := summarizeProbeStderr(stderr); got != stderr {
-			t.Errorf("summarizeProbeStderr(%q) = %q, want unchanged", stderr, got)
+			t.Errorf("summarizeProbeStderr(...) = %q, want unchanged", got)
 		}
 	})
 

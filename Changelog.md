@@ -29,7 +29,8 @@
 
 ### Fixed
 
-- `debug`: when ansible-playbook fails before it can list the tasks (a missing vault password file, say) the message now leads with ansible's own error instead of "couldn't predict this playbook's own task list (--list-tasks probe failed)", and a warning that only repeats the error is no longer shown beside it
+- `run` and `debug` no longer show a warning that merely repeats the error beside it when ansible-playbook fails before the playbook starts (a missing vault password file used to appear twice); a warning that adds something, like the host pattern that failed to match, is kept
+- `debug`: when ansible-playbook fails before it can list the tasks the message now leads with ansible's own error instead of "couldn't predict this playbook's own task list (--list-tasks probe failed)"
 
 - Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving

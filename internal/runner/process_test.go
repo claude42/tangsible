@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -190,5 +191,32 @@ func TestScanEventsTeesRawLinesToLogFile(t *testing.T) {
 	}
 	if string(got) != input {
 		t.Errorf("logged content = %q, want byte-identical to input %q", got, input)
+	}
+}
+
+func TestDropWarningsRepeatingErrors(t *testing.T) {
+	vaultWarn := "[WARNING]: Error getting vault password file (default): The vault password file /p/.vault_pass was not found"
+	vaultErr := "[ERROR]: The vault password file /p/.vault_pass was not found"
+
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"the warning that repeats the error goes", []string{vaultWarn, vaultErr}, []string{vaultErr}},
+		{"order does not matter", []string{vaultErr, vaultWarn}, []string{vaultErr}},
+		{"a warning that adds something stays",
+			[]string{"[WARNING]: Could not match supplied host pattern, ignoring: shunyaa", "[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target."},
+			[]string{"[WARNING]: Could not match supplied host pattern, ignoring: shunyaa", "[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target."}},
+		{"warnings without any error are untouched", []string{"[WARNING]: a", "[WARNING]: b"}, []string{"[WARNING]: a", "[WARNING]: b"}},
+		{"no markers at all is untouched", []string{"Traceback (most recent call last):", "  boom"}, []string{"Traceback (most recent call last):", "  boom"}},
+		{"continuation lines travel with their block",
+			[]string{"preamble", vaultWarn, "  warning detail", vaultErr, "Origin: /p/site.yml:1:1", "[WARNING]: unrelated"},
+			[]string{"preamble", vaultErr, "Origin: /p/site.yml:1:1", "[WARNING]: unrelated"}},
+	}
+	for _, c := range cases {
+		if got := DropWarningsRepeatingErrors(c.in); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
 	}
 }
