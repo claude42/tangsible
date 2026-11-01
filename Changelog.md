@@ -29,6 +29,8 @@
 
 ### Fixed
 
+- `debug`: when ansible-playbook fails before it can list the tasks (a missing vault password file, say) the message now leads with ansible's own error instead of "couldn't predict this playbook's own task list (--list-tasks probe failed)", and a warning that only repeats the error is no longer shown beside it
+
 - Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving
 - The host_vars tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)

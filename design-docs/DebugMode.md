@@ -1326,6 +1326,26 @@ an arbitrary unrecognized flag like `--some-made-up-flag`) now shows the
 real usage+error text instead of the generic "probe failed" message
 alone.
 
+## Stage 4 follow-up: lead the probe-failure message with the cause (2026-11-01)
+
+Reported live with a missing `.vault_pass` (`vault_password_file` in
+`ansible.cfg`): `tangsible debug` printed `couldn't predict this
+playbook's own task list (--list-tasks probe failed) - nothing to debug`
+and only then ansible's own text - the headline blamed tangsible's
+bookkeeping for what is ansible failing, and the real message followed
+twice, as a `[WARNING]: Error getting vault password file (default)...`
+and as the `[ERROR]: The vault password file ... was not found` it
+duplicates. Now the message leads with the cause - `tangsible:
+ansible-playbook could not list this playbook's tasks, so there is nothing
+to debug:` followed directly by ansible's output (no separate
+"ansible-playbook said:" line) - and `summarizeProbeStderr` drops
+`[WARNING]:` blocks when an `[ERROR]:` block is present
+(`dropWarningsBesideErrors`; a block is a marker line plus its
+continuation lines). The argparse cut and the line cap are unchanged, and
+a probe that fails with no output at all says so instead of blaming a
+failure. Tested in `TestSummarizeProbeStderr` and checked live against
+the missing-vault-file setup.
+
 ## Stage 4 follow-up round 2: drop unavailable's own styling, chrome-colored panel, bottom-bar hints, nav/delete fixes (2026-10-20)
 
 Five small changes requested after trying the explorer live, all in

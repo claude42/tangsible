@@ -93,6 +93,34 @@ func TestSummarizeProbeStderr(t *testing.T) {
 		}
 	})
 
+	t.Run("a warning that only repeats the error is dropped", func(t *testing.T) {
+		// The vault password file report seen live: the same problem as a
+		// warning and as an error.
+		stderr := "[WARNING]: Error getting vault password file (default): The vault password file /p/.vault_pass was not found\n" +
+			"[ERROR]: The vault password file /p/.vault_pass was not found"
+		want := "[ERROR]: The vault password file /p/.vault_pass was not found"
+		if got := summarizeProbeStderr(stderr); got != want {
+			t.Errorf("summarizeProbeStderr(...) = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("multi-line blocks: warnings go, the whole error stays", func(t *testing.T) {
+		stderr := "[WARNING]: first\ncontinued warning line\n" +
+			"[ERROR]: boom\nOrigin: /p/site.yml:3:1\n\n3 - hosts: all\n" +
+			"[WARNING]: later one"
+		want := "[ERROR]: boom\nOrigin: /p/site.yml:3:1\n\n3 - hosts: all"
+		if got := summarizeProbeStderr(stderr); got != want {
+			t.Errorf("summarizeProbeStderr(...) = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("warnings alone are kept", func(t *testing.T) {
+		stderr := "[WARNING]: something odd"
+		if got := summarizeProbeStderr(stderr); got != stderr {
+			t.Errorf("summarizeProbeStderr(%q) = %q, want unchanged", stderr, got)
+		}
+	})
+
 	t.Run("short output with no error line passes through unchanged", func(t *testing.T) {
 		stderr := "[ERROR]: YAML parsing failed: While parsing a flow sequence...\nOrigin: /tmp/bad.yml:2:1"
 		if got := summarizeProbeStderr(stderr); got != stderr {
