@@ -59,6 +59,8 @@
 
 - Resolved tab: an expression using an undefined name (typically `item` in a loop) stays as written instead of failing the whole tab; the other expressions still resolve
 - `debug`: a run whose only problem was unreachable hosts ends "completed - one or more hosts were unreachable", as in `run`, instead of "Playbook failed (exit code 4)"
+- `debug`: when ansible-playbook fails before it can list the tasks (a missing vault password file, say) the message now leads with ansible's own error instead of "couldn't predict this playbook's own task list (--list-tasks probe failed)", and a warning that only repeats the error is no longer shown beside it
+
 - Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving
 - The Variables tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)
