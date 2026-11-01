@@ -177,13 +177,17 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 	if err != nil {
 		return ee.Inputs{}, err
 	}
+	enforcing := ee.SELinuxEnforcing(selinuxEnforcePath)
+	if enforcing && s.SELinux == "none" {
+		config.QueueWarning(`tangsible: execution environment: selinux = "none" while SELinux is enforcing: the container will most likely be unable to read the project ("the playbook could not be found"); use "auto" or "disable"`)
+	}
 	in := ee.Inputs{
 		Config: ee.Config{
 			Image:       s.Image,
 			Engine:      s.Engine,
 			Network:     s.Network,
 			ExtraMounts: s.ExtraMounts,
-			SELinux:     ee.ResolveSELinux(s.SELinux, ee.SELinuxEnforcing(selinuxEnforcePath)),
+			SELinux:     ee.ResolveSELinux(s.SELinux, enforcing),
 			ReadOnly:    s.ReadOnly,
 		},
 		Cwd:     cwd,

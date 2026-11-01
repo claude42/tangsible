@@ -55,9 +55,10 @@ func TestBuildMinimal(t *testing.T) {
 	in.Name = "tgs-1"
 	p := build(t, in)
 	want := []string{"run", "--rm", "-i", "--name", "tgs-1", "--userns=keep-id",
-		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:/runner:/bin/sh",
+		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:/runner/home:/bin/sh",
+		"--tmpfs", "/runner/home:rw,mode=1777",
 		"-w", "/home/u/proj", "-v", "/home/u/proj:/home/u/proj",
-		"img:1", "ansible-playbook", "site.yml"}
+		"-e", "HOME=/runner/home", "img:1", "ansible-playbook", "site.yml"}
 	if !reflect.DeepEqual(p.Argv, want) {
 		t.Errorf("argv = %q\nwant   %q", p.Argv, want)
 	}
@@ -269,7 +270,7 @@ func TestPluginEventsAndSSH(t *testing.T) {
 	for _, v := range []string{
 		"/cache/plugin-abc:/runner/plugin:ro",
 		"/tmp/tgs-ev:/runner/events",
-		"/home/u/.ssh:/runner/.ssh:ro",
+		"/home/u/.ssh:/runner/home/.ssh:ro",
 		"/tmp/ssh-x/agent.1:/runner/ssh-agent.sock",
 	} {
 		if !hasPair(p.Argv, "-v", v) {
@@ -409,15 +410,41 @@ func TestSSHKnownHostsMount(t *testing.T) {
 	in := base()
 	in.SSHKnownHosts = "/home/u/.ssh/known_hosts"
 	p := build(t, in)
-	if !hasPair(p.Argv, "-v", "/home/u/.ssh/known_hosts:/runner/.ssh/known_hosts:ro") {
+	if !hasPair(p.Argv, "-v", "/home/u/.ssh/known_hosts:/runner/home/.ssh/known_hosts:ro") {
 		t.Errorf("known_hosts not mounted read-only: %q", p.Argv)
 	}
 	// The whole directory already carries it: no nested second mount.
 	in.SSHDir = "/home/u/.ssh"
 	p = build(t, in)
 	for _, mt := range p.Mounts {
-		if mt.Container == "/runner/.ssh/known_hosts" {
+		if mt.Container == "/runner/home/.ssh/known_hosts" {
 			t.Errorf("known_hosts mounted on top of the ssh dir: %v", p.Mounts)
+		}
+	}
+}
+
+// Under the relabel modes the agent socket is neither mounted nor relabeled:
+// a confined container can't reach it anyway.
+func TestSSHAgentSkippedUnderRelabelModes(t *testing.T) {
+	for _, mode := range []string{"z", "Z"} {
+		in := base()
+		in.SELinux = mode
+		in.SSHAuthSock = "/tmp/ssh-x/agent.1"
+		p := build(t, in)
+		if strings.Contains(strings.Join(p.Argv, " "), "agent.1") || strings.Contains(strings.Join(p.Argv, " "), "SSH_AUTH_SOCK") {
+			t.Errorf("%s: agent socket still passed: %q", mode, p.Argv)
+		}
+		if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "SSH agent is not forwarded") {
+			t.Errorf("%s: warnings = %q", mode, p.Warnings)
+		}
+	}
+	for _, mode := range []string{"", "none", "disable"} {
+		in := base()
+		in.SELinux = mode
+		in.SSHAuthSock = "/tmp/ssh-x/agent.1"
+		p := build(t, in)
+		if !hasPair(p.Argv, "-v", "/tmp/ssh-x/agent.1:/runner/ssh-agent.sock") || len(p.Warnings) != 0 {
+			t.Errorf("%q: agent should be forwarded silently: %q %q", mode, p.Argv, p.Warnings)
 		}
 	}
 }

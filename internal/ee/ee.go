@@ -23,7 +23,7 @@ import (
 const (
 	ContainerPlugin = "/runner/plugin"
 	ContainerEvents = "/runner/events"
-	ContainerHome   = "/runner"
+	ContainerHome   = "/runner/home"
 	ContainerSock   = "/runner/ssh-agent.sock"
 )
 
@@ -167,8 +167,18 @@ func Build(in Inputs) (*Plan, error) {
 	if in.SSHKnownHosts != "" && in.SSHDir == "" {
 		p.Mounts = append(p.Mounts, Mount{Host: in.SSHKnownHosts, Container: ContainerHome + "/.ssh/known_hosts", ReadOnly: true})
 	}
-	if in.SSHAuthSock != "" {
-		p.Mounts = append(p.Mounts, Mount{Host: in.SSHAuthSock, Container: ContainerSock})
+	// A confined container cannot connect to the agent's socket whatever its
+	// file label is (the socket belongs to another SELinux domain; checked
+	// live: only label=disable works), so under the relabel modes mounting
+	// it would be pointless - and :z/:Z would relabel the user's live agent
+	// socket for nothing.
+	sock := in.SSHAuthSock
+	if sock != "" && (in.SELinux == "z" || in.SELinux == "Z") {
+		p.Warnings = append(p.Warnings, `the SSH agent is not forwarded: with selinux = "`+in.SELinux+`" SELinux stops the container from reaching it (selinux = "disable" allows it)`)
+		sock = ""
+	}
+	if sock != "" {
+		p.Mounts = append(p.Mounts, Mount{Host: sock, Container: ContainerSock})
 	}
 
 	playbook := ""
@@ -185,14 +195,14 @@ func Build(in Inputs) (*Plan, error) {
 	}
 	p.Mounts = append(p.Mounts, extra...)
 
-	var fixed []string
+	fixed := []string{"HOME=" + ContainerHome}
 	if in.PluginDir != "" {
 		fixed = append(fixed, "ANSIBLE_CALLBACK_PLUGINS="+ContainerPlugin)
 	}
 	if in.EventDir != "" && in.EventFile != "" {
 		fixed = append(fixed, "TANGSIBLE_EVENT_FILE="+ContainerEvents+"/"+in.EventFile)
 	}
-	if in.SSHAuthSock != "" {
+	if sock != "" {
 		fixed = append(fixed, "SSH_AUTH_SOCK="+ContainerSock)
 	}
 	forwarded, dropped := forwardEnv(in.HostEnv, in.ExtraEnv, fixed)
@@ -202,12 +212,17 @@ func Build(in Inputs) (*Plan, error) {
 	if in.Name != "" {
 		argv = append(argv, "--name", in.Name)
 	}
-	// keep-id alone makes podman put the working directory (the project!)
-	// in as the user's home, overriding any -e HOME: ansible would then
-	// drop ~/.ansible/tmp into the project and ssh would look for
-	// ~/.ssh there instead of at the mount. --passwd-entry fixes the home.
+	// The container user's home needs care. keep-id alone makes podman 5.4
+	// put the working directory (the project!) in as the home - ansible
+	// then drops ~/.ansible/tmp into the project - and podman 5.8 gives
+	// HOME=/tmp; the image's own /runner is writable only through group
+	// root, which keep-id gives the user on 5.4 but not on 5.8. So: a
+	// world-writable tmpfs of our own as the home (the same on every
+	// version and image), named in both the passwd entry and $HOME, and
+	// where ~/.ssh entries are mounted.
 	argv = append(argv, "--userns=keep-id",
-		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:"+ContainerHome+":/bin/sh")
+		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:"+ContainerHome+":/bin/sh",
+		"--tmpfs", ContainerHome+":rw,mode=1777")
 	if in.Network != "" {
 		argv = append(argv, "--network="+in.Network)
 	}
