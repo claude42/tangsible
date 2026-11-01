@@ -189,6 +189,27 @@ func (s *tmuxSession) waitForFieldValue(label, value string, timeout time.Durati
 	}
 }
 
+// waitForFieldWithout is waitForFieldValue's inverse: it polls until the
+// first line of capture() containing label no longer contains value. A
+// plain waitFor on the label cannot do this job - the label is on screen
+// the whole time, so it returns at once, before the redraw that clears the
+// field has landed (a race that only showed up on a faster machine).
+func (s *tmuxSession) waitForFieldWithout(label, value string, timeout time.Duration) string {
+	s.t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last string
+	for {
+		last = s.capture()
+		if line := lineContaining(last, label); line != "" && !strings.Contains(line, value) {
+			return last
+		}
+		if time.Now().After(deadline) {
+			s.t.Fatalf("timed out after %s waiting for %q to stop containing %q; last capture:\n%s", timeout, label, value, last)
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+}
+
 // waitForAbsence polls until needle is no longer present in capture(), or
 // fails after timeout - the inverse of waitFor, used to confirm a
 // transition (e.g. a rerun clearing the previous generation's rows)
@@ -457,17 +478,12 @@ func TestE2E_RerunDialog_UncheckingResumeClearsPlayAndOnlyFailed(t *testing.T) {
 	s.waitForFieldValue("Limit hosts to:", "web2", 3*time.Second)
 
 	s.send("Space") // uncheck it again, same focused checkbox
-	got := s.waitFor("Start with play:", 3*time.Second)
-	playLine := lineContaining(got, "Start with play:")
-	if strings.Contains(playLine, "main play") {
-		t.Errorf("Play field = %q, want it cleared once \"Resume where failed\" is unchecked", playLine)
-	}
+	// Wait for the outcomes themselves, not a static label (see
+	// waitForFieldWithout): both fields clear in the same redraw.
+	s.waitForFieldWithout("Start with play:", "main play", 3*time.Second)
+	got := s.waitForFieldWithout("Limit hosts to:", "web2", 3*time.Second)
 	if strings.Contains(lineContaining(got, "Only failed"), "X") {
 		t.Errorf("expected unchecking \"Resume where failed\" to also uncheck \"Only failed\", got:\n%s", lineContaining(got, "Only failed"))
-	}
-	hostsLine := lineContaining(got, "Limit hosts to:")
-	if strings.Contains(hostsLine, "web2") {
-		t.Errorf("Hosts field = %q, want it cleared along with \"Only failed\" unchecking", hostsLine)
 	}
 
 	s.send("Escape")

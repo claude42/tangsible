@@ -322,6 +322,10 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 		for _, l := range childStderr {
 			fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 		}
+		// This path exits without ever reaching main's own warning print,
+		// and a queued warning (an execution environment setting that
+		// explains the failure, say) is most useful right here.
+		config.PrintPendingWarnings()
 		// Printed verbatim (no prefix, unlike stderr above) so e.g.
 		// --list-tasks/--list-hosts/--syntax-check output - which bypasses
 		// the callback system entirely, so never opens the TUI - reads

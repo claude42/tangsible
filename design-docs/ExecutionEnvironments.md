@@ -59,13 +59,17 @@ happens to be on the developer's host.
 
 ## Not verified, or open
 
-- **SELinux:** `selinux = auto|disable|z|Z|none` is covered by builder unit
-  tests only; the dev machines had no SELinux, so `--security-opt
-  label=disable` and `:z`/`:Z` were never run against an enforcing host.
+- **SELinux** was verified on one enforcing Fedora 44 host (podman 5.8.9):
+  `auto`, `disable`, `none`, `Z` and `z` all behave as described in the
+  Fedora findings below. Not tried: RHEL/CentOS policies, rootful podman,
+  the `container-selinux` policy of other releases.
+- **Podman versions:** 5.4.2 (Debian) and 5.8.9 (Fedora) only; `keep-id`
+  behaved differently between them (see the container-home finding), so
+  other versions may hold more such differences.
 - **docker, macOS, `debug`:** deliberately out of scope (`debug` is
   designed for - see "Debug mode in an EE" - not built).
-- **Real-host coverage** came from one target (Debian 13, ssh agent
-  authentication, `become`); other connection types (password prompts,
+- **Real-host coverage** came from two targets (Debian 13 and Fedora 44,
+  ssh agent authentication, `become`); other connection types (password prompts,
   `ansible_connection=winrm`, jump hosts via `~/.ssh/config`, which the
   container does not see unless `ssh_dir = true`) were not tried.
 - Findings that depend on the machine (default-network DNS failing behind
@@ -353,6 +357,46 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   the handler (ansible-playbook / container still alive after the signal).
   Not covered: signals during the pre-flight gate (before any TUI), and
   `revisit`'s sessions.
+- **Control host: Fedora 44, SELinux enforcing (maya, podman 5.8.9, pasta,
+  systemd-resolved stub resolver, IPv6-only network) - findings:**
+  - **A real bug, fixed: the container home.** Ansible could not create
+    `~/.ansible/tmp` ("Failed to create temporary directory", host shown
+    unreachable). Podman 5.8 differs from 5.4 (Debian): `keep-id` gives
+    gid 1000 with no supplementary group root (5.4: gid 0 + 1000), and
+    `HOME=/tmp` (5.4: the project dir; the earlier `--passwd-entry` fix
+    only worked on 5.4 because the user landed in group root, which can
+    write the image's `/runner`). The builder now gives the container its
+    own home: `--tmpfs /runner/home:rw,mode=1777`, named in the passwd entry
+    and `-e HOME=`, and the mount point for `~/.ssh` entries - identical on
+    both podman versions and independent of the image's permissions.
+  - **SELinux, tried for real:** `selinux = none` fails ("the playbook could
+    not be found": a confined container cannot read a `user_home_t`
+    project) - tangsible now warns when `none` is set on an enforcing host,
+    and prints queued warnings on the no-TUI pre-flight failure path where
+    that message would otherwise be lost; `auto` (= `label=disable`) and
+    `disable` work, including the agent socket and the `known_hosts` mount;
+    `Z`/`z` read the project but **cannot use the agent**
+    (`Error connecting to agent: Permission denied`, also with a relabeled
+    socket - the socket belongs to another domain; only `label=disable`
+    works). Under `Z` tangsible had relabeled the live agent socket and
+    `known_hosts` to `container_file_t` with private categories for
+    nothing; the builder now skips the agent under `z`/`Z` with a warning.
+    `z`/`Z` still relabel the project, scratch and plugin directories and
+    `known_hosts` permanently (`restorecon -R` undoes it).
+  - Default container network works there (systemd-resolved stub on
+    `127.0.0.53` handled by pasta, ordinary routing): consistent with the
+    corrected DNS note above. `ghcr.io` is IPv4-only and maya has no IPv4,
+    so the image was copied with `podman save | ssh ... podman load`.
+  - All EE, signal and flag e2e tests pass on maya, as they do on Debian.
+  - `lethe.aw.net` stopped accepting the test key between sessions (also from
+    the Debian VM), unrelated to tangsible; the second-host runs on maya
+    used shunya only.
+  - **A flaky pre-existing e2e test, fixed:**
+    `TestE2E_RerunDialog_UncheckingResumeClearsPlayAndOnlyFailed` asserted on
+    a capture taken the moment a static label appeared, before the redraw
+    it checks; it failed 6 of 8 runs on maya (the pre-EE-field commit
+    included - it is not a regression) and now waits for the outcome
+    (`waitForFieldWithout`): 8/8.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

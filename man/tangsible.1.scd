@@ -111,7 +111,7 @@ host's own ansible-core, so a playbook can be checked against what CI or AWX
 will use. It needs *podman* (Linux only for now). Keys: *image* (without
 one, nothing changes), *engine* (only *"podman"*), *network* (*"host"* to
 use the host's own network stack, for DNS or routing problems), *selinux* (*"auto"*, *"disable"*, *"z"*, *"Z"*,
-*"none"*; auto disables label separation only when SELinux is enforcing),
+*"none"*; auto disables label separation only when SELinux is enforcing; *"z"* and *"Z"* relabel the project and cannot forward the SSH agent),
 *read_only* (mount the project read-only), *ssh_agent*, *ssh_known_hosts* and *ssh_dir*
 (forward *$SSH_AUTH_SOCK*, default true; mount just *~/.ssh/known_hosts*
 read-only, default true; and mount all of *~/.ssh* read-only, default false

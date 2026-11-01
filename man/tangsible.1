@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible" "1" "2026-10-31" "Tangsible" "Tangsible Manual"
+.TH "tangsible" "1" "2026-11-01" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -151,7 +151,7 @@ host'\&s own ansible-core, so a playbook can be checked against what CI or AWX
 will use.\& It needs \fBpodman\fR (Linux only for now).\& Keys: \fBimage\fR (without
 one, nothing changes), \fBengine\fR (only \fB"podman"\fR), \fBnetwork\fR (\fB"host"\fR to
 use the host'\&s own network stack, for DNS or routing problems), \fBselinux\fR (\fB"auto"\fR, \fB"disable"\fR, \fB"z"\fR, \fB"Z"\fR,
-\fB"none"\fR; auto disables label separation only when SELinux is enforcing),
+\fB"none"\fR; auto disables label separation only when SELinux is enforcing; \fB"z"\fR and \fB"Z"\fR relabel the project and cannot forward the SSH agent),
 \fBread_only\fR (mount the project read-only), \fBssh_agent\fR, \fBssh_known_hosts\fR and \fBssh_dir\fR
 (forward \fB$SSH_AUTH_SOCK\fR, default true; mount just \fB~/.\&ssh/known_hosts\fR
 read-only, default true; and mount all of \fB~/.\&ssh\fR read-only, default false

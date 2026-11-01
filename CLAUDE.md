@@ -341,8 +341,13 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   the source index must agree with the host. **Every** spawn of an ansible
   tool for display purposes (probe, `ansible-doc`, stubs, `python3`) goes
   through `runner.NewToolCommand` so it follows the active EE - a new one
-  must too. `--userns=keep-id` alone makes the *project dir* the user's
-  home (overriding `-e HOME`); `--passwd-entry` pins it.
+  must too. The container user's home is a world-writable tmpfs of ours
+  (`/runner/home`, in the passwd entry and `$HOME`): podman's `keep-id`
+  alone picks the project dir (5.4) or `/tmp` (5.8) as home, and the image's
+  own `/runner` is writable only via group root, which `keep-id` grants on
+  5.4 but not 5.8. Under SELinux only `selinux = disable` (what `auto`
+  picks when enforcing) lets the container reach the agent socket; `z`/`Z`
+  skip it with a warning rather than relabel the user's live socket.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

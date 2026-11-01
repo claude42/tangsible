@@ -132,7 +132,7 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 | `image` | string | *(none — host run)* | e.g. `ghcr.io/ansible-community/community-ee-base:latest`; pulled before the TUI starts if missing |
 | `engine` | string: `"podman"` | `"podman"` | docker is not supported yet; another value warns and uses podman |
 | `network` | string | *(engine default)* | `"host"` shares the host's network stack (its resolver, routes, VPN) instead of the container's own; use it when host names don't resolve or targets are only reachable through host-side routing. The cost: the container can then reach services listening on the host's loopback |
-| `selinux` | string: `"auto"` \| `"disable"` \| `"z"` \| `"Z"` \| `"none"` | `"auto"` | auto = `disable` (`--security-opt label=disable`) only when SELinux is enforcing, `none` otherwise; `z`/`Z` relabel the project directory permanently |
+| `selinux` | string: `"auto"` \| `"disable"` \| `"z"` \| `"Z"` \| `"none"` | `"auto"` | auto = `disable` (`--security-opt label=disable`) only when SELinux is enforcing, `none` otherwise; `none` on an enforcing host usually leaves the container unable to read the project (a warning says so); `z`/`Z` relabel permanently - the project, scratch and plugin directories and `known_hosts` - and cannot forward the SSH agent (SELinux blocks the socket whatever its label; skipped with a warning), so they suit setups without agent authentication |
 | `read_only` | bool | `false` | mount the project read-only |
 | `ssh_agent` | bool | `true` | mount `$SSH_AUTH_SOCK` into the container |
 | `ssh_known_hosts` | bool | `true` | mount just `~/.ssh/known_hosts` read-only (public host keys only), so host-key checking behaves as on the host; skipped when `ssh_dir` is true |
