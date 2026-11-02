@@ -63,13 +63,17 @@ happens to be on the developer's host.
   `auto`, `disable`, `none`, `Z` and `z` all behave as described in the
   Fedora findings below. Not tried: RHEL/CentOS policies, rootful podman,
   the `container-selinux` policy of other releases.
-- **Podman versions:** 5.4.2 (Debian) and 5.8.9 (Fedora) only; `keep-id`
+- **Podman versions:** 5.4.2 (Debian), 5.7.0 (Ubuntu) and 5.8.9 (Fedora)
+  only; `keep-id`
   behaved differently between them (see the container-home finding), so
   other versions may hold more such differences.
 - **docker, macOS, `debug`:** deliberately out of scope (`debug` is
   designed for - see "Debug mode in an EE" - not built).
+- **AppArmor** (Ubuntu's default confinement) was not exercised: podman
+  there reported it disabled.
 - **Real-host coverage** came from two targets (Debian 13 and Fedora 44,
-  ssh agent authentication, `become`); other connection types (password prompts,
+  ssh agent authentication, `become`; the Fedora target only before it was
+  rebuilt); other connection types (password prompts,
   `ansible_connection=winrm`, jump hosts via `~/.ssh/config`, which the
   container does not see unless `ssh_dir = true`) were not tried.
 - Findings that depend on the machine (default-network DNS failing behind
@@ -397,6 +401,38 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
     it checks; it failed 6 of 8 runs on maya (the pre-EE-field commit
     included - it is not a regression) and now waits for the outcome
     (`waitForFieldWithout`): 8/8.
+- **Control host: Ubuntu 26.04.1 (maya, podman 5.7.0, pasta, rootless;
+  AppArmor module loaded but podman reports it disabled, so not exercised;
+  no IPv4 address at all) - findings:**
+  - The whole suite passes there unchanged: unit tests and the full e2e
+    suite (indicator, dialog switch, `rerun` verb, Ctrl-C, SIGTERM, flags,
+    the rerun-dialog tests), i.e. the container-home fix holds on a third
+    podman version.
+  - Against shunya (Debian target, agent from the Debian VM forwarded with
+    `ssh -A`): `ping`, `become` and a `copy` complete as host runs and as EE
+    runs, with the **default network** as well as `network = "host"`.
+  - **DNS, refined.** On the Debian VM the default network failed to resolve
+    names; on maya it just works although maya also has no IPv4 default
+    route. The difference seen: maya has no IPv4 address at all, so pasta
+    builds an IPv6-only container network (resolv.conf lists the real IPv6
+    upstream, which answers); the Debian VM has one IPv4 address (a
+    WireGuard /32) and IPv4 routes but no default route, a half-IPv4 setup
+    in which the forwarder at `169.254.1.1` is unreachable and name
+    resolution failed. So the earlier "routing" diagnosis stands, but "no
+    IPv4 default route" alone is not enough to break it. Hypothesis, not
+    proven mechanism.
+  - **Rerun from `revisit`, verified live** (until now only unit-tested):
+    history records the image for an EE run and `"host"` for a host run made
+    while an image is configured; opening the EE entry with `r` pre-fills
+    the dialog's field with the image and confirming reruns in the EE
+    (indicator shown); opening the host entry shows an empty field and the
+    rerun stays on the host although the configuration names an image.
+  - `ghcr.io` is IPv4-only, maya has no IPv4: image copied with `podman save
+    | ssh ... podman load` (this time with `TMPDIR` on a tmpfs for `save`,
+    the Debian VM's disk being nearly full).
+  - Host keys: maya's stored key matches what it presents; lethe now
+    presents a different host key than the one on record, so nothing was
+    run against lethe until that is confirmed.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

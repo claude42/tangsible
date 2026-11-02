@@ -4,8 +4,7 @@
 
 ### Added
 
-- `run`, `rerun`, `role` and `debug` now stop the running playbook (or its container), remove their scratch files and exit 129/143 on SIGHUP/SIGTERM instead of dying on the spot and leaving both behind
-- Execution environments (`run`, `rerun`, `role`, and reruns from `revisit`; podman, Linux): `--ee <image>` / `--no-ee` and an `[execution_environment]` config table run ansible-playbook inside a container image, with the project mounted and the SSH agent forwarded; the top bar shows the image, the re-run dialog can switch it, and history remembers it
+- Execution environments: tangsible can run ansible-playbook inside a container image, project files are mounted into the container. 
 - Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
 - `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
 - Progress is also shown in the terminal's own progress indicator (OSC 9;4) where supported; `terminal_progress = "auto" | "on" | "off"`
@@ -35,6 +34,7 @@
 - Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving
 - The host_vars tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)
+- `tangsible` does not leave behind any scratch files behind when killed via SIGHUP/SIGTERM
 
 ## [0.3.0] - 2026-10-24
 
