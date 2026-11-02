@@ -83,6 +83,11 @@ type Session struct {
 	replW     io.WriteCloser // our write end -> child's stdin
 	replR     *bufio.Reader  // child's stdout+stderr (REPL prompts + the quiet stdout callback's own noise)
 	replRFile *os.File
+
+	// varsSet: a Set succeeded since the current pause began (cleared by
+	// Continue and Redo, the two commands that move past it). Redo needs it
+	// to know the task's own arguments are stale - see Redo.
+	varsSet bool
 }
 
 // Spawn starts ansible-playbook against the already-spliced copy at
@@ -191,6 +196,7 @@ func (s *Session) Start() (pause Pause, eof bool, err error) {
 // the next pause, or the child exits (eof=true - the normal way a debug
 // run ends, once its very last task's pause is resumed).
 func (s *Session) Continue() (pause Pause, eof bool, err error) {
+	s.varsSet = false
 	if _, werr := io.WriteString(s.replW, "c\n"); werr != nil {
 		return Pause{}, false, werr
 	}
@@ -227,7 +233,26 @@ func (s *Session) Continue() (pause Pause, eof bool, err error) {
 // outcome in place, the same map write design-docs/DebugMode.md
 // documents debugverb.Cursor.Apply already does for any repeated host
 // result.
+//
+// After a Set during this pause, Redo first sends the debugger's own
+// "update_task" (do_update_task: recreate the task from task._ds and
+// template it with the updated task_vars, confirmed against the installed
+// source and live on ansible-core 2.19.11). Without it the redo re-runs the
+// task's *already-templated* arguments - a `command: echo {{ greeting }}`
+// still printed the old value, whatever play/task/set_fact variable it came
+// from - and only expressions evaluated at run time (failed_when:, ...)
+// would see the assignment. It's best-effort: a template error doesn't
+// surface here (templating is lazy) or stop the redo, matching a plain redo.
 func (s *Session) Redo() (pause Pause, eof bool, err error) {
+	if s.varsSet {
+		s.varsSet = false
+		if _, werr := io.WriteString(s.replW, "update_task\n"); werr != nil {
+			return Pause{}, false, werr
+		}
+		if _, _, eof, err = s.readUntilPrompt(); err != nil || eof {
+			return Pause{}, eof, err
+		}
+	}
 	if _, werr := io.WriteString(s.replW, "r\n"); werr != nil {
 		return Pause{}, false, werr
 	}
@@ -244,9 +269,12 @@ func (s *Session) Redo() (pause Pause, eof bool, err error) {
 //
 // Confirmed directly against the installed ansible-core source
 // (plugins/strategy/__init__.py's Debugger class): self.scope['task_vars']
-// is the exact live dict _queue_task hands to a redo/continue, so an
-// assignment into it genuinely changes what the next redo/continue sees -
-// not a side channel of its own. Unlike Query's "p print(...)" form
+// is the exact live dict _queue_task hands to a redo, so an assignment
+// into it is what a redo evaluates run-time expressions (failed_when:, ...)
+// against - not a side channel of its own. It does NOT reach the task's
+// arguments by itself (those were templated already) - Redo sends
+// update_task after a Set for that - and it never reaches later tasks,
+// which get their variables fresh from the variable manager. Unlike Query's "p print(...)" form
 // (do_pprint/do_p), a bare "task_vars[...] = value" line has no leading
 // command word cmd.Cmd recognizes (parseline stops at '[', right after
 // "task_vars", which isn't an identchar - no do_task_vars method exists),
@@ -278,6 +306,7 @@ func (s *Session) Set(target, value string) error {
 	if line, failed := extractErrorLine(text); failed {
 		return fmt.Errorf("%s", strings.TrimPrefix(line, "***"))
 	}
+	s.varsSet = true
 	return nil
 }
 

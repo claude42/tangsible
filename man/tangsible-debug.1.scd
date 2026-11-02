@@ -62,8 +62,9 @@ already offers:
 
 *F12*
 	Redo: only meaningful while genuinely paused (a no-op otherwise).
-	Re-runs the exact task/host currently paused at from scratch. Will take
-	any modifications made in the variable watch explorer into account.
+	Re-runs the exact task/host currently paused at from scratch. A variable
+	set in the variable watch explorer applies to the redone task (its
+	arguments are templated again), but not to later tasks.
 
 *v*
 	Add new variables to be watched. Will autocomplete known variables.

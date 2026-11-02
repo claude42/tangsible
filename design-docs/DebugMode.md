@@ -2089,7 +2089,9 @@ settled ("Stage 4 UX decisions" above) before its implementation.
 **Feasibility, confirmed against the installed ansible-core source
 (`/usr/lib/python3/dist-packages/ansible/plugins/strategy/__init__.py`,
 `class Debugger`)**: `do_update_task` only re-templates the task's own
-args from `task._ds` - not this. But anything typed at the REPL that
+args from `task._ds` - not this (*corrected, see "Stage 5 follow-up: a set
+didn't reach the task's arguments": re-templating the args is exactly what
+a set needs before a redo*). But anything typed at the REPL that
 isn't a known command falls through to `default()` -> `execute()` ->
 `exec(code, globals(), self.scope)`, where `self.scope['task_vars']` is
 the exact live dict `_queue_task` hands to a redo/continue. So
@@ -2210,7 +2212,9 @@ outcome_var != 'good'`, `outcome_var` freshly `set_fact`'d to `"bad"`),
 `outcome_var = "good" (just set)`, field cleared. F12 (redo): task flipped
 from Failed to Changed. F5 to completion: "Playbook completed
 successfully," recap `failed=0`, later tasks referencing `outcome_var` saw
-the new value - confirming the mutation reaches `_queue_task` for real,
+the new value (*corrected, see "Stage 5 follow-up: a set didn't reach the
+task's arguments": that last part didn't reproduce - a later task gets its
+variables fresh*) - confirming the mutation reaches `_queue_task` for real,
 not just the debugger's own read-back (the same thing `TestSession_Set`
 checks headlessly). Navigated away after the run finished and attempted
 another set: rejected with "Not paused here...", text retained, explorer
@@ -2250,6 +2254,52 @@ wording in the same pass), `design-docs/Keyboard-shortcuts.md`,
 `man/tangsible-debug.1.scd` (+ regenerated `.1`), and two stale comments in
 `livesession_debug.go` that still said "four new keys"/"F5/F9/F10/F11" with
 no F12.
+
+## Stage 5 follow-up: a set didn't reach the task's arguments (2026-11-02)
+
+Found while writing e2e tests for `v`/F12: with `vars: greeting: hello` and
+`command: echo {{ greeting }}`, pausing at that task, setting `greeting =
+'world'` (the row showed `world (just set)`) and pressing F12 re-ran it
+printing `hello` - and the next task printed `hello` too. Not a tangsible
+bug: reproduced with plain `ansible-playbook` (2.19.11), driving the REPL
+through a pty, no tangsible involved - `task_vars['greeting'] = 'world'`
+then `redo` prints `hello` for a play-level `vars:`, a task-level `vars:`
+and a `set_fact` variable alike.
+
+**Cause**: a task's arguments are templated once, before it first runs,
+and kept on the task object; `redo` re-queues that object, so it re-runs the
+already-templated arguments. Only expressions the worker evaluates at run
+time against `task_vars` (`failed_when:`, ...) see the assignment - which
+is why Stage 5's own hand-verified scenario (a `set_fact` variable feeding a
+`failed_when:`) worked and hid this. The debugger's own `update_task` is the
+step that closes the gap ("recreate the task from `task._ds`, and template
+with updated `task_vars`"): set + `update_task` + `redo` printed `world` in
+all three variable sources. The Stage 5 UX decision above had set it aside
+as "only re-templates the task's own args - not this"; re-templating the
+args is exactly what a set needs.
+
+**Fix**: `debugrun.Session` remembers that a `Set` succeeded since the
+current pause began (`varsSet`, cleared by `Continue` and `Redo`), and
+`Redo` sends `update_task` first when it did. Best-effort: templating is
+lazy, so a bad value (`{{ nope.nope }}`) doesn't error at `update_task` and
+the REPL stays usable (checked by hand) - the redo runs as a plain one
+would. Only sent after a set, so a redo of a task you merely watched is
+unchanged.
+
+**A second claim didn't hold**: Stage 5's "Verified live" said later tasks
+referencing the variable saw the new value. A later task gets its variables
+fresh from the variable manager, so a set only ever affects the paused
+task: with a `set_fact` variable, set + redo + continue, the later task
+printed `later-hello`. Both claims are corrected in place above, and
+`CLAUDE.md`, `Keyboard-shortcuts.md` and the man page no longer say the
+set takes effect on "the very next redo/continue/step" - it's the next redo.
+
+**Verified**: `TestSession_Set_ReachesTaskArgumentsOnRedo`
+(`internal/debugrun`) - a play-level `vars:` variable, set, redone (stdout
+`world`), then a later task (stdout `later-hello`); it failed before the fix.
+`TestE2E_Debug_WatchSetReachesTaskArguments` drives the same through the
+real UI. `TestSession_Set`'s `failed_when:` scenario is unchanged and still
+passes.
 
 ## Stage 2 follow-up round 6: a leading "Gathering Facts" landed at the end of the tree (2026-10-23)
 

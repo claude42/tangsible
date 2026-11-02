@@ -315,10 +315,11 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   moves, rendered unavailable (not an error) for an expression that
   doesn't currently resolve. The same field also *sets* one: `expr =
   value` writes `value` (forwarded verbatim, as raw Python) straight into
-  the paused task's own live `task_vars`, taking effect on the very next
-  redo/continue/step - only valid while the current selection is exactly
-  the live pause (`debugIsPaused`), since that's the only task/host
-  `task_vars` exists for right now.
+  the paused task's own live `task_vars`; the next F12 redo sees it (the
+  task's arguments are re-templated first, `update_task`, `debugrun.
+  Session.Redo`), but never a later task - only valid while the current
+  selection is exactly the live pause (`debugIsPaused`), since that's the
+  only task/host `task_vars` exists for right now.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

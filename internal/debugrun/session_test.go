@@ -635,6 +635,104 @@ func TestSession_Set(t *testing.T) {
 	}
 }
 
+// TestSession_Set_ReachesTaskArgumentsOnRedo pins down what a Set actually
+// changes (design-docs/DebugMode.md, "Stage 5 follow-up: update_task"):
+// the redone task's own *arguments* - templated once, before the first run,
+// so a bare redo would still print the old value - and nothing beyond the
+// paused task: a later task gets its variables fresh. The variable is a
+// play-level vars: entry, the case that originally exposed the gap.
+func TestSession_Set_ReachesTaskArgumentsOnRedo(t *testing.T) {
+	requireAnsiblePlaybook(t)
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot(t), "callback"))
+
+	proj := t.TempDir()
+	playbookPath := filepath.Join(proj, "playbook.yml")
+	playbook := `- hosts: all
+  gather_facts: false
+  vars:
+    greeting: hello
+  tasks:
+    - name: echo task
+      command: "echo {{ greeting }}"
+
+    - name: later task
+      command: "echo later-{{ greeting }}"
+`
+	if err := os.WriteFile(playbookPath, []byte(playbook), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs := source.ListTaskLocations(playbookPath)
+	copyDir, cleanup, err := debugcopy.BuildShadowCopy(proj, "run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if err := debugcopy.SpliceDebuggerAlways(proj, copyDir, locs); err != nil {
+		t.Fatal(err)
+	}
+
+	sess, err := Spawn(filepath.Join(copyDir, "playbook.yml"), []string{"-i", "localhost,", "-c", "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() {
+		for range sess.Events {
+		}
+	}()
+
+	stdout := func() string {
+		t.Helper()
+		raw, err := sess.Query("result._return_data['stdout']")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out string
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	expectPause := func(pause Pause, eof bool, err error, task string) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if eof || pause.Task != task {
+			t.Fatalf("pause = %+v (eof=%v), want %s", pause, eof, task)
+		}
+	}
+
+	pause, eof, err := sess.Start()
+	expectPause(pause, eof, err, "TASK: echo task")
+	if got := stdout(); got != "hello" {
+		t.Fatalf("first run stdout = %q, want hello", got)
+	}
+
+	if err := sess.Set("task_vars['greeting']", "'world'"); err != nil {
+		t.Fatalf("Set failed: %v", err)
+	}
+	pause, eof, err = sess.Redo()
+	expectPause(pause, eof, err, "TASK: echo task")
+	if got := stdout(); got != "world" {
+		t.Errorf("redone task stdout = %q, want world: the set value should reach the task's arguments", got)
+	}
+
+	// Not beyond the paused task.
+	pause, eof, err = sess.Continue()
+	expectPause(pause, eof, err, "TASK: later task")
+	if got := stdout(); got != "later-hello" {
+		t.Errorf("later task stdout = %q, want later-hello: a Set only affects the paused task", got)
+	}
+
+	if _, eof, err := sess.Continue(); err != nil {
+		t.Fatal(err)
+	} else if !eof {
+		t.Error("expected eof after the last task's pause")
+	}
+}
+
 // TestSession_Set_Failure confirms a failed assignment (an undefined
 // name on the right-hand side, so the exec itself raises a NameError)
 // reports a non-nil error carrying the exception text, and - just as

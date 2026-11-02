@@ -630,8 +630,9 @@ collide with:
                      expression is, `value` forwarded completely verbatim
                      as raw Python (no type picker: `5` is an int, `"foo"`
                      a string), written straight into the paused task's own
-                     live `task_vars`, taking effect on the very next
-                     redo/continue/step. Only valid while the current
+                     live `task_vars`. The next F12 redo sees it (the
+                     task's arguments are re-templated first), a later
+                     task does not. Only valid while the current
                      selection is exactly the host/task the debugger is
                      paused at right now (`task_vars` only exists for that
                      one live pause) - rejected otherwise, with the typed

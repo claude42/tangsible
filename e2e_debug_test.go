@@ -311,6 +311,61 @@ func TestE2E_Debug_WatchSetVariableThenRedo(t *testing.T) {
 	}
 }
 
+// TestE2E_Debug_WatchSetReachesTaskArguments is the counterpart of the test
+// above for a variable used in a task's *arguments* (DebugMode.md, "Stage 5
+// follow-up: a set didn't reach the task's arguments"): a plain redo re-runs
+// the already-templated arguments, so this only passes because F12 re-
+// templates the task first. The variable is a play-level vars: entry. The
+// later task pins down that a set only ever affects the paused task.
+func TestE2E_Debug_WatchSetReachesTaskArguments(t *testing.T) {
+	requireE2ETools(t)
+	s, _ := startDebugSession(t, `- name: args play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    greeting: hello
+  tasks:
+    - name: echo task
+      command: echo {{ greeting }}
+
+    - name: later task
+      command: echo later-{{ greeting }}
+`, nil, "-i localhost,")
+
+	s.waitFor("F5: run", 15*time.Second)
+	s.send("F9") // the initial selection is the first task
+	s.waitForFieldValue("echo task", "●", 5*time.Second)
+	s.send("F5")
+	s.waitFor("Task:   echo task", 20*time.Second)
+	s.send("Escape")
+	s.waitFor("F12: redo", 5*time.Second)
+
+	s.send("v")
+	s.waitFor("Type variable name", 5*time.Second)
+	s.send("greeting = 'world'")
+	s.send("Enter")
+	s.waitFor("greeting = \"world\" (just set)", 10*time.Second)
+	s.send("Escape")
+	s.waitFor("F12: redo", 5*time.Second)
+
+	// The tree row carries the task's own stdout: "Changed (<stdout>; ...)".
+	s.send("F12")
+	s.waitFor("Task:   echo task", 20*time.Second)
+	s.send("Escape")
+	got := s.waitFor("F12: redo", 5*time.Second)
+	if row := lineContaining(got, "Changed ("); !strings.Contains(row, "Changed (world;") {
+		t.Errorf("the redone task should have echoed the set value %q, got row %q:\n%s", "world", row, got)
+	}
+
+	// F11 steps on to the later task, which must see the original value.
+	s.send("F11")
+	got = s.waitFor("Task:   later task", 20*time.Second)
+	if !strings.Contains(got, "later-hello") {
+		t.Errorf("a set must not reach later tasks (want later-hello):\n%s", got)
+	}
+}
+
 // TestE2E_Debug_UnarmedFailureEndsTheRun is the counterpart of the failing-
 // task test above: with no breakpoint on it, a failing task does not pause
 // (DebugMode.md: a failed task only pauses if armed) - the run just fails

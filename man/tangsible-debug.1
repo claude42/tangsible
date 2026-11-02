@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-debug" "1" "2026-10-24" "Tangsible" "Tangsible Manual"
+.TH "tangsible-debug" "1" "2026-11-02" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -80,8 +80,9 @@ host (of the current or next task).\&
 \fBF12\fR
 .RS 4
 Redo: only meaningful while genuinely paused (a no-op otherwise).\&
-Re-runs the exact task/host currently paused at from scratch.\& Will take
-any modifications made in the variable watch explorer into account.\&
+Re-runs the exact task/host currently paused at from scratch.\& A variable
+set in the variable watch explorer applies to the redone task (its
+arguments are templated again), but not to later tasks.\&
 .PP
 .RE
 \fBv\fR
