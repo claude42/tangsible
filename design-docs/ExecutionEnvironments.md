@@ -69,8 +69,10 @@ happens to be on the developer's host.
   other versions may hold more such differences.
 - **docker, macOS, `debug`:** deliberately out of scope (`debug` is
   designed for - see "Debug mode in an EE" - not built).
-- **AppArmor** (Ubuntu's default confinement) was not exercised: podman
-  there reported it disabled.
+- **AppArmor** (Ubuntu's confinement) cannot apply to what tangsible runs:
+  see the Ubuntu findings - rootless podman never confines containers with
+  it, so the question only arises for rootful podman or docker, both out of
+  scope.
 - **Real-host coverage** came from two targets (Debian 13 and Fedora 44,
   ssh agent authentication, `become`, from three control hosts: the Debian
   VM, Fedora and Ubuntu); other connection types (password prompts,
@@ -402,8 +404,22 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
     included - it is not a regression) and now waits for the outcome
     (`waitForFieldWithout`): 8/8.
 - **Control host: Ubuntu 26.04.1 (maya, podman 5.7.0, pasta, rootless;
-  AppArmor module loaded but podman reports it disabled, so not exercised;
-  no IPv4 address at all) - findings:**
+  AppArmor active in the kernel; no IPv4 address at all) - findings:**
+  - **AppArmor, tried:** podman reports `apparmor=false` although the
+    module is enabled and 176 profiles are loaded, and a rootless container
+    runs as `crun (unconfined)` (the small profile Ubuntu ships so that
+    `kernel.apparmor_restrict_unprivileged_userns = 1` still allows user
+    namespaces) - i.e. not really confined. Loading podman's standard
+    `containers-default` profile as root and asking for it with
+    `--security-opt apparmor=<profile>` is refused: `apparmor profile ...
+    specified, but Apparmor is not enabled on this system` - rootless
+    podman treats AppArmor as unavailable. So on Ubuntu rootless
+    containers are not AppArmor-confined, there is nothing for tangsible to
+    adapt to (the SELinux mount-label and agent-socket problems have no
+    AppArmor counterpart here), and the userns restriction is already
+    covered by every EE run working. A confined scenario would need rootful
+    podman or docker, which tangsible does not support. (The test profile
+    was removed again afterwards.)
   - The whole suite passes there unchanged: unit tests and the full e2e
     suite (indicator, dialog switch, `rerun` verb, Ctrl-C, SIGTERM, flags,
     the rerun-dialog tests), i.e. the container-home fix holds on a third
