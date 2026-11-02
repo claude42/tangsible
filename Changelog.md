@@ -33,8 +33,7 @@
 - `debug`: the variable watch shows now also shows its origin
 - `debug`: vaulted values show as `<vaulted>` in the Resolved tab and the variable watch's autocomplete (the watch itself still shows them)
 - `debug`: the Resolved tab shows a task's registered value inline, as `register: name = value`
-- `run`, `rerun`, `role` and `debug` now stop the running playbook (or its container), remove their scratch files and exit 129/143 on SIGHUP/SIGTERM instead of dying on the spot and leaving both behind
-- Execution environments (`run`, `rerun`, `role`, and reruns from `revisit`; podman, Linux): `--ee <image>` / `--no-ee` and an `[execution_environment]` config table run ansible-playbook inside a container image, with the project mounted and the SSH agent forwarded; the top bar shows the image, the re-run dialog can switch it, and history remembers it
+- Execution environments: tangsible can run ansible-playbook inside a container image, project files are mounted into the container. 
 - Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
 - `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
 - Progress is also shown in the terminal's own progress indicator (OSC 9;4) where supported; `terminal_progress = "auto" | "on" | "off"`
@@ -70,6 +69,7 @@
 - `debug`: `strategy: free` plays now run as linear (marked in the top bar) instead of refusing to start or misattributing tasks
 - `--ask-become-pass`/`--ask-vault-pass`/`--ask-pass` no longer hang a re-run (`run`/`rerun`/`role`) or `debug`'s F5: the password is asked once at startup and handed to Ansible as a private temporary file
 - `host`/`hosts`/`inventory`: the Facts tab no longer shows inventory variables when the facts come from the fact cache
+- `tangsible` does not leave behind any scratch files behind when killed via SIGHUP/SIGTERM
 
 ## [0.3.0] - 2026-10-24
 
