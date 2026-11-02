@@ -72,8 +72,8 @@ happens to be on the developer's host.
 - **AppArmor** (Ubuntu's default confinement) was not exercised: podman
   there reported it disabled.
 - **Real-host coverage** came from two targets (Debian 13 and Fedora 44,
-  ssh agent authentication, `become`; the Fedora target only before it was
-  rebuilt); other connection types (password prompts,
+  ssh agent authentication, `become`, from three control hosts: the Debian
+  VM, Fedora and Ubuntu); other connection types (password prompts,
   `ansible_connection=winrm`, jump hosts via `~/.ssh/config`, which the
   container does not see unless `ssh_dir = true`) were not tried.
 - Findings that depend on the machine (default-network DNS failing behind
@@ -430,9 +430,17 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   - `ghcr.io` is IPv4-only, maya has no IPv4: image copied with `podman save
     | ssh ... podman load` (this time with `TMPDIR` on a tmpfs for `save`,
     the Debian VM's disk being nearly full).
-  - Host keys: maya's stored key matches what it presents; lethe now
-    presents a different host key than the one on record, so nothing was
-    run against lethe until that is confirmed.
+  - **Both targets from maya** (shunya: Debian 13; lethe: Fedora 44, rebuilt
+    since the first runs, its changed host key confirmed harmless by the
+    user and replaced on both control hosts after checking the fingerprint):
+    the same `ping` / `become` / `copy` playbook completes on both hosts as a
+    host run, as an EE run on the default network and as an EE run with
+    `network = "host"`; a mixed reachable/unreachable inventory gives the
+    same summary and the same "Could not resolve hostname" error in both
+    modes; the File tab shows the fetched file for each host (the Diff tab
+    sits before it when the copy created the file). Lethe's extra warning
+    ("Module invocation had junk after the JSON data") appears in both
+    modes. No containers or scratch files left over.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the
