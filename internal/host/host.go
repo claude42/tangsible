@@ -35,6 +35,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/ansibleconfig"
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/inventory"
@@ -284,41 +285,77 @@ func FetchHostGroups(hostname string, rest []string) (string, error) {
 	return b.String(), nil
 }
 
-// ExtractInventoryDirs pulls every -i/--inventory value out of rest
-// (both "--flag value" and "--flag=value" long forms, same convention
-// ParsePassthroughArgs uses in rerunargs.go for --tags/--limit) and
-// returns the directory each one lives in, for any that resolve to a
-// real file or directory on disk - silently skipping anything else (a
-// bare comma-list like "web1,web2,", a nonexistent path) since neither has
-// a meaningful directory to look for a sibling host_vars/ under.
-func ExtractInventoryDirs(rest []string) []string {
-	var dirs []string
-	addIfReal := func(path string) {
-		info, err := os.Stat(path)
-		if err != nil {
-			return
-		}
-		if info.IsDir() {
-			dirs = append(dirs, path)
-			return
-		}
-		dirs = append(dirs, filepath.Dir(path))
-	}
+// inventoryArgs returns every -i/--inventory value in rest (both "--flag
+// value" and "--flag=value" long forms, same convention
+// ParsePassthroughArgs uses in rerunargs.go for --tags/--limit).
+func inventoryArgs(rest []string) []string {
+	var vals []string
 	for i := 0; i < len(rest); i++ {
 		arg := rest[i]
 		switch {
 		case arg == "-i" || arg == "--inventory" || arg == "--inventory-file":
 			if i+1 < len(rest) {
-				addIfReal(rest[i+1])
+				vals = append(vals, rest[i+1])
 				i++
 			}
 		case strings.HasPrefix(arg, "--inventory="):
-			addIfReal(strings.TrimPrefix(arg, "--inventory="))
+			vals = append(vals, strings.TrimPrefix(arg, "--inventory="))
 		case strings.HasPrefix(arg, "--inventory-file="):
-			addIfReal(strings.TrimPrefix(arg, "--inventory-file="))
+			vals = append(vals, strings.TrimPrefix(arg, "--inventory-file="))
+		}
+	}
+	return vals
+}
+
+// inventoryPathDirs returns the directory each path lives in, for any that
+// resolve to a real file or directory on disk - silently skipping anything
+// else (a bare comma-list like "web1,web2,", a nonexistent path) since
+// neither has a meaningful directory to look for a sibling host_vars/ under.
+func inventoryPathDirs(paths []string) []string {
+	var dirs []string
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			dirs = append(dirs, path)
+		} else {
+			dirs = append(dirs, filepath.Dir(path))
 		}
 	}
 	return dirs
+}
+
+// ExtractInventoryDirs returns the directory of every -i/--inventory value
+// in rest. Without any -i it returns nothing - see inventoryDirs for the
+// ANSIBLE_INVENTORY / ansible.cfg fallback.
+func ExtractInventoryDirs(rest []string) []string {
+	return inventoryPathDirs(inventoryArgs(rest))
+}
+
+// configuredInventory is ansible's own resolution of the inventory when no
+// -i is given (ANSIBLE_INVENTORY, then ansible.cfg's inventory =, then
+// /etc/ansible/hosts): the DEFAULT_HOST_LIST setting, already absolute. A
+// var so tests can stub the ansible-config dump.
+var configuredInventory = func() []string {
+	raw, ok := ansibleconfig.Find(ansibleconfig.Get(time.Hour), "DEFAULT_HOST_LIST")
+	if !ok {
+		return nil
+	}
+	var paths []string
+	_ = json.Unmarshal(raw, &paths)
+	return paths
+}
+
+// inventoryDirs is ExtractInventoryDirs plus Ansible's fallback: an -i on
+// the command line replaces the configured inventory entirely, so the
+// ansible-config lookup only happens when rest has none.
+func inventoryDirs(rest []string) []string {
+	if args := inventoryArgs(rest); len(args) > 0 {
+		return inventoryPathDirs(args)
+	}
+	return inventoryPathDirs(configuredInventory())
 }
 
 // varsFileExtensions are ansible-core's default YAML_FILENAME_EXTENSIONS,
@@ -330,7 +367,7 @@ var varsFileExtensions = []string{".yml", ".yaml", ".json"}
 // under any of dirs - Ansible looks for host_vars as a sibling of both the
 // inventory source and the playbook (ansible-core's own documented
 // behavior), so dirs is expected to already carry both candidates by the
-// time this is called (extractInventoryDirs plus the playbook's own
+// time this is called (inventoryDirs plus the playbook's own
 // directory - see fetchHostVars). Mirrors DataLoader.find_vars_files:
 // per dir, the first of host_vars/<hostname>, <hostname>.yml, .yaml, .json
 // that exists wins - a directory is walked recursively (sorted at every
@@ -414,7 +451,7 @@ func FetchHostVars(hostname, playbook string, rest []string) (string, error) {
 			dirs = append(dirs, filepath.Dir(abs))
 		}
 	}
-	dirs = append(dirs, ExtractInventoryDirs(rest)...)
+	dirs = append(dirs, inventoryDirs(rest)...)
 
 	files := DiscoverHostVarsFiles(hostname, dirs)
 

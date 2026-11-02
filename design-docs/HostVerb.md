@@ -274,7 +274,14 @@ folds in host_vars file values, so `inventoryOnlyVars` drops every key a
 discovered file defines (the file wins anyway, and is shown below).
 Then shows every `host_vars/<hostname>` file verbatim, one section per file -
 not a merged/flattened key-value view. Preserves comments/formatting and
-needs no variable-precedence/merge logic. File discovery mirrors
+needs no variable-precedence/merge logic. The directories searched are the
+playbook's own plus the directory of every inventory source (a file's
+parent, or a directory itself): each `-i`, or - only when the command line
+has no `-i` at all, since an explicit one replaces the configured inventory
+outright - ansible's resolved `DEFAULT_HOST_LIST` (`ANSIBLE_INVENTORY`, then
+`ansible.cfg`'s `inventory =`, then `/etc/ansible/hosts`, via the shared
+`ansibleconfig` dump; `inventoryDirs`). A comma-separated `-i` is a host
+list, not a list of paths, so it contributes no directory. File discovery mirrors
 ansible-core's `DataLoader.find_vars_files` (`DiscoverHostVarsFiles`): per
 directory the first of `<host>`, `<host>.yml`, `.yaml`, `.json` wins, a
 directory is walked recursively (hidden files, `~` backups and dotted

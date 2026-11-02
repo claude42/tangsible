@@ -297,6 +297,32 @@ func TestExtractInventoryDirs(t *testing.T) {
 	}
 }
 
+func TestInventoryDirsFallsBackToConfiguredInventory(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := t.TempDir()
+	cfgInv := filepath.Join(cfgDir, "hosts.ini")
+	if err := os.WriteFile(cfgInv, []byte("[all]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	orig := configuredInventory
+	defer func() { configuredInventory = orig }()
+	configuredInventory = func() []string { return []string{cfgInv, filepath.Join(dir, "gone")} }
+
+	if got := inventoryDirs(nil); !reflect.DeepEqual(got, []string{cfgDir}) {
+		t.Errorf("no -i: inventoryDirs = %v, want the configured inventory's dir %v", got, []string{cfgDir})
+	}
+	if got := inventoryDirs([]string{"-e", "x=1"}); !reflect.DeepEqual(got, []string{cfgDir}) {
+		t.Errorf("unrelated flags: inventoryDirs = %v, want %v", got, []string{cfgDir})
+	}
+	// An explicit -i replaces the configured inventory, even a bare host list.
+	if got := inventoryDirs([]string{"-i", "web1,"}); len(got) != 0 {
+		t.Errorf("-i host list: inventoryDirs = %v, want none (config must not leak in)", got)
+	}
+	if got := inventoryDirs([]string{"-i", dir}); !reflect.DeepEqual(got, []string{dir}) {
+		t.Errorf("-i dir: inventoryDirs = %v, want %v", got, []string{dir})
+	}
+}
+
 func TestDiscoverHostVarsFiles(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
