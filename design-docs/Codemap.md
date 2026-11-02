@@ -416,7 +416,12 @@ thin constructor/wiring shell.
   "tests live next to their code" - builds the real binary and drives
   it inside a real tmux pane, so it has no direct dependency on any
   package's internals and stays at the root regardless of what moves
-  around underneath it.
+  around underneath it. Also holds the tmux harness
+  (`startTmuxSession`, `waitFor`, ...).
+- **e2e_debug_test.go** - `//go:build e2e`; `debug` mode's end-to-end
+  tests, reusing `e2e_rerun_test.go`'s harness: breakpoint pause and
+  continue, F10/F11 stepping across two hosts, a failing task plus F12
+  redo, the `v` watch/set explorer, and an unarmed failure.
 
 ## screenrecordings/
 

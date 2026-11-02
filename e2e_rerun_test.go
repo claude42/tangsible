@@ -119,10 +119,21 @@ func startTmuxSession(t *testing.T) *tmuxSession {
 	}
 	s := &tmuxSession{name: name, t: t}
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", s.name).Run() // best-effort
+		exec.Command("tmux", "kill-session", "-t", "="+s.name).Run() // best-effort
 	})
+	// Every later call targets the session exactly (see target), so make
+	// sure it's really there rather than finding out one send-keys later.
+	if out, err := exec.Command("tmux", "has-session", "-t", "="+name).CombinedOutput(); err != nil {
+		t.Fatalf("tmux has-session: %v\n%s", err, out)
+	}
 	return s
 }
+
+// target is s's tmux -t argument: "=" makes tmux match the session name
+// exactly instead of its default exact-then-prefix-then-wildcard
+// resolution, and the trailing ":" makes it a session target - a bare name
+// could otherwise land keystrokes in a different, longer-named session.
+func (s *tmuxSession) target() string { return "=" + s.name + ":" }
 
 // send passes keys straight to `tmux send-keys` - each argument is either
 // literal text (typed as-is, spaces included) or one of tmux's own key
@@ -130,14 +141,14 @@ func startTmuxSession(t *testing.T) *tmuxSession {
 // interactively.
 func (s *tmuxSession) send(keys ...string) {
 	s.t.Helper()
-	args := append([]string{"send-keys", "-t", s.name}, keys...)
+	args := append([]string{"send-keys", "-t", s.target()}, keys...)
 	if out, err := exec.Command("tmux", args...).CombinedOutput(); err != nil {
 		s.t.Fatalf("tmux send-keys %v: %v\n%s", keys, err, out)
 	}
 }
 
 func (s *tmuxSession) capture() string {
-	out, err := exec.Command("tmux", "capture-pane", "-t", s.name, "-p").Output()
+	out, err := exec.Command("tmux", "capture-pane", "-t", s.target(), "-p").Output()
 	if err != nil {
 		return ""
 	}
