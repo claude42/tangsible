@@ -432,6 +432,10 @@ thin constructor/wiring shell.
   tests, reusing `e2e_rerun_test.go`'s harness: breakpoint pause and
   continue, F10/F11 stepping across two hosts, a failing task plus F12
   redo, the `v` watch/set explorer, and an unarmed failure.
+- **e2e_credfile_test.go** - `//go:build e2e`; password flags (`-K`,
+  `--ask-vault-pass`) surviving a re-run / `rerun` / both at once, history
+  recording the original flags, and debug's `strategy: free` -> linear
+  handling (global config, imported roles-only playbook).
 
 ## screenrecordings/
 

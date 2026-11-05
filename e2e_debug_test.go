@@ -44,6 +44,9 @@ func startDebugSession(t *testing.T, playbookYAML string, extra map[string]strin
 		files[name] = content
 	}
 	for name, content := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(workDir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(workDir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
