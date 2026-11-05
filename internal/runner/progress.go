@@ -198,7 +198,7 @@ func ParseListTasksOutput(output string, freeStrategyPlays map[string]bool) []Pr
 // the same - narrow enough (only playbooks actually using those flags)
 // to leave as a known limitation rather than solve up front.
 func BuildProgressSkeleton(playbook string, passthroughArgs []string) []ProgressEntry {
-	entries, _ := BuildProgressSkeletonVerbose(playbook, passthroughArgs)
+	entries, _ := BuildProgressSkeletonVerbose(playbook, passthroughArgs, false)
 	return entries
 }
 
@@ -206,11 +206,13 @@ func BuildProgressSkeleton(playbook string, passthroughArgs []string) []Progress
 // form - same probe, but also returns the probe's own stderr (trimmed,
 // "" on success) for a caller where a failed probe is fatal
 // (debugverb.PrepareSession) rather than "no progress bar, carry on"
-// like every other caller of the plain form above. Kept as a separate
+// like every other caller of the plain form above. keepFree keeps
+// strategy: free plays' tasks in the result (debug rewrites them to linear
+// first, debugcopy.ForceLinearStrategy, so they're matchable). Kept as a separate
 // function rather than changing BuildProgressSkeleton's own signature:
 // every other caller treats a failed probe as silently tolerable and
 // has no use for the extra return value.
-func BuildProgressSkeletonVerbose(playbook string, passthroughArgs []string) (entries []ProgressEntry, stderrText string) {
+func BuildProgressSkeletonVerbose(playbook string, passthroughArgs []string, keepFree bool) (entries []ProgressEntry, stderrText string) {
 	args := append([]string{playbook}, passthroughArgs...)
 	args = append(args, "--list-tasks", "--list-hosts")
 	cmd := exec.Command("ansible-playbook", args...)
@@ -220,7 +222,11 @@ func BuildProgressSkeletonVerbose(playbook string, passthroughArgs []string) (en
 	if err := cmd.Run(); err != nil {
 		return nil, strings.TrimSpace(stderr.String())
 	}
-	return ParseListTasksOutput(stdout.String(), source.FreeStrategyPlayNames(playbook)), ""
+	var free map[string]bool
+	if !keepFree {
+		free = source.FreeStrategyPlayNames(playbook)
+	}
+	return ParseListTasksOutput(stdout.String(), free), ""
 }
 
 // ProgressBaseLookahead bounds how far ahead of the tracker's own cursor

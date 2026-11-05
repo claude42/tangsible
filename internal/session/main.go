@@ -824,6 +824,9 @@ func Main(build BuildInfo) {
 	// role's own name is shown there in that case - design-docs/Tangsible
 	// role.md's own "loose end".
 	displayName := filepath.Base(playbook)
+	if v == config.VerbDebug && debugPrep.ForcedLinear {
+		displayName += " (free → linear)"
+	}
 	targetPlaybook, targetRole := playbook, ""
 	if roleDisplayName != "" {
 		displayName = roleDisplayName

@@ -127,6 +127,8 @@ step) - headless, consumed by `internal/debugverb.PrepareSession`.
   sibling key into every `source.TaskLocation` found, unlinking each
   hardlinked file before writing so the original is never mutated through
   the shared inode.
+- **strategy.go** - `ForceLinearStrategy`: rewrites non-linear play
+  `strategy:` values to `linear` in the copy (debug needs lockstep).
 
 ## internal/debugrun
 

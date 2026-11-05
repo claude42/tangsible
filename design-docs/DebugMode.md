@@ -3999,6 +3999,21 @@ stays within the playbook's directory tree, because the `debugger:` splice
 only applies to files in the shadow copy. Tasks of such a role still run
 (and show in the tree) but can't have breakpoints.
 
+## `strategy: free` runs as linear (2026-11-02)
+
+Debug's tree is seeded from a `--list-tasks` skeleton and resolved by
+position, and F10's "next task" needs lockstep - neither works under
+`strategy: free`. Plain runs drop free plays from that skeleton (progress
+bar only), which made a free-only playbook refuse to start ("probe
+failed") and misattributed free tasks in a mixed one. Now
+`debugcopy.ForceLinearStrategy` rewrites every play-level `strategy:` other
+than `linear` (free, host_pinned, templated) in the shadow copy, in place on
+its own line (no line shifts), following literal `import_playbook`s;
+`ANSIBLE_STRATEGY=linear` covers a global setting; the skeleton probe keeps
+those plays (`BuildProgressSkeletonVerbose(..., keepFree)`); the top bar
+shows `(free → linear)`. Cost: a bug that only appears under real free
+ordering doesn't reproduce in debug.
+
 # Resume
 
 claude --resume ffbd62f0-5860-4b91-a329-4872afd4657e

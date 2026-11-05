@@ -32,6 +32,7 @@
 - The host_vars tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)
 - The host_vars tab also finds files next to an inventory set via `ANSIBLE_INVENTORY` or `ansible.cfg` (not only `-i`)
 - `debug`: a variable set in the watch explorer now reaches the redone task's arguments (F12), not only its conditions
+- `debug`: `strategy: free` plays now run as linear (marked in the top bar) instead of refusing to start or misattributing tasks
 
 ## [0.3.0] - 2026-10-24
 

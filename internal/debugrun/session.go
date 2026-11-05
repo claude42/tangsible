@@ -153,6 +153,7 @@ func Spawn(playbook string, args []string) (*Session, error) {
 
 	cmd.Env = append(append(os.Environ(), pluginEnv...),
 		"ANSIBLE_NOCOLOR=1",
+		"ANSIBLE_STRATEGY=linear", // a globally configured free/host_pinned (a play's own keyword is rewritten in the copy)
 		"ANSIBLE_STDOUT_CALLBACK=minimal",
 		"TANGSIBLE_EVENT_FD=3",
 	)

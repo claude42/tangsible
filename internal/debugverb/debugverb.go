@@ -83,6 +83,10 @@ type SessionPrep struct {
 	// line-shift math like PathMapping above needs.
 	PlaybookDir string
 	CopyDir     string
+	// ForcedLinear reports that a play's own non-linear strategy was
+	// rewritten to linear in the copy (debugcopy.ForceLinearStrategy);
+	// the top bar says so.
+	ForcedLinear bool
 }
 
 // PrepareSession resolves "tangsible debug [<playbook.yml>] [ansible-
@@ -157,6 +161,10 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		os.Exit(1)
 	}
 
+	// Before the splice (which only inserts lines; this edits in place):
+	// debug's skeleton-by-position tree needs a lockstep strategy.
+	forcedLinear := debugcopy.ForceLinearStrategy(playbookDir, copyDir, absPlaybook, locs)
+
 	if err := debugcopy.SpliceDebuggerAlways(playbookDir, copyDir, locs); err != nil {
 		copyCleanup()
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a debug copy of %s: %v\n", playbookDir, err)
@@ -178,7 +186,7 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 	// cwd, since the copy lives under playbookDir/.tangsible/debug/<runID>,
 	// not necessarily cwd.
 	copyPlaybookPath := filepath.Join(copyDir, relPlaybook)
-	skeleton, probeStderr := runner.BuildProgressSkeletonVerbose(copyPlaybookPath, rest)
+	skeleton, probeStderr := runner.BuildProgressSkeletonVerbose(copyPlaybookPath, rest, true)
 	if len(skeleton) == 0 {
 		copyCleanup()
 		fmt.Fprintln(os.Stderr, "tangsible: couldn't predict this playbook's own task list (--list-tasks probe failed) - nothing to debug")
@@ -198,6 +206,7 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		PathMapping:      pathMapping,
 		PlaybookDir:      playbookDir,
 		CopyDir:          copyDir,
+		ForcedLinear:     forcedLinear,
 	}, copyCleanup
 }
 

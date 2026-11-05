@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-debug" "1" "2026-11-02" "Tangsible" "Tangsible Manual"
+.TH "tangsible-debug" "1" "2026-11-05" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -22,7 +22,8 @@ task by task, and inspect each paused task'\&s own variables.\&
 .PP
 \fBtangsible debug\fR creates a copy of the playbook'\&s directory tree 
 nd addes \fBdebugger: always\fR to every task in that copy to achieve its
-interactive debugging functionality.\&
+interactive debugging functionality.\& Plays with \fBstrategy: free\fR (or
+\fBhost_pinned\fR) run as \fBlinear\fR in that copy, as stepping needs lockstep.\&
 .PP
 On startup, \fBdebug\fR shows every play and task the run will touch, so breakpoints
 can be armed before the first \fBF5\fR/\fBF10\fR/\fBF11\fR/\fBF12\fR.\&

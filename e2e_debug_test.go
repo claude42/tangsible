@@ -394,3 +394,34 @@ func TestE2E_Debug_UnarmedFailureEndsTheRun(t *testing.T) {
 		t.Errorf("recap should count the failed task: %q\n%s", recap, got)
 	}
 }
+
+// TestE2E_Debug_FreeStrategyRunsLinear: a strategy: free play used to make
+// debug refuse to start (an empty skeleton); it now runs as linear, says so
+// in the top bar, and attributes every task correctly.
+func TestE2E_Debug_FreeStrategyRunsLinear(t *testing.T) {
+	requireE2ETools(t)
+	s, _ := startDebugSession(t, `- name: free play
+  hosts: all
+  strategy: free
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: free one
+      command: echo one
+
+    - name: free two
+      command: echo two
+`, map[string]string{"inv.ini": "h1\nh2\n"}, "-i inv.ini")
+
+	got := s.waitFor("F5: run", 15*time.Second)
+	if !strings.Contains(got, "free → linear") {
+		t.Errorf("top bar should say the strategy was changed:\n%s", got)
+	}
+	s.send("F5")
+	got = s.waitFor("F5/F9/F10/F11/F12 disabled", 20*time.Second)
+	for _, h := range []string{"h1 ", "h2 "} {
+		if recap := lineContaining(got, h+":"); !strings.Contains(recap, "changed=2") {
+			t.Errorf("recap for %s should show both tasks: %q\n%s", h, recap, got)
+		}
+	}
+}

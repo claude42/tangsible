@@ -340,7 +340,8 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   debugger instead, via its own F5/F9/F10/F11/F12/v keys - it rejects
   ansible-playbook's own `--step` outright (a second, unhandled pause
   mechanism, `debugverb.PrepareSession`).
-- `strategy: free` is supported (`StrategyFree.md`); a globally configured
+- `strategy: free` is supported (`StrategyFree.md`), except in `debug`,
+  which runs it as linear (`DebugMode.md`); a globally configured
   `free` isn't seen by the progress probe.
 - No execution environments / ansible-runner; only a subset of
   `ansible-playbook`'s CLI is surfaced.
