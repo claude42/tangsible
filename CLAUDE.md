@@ -286,7 +286,8 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   first (`autocompleteOpenNow`).
 - **File/Resolved tabs** (`ShowFileContents.md`, `Drilldown, Resolved
   Values.md`): extra `ansible-playbook` runs with the original args, skipped
-  under `--ask-become-pass`/`--ask-vault-pass` (a prompt would fight the TUI).
+  under `--ask-*-pass` only if a prompt would reach them (`credfile` now
+  swaps those flags for password files at startup, so normally it doesn't).
 - **Vault** (`Vault.md`): native AES-CTR (`internal/vaultcrypto`); re-encrypts
   only changed keys and splices original bytes for unchanged ones (yaml.v3
   can't reproduce ansible-vault's indentation); never touches tview.
@@ -335,7 +336,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 
 - Interactive input *after* the TUI starts is unsupported in `run`/`rerun`/
   `role` (`--step` crashes, a bare `pause:` is skipped); become/vault
-  password prompts work because they happen before the TUI. `debug`
+  password prompts are answered once at startup and swapped for private
+  password files (`internal/credfile`, every verb that spawns
+  ansible-playbook): a prompt later would fight the TUI for the terminal
+  and hang. `debug`
   (`DebugMode.md`) is the dedicated way to drive ansible-core's own task
   debugger instead, via its own F5/F9/F10/F11/F12/v keys - it rejects
   ansible-playbook's own `--step` outright (a second, unhandled pause

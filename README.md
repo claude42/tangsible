@@ -461,8 +461,9 @@ complete `ansible-playbook` feature parity.
 - **Interactive input after the TUI starts is not supported** in `run`/`rerun`/`role`. For example, a bare pause: task does not wait for input, and `--step` will not work. (`tangsible debug` is the dedicated way to drive ansible-core's own task debugger - see "Debugging a playbook" above; it isn't available from inside the regular live tree.)
   
   Timed pauses work normally.
-  `--ask-become-pass` and `--ask-vault-pass` work normally because Ansible
-  handles those prompts before Tangsible takes over the terminal.
+  `--ask-become-pass`, `--ask-vault-pass` and `--ask-pass` work: Tangsible
+  asks once at startup, before the TUI, and hands Ansible private temporary
+  password files (removed on exit) for the first run and every re-run.
 - **Scale**: Tangsible is developed and tested primarily against relatively
   small development inventories. It is not intended to be a fleet-management
   interface.

@@ -68,6 +68,11 @@ connection override instead; a fetch against such a host will simply fail
 (and the File tab stays hidden, per the caching/errors section below) even
 though the main run itself succeeded.
 
+**Update (2026-11-02):** `internal/credfile` now answers those prompts once
+at startup and swaps the flags for password files, so the fetch playbook never
+prompts and this guard normally never triggers. The text below is the original
+reasoning, kept for the guard that remains.
+
 **Interactive-credential guard.** `--ask-become-pass`/`-K` and
 `--ask-vault-pass`/`--ask-vault-password` are not cached to disk — they're
 only good for the process that prompted for them. The original run's prompt

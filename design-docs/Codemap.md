@@ -91,6 +91,14 @@ package reads.
   `$COLORFGBG` fallback. `tty_unix.go` (+ `ioctl_*.go`) talks to the
   terminal; `tty_other.go` is the no-op elsewhere.
 
+## internal/credfile
+
+- **credfile.go** - `Rewrite`: turns `-K`/`--ask-vault-pass`/`-k` into
+  `--become-/--vault-/--connection-password-file` (0600 files in a private
+  0700 temp dir), prompting once up front; `Restore` puts the original flags
+  back for history. Used by every verb that spawns ansible-playbook (a later
+  prompt would fight the TUI). Removed on exit, SIGTERM and SIGHUP.
+
 ## internal/ansibleconfig
 
 - **ansibleconfig.go** - one shared `ansible-config dump --format json`

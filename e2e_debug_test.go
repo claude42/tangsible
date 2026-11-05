@@ -425,3 +425,83 @@ func TestE2E_Debug_FreeStrategyRunsLinear(t *testing.T) {
 		}
 	}
 }
+
+// e2eVaultedSecret is "secret: sekrit" encrypted with the password pw123.
+const e2eVaultedSecret = `$ANSIBLE_VAULT;1.1;AES256
+35393562373938313338373734626234656665333338656339383565613763653835363938366566
+3862626631303939333665656538626435316634303765620a343039323565643339633034623338
+31633438646534616337663039653361346637623334646633626361383034313434383630306166
+6165663234316233310a353361336434623164383438613566343662393934326237306238336530
+6662
+`
+
+// TestE2E_Debug_AskVaultPassPromptsBeforeTheTUI: --ask-vault-pass used to
+// prompt only after F5, under the running TUI, where nothing could answer
+// it. The password is now asked once up front and handed to ansible as a
+// password file.
+func TestE2E_Debug_AskVaultPassPromptsBeforeTheTUI(t *testing.T) {
+	requireE2ETools(t)
+	s, _ := startDebugSession(t, `- name: vault play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files: [secret.yml]
+  tasks:
+    - name: show secret
+      debug:
+        msg: "{{ secret }}"
+`, map[string]string{"secret.yml": e2eVaultedSecret}, "-i localhost, --ask-vault-pass")
+
+	s.waitFor("Vault password:", 15*time.Second)
+	s.send("pw123", "Enter")
+	s.waitFor("F5: run", 15*time.Second)
+	s.send("F5")
+	got := s.waitFor("F5/F9/F10/F11/F12 disabled", 20*time.Second)
+	if recap := lineContaining(got, "localhost :"); !strings.Contains(recap, "ok=1") {
+		t.Errorf("the vaulted playbook should run to completion: %q\n%s", recap, got)
+	}
+	s.send("q") // quit cleanly so the password files are removed
+	time.Sleep(time.Second)
+}
+
+// TestE2E_Run_AskVaultPassSurvivesARerun: a re-run spawns a second
+// ansible-playbook once the TUI owns the terminal, where a repeated
+// --ask-vault-pass prompt hung forever. The password is asked once up front
+// and every generation gets a password file instead.
+func TestE2E_Run_AskVaultPassSurvivesARerun(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	workDir := t.TempDir()
+	for name, content := range map[string]string{"secret.yml": e2eVaultedSecret, "site.yml": `- hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files: [secret.yml]
+  tasks:
+    - name: show secret
+      debug:
+        msg: "{{ secret }}"
+`} {
+		if err := os.WriteFile(filepath.Join(workDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s %s run site.yml -i localhost, --ask-vault-pass --no-dialog", shellQuote(workDir), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
+	s.waitFor("Vault password:", 15*time.Second)
+	s.send("pw123", "Enter")
+	s.waitFor("Playbook completed successfully", 15*time.Second)
+
+	s.send("r")
+	s.waitFor("Re-run", 5*time.Second)
+	s.send("Tab", "Tab", "Tab", "Tab", "Tab", "Enter")
+	time.Sleep(4 * time.Second)
+	got := s.capture()
+	if strings.Contains(got, "Vault password:") {
+		t.Errorf("the re-run asked for the vault password again, under the TUI:\n%s", got)
+	}
+	if !strings.Contains(got, "Playbook completed successfully") {
+		t.Errorf("the re-run should have completed:\n%s", got)
+	}
+	s.send("q") // quit cleanly so the password files are removed
+	time.Sleep(time.Second)
+}

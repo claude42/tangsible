@@ -33,6 +33,7 @@
 - The host_vars tab also finds files next to an inventory set via `ANSIBLE_INVENTORY` or `ansible.cfg` (not only `-i`)
 - `debug`: a variable set in the watch explorer now reaches the redone task's arguments (F12), not only its conditions
 - `debug`: `strategy: free` plays now run as linear (marked in the top bar) instead of refusing to start or misattributing tasks
+- `--ask-become-pass`/`--ask-vault-pass`/`--ask-pass` no longer hang a re-run (`run`/`rerun`/`role`) or `debug`'s F5: the password is asked once at startup and handed to Ansible as a private temporary file
 
 ## [0.3.0] - 2026-10-24
 

@@ -15,7 +15,9 @@ task by task, and inspect each paused task's own variables.
 
 *tangsible debug* creates a copy of the playbook's directory tree 
 nd addes *debugger: always* to every task in that copy to achieve its
-interactive debugging functionality. Plays with *strategy: free* (or
+interactive debugging functionality. *--ask-become-pass*, *--ask-vault-pass* and
+*--ask-pass* are answered once at startup (kept in private temporary password
+files until exit). Plays with *strategy: free* (or
 *host_pinned*) run as *linear* in that copy, as stepping needs lockstep.
 
 On startup, *debug* shows every play and task the run will touch, so breakpoints

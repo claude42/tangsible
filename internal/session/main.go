@@ -30,6 +30,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/ansibleconfig"
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/credfile"
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/diff"
@@ -251,16 +252,34 @@ func Main(build BuildInfo) {
 	// every os.Exit call below the point cleanup might be set instead
 	// goes through exitCleanly, which calls it explicitly first.
 	var cleanup func()
-	defer func() {
+	// credCleanup removes the password files askPasswords generated.
+	var credCleanup func()
+	allCleanup := func() {
 		if cleanup != nil {
 			cleanup()
 		}
-	}()
+		if credCleanup != nil {
+			credCleanup()
+		}
+	}
+	defer allCleanup()
 	exitCleanly := func(code int) {
-		if cleanup != nil {
-			cleanup()
-		}
+		allCleanup()
 		os.Exit(code)
+	}
+	// askPasswords answers --ask-become-pass/--ask-vault-pass/--ask-pass once,
+	// before any TUI exists, and hands every ansible-playbook this session
+	// spawns (the first run, each re-run, the File/Resolved probes) password
+	// files instead: a later prompt would fight the TUI for the terminal and
+	// hang (internal/credfile). History still records the original flags.
+	askPasswords := func(rest []string) []string {
+		out, c, err := credfile.Rewrite(rest, credfile.TerminalPrompter)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
+			exitCleanly(1)
+		}
+		credCleanup = c
+		return out
 	}
 	// originalArgs is this session's baseline invocation, split into its
 	// Tags/Hosts (pre-fills the re-run dialog's fields the first time each
@@ -363,6 +382,7 @@ func Main(build BuildInfo) {
 			// through - including its own --start-at-play trimming
 			// (runner.NewRequestRerun) and its own AppendInvocation, once
 			// there's an actual invocation to record.
+			rest = askPasswords(rest)
 			originalArgs = config.ParsePassthroughArgs(rest)
 		} else {
 			if startAtPlay != "" {
@@ -395,6 +415,8 @@ func Main(build BuildInfo) {
 				}
 			}
 
+			rest = askPasswords(rest)
+
 			// Recorded unconditionally, before ansible-playbook is even
 			// started - same "an invocation is an invocation" semantics as
 			// shell history, independent of whether the run itself goes on to
@@ -415,7 +437,7 @@ func Main(build BuildInfo) {
 			originalArgs = config.ParsePassthroughArgs(rest)
 
 			var showTUI bool
-			pending, showTUI = runner.StartFirstGeneration(spawnPlaybook, rest, &procH, playbook, "", cleanup)
+			pending, showTUI = runner.StartFirstGeneration(spawnPlaybook, rest, &procH, playbook, "", allCleanup)
 			if !showTUI {
 				return
 			}
@@ -453,6 +475,7 @@ func Main(build BuildInfo) {
 		// a forced dialog defers.
 		playbook, cleanup = role.StartRoleSession(roleName)
 		roleDisplayName = roleName
+		rest = askPasswords(rest)
 
 		if showDialog {
 			// Deferred start - see "run"'s own doc comment above for the
@@ -470,7 +493,7 @@ func Main(build BuildInfo) {
 			originalArgs = config.ParsePassthroughArgs(rest)
 
 			var showTUI bool
-			pending, showTUI = runner.StartFirstGeneration(playbook, rest, &procH, "", roleName, cleanup)
+			pending, showTUI = runner.StartFirstGeneration(playbook, rest, &procH, "", roleName, allCleanup)
 			if !showTUI {
 				return
 			}
@@ -619,7 +642,7 @@ func Main(build BuildInfo) {
 		} else {
 			playbook = res.Playbook
 		}
-		originalArgs = config.ParsedPassthroughArgs{Tags: res.Tags, SkipTags: res.SkipTags, Hosts: res.Hosts, Rest: res.Rest}
+		originalArgs = config.ParsedPassthroughArgs{Tags: res.Tags, SkipTags: res.SkipTags, Hosts: res.Hosts, Rest: askPasswords(res.Rest)}
 		// pending stays nil: unlike "run"/"role", nothing is spawned yet -
 		// the re-run dialog opens immediately instead (NewLiveTUI's
 		// startWithRerunDialog below), and the very first generation only

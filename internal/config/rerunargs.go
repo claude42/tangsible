@@ -14,7 +14,11 @@
 
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"code.aw.net/claude/tangsible/internal/credfile"
+)
 
 // ParsedPassthroughArgs splits a tokenized ansible-playbook passthrough arg
 // list (the same shape splitPlaybookArgs already produces) into the
@@ -239,6 +243,7 @@ func (p ParsedPassthroughArgs) Reassemble() []string {
 // historyStringToArgs can split it back out unambiguously; a plain token
 // round-trips as-is, unquoted.
 func ArgsToHistoryString(args []string) string {
+	args = credfile.Restore(args) // never record a generated password file's path
 	parts := make([]string, len(args))
 	for i, a := range args {
 		parts[i] = QuoteHistoryArg(a)

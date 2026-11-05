@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/credfile"
 	"code.aw.net/claude/tangsible/internal/debugcopy"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
@@ -152,14 +153,25 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		os.Exit(1)
 	}
 
+	// --ask-*-pass can't be answered once the TUI runs (F5 spawns after it
+	// owns the terminal): ask now, hand ansible password files instead.
+	rest, credCleanup, err := credfile.Rewrite(rest, credfile.TerminalPrompter)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
+		os.Exit(1)
+	}
+
 	// internal/debugcopy (M0): hardlink shadow copy + debugger: always
 	// splice, exactly as spiked/built there - never touches the real
 	// playbook tree.
 	copyDir, copyCleanup, err := debugcopy.BuildShadowCopy(playbookDir, config.NewRunID(time.Now()))
 	if err != nil {
+		credCleanup()
 		fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a debug copy of %s: %v\n", playbookDir, err)
 		os.Exit(1)
 	}
+	shadowCleanup := copyCleanup
+	copyCleanup = func() { shadowCleanup(); credCleanup() }
 
 	// Before the splice (which only inserts lines; this edits in place):
 	// debug's skeleton-by-position tree needs a lockstep strategy.
