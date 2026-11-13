@@ -3,7 +3,8 @@
 Noted here so these won't be forgotten but not something that must be
 immediately implemented.
 
-* fallback_project
+* fallback_project - i.e. what gets used, when cwd does not contain an
+  ansible project
 
 * Statstics
   * host timings
@@ -39,6 +40,14 @@ immediately implemented.
 * tangsible host inventory
   * add host to group
 
+* Debugger
+  * restart from beginning
+  * remove timer
+  * variables in conditionals
+  * configurable keyboard shortcuts
+  * a few more in DebugMode.md
+
+* Details tab shows less than before
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
 
