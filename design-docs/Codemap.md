@@ -436,6 +436,10 @@ thin constructor/wiring shell.
   `--ask-vault-pass`) surviving a re-run / `rerun` / both at once, history
   recording the original flags, and debug's `strategy: free` -> linear
   handling (global config, imported roles-only playbook).
+- **e2e_role_test.go** - `//go:build e2e`; roles inside a hand-made
+  collection outside the project (`ANSIBLE_COLLECTIONS_PATH`): `role
+  ns.coll.role` with a meta dependency, and a `collections:`-keyword short
+  name - both must get a Task definition tab.
 
 ## screenrecordings/
 
