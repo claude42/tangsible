@@ -82,8 +82,52 @@ a `roles:` list (or the stub). Not yet covered:
     community.general.foo` warns "couldn't find role" although ansible
     resolves it, and the Task definition tab stays empty. The run itself
     works. Needs the collections path (likely `ansible-config`'s
-    COLLECTIONS_PATHS, to be confirmed), FQCN splitting, and `collections:`
-    handling; reuses the same worklist.
+    COLLECTIONS_PATHS, confirmed: `ansible-config dump --format json` lists
+    it as a plain string list, default `~/.ansible/collections` and
+    `/usr/share/ansible/collections`, checked on core 2.19), FQCN splitting,
+    and `collections:` handling; reuses the same worklist. Details:
+      * The project's own `./collections/ansible_collections/...` (next to
+        the playbook) is searched by ansible too and is the usual layout for
+        vendored collections; add it ahead of COLLECTIONS_PATHS, the way
+        `roles/` precedes roles_path.
+      * Split an FQCN *before* the roles-path search. `rolepath.Find` accepts
+        dots, so `ns.coll.foo` would otherwise be looked up as a plain
+        directory name in roles_path.
+      * `uikit.RolePathPattern` and `template.RoleDir` already match a
+        collection role's `.../roles/<name>/tasks/` path, but report the
+        bare `<name>`, not `ns.coll.<name>`. Check what the drill-down and
+        `template`'s `vars_files` handling want to show/use for those.
+      * A short name resolved via the play's `collections:` keyword is the
+        same lookup, but the source walk doesn't read that keyword yet.
+
+### Other gaps (found 2026-11-13)
+
+  * **Galaxy-installed legacy roles** (`ns.rolename` directories under
+    roles_path) already work, being plain directory names. Not a collection
+    role; keep it that way when FQCN splitting is added (add a test).
+  * **Search order (verified 2026-11-13** against ansible-core 2.19's
+    `playbook/role/definition.py`, `_load_role_path`). Collection lookup
+    comes first, if the name is an FQCN or the play has a `collections:`
+    list. Otherwise: `<playbook dir>/roles`, then roles_path, then (only for
+    dependency roles) the depending role's own `roles/` directory, then the
+    playbook directory itself (`<playbook dir>/<name>`), and finally the name
+    taken as a path. `rolepath.Find` matches the first two steps and omits
+    the rest. The stub lives in the cwd, so the playbook-directory step
+    would make `./<name>` resolve for ansible while tangsible warns "couldn't
+    find role" - a harmless mismatch, but `Find` could add it. The
+    dependency step belongs to the meta/main.yml worklist, where each
+    role's own directory is that base.
+
+Deliberately not done: `tangsible role` keeps taking exactly one bare role
+name. No path arguments, and no special handling for running from inside the
+role's own directory.
+
+### Suggested order
+
+1. meta/main.yml dependencies (easiest).
+2. include_role / import_role, sharing one worklist with it.
+3. Collections: FQCN splitting, COLLECTIONS_PATHS plus `./collections`, the
+   `collections:` keyword.
 
 ## Rerun history
 
