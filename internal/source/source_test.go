@@ -20,6 +20,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"code.aw.net/claude/tangsible/internal/rolepath"
 )
 
@@ -601,6 +603,92 @@ func TestRoleDependencies_Malformed(t *testing.T) {
 		}
 		if got := roleDependencies(dir); len(got) != 0 {
 			t.Errorf("%q: got %v, want none", content, got)
+		}
+	}
+}
+
+func TestBuildTaskSourceIndex_IncludeRole(t *testing.T) {
+	ext := t.TempDir()
+	defer rolepath.SetDirs([]string{ext})()
+
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task := func(name string) string { return "- name: " + name + "\n  debug: msg=hi\n" }
+
+	proj := t.TempDir()
+	pb := filepath.Join(proj, "site.yml")
+	write(pb, `- hosts: all
+  tasks:
+    - include_role:
+        name: plain
+    - ansible.builtin.import_role:
+        name: fqcn
+    - block:
+        - name: nested
+          ansible.legacy.include_role: name=freeform tasks_from=x
+    - include_role:
+        name: "{{ app }}"
+    - include_role:
+        name: missing
+  handlers:
+    - name: h
+      import_role:
+        name: inhandler
+  roles:
+    - local
+`)
+	// An include_role inside a project role's task file, and inside an
+	// external role's, which chain onward.
+	write(filepath.Join(proj, "roles", "local", "tasks", "main.yml"),
+		"- include_role: {name: fromlocal}\n")
+	write(filepath.Join(ext, "fromlocal", "tasks", "main.yml"),
+		"- include_role:\n    name: chained\n")
+	write(filepath.Join(ext, "chained", "tasks", "main.yml"), task("chained task"))
+	for _, n := range []string{"plain", "fqcn", "freeform", "inhandler", "unused"} {
+		write(filepath.Join(ext, n, "tasks", "main.yml"), task(n+" task"))
+	}
+
+	index, _, _ := BuildTaskSourceIndex(pb)
+	joined := ""
+	for _, src := range index {
+		joined += src + "\n"
+	}
+	for _, want := range []string{"plain task", "fqcn task", "freeform task", "inhandler task", "chained task"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("index lacks %q", want)
+		}
+	}
+	if strings.Contains(joined, "unused task") {
+		t.Error("index contains a task of a role nothing includes")
+	}
+}
+
+func TestIncludeRoleName(t *testing.T) {
+	cases := map[string]string{
+		"{name: foo}":                "foo",
+		"{name: foo, tasks_from: x}": "foo",
+		"name=foo":                   "foo",
+		`name="foo" tasks_from=x`:    "foo",
+		"tasks_from=x name=foo":      "foo",
+		"{name: '{{ app }}'}":        "",
+		"foo":                        "",
+		"{}":                         "",
+		"[a]":                        "",
+	}
+	for src, want := range cases {
+		var n yaml.Node
+		if err := yaml.Unmarshal([]byte(src), &n); err != nil {
+			t.Fatal(err)
+		}
+		if got := includeRoleName(n.Content[0]); got != want {
+			t.Errorf("includeRoleName(%q) = %q, want %q", src, got, want)
 		}
 	}
 }

@@ -65,12 +65,15 @@ What it does is
 Roles outside the project are found and indexed only when named literally in
 a `roles:` list (or the stub). Not yet covered:
 
-  * **include_role / import_role.** A role pulled in by such a task has no
-    Task definition section if it lives outside the project tree. Needs the
-    task walk in source.go to report these (also the FQCN spelling
-    `ansible.builtin.include_role`, inside blocks and in role task files) and
-    feed a worklist. A templated name (`name: "{{ app }}"`) can never be
-    resolved by a static scan.
+  * **include_role / import_role** - done. `source.includedRoleNames` walks
+    every indexed file's whole YAML tree (so blocks, handlers and role task
+    files need no special casing) for either keyword, bare or with an
+    `ansible.builtin.`/`ansible.legacy.` prefix, in mapping form (`name:`)
+    or free-form (`name=foo tasks_from=x`), and feeds the same worklist as
+    dependencies, including from external roles' own files. A templated
+    name (`name: "{{ app }}"`) can never be resolved by a static scan and
+    is skipped. A stray key of that name outside a task only costs one
+    failed lookup.
   * **meta/main.yml dependencies** - done. `source.BuildTaskSourceIndex`
     runs a worklist: every located role (project-local ones too) has its
     `dependencies:` read (bare names, or mappings with `role:`/`name:`;
@@ -126,7 +129,7 @@ role's own directory.
 ### Suggested order
 
 1. ~~meta/main.yml dependencies~~ (done).
-2. include_role / import_role, sharing one worklist with it.
+2. ~~include_role / import_role~~ (done), sharing one worklist with it.
 3. Collections: FQCN splitting, COLLECTIONS_PATHS plus `./collections`, the
    `collections:` keyword.
 

@@ -197,6 +197,9 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 		for _, name := range indexFile(f, index, tagSet, nameSet, nil) {
 			worklist = append(worklist, roleRef{name: name})
 		}
+		for _, name := range includedRoleNames(f) {
+			worklist = append(worklist, roleRef{name: name})
+		}
 	}
 
 	// Roles referenced from a play's roles: but living outside the
@@ -207,7 +210,8 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	// ListTaskLocations deliberately doesn't do this (debug mode can only
 	// splice files in its shadow copy of the project tree).
 	//
-	// A located role's meta/main.yml dependencies join the worklist - also
+	// Roles named by include_role/import_role tasks (includedRoleNames) join
+	// it too. A located role's meta/main.yml dependencies join the worklist - also
 	// those of roles inside the project tree, which may depend on outside
 	// ones. visited (by directory) stops dependency cycles.
 	visited := map[string]bool{}
@@ -228,6 +232,9 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 		if !isUnder(dir, root) { // inside the project: the walk above covered it
 			for _, f := range yamlFilesUnder(dir, "") {
 				indexFile(f, index, tagSet, nameSet, nil)
+				for _, name := range includedRoleNames(f) {
+					worklist = append(worklist, roleRef{name: name})
+				}
 			}
 		}
 		for _, name := range roleDependencies(dir) {
@@ -259,6 +266,78 @@ func roleDependencies(roleDir string) []string {
 		return roleNamesIn(mappingValue(doc.Content[0], "dependencies"))
 	}
 	return nil
+}
+
+// includeRoleActions are the task keywords that pull in a role.
+var includeRoleActions = map[string]bool{}
+
+func init() {
+	for _, kw := range []string{"include_role", "import_role"} {
+		for _, prefix := range []string{"", "ansible.builtin.", "ansible.legacy."} {
+			includeRoleActions[prefix+kw] = true
+		}
+	}
+}
+
+// includedRoleNames returns the literal role name of every include_role/
+// import_role task in the YAML file path, in either spelling of the
+// keyword (bare or ansible.builtin./ansible.legacy.-prefixed) and either
+// argument form ("name: foo" mapping, or the free-form "name=foo
+// tasks_from=x" string). Found by walking the whole parsed tree rather than
+// just task-list positions, so tasks inside blocks, role task files and
+// handlers need no special casing; a stray key of that name elsewhere only
+// costs one failed lookup. A templated name can't be resolved statically
+// and is skipped, as is anything unparseable.
+func includedRoleNames(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	var names []string
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		if n.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				if includeRoleActions[n.Content[i].Value] {
+					if name := includeRoleName(n.Content[i+1]); name != "" {
+						names = append(names, name)
+					}
+				}
+			}
+		}
+		for _, c := range n.Content {
+			walk(c)
+		}
+	}
+	walk(&doc)
+	return names
+}
+
+// includeRoleName extracts the role name from an include_role/import_role
+// argument node: a mapping's name:, or name= within the free-form string.
+func includeRoleName(args *yaml.Node) string {
+	var name string
+	switch args.Kind {
+	case yaml.MappingNode:
+		if v := mappingValue(args, "name"); v != nil && v.Kind == yaml.ScalarNode {
+			name = v.Value
+		}
+	case yaml.ScalarNode:
+		for _, field := range strings.Fields(args.Value) {
+			if v, ok := strings.CutPrefix(field, "name="); ok {
+				name = strings.Trim(v, `"'`)
+			}
+		}
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || strings.Contains(name, "{{") {
+		return ""
+	}
+	return name
 }
 
 // yamlFilesUnder returns every .yml/.yaml file under root except skip

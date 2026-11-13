@@ -4,7 +4,7 @@
 
 ### Added
 
-- Task definition tab: roles pulled in as `meta/main.yml` dependencies are found too, also outside the project tree
+- Task definition tab: roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are found too, also outside the project tree
 - Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
 - `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
 - Progress is also shown in the terminal's own progress indicator (OSC 9;4) where supported; `terminal_progress = "auto" | "on" | "off"`
