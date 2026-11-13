@@ -508,3 +508,29 @@ func TestE2E_Run_AskVaultPassSurvivesARerun(t *testing.T) {
 	s.send("q") // quit cleanly so the password files are removed
 	time.Sleep(time.Second)
 }
+
+// TestE2E_Debug_UnreachableHostIsNotAFailure: a run whose only problem is an
+// unreachable host ends exit code 4 - the status must be the benign "one or
+// more hosts were unreachable", as in `run`, not "Playbook failed (exit code
+// 4)". Debug mode feeds events through debugverb.Cursor, which has to note the
+// unreachable host itself (PlaybookState.HadUnreachable is what tells exit
+// code 4's two meanings apart).
+func TestE2E_Debug_UnreachableHostIsNotAFailure(t *testing.T) {
+	requireE2ETools(t)
+	s, _ := startDebugSession(t, `- hosts: all
+  gather_facts: false
+  tasks:
+    - name: only task
+      command: echo hi
+`, map[string]string{"hosts.ini": `[all]
+web1 ansible_connection=local
+ghost ansible_host=203.0.113.1 ansible_connection=ssh ansible_ssh_common_args='-o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+`}, "-i hosts.ini")
+
+	s.waitFor("F5: run", 15*time.Second)
+	s.send("F5")
+	got := s.waitFor("F5/F9/F10/F11/F12 disabled", 30*time.Second) // the session is over
+	if strings.Contains(got, "Playbook failed") || !strings.Contains(got, "one or more hosts were unreachable") {
+		t.Errorf("an unreachable host should read as benign, not a failure:\n%s", got)
+	}
+}

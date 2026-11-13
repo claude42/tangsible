@@ -719,6 +719,13 @@ func (s *liveSession) debugDrainEvents(sess *debugrun.Session) {
 			if host != "" {
 				s.state.NoteHost(host)
 			}
+			// The cursor bypasses PlaybookState.Apply, which is what sets
+			// HadUnreachable elsewhere; without it exit code 4 from a run
+			// whose only problem was an unreachable host reads as a
+			// failure (uikit.GenuineFailure).
+			if ev.Event == "v2_runner_on_unreachable" {
+				s.state.HadUnreachable = true
+			}
 			if taskChanged {
 				s.debugPausedHost = ""
 			}

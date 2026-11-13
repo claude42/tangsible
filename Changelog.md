@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- `debug`: a run whose only problem was unreachable hosts ends "completed - one or more hosts were unreachable", as in `run`, instead of "Playbook failed (exit code 4)"
 - Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving
 - The host_vars tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)
