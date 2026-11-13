@@ -305,6 +305,14 @@ func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
 	// live: without this line, q while genuinely mid-task-run (not yet
 	// paused) force-quit tangsible on one press, child still running.
 	s.processDone.Store(false)
+	if s.debugSess == nil {
+		// The heartbeat ticker NewLiveTUI started already returned on its
+		// first tick (processDone was true then), so nothing redraws the
+		// busy spinner between events until it is started again - same as
+		// submitRerun does for a rerun. It then keeps running across
+		// pauses (processDone stays false) until debugFinish.
+		s.startHeartbeat()
+	}
 	s.debugRefreshChrome()
 
 	if s.debugSess == nil {
