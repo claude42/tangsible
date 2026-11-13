@@ -6,6 +6,9 @@ immediately implemented.
 * fallback_project - i.e. what gets used, when cwd does not contain an
   ansible project
 
+* 'e' works in drill down but doesn't update tab, probably doesn't reread when
+  re-run
+
 * Statstics
   * host timings
   * task timings
@@ -30,7 +33,11 @@ immediately implemented.
   * don't show passwords etc.
   * change variable - not just for the current step
   * restart from beginning / cursor / redo role (accepting to lose context)
+    * re-read files!
   * Use Data Tagging
+  * show provenance of variables
+  * show value of registered variable
+  * click on future tasks which have no host lines yet
 
 * Details tab shows less info than before (really?)
 
@@ -117,3 +124,5 @@ Promote
 
 * https://search.brave.com/ask?q=How+to+promote+an+open+source+project&source=llmSuggest&conversation=09b901abb579898038d8f714856c761d67ff
 * esp. ProductHunt
+* https://dev.to/wasp/how-i-promoted-my-open-source-repo-to-6k-stars-in-6-months-3li9
+* https://saascity.io/where-to-promote-open-source-projects
