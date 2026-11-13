@@ -52,7 +52,7 @@ What it does is
     lists. Only those - never a whole roles directory - and not roles
     pulled in solely via include_role/import_role or meta dependencies.
     It is not a full reimplementation of ansible's own role-search
-    algorithm (no collections).
+    algorithm (see "Open issues" for what's covered).
   * If the role can't be found this way, the stub is still generated and
     handed to ansible-playbook to resolve however it normally would - the
     only cost is that the Task definition section stays empty for
@@ -60,12 +60,13 @@ What it does is
     drill-down view already falls back to elsewhere (e.g. a task whose
     source file just isn't found).
 
-### Open issues (postponed, 2026-10-25)
+### Roles outside the project (all done, 2026-11-13)
 
-Roles outside the project are found and indexed only when named literally in
-a `roles:` list (or the stub). Not yet covered:
+Originally (2026-10-25) roles outside the project were found and indexed
+only when named literally in a `roles:` list (or the stub). Since then,
+each of these has been added:
 
-  * **include_role / import_role** - done. `source.includedRoleNames` walks
+  * **include_role / import_role** - done. `source.includedRoles` walks
     every indexed file's whole YAML tree (so blocks, handlers and role task
     files need no special casing) for either keyword, bare or with an
     `ansible.builtin.`/`ansible.legacy.` prefix, in mapping form (`name:`)
@@ -81,30 +82,25 @@ a `roles:` list (or the stub). Not yet covered:
     dependency is looked up like ansible does: also in the depending role's
     own parent directory, after roles_path. include_role and collections
     reuse this worklist.
-  * **Roles inside collections.** `namespace.collection.role` (or a short
-    name with the play's `collections:` keyword) lives under
-    `<collections_path>/ansible_collections/<ns>/<coll>/roles/<role>/`.
-    Neither `role` nor the source index searches it: `tangsible role
-    community.general.foo` warns "couldn't find role" although ansible
-    resolves it, and the Task definition tab stays empty. The run itself
-    works. Needs the collections path (likely `ansible-config`'s
-    COLLECTIONS_PATHS, confirmed: `ansible-config dump --format json` lists
-    it as a plain string list, default `~/.ansible/collections` and
-    `/usr/share/ansible/collections`, checked on core 2.19), FQCN splitting,
-    and `collections:` handling; reuses the same worklist. Details:
-      * The project's own `./collections/ansible_collections/...` (next to
-        the playbook) is searched by ansible too and is the usual layout for
-        vendored collections; add it ahead of COLLECTIONS_PATHS, the way
-        `roles/` precedes roles_path.
-      * Split an FQCN *before* the roles-path search. `rolepath.Find` accepts
-        dots, so `ns.coll.foo` would otherwise be looked up as a plain
-        directory name in roles_path.
-      * `uikit.RolePathPattern` and `template.RoleDir` already match a
-        collection role's `.../roles/<name>/tasks/` path, but report the
-        bare `<name>`, not `ns.coll.<name>`. Check what the drill-down and
-        `template`'s `vars_files` handling want to show/use for those.
-      * A short name resolved via the play's `collections:` keyword is the
-        same lookup, but the source walk doesn't read that keyword yet.
+  * **Roles inside collections** - done. `rolepath.Lookup` resolves a
+    role name the way ansible does: a fully qualified `ns.coll.role`
+    (`SplitFQCN`, exactly three parts - a two-part Galaxy-style `ns.role`
+    stays a plain roles_path directory name) in its collection; a short
+    name in each entry of the play's (or task's) `collections:` list in
+    order; then as a plain role. A collection lives under
+    `<dir>/ansible_collections/<ns>/<coll>/roles/<role>/`, where dir is
+    `<playbook dir>/collections` first (ansible adds it, verified in
+    `_collection_finder.set_playbook_paths`), then COLLECTIONS_PATHS
+    (`rolepath.CollectionDirs`, asked of `ansible-config dump` like the
+    roles path, default `~/.ansible/collections` and
+    `/usr/share/ansible/collections`). `tangsible role ns.coll.foo` no
+    longer warns, and the source index follows such roles from `roles:`,
+    include_role and meta dependencies. A collection role's own includes
+    and dependencies also resolve unqualified names against its own
+    collection. Nothing needed changing for display: ansible itself
+    prefixes a collection role's tasks with `ns.coll.foo : `, which
+    `SplitRolePrefix` already shows, and `template.RoleDir` already builds
+    the right directory from the `.../roles/<name>/` path.
 
 ### Other gaps (found 2026-11-13)
 
@@ -130,8 +126,8 @@ role's own directory.
 
 1. ~~meta/main.yml dependencies~~ (done).
 2. ~~include_role / import_role~~ (done), sharing one worklist with it.
-3. Collections: FQCN splitting, COLLECTIONS_PATHS plus `./collections`, the
-   `collections:` keyword.
+3. ~~Collections~~ (done): FQCN splitting, COLLECTIONS_PATHS plus
+   `./collections`, the `collections:` keyword.
 
 ## Rerun history
 

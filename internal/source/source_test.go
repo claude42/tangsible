@@ -692,3 +692,68 @@ func TestIncludeRoleName(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildTaskSourceIndex_CollectionRoles(t *testing.T) {
+	roles, colls := t.TempDir(), t.TempDir()
+	defer rolepath.SetDirs([]string{roles})()
+	defer rolepath.SetCollectionDirs([]string{colls})()
+
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task := func(name string) string { return "- name: " + name + "\n  debug: msg=hi\n" }
+	role := func(root, ns, c, name string) string {
+		return filepath.Join(root, "ansible_collections", ns, c, "roles", name)
+	}
+
+	proj := t.TempDir()
+	pb := filepath.Join(proj, "site.yml")
+	write(pb, `- hosts: all
+  roles:
+    - community.general.fqcn
+  tasks:
+    - include_role:
+        name: acme.tools.included
+- hosts: all
+  collections: [acme.tools]
+  roles:
+    - short
+`)
+	write(filepath.Join(role(colls, "community", "general", "fqcn"), "tasks", "main.yml"), task("fqcn task"))
+	// A collection role depends on / includes a sibling by short name -
+	// resolved against its own collection - and on one by FQCN.
+	write(filepath.Join(role(colls, "community", "general", "fqcn"), "meta", "main.yml"),
+		"dependencies:\n  - sibling\n  - acme.tools.viadep\n")
+	write(filepath.Join(role(colls, "community", "general", "sibling"), "tasks", "main.yml"), task("sibling task"))
+	write(filepath.Join(role(colls, "acme", "tools", "viadep"), "tasks", "main.yml"), task("viadep task"))
+	write(filepath.Join(role(colls, "acme", "tools", "included"), "tasks", "main.yml"),
+		"- include_role: {name: inner}\n")
+	write(filepath.Join(role(colls, "acme", "tools", "inner"), "tasks", "main.yml"), task("inner task"))
+	write(filepath.Join(role(colls, "acme", "tools", "short"), "tasks", "main.yml"), task("short task"))
+	write(filepath.Join(role(colls, "acme", "tools", "unused"), "tasks", "main.yml"), task("unused task"))
+	// A project-local collections directory, searched before the path.
+	write(filepath.Join(role(filepath.Join(proj, "collections"), "acme", "tools", "short"), "tasks", "main.yml"), task("local short task"))
+
+	index, _, _ := BuildTaskSourceIndex(pb)
+	joined := ""
+	for _, src := range index {
+		joined += src + "\n"
+	}
+	for _, want := range []string{"fqcn task", "sibling task", "viadep task", "inner task", "local short task"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("index lacks %q", want)
+		}
+	}
+	if strings.Contains(joined, "unused task") {
+		t.Error("index contains a task of a role nothing uses")
+	}
+	if strings.Contains(joined, "name: short task") {
+		t.Error("index contains the system copy shadowed by ./collections")
+	}
+}

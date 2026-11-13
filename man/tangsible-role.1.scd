@@ -20,10 +20,13 @@ The stub always targets *hosts: all*; narrow the actual target the normal
 way, with *-i*/*-l* passthrough arguments. The role is looked up as Ansible
 would: *./roles/*_role_name_, then each entry of the effective roles path
 (*$ANSIBLE_ROLES_PATH*, *roles_path* in *ansible.cfg*, or the defaults
-*~/.ansible/roles*, */usr/share/ansible/roles*, */etc/ansible/roles*). If
-it isn't found, a warning is printed up front — the run proceeds regardless
-(Ansible may still resolve the role some other way, e.g. from a collection),
-but the drill-down view's Task definition section won't be available for it.
+*~/.ansible/roles*, */usr/share/ansible/roles*, */etc/ansible/roles*). A
+role inside a collection is named *namespace.collection.role* and is looked
+up in *./collections*, then the collections path (*$ANSIBLE_COLLECTIONS_PATH*,
+*collections_path* in *ansible.cfg*, or the defaults *~/.ansible/collections*,
+*/usr/share/ansible/collections*). If it isn't found, a warning is printed up
+front — the run proceeds regardless (Ansible may still resolve the role some
+other way), but the drill-down view's Task definition section won't be available for it.
 
 Everything else — the live tree, filtering, the rerun dialog, the diff
 picker — works exactly as in *tangsible-run*(1).

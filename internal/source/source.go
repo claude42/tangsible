@@ -194,12 +194,8 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 
 	var worklist []roleRef
 	for _, f := range files {
-		for _, name := range indexFile(f, index, tagSet, nameSet, nil) {
-			worklist = append(worklist, roleRef{name: name})
-		}
-		for _, name := range includedRoleNames(f) {
-			worklist = append(worklist, roleRef{name: name})
-		}
+		worklist = append(worklist, indexFile(f, index, tagSet, nameSet, nil)...)
+		worklist = append(worklist, includedRoles(f)...)
 	}
 
 	// Roles referenced from a play's roles: but living outside the
@@ -210,7 +206,7 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	// ListTaskLocations deliberately doesn't do this (debug mode can only
 	// splice files in its shadow copy of the project tree).
 	//
-	// Roles named by include_role/import_role tasks (includedRoleNames) join
+	// Roles named by include_role/import_role tasks (includedRoles) join
 	// it too. A located role's meta/main.yml dependencies join the worklist - also
 	// those of roles inside the project tree, which may depend on outside
 	// ones. visited (by directory) stops dependency cycles.
@@ -224,30 +220,55 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 		if ref.parent != "" {
 			dirs = append(append([]string(nil), dirs...), ref.parent)
 		}
-		dir := rolepath.Find(ref.name, root, dirs)
+		dir, collection := lookupRole(ref, root, dirs)
 		if dir == "" || visited[dir] {
 			continue
 		}
 		visited[dir] = true
-		if !isUnder(dir, root) { // inside the project: the walk above covered it
+		inProject := isUnder(dir, root) // the walk above already indexed it
+		// A role from a collection resolves the unqualified names it
+		// uses against its own collection, too.
+		var own []string
+		if collection != "" {
+			own = []string{collection}
+		}
+		if !inProject || own != nil {
 			for _, f := range yamlFilesUnder(dir, "") {
-				indexFile(f, index, tagSet, nameSet, nil)
-				for _, name := range includedRoleNames(f) {
-					worklist = append(worklist, roleRef{name: name})
+				if !inProject {
+					indexFile(f, index, tagSet, nameSet, nil)
+				}
+				for _, r := range includedRoles(f) {
+					r.collections = append(r.collections, own...)
+					worklist = append(worklist, r)
 				}
 			}
 		}
 		for _, name := range roleDependencies(dir) {
-			worklist = append(worklist, roleRef{name: name, parent: filepath.Dir(dir)})
+			worklist = append(worklist, roleRef{name: name, parent: filepath.Dir(dir), collections: own})
 		}
 	}
 	return index, sortedSet(tagSet), sortedSet(nameSet)
 }
 
 // roleRef is one role awaiting lookup in BuildTaskSourceIndex: parent is the
-// directory of the role that depends on it, "" for one named in a play.
+// directory of the role that depends on it, "" for one named in a play;
+// collections is the collections: search list in effect where it was named.
 type roleRef struct {
 	name, parent string
+	collections  []string
+}
+
+// lookupRole resolves ref like ansible: collections first (rolepath.Lookup),
+// and for a plain role also the depending role's own parent directory, after
+// roles_path (dirs already includes it where it applies).
+func lookupRole(ref roleRef, root string, dirs []string) (dir, collection string) {
+	if dir, collection = rolepath.Lookup(ref.name, ref.collections, root); dir != "" {
+		return dir, collection
+	}
+	if ref.parent != "" {
+		return rolepath.Find(ref.name, root, dirs), ""
+	}
+	return "", ""
 }
 
 // roleDependencies returns the literal role names in the dependencies: list
@@ -279,16 +300,17 @@ func init() {
 	}
 }
 
-// includedRoleNames returns the literal role name of every include_role/
+// includedRoles returns the literal role name of every include_role/
 // import_role task in the YAML file path, in either spelling of the
 // keyword (bare or ansible.builtin./ansible.legacy.-prefixed) and either
 // argument form ("name: foo" mapping, or the free-form "name=foo
-// tasks_from=x" string). Found by walking the whole parsed tree rather than
+// tasks_from=x" string), each with the collections: list of the play or
+// task enclosing it. Found by walking the whole parsed tree rather than
 // just task-list positions, so tasks inside blocks, role task files and
 // handlers need no special casing; a stray key of that name elsewhere only
 // costs one failed lookup. A templated name can't be resolved statically
 // and is skipped, as is anything unparseable.
-func includedRoleNames(path string) []string {
+func includedRoles(path string) []roleRef {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -297,24 +319,43 @@ func includedRoleNames(path string) []string {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil
 	}
-	var names []string
-	var walk func(n *yaml.Node)
-	walk = func(n *yaml.Node) {
+	var refs []roleRef
+	var walk func(n *yaml.Node, collections []string)
+	walk = func(n *yaml.Node, collections []string) {
 		if n.Kind == yaml.MappingNode {
+			if c := collectionsList(n); c != nil {
+				collections = c
+			}
 			for i := 0; i+1 < len(n.Content); i += 2 {
 				if includeRoleActions[n.Content[i].Value] {
 					if name := includeRoleName(n.Content[i+1]); name != "" {
-						names = append(names, name)
+						refs = append(refs, roleRef{name: name, collections: collections})
 					}
 				}
 			}
 		}
 		for _, c := range n.Content {
-			walk(c)
+			walk(c, collections)
 		}
 	}
-	walk(&doc)
-	return names
+	walk(&doc, nil)
+	return refs
+}
+
+// collectionsList returns the literal entries of mapping's own
+// "collections:" list (a play or task keyword), nil if it has none.
+func collectionsList(mapping *yaml.Node) []string {
+	seq := mappingValue(mapping, "collections")
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return nil
+	}
+	var out []string
+	for _, c := range seq.Content {
+		if c.Kind == yaml.ScalarNode && strings.TrimSpace(c.Value) != "" {
+			out = append(out, strings.TrimSpace(c.Value))
+		}
+	}
+	return out
 }
 
 // includeRoleName extracts the role name from an include_role/import_role
@@ -580,7 +621,7 @@ func sortedSet(set map[string]bool) []string {
 // top-level shape that isn't a sequence (e.g. a vars file, which is a
 // mapping) simply indexes nothing from this file - never propagated as an
 // error.
-func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bool, locations *[]TaskLocation) (roleNames []string) {
+func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bool, locations *[]TaskLocation) (roles []roleRef) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -621,10 +662,12 @@ func indexFile(path string, index TaskSourceIndex, tagSet, nameSet map[string]bo
 			}
 			collectTags(play, tagSet)
 			collectRoleTags(play, tagSet)
-			roleNames = append(roleNames, collectRoleNames(play)...)
+			for _, name := range collectRoleNames(play) {
+				roles = append(roles, roleRef{name: name, collections: collectionsList(play)})
+			}
 			walkMappingForTaskLists(path, play, playTaskListKeys, lines, playEnd, index, tagSet, nameSet, locations)
 		}
-		return roleNames
+		return roles
 	}
 
 	indexTaskList(path, root, lines, totalLines+1, index, tagSet, nameSet, locations)

@@ -57,9 +57,11 @@ func WriteRoleStub(role string) (path string, err error) {
 }
 
 // RoleFound is a best-effort check for whether role's own directory is
-// discoverable the way ansible would find it: ./roles/<name> under the
-// current working directory first, then each roles_path entry
-// (rolepath.Dirs: $ANSIBLE_ROLES_PATH, ansible.cfg, or ansible's built-in
+// discoverable the way ansible would find it (rolepath.Lookup): a fully
+// qualified namespace.collection.role name in the collections path
+// (./collections, then COLLECTIONS_PATHS); anything else as ./roles/<name>
+// under the current working directory first, then each roles_path entry
+// ($ANSIBLE_ROLES_PATH, ansible.cfg, or ansible's built-in
 // ~/.ansible/roles, /usr/share/ansible/roles, /etc/ansible/roles) -
 // purely informational, used to warn the user up front rather than to
 // gate anything: per design-docs/Tangsible role.md's own "best-effort,
@@ -68,7 +70,8 @@ func WriteRoleStub(role string) (path string, err error) {
 // ./roles still gets its Task definition sections, because the source
 // index (source.BuildTaskSourceIndex) looks in the same places.
 func RoleFound(role string) bool {
-	return rolepath.Find(role, ".", rolepath.Dirs()) != ""
+	dir, _ := rolepath.Lookup(role, nil, ".")
+	return dir != ""
 }
 
 // StartRoleSession generates a fresh stub playbook for role and returns
@@ -88,7 +91,7 @@ func StartRoleSession(role string) (stubPath string, cleanup func()) {
 		os.Exit(1)
 	}
 	if !RoleFound(role) {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't find role %q in ./roles or the roles path - ansible-playbook will still try to resolve it, but the drill-down view's Task definition section won't be available for it\n", role)
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't find role %q in ./roles, the roles path or the collections path - ansible-playbook will still try to resolve it, but the drill-down view's Task definition section won't be available for it\n", role)
 	}
 	return path, func() { os.Remove(path) }
 }

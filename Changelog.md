@@ -4,6 +4,7 @@
 
 ### Added
 
+- `role`: roles inside collections (`namespace.collection.role`) are found, and their tasks get Task definition sections; so do roles used via a play's `collections:` list
 - Task definition tab: roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are found too, also outside the project tree
 - Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
 - `color_scheme = "auto"` (the new default) picks the dark or light colour set by asking the terminal for its background colour (OSC 11)
