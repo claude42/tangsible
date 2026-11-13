@@ -30,18 +30,21 @@ func TestFind(t *testing.T) {
 	mk(filepath.Join(ext, "both"))
 	mk(filepath.Join(base, "roles", "both"))
 	mk(filepath.Join(ext, "remote"))
+	mk(filepath.Join(base, "adjacent")) // base itself is the last resort
+	mk(filepath.Join(base, "remote"))   // ...behind roles_path
 	if err := os.WriteFile(filepath.Join(ext, "afile"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dirs := []string{ext}
 	cases := map[string]string{
-		"local":  filepath.Join(base, "roles", "local"),
-		"remote": filepath.Join(ext, "remote"),
-		"both":   filepath.Join(base, "roles", "both"), // ./roles wins
-		"afile":  "",
-		"nope":   "",
-		"../x":   "",
-		"":       "",
+		"local":    filepath.Join(base, "roles", "local"),
+		"remote":   filepath.Join(ext, "remote"),
+		"both":     filepath.Join(base, "roles", "both"), // ./roles wins
+		"adjacent": filepath.Join(base, "adjacent"),
+		"afile":    "",
+		"nope":     "",
+		"../x":     "",
+		"":         "",
 	}
 	for name, want := range cases {
 		if got := Find(name, base, dirs); got != want {

@@ -116,12 +116,14 @@ func parseDirsValue(value json.RawMessage) []string {
 
 // Find returns the directory of the role called name: <base>/roles/<name>
 // first (ansible's playbook-adjacent lookup; base is typically the cwd or
-// the playbook's directory), then each of dirs in order. "" if none exists.
+// the playbook's directory), then each of dirs in order, and last <base>/
+// <name> itself, ansible's final fallback. "" if none exists.
 func Find(name, base string, dirs []string) string {
 	if name == "" || strings.ContainsAny(name, `/\`) || name == "." || name == ".." {
 		return ""
 	}
 	candidates := append([]string{filepath.Join(base, "roles")}, dirs...)
+	candidates = append(candidates, base)
 	for _, d := range candidates {
 		p := filepath.Join(d, name)
 		if info, err := os.Stat(p); err == nil && info.IsDir() {

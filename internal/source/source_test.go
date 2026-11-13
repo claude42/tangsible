@@ -537,3 +537,70 @@ func TestBuildTaskSourceIndex_ExternalRole(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildTaskSourceIndex_RoleDependencies(t *testing.T) {
+	ext := t.TempDir()
+	defer rolepath.SetDirs([]string{ext})()
+
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task := func(name string) string { return "- name: " + name + "\n  debug: msg=hi\n" }
+
+	proj := t.TempDir()
+	pb := filepath.Join(proj, "site.yml")
+	write(pb, "- hosts: all\n  roles:\n    - local\n    - extroot\n")
+	// A project-local role depending on an external one (bare name and
+	// mapping forms), which depends on a sibling and, cyclically, on itself.
+	write(filepath.Join(proj, "roles", "local", "tasks", "main.yml"), task("local task"))
+	write(filepath.Join(proj, "roles", "local", "meta", "main.yml"),
+		"dependencies:\n  - extdep\n  - role: mapdep\n    vars: {a: 1}\n  - name: \"{{ templated }}\"\n")
+	write(filepath.Join(ext, "extdep", "tasks", "main.yml"), task("extdep task"))
+	write(filepath.Join(ext, "extdep", "meta", "main.yaml"), "dependencies: [extdep, chained]\n")
+	write(filepath.Join(ext, "chained", "tasks", "main.yml"), task("chained task"))
+	write(filepath.Join(ext, "mapdep", "tasks", "main.yml"), task("mapdep task"))
+	write(filepath.Join(ext, "extroot", "tasks", "main.yml"), task("extroot task"))
+	// Found only via the depending role's own parent directory.
+	write(filepath.Join(ext, "extroot", "meta", "main.yml"), "dependencies:\n  - sibling\n")
+	write(filepath.Join(ext, "sibling", "tasks", "main.yml"), task("sibling task"))
+	write(filepath.Join(ext, "unrelated", "tasks", "main.yml"), task("unrelated task"))
+
+	index, _, _ := BuildTaskSourceIndex(pb)
+	joined := ""
+	for _, src := range index {
+		joined += src + "\n"
+	}
+	for _, want := range []string{"local task", "extdep task", "chained task", "mapdep task", "extroot task", "sibling task"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("index lacks %q", want)
+		}
+	}
+	if strings.Contains(joined, "unrelated task") {
+		t.Error("index contains a task of a role nothing depends on")
+	}
+}
+
+func TestRoleDependencies_Malformed(t *testing.T) {
+	dir := t.TempDir()
+	if got := roleDependencies(dir); got != nil {
+		t.Errorf("no meta: got %v", got)
+	}
+	meta := filepath.Join(dir, "meta")
+	if err := os.MkdirAll(meta, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{"", "dependencies: notalist\n", ": : :\n\t-", "- just\n- a list\n", "galaxy_info: {}\n"} {
+		if err := os.WriteFile(filepath.Join(meta, "main.yml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := roleDependencies(dir); len(got) != 0 {
+			t.Errorf("%q: got %v, want none", content, got)
+		}
+	}
+}

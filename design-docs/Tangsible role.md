@@ -71,10 +71,13 @@ a `roles:` list (or the stub). Not yet covered:
     `ansible.builtin.include_role`, inside blocks and in role task files) and
     feed a worklist. A templated name (`name: "{{ app }}"`) can never be
     resolved by a static scan.
-  * **meta/main.yml dependencies.** Same effect for dependency roles. Read
-    `dependencies:` (bare names, or mappings with `role:`/`name:`) of every
-    located role - project-local ones too, since they may depend on external
-    roles - with a visited set against cycles. The easiest of the three.
+  * **meta/main.yml dependencies** - done. `source.BuildTaskSourceIndex`
+    runs a worklist: every located role (project-local ones too) has its
+    `dependencies:` read (bare names, or mappings with `role:`/`name:`;
+    templated names skipped), with a visited set against cycles. A
+    dependency is looked up like ansible does: also in the depending role's
+    own parent directory, after roles_path. include_role and collections
+    reuse this worklist.
   * **Roles inside collections.** `namespace.collection.role` (or a short
     name with the play's `collections:` keyword) lives under
     `<collections_path>/ansible_collections/<ns>/<coll>/roles/<role>/`.
@@ -111,12 +114,10 @@ a `roles:` list (or the stub). Not yet covered:
     list. Otherwise: `<playbook dir>/roles`, then roles_path, then (only for
     dependency roles) the depending role's own `roles/` directory, then the
     playbook directory itself (`<playbook dir>/<name>`), and finally the name
-    taken as a path. `rolepath.Find` matches the first two steps and omits
-    the rest. The stub lives in the cwd, so the playbook-directory step
-    would make `./<name>` resolve for ansible while tangsible warns "couldn't
-    find role" - a harmless mismatch, but `Find` could add it. The
-    dependency step belongs to the meta/main.yml worklist, where each
-    role's own directory is that base.
+    taken as a path. `rolepath.Find` covers steps 2, 3 and 5 (the
+    playbook-directory step, so `./<name>` resolves for tangsible too); the
+    depending role's directory (step 4) is added by the dependency worklist;
+    the name-as-a-path step is deliberately not done (see below).
 
 Deliberately not done: `tangsible role` keeps taking exactly one bare role
 name. No path arguments, and no special handling for running from inside the
@@ -124,7 +125,7 @@ role's own directory.
 
 ### Suggested order
 
-1. meta/main.yml dependencies (easiest).
+1. ~~meta/main.yml dependencies~~ (done).
 2. include_role / import_role, sharing one worklist with it.
 3. Collections: FQCN splitting, COLLECTIONS_PATHS plus `./collections`, the
    `collections:` keyword.

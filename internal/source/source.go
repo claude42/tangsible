@@ -192,10 +192,10 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	root := filepath.Dir(abs)
 	files := append([]string{abs}, yamlFilesUnder(root, abs)...)
 
-	roleNames := map[string]bool{}
+	var worklist []roleRef
 	for _, f := range files {
 		for _, name := range indexFile(f, index, tagSet, nameSet, nil) {
-			roleNames[name] = true
+			worklist = append(worklist, roleRef{name: name})
 		}
 	}
 
@@ -206,16 +206,59 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	// roles are walked, never a whole system directory. Display only:
 	// ListTaskLocations deliberately doesn't do this (debug mode can only
 	// splice files in its shadow copy of the project tree).
-	for name := range roleNames {
-		dir := rolepath.Find(name, root, rolepath.Dirs())
-		if dir == "" || isUnder(dir, root) {
-			continue // not found, or already covered by the walk above
+	//
+	// A located role's meta/main.yml dependencies join the worklist - also
+	// those of roles inside the project tree, which may depend on outside
+	// ones. visited (by directory) stops dependency cycles.
+	visited := map[string]bool{}
+	for len(worklist) > 0 {
+		ref := worklist[0]
+		worklist = worklist[1:]
+		// Ansible resolves a dependency relative to the depending role's
+		// own parent directory too (after roles_path).
+		dirs := rolepath.Dirs()
+		if ref.parent != "" {
+			dirs = append(append([]string(nil), dirs...), ref.parent)
 		}
-		for _, f := range yamlFilesUnder(dir, "") {
-			indexFile(f, index, tagSet, nameSet, nil)
+		dir := rolepath.Find(ref.name, root, dirs)
+		if dir == "" || visited[dir] {
+			continue
+		}
+		visited[dir] = true
+		if !isUnder(dir, root) { // inside the project: the walk above covered it
+			for _, f := range yamlFilesUnder(dir, "") {
+				indexFile(f, index, tagSet, nameSet, nil)
+			}
+		}
+		for _, name := range roleDependencies(dir) {
+			worklist = append(worklist, roleRef{name: name, parent: filepath.Dir(dir)})
 		}
 	}
 	return index, sortedSet(tagSet), sortedSet(nameSet)
+}
+
+// roleRef is one role awaiting lookup in BuildTaskSourceIndex: parent is the
+// directory of the role that depends on it, "" for one named in a play.
+type roleRef struct {
+	name, parent string
+}
+
+// roleDependencies returns the literal role names in the dependencies: list
+// of roleDir's meta/main.yml (or main.yaml); nil if there is none or it
+// can't be parsed.
+func roleDependencies(roleDir string) []string {
+	for _, f := range []string{"main.yml", "main.yaml"} {
+		data, err := os.ReadFile(filepath.Join(roleDir, "meta", f))
+		if err != nil {
+			continue
+		}
+		var doc yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+			return nil
+		}
+		return roleNamesIn(mappingValue(doc.Content[0], "dependencies"))
+	}
+	return nil
 }
 
 // yamlFilesUnder returns every .yml/.yaml file under root except skip
@@ -571,7 +614,12 @@ func collectRoleTags(play *yaml.Node, tagSet map[string]bool) {
 // "roles:" sequence: the bare "- somerole" form, or a mapping's "role:"
 // (or older "name:") value. A templated or non-scalar value is skipped.
 func collectRoleNames(play *yaml.Node) []string {
-	roles := mappingValue(play, "roles")
+	return roleNamesIn(mappingValue(play, "roles"))
+}
+
+// roleNamesIn is collectRoleNames' body for any role list - also a role's
+// meta dependencies, which have the same shapes.
+func roleNamesIn(roles *yaml.Node) []string {
 	if roles == nil || roles.Kind != yaml.SequenceNode {
 		return nil
 	}
