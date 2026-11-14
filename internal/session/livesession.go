@@ -468,6 +468,10 @@ type liveSession struct {
 	// exactly one generation (no rerun - requestRerun is nil for
 	// "debug", main.go), so there's nothing to clear it for.
 	debugTaskVarsCache map[debugVarsKey]json.RawMessage
+	// debugVaultMaskCache holds, per the same key, which parts of that
+	// snapshot are vault-protected (design-docs/Data Tagging.md) - applied
+	// by maskSnapshot wherever the snapshot must not be shown in clear.
+	debugVaultMaskCache map[debugVarsKey]vaultMask
 }
 
 // debugVarsKey identifies one captured task_vars snapshot - see

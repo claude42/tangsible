@@ -113,7 +113,10 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 	// the session finished before this task was reached) means nothing
 	// to kick off at all; the tab just stays absent for it, same as any
 	// other task with nothing to show.
-	snapshot, haveSnapshot := s.debugTaskVarsCache[debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}]
+	varsKey := debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}
+	snapshot, haveSnapshot := s.debugTaskVarsCache[varsKey]
+	// Vaulted values never reach the render (design-docs/Data Tagging.md).
+	snapshot = maskSnapshot(snapshot, s.debugVaultMaskCache[varsKey])
 	shouldResolve := !cached && s.debugMode && haveSnapshot
 	if shouldResolve {
 		resolved = uikit.ResolvedRender{Pending: true}

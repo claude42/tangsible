@@ -95,6 +95,90 @@ def _fallback(value):
     return str(value)
 
 
+_VAULT_MAGIC = b"$ANSIBLE_VAULT"
+_MAX_DEPTH = 24
+
+
+def _vault_file(path, cache):
+    """Whether path is a wholly vault-encrypted file (cached per path)."""
+    if path not in cache:
+        try:
+            with open(path, "rb") as handle:
+                cache[path] = handle.read(len(_VAULT_MAGIC)) == _VAULT_MAGIC
+        except (OSError, TypeError, ValueError):
+            cache[path] = False
+    return cache[path]
+
+
+def _strings(node, out, depth=0):
+    """Collect every string leaf below node."""
+    if isinstance(node, str):
+        out.append(str(node))
+    elif depth < _MAX_DEPTH and isinstance(node, dict):
+        for value in node.values():
+            _strings(value, out, depth + 1)
+    elif depth < _MAX_DEPTH and isinstance(node, (list, tuple)):
+        for value in node:
+            _strings(value, out, depth + 1)
+
+
+def tangsible_snapshot(task_vars):
+    """Describe task_vars plus which of its values come from a vault.
+
+    Used by tangsible's debug mode through the debugger REPL. Returns
+    ``{"vars": task_vars, "vaulted": [path, ...], "secrets": [str, ...]}``:
+    ``vaulted`` holds key/index paths of values that are vault-protected as a
+    whole (an inline ``!vault`` value, or anything loaded from a wholly
+    encrypted file), ``secrets`` the decrypted strings, so a caller can also
+    find them inside derived values. Detection relies on ansible internals; if
+    those are unavailable (older ansible) both lists stay empty.
+    """
+    try:
+        from ansible.parsing.vault import EncryptedString
+    except ImportError:
+        EncryptedString = None
+    try:
+        from ansible._internal._datatag._tags import Origin, VaultedValue
+    except ImportError:
+        Origin = VaultedValue = None
+
+    vaulted, secrets, files, seen = [], [], {}, set()
+
+    def visit(node, path, depth):
+        try:
+            if EncryptedString is not None and isinstance(node, EncryptedString) or (
+                VaultedValue is not None and VaultedValue.is_tagged_on(node)
+            ):
+                vaulted.append(path)
+                try:
+                    secrets.append(str(node))
+                except Exception:  # no vault secret available
+                    pass
+                return
+            origin = Origin.get_tag(node) if Origin is not None else None
+            if origin is not None and _vault_file(origin.path, files):
+                vaulted.append(path)
+                _strings(node, secrets)
+                return
+        except Exception:
+            return
+        if depth >= _MAX_DEPTH or id(node) in seen:
+            return
+        if isinstance(node, dict):
+            seen.add(id(node))
+            for key, value in node.items():
+                visit(value, path + [str(key)], depth + 1)
+        elif isinstance(node, (list, tuple)):
+            seen.add(id(node))
+            for index, value in enumerate(node):
+                visit(value, path + [index], depth + 1)
+
+    if isinstance(task_vars, dict):
+        for key, value in task_vars.items():
+            visit(value, [str(key)], 0)
+    return {"vars": task_vars, "vaulted": vaulted, "secrets": sorted(set(secrets))}
+
+
 # Strategies that advance every host through a task together. Anything else
 # (free, host_pinned, custom ones) is reported per host.
 _LOCKSTEP_STRATEGIES = frozenset({"linear", "debug"})

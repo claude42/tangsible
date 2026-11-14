@@ -314,6 +314,11 @@ func (s *liveSession) watchCandidates() []string {
 	if !ok || len(snapshot) == 0 {
 		return nil
 	}
+	// Vaulted values show as a placeholder in the drop-down; adding the
+	// expression to the panel still evaluates against the real snapshot.
+	if task, host, ok := s.watchCurrentTaskHost(); ok {
+		snapshot = maskSnapshot(snapshot, s.debugVaultMaskCache[debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}])
+	}
 	var root map[string]json.RawMessage
 	if json.Unmarshal(snapshot, &root) != nil {
 		return nil

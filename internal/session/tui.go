@@ -576,6 +576,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// else in this file - it needs no locking of its own.
 	s.resolveCache = map[resolveKey]uikit.ResolvedRender{}
 	s.debugTaskVarsCache = map[debugVarsKey]json.RawMessage{}
+	s.debugVaultMaskCache = map[debugVarsKey]vaultMask{}
 
 	// s.docsCache holds every module's own ResolvedRender for the "Docs" tab
 	// (ansibledoc.go's ansibledoc.FetchAnsibleDoc), keyed by the task's own "action"

@@ -17,6 +17,7 @@ package session
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
@@ -449,31 +450,53 @@ func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause, 
 		if !s.debugAllVars && !willSurface {
 			return
 		}
-		raw, ok := s.debugCaptureSnapshot(sess)
+		raw, mask, ok := s.debugCaptureSnapshot(sess)
 		if !ok {
 			return
 		}
 		s.app.QueueUpdateDraw(func() {
-			s.debugTaskVarsCache[debugVarsKey{pause.Task, pause.Host}] = raw
+			key := debugVarsKey{pause.Task, pause.Host}
+			s.debugTaskVarsCache[key] = raw
+			s.debugVaultMaskCache[key] = mask
 		})
 	}
 }
 
-// debugCaptureSnapshot runs the three-step task_vars capture sequence
-// (Query + mergeRegisteredResult + debugUnfakeShadowPaths) - factored out
-// of debugOnPause so debugSetWatch's own post-assignment refresh
-// (design-docs/DebugMode.md's "Stage 5") can reuse it exactly, instead of
-// duplicating it. ok=false on any query failure, the same silent-fallback
-// contract debugOnPause's own inline version already had.
-func (s *liveSession) debugCaptureSnapshot(sess *debugrun.Session) (json.RawMessage, bool) {
-	raw, err := sess.Query("task_vars")
+// debugCaptureSnapshot runs the task_vars capture sequence (Query of
+// the callback plugin's tangsible_snapshot + mergeRegisteredResult +
+// debugUnfakeShadowPaths) - factored out of debugOnPause so
+// debugSetWatch's own post-assignment refresh (design-docs/DebugMode.md's
+// "Stage 5") can reuse it exactly, instead of duplicating it. The raw
+// snapshot keeps the real values (the watch panel shows them); the mask
+// says what to hide everywhere else (design-docs/Data Tagging.md). If the
+// helper can't be queried, it falls back to a bare task_vars with an empty
+// mask. ok=false on any query failure, the same silent-fallback contract
+// debugOnPause's own inline version already had.
+func (s *liveSession) debugCaptureSnapshot(sess *debugrun.Session) (json.RawMessage, vaultMask, bool) {
+	var mask vaultMask
+	raw, err := sess.Query(debugSnapshotExpr)
+	if err == nil {
+		var vars json.RawMessage
+		var parsed bool
+		if vars, mask, parsed = parseSnapshotQuery(raw); parsed {
+			raw = vars
+		} else {
+			err = errNoSnapshotHelper
+		}
+	}
 	if err != nil {
-		return nil, false
+		mask = vaultMask{}
+		raw, err = sess.Query("task_vars")
+		if err != nil {
+			return nil, vaultMask{}, false
+		}
 	}
 	raw = mergeRegisteredResult(raw, sess)
 	raw = s.debugUnfakeShadowPaths(raw)
-	return raw, true
+	return raw, mask, true
 }
+
+var errNoSnapshotHelper = errors.New("tangsible_snapshot reply unusable")
 
 // debugSetWatch performs design-docs/DebugMode.md's "Stage 5" set action
 // for the watch panel's "expr = value" form: target/value have already
@@ -504,9 +527,10 @@ func (s *liveSession) debugSetWatch(expr, target, value string) bool {
 	go func() {
 		setErr := sess.Set(target, value)
 		var raw json.RawMessage
+		var mask vaultMask
 		var ok bool
 		if setErr == nil {
-			raw, ok = s.debugCaptureSnapshot(sess)
+			raw, mask, ok = s.debugCaptureSnapshot(sess)
 		}
 		s.app.QueueUpdateDraw(func() {
 			s.debugDriving = false
@@ -518,6 +542,7 @@ func (s *liveSession) debugSetWatch(expr, target, value string) bool {
 			}
 			if ok {
 				s.debugTaskVarsCache[debugVarsKey{label, host}] = raw
+				s.debugVaultMaskCache[debugVarsKey{label, host}] = mask
 			}
 			s.watch.markJustSet(expr)
 			s.rebuild()

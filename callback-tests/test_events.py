@@ -863,5 +863,60 @@ class ParityTests(Base):
                              re.sub(r'"msg": "[^"]*"', "", b))
 
 
+class SnapshotHelperTests(unittest.TestCase):
+    """tangsible_snapshot, queried through the real debugger REPL."""
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def run_query(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            testdata = os.path.join(self.ROOT, "testdata")
+            shutil.copy(os.path.join(testdata, "vault.yml"), tmp)
+            password = os.path.join(testdata, "vault-password.txt")
+            shutil.copy(password, tmp)
+            whole = os.path.join(tmp, "whole.yml")
+            with open(whole, "w") as handle:
+                handle.write("whole_secret: hunter2\n")
+            subprocess.run(
+                ["ansible-vault", "encrypt", whole, "--vault-password-file", password],
+                check=True, capture_output=True,
+            )
+            with open(os.path.join(tmp, "p.yml"), "w") as handle:
+                handle.write(textwrap.dedent("""\
+                    - hosts: localhost
+                      gather_facts: false
+                      vars_files: [vault.yml, whole.yml]
+                      vars: {plain: hello}
+                      tasks:
+                        - command: "true"
+                          debugger: always
+                    """))
+            expr = (
+                "__import__('sys').modules['ansible.plugins.callback."
+                "tangsible_events'].tangsible_snapshot(task_vars)"
+            )
+            env = dict(os.environ, ANSIBLE_CALLBACK_PLUGINS=os.path.join(self.ROOT, "callback"))
+            proc = subprocess.run(
+                ["ansible-playbook", "p.yml", "-i", "localhost,", "-c", "local",
+                 "--vault-password-file", "vault-password.txt"],
+                input="p print(__import__('json').dumps(%s, default=str)) or 0\nq\n" % expr,
+                capture_output=True, text=True, cwd=tmp, env=env, timeout=120,
+            )
+        for chunk in proc.stdout.split("(debug)> "):
+            if chunk.startswith('{"vars"'):
+                return json.loads(chunk.splitlines()[0])
+        self.fail("no snapshot in output:\n" + proc.stdout + proc.stderr)
+
+    def test_vaulted_values_are_described(self):
+        reply = self.run_query()
+        paths = [tuple(path) for path in reply["vaulted"]]
+        self.assertIn(("db_password",), paths)  # inline !vault
+        self.assertIn(("whole_secret",), paths)  # wholly encrypted file
+        self.assertNotIn(("plain",), paths)
+        self.assertIn("hunter2", reply["secrets"])
+        self.assertIn("a top secret db password", reply["secrets"])
+        self.assertIn("plain", reply["vars"])
+
+
 if __name__ == "__main__":
     unittest.main()
