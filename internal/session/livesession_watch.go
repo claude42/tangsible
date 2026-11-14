@@ -291,6 +291,9 @@ func (s *liveSession) watchCurrentTaskHost() (task *playbook.TaskNode, host stri
 	return task, host, true
 }
 
+// originSetInDebugger labels a variable the user assigned in the watch panel.
+const originSetInDebugger = "set in debugger"
+
 // watchOriginLabel is where expr's root variable comes from, for the watch
 // panel - "" when unknown. A variable assigned in the panel says so.
 func (s *liveSession) watchOriginLabel(expr string) string {

@@ -68,6 +68,7 @@ notes:
 import datetime
 import json
 import os
+import re
 from collections.abc import Mapping, Set
 
 from ansible.plugins.callback import CallbackBase
@@ -154,6 +155,11 @@ def _origin_of(name, value, facts, Origin):
         return info
     if origin is not None and origin.description:
         return {"desc": str(origin.description)}
+    return _kind_of(name, value, facts)
+
+
+def _kind_of(name, value, facts):
+    """``{"kind": ...}`` for a variable recognised by name/shape, else None."""
     if isinstance(facts, dict) and (
         name == "ansible_facts"
         or name in facts
@@ -238,6 +244,76 @@ def tangsible_snapshot(task_vars):
         "vaulted": vaulted,
         "secrets": sorted(set(secrets)),
         "origins": origins,
+    }
+
+
+_PLACEHOLDER = "<vaulted>"
+_MIN_SECRET_LEN = 4
+
+
+def _mask(node, secret_pattern):
+    """Replace every occurrence of a secret inside string leaves of node."""
+    if secret_pattern is None:
+        return node
+    if isinstance(node, str):
+        return secret_pattern.sub(_PLACEHOLDER, node)
+    if isinstance(node, dict):
+        return {key: _mask(value, secret_pattern) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_mask(value, secret_pattern) for value in node]
+    return node
+
+
+def _set_at_path(node, path):
+    """Put the placeholder at path inside node (a plain dict/list tree)."""
+    for step in path[:-1]:
+        try:
+            node = node[step]
+        except (KeyError, IndexError, TypeError):
+            return
+    try:
+        node[path[-1]] = _PLACEHOLDER
+    except (KeyError, IndexError, TypeError):
+        pass
+
+
+def tangsible_variables(task_vars, stub_path=None):
+    """The variables defined for a host, with origins, vault values masked.
+
+    Used by the tangsible_vars action plugin for the host verb's Variables
+    tab. Returns ``{"variables": {name: value}, "origins": {name: {...}}}``
+    (origins as in ``tangsible_snapshot``). Only variables that come from a
+    file (inventory, group_vars, host_vars, vars files) or ``-e`` are kept:
+    gathered facts, ansible's own variables and config defaults carry neither,
+    and anything the stub playbook at ``stub_path`` itself introduced is
+    dropped. Vault-protected values, and any other occurrence of their text,
+    are replaced by ``<vaulted>`` here, so a secret never leaves this process.
+    """
+    snap = tangsible_snapshot(task_vars)
+    origins = snap["origins"]
+    facts = task_vars.get("ansible_facts") if isinstance(task_vars, dict) else None
+
+    def wanted(name, value):
+        info = origins.get(str(name))
+        if not info or (_kind_of(str(name), value, facts) or {}).get("kind") == "fact":
+            return False
+        if "path" in info:
+            return info["path"] != stub_path
+        return "'-e'" in info.get("desc", "")
+
+    kept = {name: value for name, value in snap["vars"].items() if wanted(name, value)}
+    plain = json.loads(json.dumps(kept, default=str))
+    for path in snap["vaulted"]:
+        if path and path[0] in plain:
+            _set_at_path(plain, path)
+    parts = [re.escape(s) for s in snap["secrets"] if len(s) >= _MIN_SECRET_LEN]
+    pattern = None
+    if parts:
+        parts.sort(key=len, reverse=True)
+        pattern = re.compile("|".join(parts), re.IGNORECASE)
+    return {
+        "variables": _mask(plain, pattern),
+        "origins": {name: info for name, info in origins.items() if name in plain},
     }
 
 

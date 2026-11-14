@@ -109,7 +109,7 @@ normally require writing temporary playbooks.
 - **Set breakpoints and step through a playbook**, inspecting variables at each pause, with `tangsible debug <playbook>`.
 - **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
 - **Easily edit individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
-- A **host-centric view** of all relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, groups, plays, host_vars
+- A **host-centric view** of all relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, variables (with where they are defined), groups, plays
 - A **tree view of the whole inventory** with `tangsible inventory` &ndash; groups as collapsible nodes, hosts as leaves, similar to `ansible-inventory --graph`
 
 ## Requirements
@@ -345,7 +345,7 @@ Provides in-depth information about a particular:
 - FQDN, IP addresses, OS, architecture, etc.
 - All groups a host belongs to (directly or indirectly) - i.e. a host-centric view compared to the group-centric view of inventory.yml
 - All plays that will be executed for that host
-- host_vars
+- all variables defined for the host, with where each is defined
 - all collected facts
 
 Browse through all hosts with

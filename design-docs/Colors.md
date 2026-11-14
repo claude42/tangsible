@@ -47,7 +47,7 @@ ColorConfig.md has the full mechanism). Merged so far:
   "a section heading" wanted independently overridable config keys - see
   the Quick reference table below for the current state.
 - `uikit.AnnotationColor` (source location, fact-cache note,
-  search-dialog hint) stays its own constant, deliberately not folded
+  search-dialog hint, comments in YAML tabs) stays its own constant, deliberately not folded
   into `NothingReportedColor` even though the default value is identical
   - an annotation is present-but-secondary, not a "nothing yet"
     placeholder.
@@ -196,7 +196,7 @@ of them.
 | Unreachable outcome | maroon | `uikit.OutcomeUnreachableColor` | Yes |
 | Host hasn't reported for this task yet | gray | `uikit.NothingReportedColor` | Yes |
 | Zero-count de-emphasis (recap / Morehosts.md summary string) | gray | `uikit.NothingReportedColor` | Yes |
-| Supplementary annotation (source location, fact-cache note, search-dialog hint) | gray | `uikit.AnnotationColor` | Yes |
+| Supplementary annotation (source location, fact-cache note, search-dialog hint, YAML comments) | gray | `uikit.AnnotationColor` | Yes |
 | Task row title | silver | `uikit.TaskTitleColor` | Yes |
 | Play row title | white | `uikit.PlayTitleColor` | Yes |
 | Plain "just text" content: `host`/`hosts` list hostnames, revisit list timestamp/command-line, recap's per-host hostname+duration prefix; plus every text that would otherwise be tview's white - tab/view bodies (drill-down, diff, host tabs, the `o` view), untagged tree rows (error output, recap summary sentence), dialog titles/labels/plain text, help dialog descriptions | silver | `uikit.StandardTextColor` | Yes |

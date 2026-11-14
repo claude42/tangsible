@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Implements the "host" Verb (design-docs/HostVerb.md): a standalone,
-// six-tab program showing everything Tangsible can determine about one
+// five-tab program showing everything Tangsible can determine about one
 // host - live gathered facts, inventory group membership, which plays
 // would run for it, its own host_vars files, and the raw
 // "ansible-inventory --host" dump - entirely separate from the
@@ -32,6 +32,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/inventory"
+	"code.aw.net/claude/tangsible/internal/origin"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
@@ -636,59 +638,6 @@ func RunAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
 	return out, nil
 }
 
-// FetchHostEverythingKnownRaw is design-docs/HostVerb.md's own fifth tab -
-// runAnsibleInventoryHost's own output, trimmed but not yet rendered
-// (BuildHostDetailPrimitive handles that, via uikit.HighlightJSONKeys,
-// both for this raw form and again for mergeFactsIntoEverythingKnown's
-// own merged result - see that function's own doc comment for why this
-// needed splitting out of what used to be one single
-// fetchHostEverythingKnown).
-// That tool's default output is already pretty-printed JSON - confirmed
-// empirically, no reformatting needed for this raw form. So this tab's
-// own base content is: always declared inventory data, plus whichever
-// gathered facts happen to be sitting in the fact cache already, if any -
-// not fetched live either way, but not guaranteed static either (see
-// runAnsibleInventoryHost's own doc comment).
-func FetchHostEverythingKnownRaw(hostname string, rest []string) ([]byte, error) {
-	out, err := RunAnsibleInventoryHost(hostname, rest)
-	if err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(out, "\n"), nil
-}
-
-// mergeFactsIntoEverythingKnown overlays facts (Summary's own decoded
-// ansible_facts, from FetchHostFacts) onto raw's own JSON object, facts
-// winning on any key collision - design-docs/HostVerb.md's own "Everything
-// known doesn't see what Summary gathered" finding: the two tabs' own
-// independent fetches otherwise race, with Everything Known's quick,
-// cache-only ansible-inventory --host read finishing well before
-// Summary's live gather (if it needed one) ever does, so within a single
-// view-open Everything Known could show no facts at all even while
-// Summary, moments later, shows real ones. facts is the freshest,
-// most-authoritative data available regardless of that race (a real live
-// gather this exact session, or a confirmed-fresh cache hit) - merging it
-// in directly means Everything Known no longer depends on a second,
-// independently-timed cache read to ever show what this session itself
-// already found. Re-marshaled with json.MarshalIndent, matching
-// ansible-inventory's own default 4-space indent - key order ends up
-// alphabetical (encoding/json's own map-marshaling behavior), not
-// ansible-inventory's original order, an accepted cosmetic difference for
-// what was already just a raw data dump.
-func mergeFactsIntoEverythingKnown(raw []byte, facts map[string]interface{}) ([]byte, error) {
-	var merged map[string]interface{}
-	if err := json.Unmarshal(raw, &merged); err != nil {
-		return nil, err
-	}
-	if merged == nil {
-		merged = map[string]interface{}{}
-	}
-	for k, v := range facts {
-		merged[k] = v
-	}
-	return json.MarshalIndent(merged, "", "    ")
-}
-
 // hostSectionHeading renders a host.go-local section header - the same
 // heading-plus-"="-underline shape as uikit.SectionLabel, but without
 // that helper's own deliberate color-coding (its own doc comment: Task/
@@ -888,6 +837,108 @@ func RenderHostFacts(prefix, note string, facts map[string]interface{}) string {
 	return prefix + uikit.HighlightYAMLKeys(buf.String())
 }
 
+// HostVariablesStubYAML is the stub behind the Variables tab: one task that
+// runs tangsible's own action plugin (callback/action/tangsible_vars.py) for
+// the host, on the control node - it never connects to the host, so an
+// unreachable one works too.
+const HostVariablesStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: variables\n      tangsible_vars:\n"
+
+// variablesStub writes HostVariablesStubYAML once per process and reuses it,
+// the same "one stable scratch file for the whole session" convention as the
+// other stubs.
+var variablesStub struct {
+	once sync.Once
+	path string
+	err  error
+}
+
+func variablesStubPath() (string, error) {
+	variablesStub.once.Do(func() {
+		variablesStub.path, variablesStub.err = writeHostStub(HostVariablesStubYAML, "tangsible-host-variables-*.yml")
+	})
+	return variablesStub.path, variablesStub.err
+}
+
+// FetchHostVariables runs the Variables stub for hostname and renders the
+// variables it reports (RenderHostVariables).
+func FetchHostVariables(hostname string, rest []string) (string, error) {
+	stub, err := variablesStubPath()
+	if err != nil {
+		return "", err
+	}
+	env, err := runner.ActionPluginEnv()
+	if err != nil {
+		return "", err
+	}
+	raw, err := runHostStub(stub, hostname, rest, env)
+	if err != nil {
+		return "", err
+	}
+	return RenderHostVariables(raw)
+}
+
+// RenderHostVariables renders the action plugin's result for the Variables
+// tab: the host's inventory-level variables as YAML, sorted by name, each
+// followed by a comment saying where its winning value was defined
+// (project-relative file:line, or "-e"). Vaulted values arrive already
+// masked as <vaulted>.
+func RenderHostVariables(raw json.RawMessage) (string, error) {
+	var res struct {
+		Failed      bool   `json:"failed"`
+		Unreachable bool   `json:"unreachable"`
+		Msg         string `json:"msg"`
+		Vars        *struct {
+			Variables json.RawMessage          `json:"variables"`
+			Origins   map[string]origin.Origin `json:"origins"`
+		} `json:"tangsible_variables"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return "", err
+	}
+	if res.Failed || res.Unreachable || res.Vars == nil {
+		msg := res.Msg
+		if msg == "" {
+			msg = "the variables could not be determined"
+		}
+		return "", fmt.Errorf("%s", msg)
+	}
+	dec := json.NewDecoder(bytes.NewReader(res.Vars.Variables))
+	dec.UseNumber()
+	var vars map[string]interface{}
+	if err := dec.Decode(&vars); err != nil {
+		return "", err
+	}
+	note := "[" + uikit.AnnotationColor + "]Inventory-level variables; facts are on the Facts tab[-]\n\n"
+	if len(vars) == 0 {
+		return note + "No variables are defined for this host.\n", nil
+	}
+	sorted, err := json.Marshal(vars) // sorts every level's keys
+	if err != nil {
+		return "", err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(sorted, &doc); err != nil || len(doc.Content) == 0 {
+		return "", fmt.Errorf("could not render the variables")
+	}
+	root := doc.Content[0]
+	clearYAMLStyle(root)
+	base, _ := os.Getwd()
+	labels := origin.Labels(res.Vars.Origins, "", "", base)
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if label := labels[root.Content[i].Value]; label != "" {
+			root.Content[i].LineComment = label
+		}
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return "", err
+	}
+	_ = enc.Close()
+	return note + uikit.HighlightYAMLKeys(buf.String()), nil
+}
+
 // clearYAMLStyle drops the flow/quoted styles a node parsed from JSON
 // carries, so the encoder falls back to block style and quotes only where a
 // string needs it.
@@ -898,75 +949,18 @@ func clearYAMLStyle(n *yaml.Node) {
 	}
 }
 
-// FetchHostFacts first checks whether a fresh fact-cache entry already
-// covers this host (runAnsibleInventoryHost, gated on factCacheCanaryKey)
-// and uses that directly, with no connection to the host at all, when it
-// does - restoring the original design intent ("if fact caching is
-// activated, retrieve from there, otherwise retrieve from host") that
-// got lost when hostSummaryStubYAML's own fix (see its doc comment)
-// switched to an explicit `setup:` task that always connects: that fix
-// was necessary for correctness (the play-level `gather_facts: true`
-// shorthand could silently skip with zero jsonl output at all under
-// `gathering = smart`), but it also meant paying for a live connection
-// on every view, even when a perfectly fresh cache already existed.
-// Checking the cache first, explicitly, in application code rather than
-// leaning on ansible's own smart-gathering skip, gets the speed back
-// without reintroducing the silent-failure bug: a cache hit here is a
-// real, parsed, guaranteed-fresh result (runAnsibleInventoryHost's own
-// doc comment - confirmed empirically that ansible-inventory --host
-// stops showing a host's cached facts once fact_caching_timeout expires),
-// never a guess.
-//
-// Any problem with the cache-first check itself (the command fails, its
-// output isn't valid JSON, or the canary key just isn't there) falls
-// straight through to the live path below without comment - all three
-// are ordinary, expected cases (no fact_caching configured at all is the
-// common one), not worth surfacing as their own error when the live path
-// is about to attempt the exact same thing anyway and will report its
-// own error if that fails too.
-//
-// skipLiveGather (design-docs/HostVerb.md's own "New ideas": a host the
-// hosts list's own ping dot already found unreachable shouldn't pay for a
-// second, doomed connection attempt just to open its Summary tab) only
-// ever short-circuits the live path below, never the cache check above a
-// stale-but-real cached fact is still worth showing even for a host
-// that's down right now.
-//
-// Falling through to the live path: stubPath runs synchronously, narrowed
-// to hostname via --limit, and this extracts that host's own
-// ansible_facts from the resulting jsonl stream - the same
-// scan-for-one-host's-own-event pattern renderTemplate (template.go)
-// already uses. err is non-nil only when nothing usable could be
-// determined at all (a bad inventory/host); an unreachable/failed host is
-// reported as ordinary displayable text instead, not err, since that's
-// expected, common content for this tab, not a tool failure.
-func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather bool) (hostFactsResult, error) {
-	if out, err := RunAnsibleInventoryHost(hostname, rest); err == nil {
-		var cached map[string]interface{}
-		if json.Unmarshal(out, &cached) == nil {
-			if _, ok := cached[FactCacheCanaryKey]; ok {
-				return hostFactsResult{
-					prefix:          "[" + uikit.AnnotationColor + "](from fact cache)[-]\n\n",
-					characteristics: formatCharacteristics(hostname, cached),
-					facts:           cached,
-				}, nil
-			}
-		}
-	}
-
-	if skipLiveGather {
-		return hostFactsResult{
-			characteristics: "[" + uikit.OutcomeUnreachableColor + "]Host unavailable.[-]\n",
-		}, nil
-	}
-
+// runHostStub runs stubPath narrowed to hostname (plus the user's own
+// passthrough args, extraEnv added to the environment) and returns that
+// host's own result from the event stream - the result of its last
+// ok/failed/unreachable task. The error explains why there was none.
+func runHostStub(stubPath, hostname string, rest []string, extraEnv []string) (json.RawMessage, error) {
 	pluginEnv, err := runner.CallbackPluginEnv()
 	if err != nil {
-		return hostFactsResult{}, err
+		return nil, err
 	}
 	args := append([]string{stubPath, "--limit", hostname}, rest...)
 	cmd := exec.Command("ansible-playbook", args...)
-	cmd.Env = append(os.Environ(), pluginEnv...)
+	cmd.Env = append(append(os.Environ(), pluginEnv...), extraEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()
@@ -1031,9 +1025,78 @@ func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather boo
 			}
 			msg = fmt.Sprintf("no result reported for host %q - check that it resolves in the inventory (%s)", hostname, detail)
 		}
-		return hostFactsResult{}, fmt.Errorf("%s", msg)
+		return nil, fmt.Errorf("%s", msg)
 	}
 
+	return raw, nil
+}
+
+// FetchHostFacts first checks whether a fresh fact-cache entry already
+// covers this host (runAnsibleInventoryHost, gated on factCacheCanaryKey)
+// and uses that directly, with no connection to the host at all, when it
+// does - restoring the original design intent ("if fact caching is
+// activated, retrieve from there, otherwise retrieve from host") that
+// got lost when hostSummaryStubYAML's own fix (see its doc comment)
+// switched to an explicit `setup:` task that always connects: that fix
+// was necessary for correctness (the play-level `gather_facts: true`
+// shorthand could silently skip with zero jsonl output at all under
+// `gathering = smart`), but it also meant paying for a live connection
+// on every view, even when a perfectly fresh cache already existed.
+// Checking the cache first, explicitly, in application code rather than
+// leaning on ansible's own smart-gathering skip, gets the speed back
+// without reintroducing the silent-failure bug: a cache hit here is a
+// real, parsed, guaranteed-fresh result (runAnsibleInventoryHost's own
+// doc comment - confirmed empirically that ansible-inventory --host
+// stops showing a host's cached facts once fact_caching_timeout expires),
+// never a guess.
+//
+// Any problem with the cache-first check itself (the command fails, its
+// output isn't valid JSON, or the canary key just isn't there) falls
+// straight through to the live path below without comment - all three
+// are ordinary, expected cases (no fact_caching configured at all is the
+// common one), not worth surfacing as their own error when the live path
+// is about to attempt the exact same thing anyway and will report its
+// own error if that fails too.
+//
+// skipLiveGather (design-docs/HostVerb.md's own "New ideas": a host the
+// hosts list's own ping dot already found unreachable shouldn't pay for a
+// second, doomed connection attempt just to open its Summary tab) only
+// ever short-circuits the live path below, never the cache check above a
+// stale-but-real cached fact is still worth showing even for a host
+// that's down right now.
+//
+// Falling through to the live path: stubPath runs synchronously, narrowed
+// to hostname via --limit, and this extracts that host's own
+// ansible_facts from the resulting jsonl stream - the same
+// scan-for-one-host's-own-event pattern renderTemplate (template.go)
+// already uses. err is non-nil only when nothing usable could be
+// determined at all (a bad inventory/host); an unreachable/failed host is
+// reported as ordinary displayable text instead, not err, since that's
+// expected, common content for this tab, not a tool failure.
+func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather bool) (hostFactsResult, error) {
+	if out, err := RunAnsibleInventoryHost(hostname, rest); err == nil {
+		var cached map[string]interface{}
+		if json.Unmarshal(out, &cached) == nil {
+			if _, ok := cached[FactCacheCanaryKey]; ok {
+				return hostFactsResult{
+					prefix:          "[" + uikit.AnnotationColor + "](from fact cache)[-]\n\n",
+					characteristics: formatCharacteristics(hostname, cached),
+					facts:           cached,
+				}, nil
+			}
+		}
+	}
+
+	if skipLiveGather {
+		return hostFactsResult{
+			characteristics: "[" + uikit.OutcomeUnreachableColor + "]Host unavailable.[-]\n",
+		}, nil
+	}
+
+	raw, err := runHostStub(stubPath, hostname, rest, nil)
+	if err != nil {
+		return hostFactsResult{}, err
+	}
 	var decoded map[string]interface{}
 	_ = json.Unmarshal(raw, &decoded)
 	result := playbook.DecodeHostResult(raw)
@@ -1623,7 +1686,28 @@ func (d summaryDoc) render() string {
 // restore the same tab after rebuilding a brand new TabbedPane for the
 // newly-selected host, since TabbedPane itself has no "jump to tab by
 // name" method, only relative Next()/Prev().
-var HostDetailTabNames = []string{"Summary", "Facts", "Groups", "Plays", "host_vars", "Everything known"}
+var HostDetailTabNames = func() []string {
+	names := []string{"Summary", "Facts", "Variables", "Groups", "Plays"}
+	if hostVarsTabEnabled {
+		names = append(names, "host_vars")
+	}
+	return names
+}()
+
+// hostVarsTabEnabled shows the host_vars tab (the host's own inventory
+// variables and verbatim host_vars files). Hidden since the Variables tab
+// covers the variables; the code stays so it can be brought back by flipping
+// this - its fetch is skipped while it is false.
+const hostVarsTabEnabled = false
+
+// detailTabViews lists the tab bodies in HostDetailTabNames' order.
+func detailTabViews(summary, facts, variables, groups, plays, hostVars tview.Primitive) []tview.Primitive {
+	views := []tview.Primitive{summary, facts, variables, groups, plays}
+	if hostVarsTabEnabled {
+		views = append(views, hostVars)
+	}
+	return views
+}
 
 // TabIndexByName finds name's own index in names, defaulting to 0 (the
 // first tab) if it's ever not found - shouldn't happen in practice, since
@@ -1664,38 +1748,37 @@ func TabIndexByName(names []string, name string) int {
 //
 // summaryFacts caches Summary's own resolved ansible_facts alongside its
 // rendered text, not just the text itself - needed so a Summary cache
-// hit can still feed Everything Known's own fact-merge step (the
-// summaryFacts channel below) on the rare occasion Everything Known
-// isn't also cached yet (its own fetch failed last time, say, and
-// errors are deliberately never cached - so it retries fresh even while
-// Summary serves from cache).
+// hit can still feed the Facts tab (factsOutcomes below) on the rare
+// occasion the Facts tab isn't also cached yet (errors are deliberately
+// never cached - so it retries fresh even while Summary serves from
+// cache).
 type HostDetailCache struct {
-	summary         map[string]string
-	summaryFacts    map[string]map[string]interface{}
-	factsText       map[string]string
-	groups          map[string]string
-	plays           map[string]string
-	hostVars        map[string]string
-	everythingKnown map[string]string
+	summary      map[string]string
+	summaryFacts map[string]map[string]interface{}
+	factsText    map[string]string
+	variables    map[string]string
+	groups       map[string]string
+	plays        map[string]string
+	hostVars     map[string]string
 }
 
 // NewHostDetailCache returns an empty HostDetailCache, ready to pass into
 // every BuildHostDetailPrimitive call for one hosts/inventory session.
 func NewHostDetailCache() *HostDetailCache {
 	return &HostDetailCache{
-		summary:         map[string]string{},
-		summaryFacts:    map[string]map[string]interface{}{},
-		factsText:       map[string]string{},
-		groups:          map[string]string{},
-		plays:           map[string]string{},
-		hostVars:        map[string]string{},
-		everythingKnown: map[string]string{},
+		summary:      map[string]string{},
+		summaryFacts: map[string]map[string]interface{}{},
+		factsText:    map[string]string{},
+		variables:    map[string]string{},
+		groups:       map[string]string{},
+		plays:        map[string]string{},
+		hostVars:     map[string]string{},
 	}
 }
 
-// BuildHostDetailPrimitive builds design-docs/HostVerb.md's six-tab host
+// BuildHostDetailPrimitive builds design-docs/HostVerb.md's five-tab host
 // detail view - a thin header (hostname + playbook, mirroring the
-// "template" Verb's own header pattern) and a six-tab body (TabbedPane,
+// "template" Verb's own header pattern) and a five-tab body (TabbedPane,
 // tabs.go) - shared unchanged between the standalone "host <name>" Verb
 // (runHostDetailStandalone) and the "hosts" Verb's own list-then-detail
 // flow (runHostsListTUI); the two differ only in what Esc does, which the
@@ -1735,20 +1818,20 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 
 	summaryView := tview.NewTextView().SetDynamicColors(true).SetText("Gathering facts...")
 	factsView := tview.NewTextView().SetDynamicColors(true).SetText("Gathering facts...")
+	variablesView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	groupsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	playsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	hostVarsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
-	everythingView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	// Untagged text ("Loading...", most content) needs an explicit color -
 	// tview's default is white, invisible on a light [colors] background.
-	for _, v := range []*tview.TextView{summaryView, factsView, groupsView, playsView, hostVarsView, everythingView} {
+	for _, v := range []*tview.TextView{summaryView, factsView, variablesView, groupsView, playsView, hostVarsView} {
 		v.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	}
 
 	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs(
 		HostDetailTabNames,
-		[]tview.Primitive{summaryView, factsView, groupsView, playsView, hostVarsView, everythingView},
+		detailTabViews(summaryView, factsView, variablesView, groupsView, playsView, hostVarsView),
 	)
 
 	// searchBar (design-docs/Search.md) replaces the plain footer TextView
@@ -1801,17 +1884,9 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		}()
 	}
 
-	// summaryFacts is how Summary's own goroutine hands its resolved
-	// ansible_facts (if any) over to Everything Known's own goroutine
-	// below, once - buffered so Summary's send never blocks regardless of
-	// whether Everything Known has reached its own receive yet. See
-	// mergeFactsIntoEverythingKnown's own doc comment for why this
-	// handoff exists at all: without it, Everything Known's own quick,
-	// cache-only read races Summary's own (possibly live-gathering) one
-	// and almost always loses.
-	summaryFacts := make(chan map[string]interface{}, 1)
-	// factsOutcomes is the same handoff for the Facts tab, which also needs
-	// to know why there are no facts (unreachable, failed, skipped).
+	// factsOutcomes is how Summary's own goroutine hands what it found (the
+	// facts, or why there are none: unreachable, failed, skipped) to the Facts
+	// tab's goroutine - buffered so the send never blocks.
 	factsOutcomes := make(chan factsOutcome, 1)
 
 	// Summary gets its own bespoke goroutine rather than the generic fetch
@@ -1828,9 +1903,6 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		if cache != nil {
 			if text, ok := cache.summary[hostname]; ok {
 				factsOutcomes <- factsOutcome{facts: cache.summaryFacts[hostname]}
-				summaryFacts <- cache.summaryFacts[hostname] // may be nil -
-				// Everything Known's own receiver already treats that as
-				// "nothing to merge," same as a live fetch's own nil send.
 				app.QueueUpdateDraw(func() {
 					summaryView.SetText(text)
 					summaryView.ScrollToBeginning()
@@ -1841,8 +1913,6 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		res, err := FetchHostFacts(stubPath, hostname, rest, pingKnown && !pingOK)
 		if err != nil {
 			factsOutcomes <- factsOutcome{err: err}
-			summaryFacts <- nil // never leave Everything Known's own
-			// receive blocked forever just because Summary itself failed
 			app.QueueUpdateDraw(func() {
 				searchBar.ClearForView(summaryView)
 				summaryView.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
@@ -1851,10 +1921,6 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 			return
 		}
 		factsOutcomes <- factsOutcome{facts: res.facts, prefix: res.prefix, note: res.characteristics}
-		summaryFacts <- res.facts // nil for any of hostFactsResult's own
-		// pre-rendered cases (Unreachable/Failed/skipped) - Everything
-		// Known's own receiver already treats an empty map as "nothing to
-		// merge," so a nil send here needs no special-casing there.
 		doc := summaryDoc{prefix: res.prefix, characteristics: res.characteristics, recent: "scanning recent runs..."}
 		if keyLines := HostKeyLines(res.facts); len(keyLines) > 0 {
 			doc.keys = formatHostKeyLines(keyLines)
@@ -1926,10 +1992,12 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		})
 	}()
 
-	var groupsCache, playsCache, hostVarsCache, everythingCache map[string]string
+	var variablesCache, groupsCache, playsCache, hostVarsCache map[string]string
 	if cache != nil {
-		groupsCache, playsCache, hostVarsCache, everythingCache = cache.groups, cache.plays, cache.hostVars, cache.everythingKnown
+		variablesCache = cache.variables
+		groupsCache, playsCache, hostVarsCache = cache.groups, cache.plays, cache.hostVars
 	}
+	fetch(variablesView, variablesCache, func() (string, error) { return FetchHostVariables(hostname, rest) })
 	fetch(groupsView, groupsCache, func() (string, error) { return FetchHostGroups(hostname, rest) })
 	// Plays gets its own goroutine too: the list renders as soon as the
 	// --list-tasks probe is back, then each play's "last ran" line
@@ -1979,60 +2047,9 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 			}
 		})
 	}()
-	fetch(hostVarsView, hostVarsCache, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
-
-	// Everything known also gets its own bespoke goroutine rather than the
-	// generic fetch helper: it renders immediately from its own
-	// ansible-inventory --host call exactly as before (unchanged speed),
-	// then re-renders a second time once summaryFacts delivers whatever
-	// Summary's own goroutine (above) found - merging those facts in
-	// (mergeFactsIntoEverythingKnown) rather than leaving this tab
-	// dependent on winning its own race against Summary's live gather.
-	go func() {
-		if everythingCache != nil {
-			if text, ok := everythingCache[hostname]; ok {
-				everythingView.SetText(text)
-				everythingView.ScrollToBeginning()
-				return // never touches summaryFacts - harmless either way:
-				// Summary's own send (live or cached) is buffered, absorbed
-				// without a receiver if nothing ever reads it.
-			}
-		}
-		raw, err := FetchHostEverythingKnownRaw(hostname, rest)
-		app.QueueUpdateDraw(func() {
-			searchBar.ClearForView(everythingView)
-			if err != nil {
-				everythingView.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(err.Error()))
-			} else {
-				text := uikit.HighlightJSONKeys(string(raw))
-				everythingView.SetText(text)
-				if everythingCache != nil {
-					everythingCache[hostname] = text // tentative - overwritten
-					// below if a facts merge lands on top of it.
-				}
-			}
-			everythingView.ScrollToBeginning()
-		})
-		if err != nil {
-			return
-		}
-		facts := <-summaryFacts
-		if len(facts) == 0 {
-			return
-		}
-		merged, mergeErr := mergeFactsIntoEverythingKnown(raw, facts)
-		if mergeErr != nil {
-			return // best-effort - the plain ansible-inventory dump
-			// already shown (and cached) above stays as the final answer
-		}
-		text := uikit.HighlightJSONKeys(string(merged))
-		app.QueueUpdateDraw(func() {
-			everythingView.SetText(text)
-			if everythingCache != nil {
-				everythingCache[hostname] = text
-			}
-		})
-	}()
+	if hostVarsTabEnabled {
+		fetch(hostVarsView, hostVarsCache, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
+	}
 
 	return flex, tabs, header, searchBar
 }
@@ -2161,7 +2178,7 @@ func HostRowText(hostname string, selected bool, pingKnown, pingOK bool) string 
 // has come back. On a wide enough terminal, list and detail show side by
 // side (splitMode below) with the detail pane live-syncing to whichever
 // host the list's own cursor sits on, no Enter needed; on a narrower
-// terminal, Enter opens the identical six-tab detail view "tangsible
+// terminal, Enter opens the identical five-tab detail view "tangsible
 // host <name>" would show for that host (buildHostDetailPrimitive), Esc
 // closes it back to the list - the one behavioral difference from "host
 // <name>"'s own standalone Esc-is-inert view. While a detail view is

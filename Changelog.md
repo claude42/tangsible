@@ -6,6 +6,9 @@
 
 - `role`: roles inside collections (`namespace.collection.role`) are found, and their tasks get Task definition sections; so do roles used via a play's `collections:` list
 - Task definition tab: roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are found too, also outside the project tree
+- `host`/`hosts`/`inventory`: the "Everything known" tab is removed and the "host_vars" tab hidden; the Variables and Facts tabs replace them
+- YAML tabs show comments (a `# ...` line or a trailing `# ...`) in the annotation colour instead of the value colour
+- `host`/`hosts`/`inventory`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
 - `host`/`hosts`/`inventory`: new Facts tab with every gathered fact as YAML
 - `debug`: the variable watch shows where a variable comes from after its value, e.g. `db_host = "x"  (group_vars/all.yml:3)`; also `fact`, `built-in`, `registered`, `-e`, `set in debugger`
 - `debug`: vaulted values show as `<vaulted>` in the Resolved tab and the variable watch's autocomplete (the watch itself still shows them)

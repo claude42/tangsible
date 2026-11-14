@@ -932,3 +932,71 @@ class SnapshotHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VariablesActionTests(unittest.TestCase):
+    """tangsible_vars action plugin: variables, origins and vault masking."""
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def run_stub(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            testdata = os.path.join(self.ROOT, "testdata")
+            password = os.path.join(testdata, "vault-password.txt")
+            with open(os.path.join(testdata, "vault.yml")) as handle:
+                vault_text = handle.read()
+            block = vault_text[vault_text.index("db_password:"):vault_text.index("api_token:")]
+            os.makedirs(os.path.join(tmp, "group_vars"))
+            os.makedirs(os.path.join(tmp, "host_vars", "h1"))
+            with open(os.path.join(tmp, "group_vars", "all.yml"), "w") as handle:
+                handle.write("plain: hello\nrepeat: pre-a top secret db password\n" + block)
+            whole = os.path.join(tmp, "host_vars", "h1", "whole.yml")
+            with open(whole, "w") as handle:
+                handle.write("whole_secret: hunter22\n")
+            subprocess.run(
+                ["ansible-vault", "encrypt", whole, "--vault-password-file", password],
+                check=True, capture_output=True,
+            )
+            with open(os.path.join(tmp, "inv.ini"), "w") as handle:
+                handle.write("h1 ansible_connection=local inv_var=1\n")
+            with open(os.path.join(tmp, "stub.yml"), "w") as handle:
+                handle.write(textwrap.dedent("""\
+                    - hosts: all
+                      gather_facts: false
+                      tasks:
+                        - name: variables
+                          tangsible_vars:
+                    """))
+            env = dict(
+                os.environ,
+                ANSIBLE_CALLBACK_PLUGINS=os.path.join(self.ROOT, "callback"),
+                ANSIBLE_ACTION_PLUGINS=os.path.join(self.ROOT, "callback", "action"),
+                ANSIBLE_JSON_INDENT="0",
+            )
+            proc = subprocess.run(
+                ["ansible-playbook", "stub.yml", "-i", "inv.ini", "--limit", "h1",
+                 "--vault-password-file", password, "-e", "from_cli=cli"],
+                capture_output=True, text=True, cwd=tmp, env=env, timeout=120,
+            )
+            for line in proc.stdout.splitlines():
+                if '"v2_runner_on_ok"' in line:
+                    return json.loads(line)["hosts"]["h1"]["tangsible_variables"], tmp
+        self.fail("no result:\n" + proc.stdout + proc.stderr)
+
+    def test_variables_origins_and_masking(self):
+        result, _ = self.run_stub()
+        variables, origins = result["variables"], result["origins"]
+        self.assertEqual(variables["plain"], "hello")
+        self.assertEqual(variables["from_cli"], "cli")
+        self.assertEqual(variables["inv_var"], 1)
+        self.assertEqual(variables["db_password"], "<vaulted>")  # inline !vault
+        self.assertEqual(variables["whole_secret"], "<vaulted>")  # wholly encrypted file
+        self.assertEqual(variables["repeat"], "pre-<vaulted>")  # text of a secret
+        self.assertTrue(origins["plain"]["path"].endswith("group_vars/all.yml"))
+        self.assertEqual(origins["plain"]["line"], 1)
+        self.assertIn("'-e'", origins["from_cli"]["desc"])
+        for noise in ("inventory_hostname", "groups", "ansible_facts", "ansible_forks", "ansible_play_name"):
+            self.assertNotIn(noise, variables)
+        self.assertNotIn("a top secret db password", json.dumps(result))
+        self.assertNotIn("hunter22", json.dumps(result))
+

@@ -217,9 +217,19 @@ run/rerun/role session and by revisit's own rerun.
 - **callbackplugin.go** - `ResolveCallbackPluginDir`: `$TANGSIBLE_CALLBACK_DIR`
   or the embedded plugin (`callback/embed.go`) extracted once per version
   into the XDG cache dir; `CallbackPluginEnv` for every spawn.
+- **actionplugin.go** - the same for the action plugin
+  (`callback/action/tangsible_vars.py`, behind the host verb's Variables
+  tab): `ResolveActionPluginDir`, `ActionPluginEnv`.
 - **progress.go** - `ProgressTracker`: the "Task x/y" top-bar progress
   indicator, predicted from a throwaway `--list-tasks --list-hosts`
   run.
+
+## internal/origin
+
+- **origin.go** - display labels for where a top-level variable's value
+  comes from (`file:line` project-relative, `-e`, `fact`, `built-in`,
+  `registered`), with the debug shadow copy's paths/lines mapped back;
+  used by the debug watch panel and the host verb's Variables tab.
 
 ## internal/inventory
 
@@ -231,15 +241,15 @@ run/rerun/role session and by revisit's own rerun.
 
 ## internal/host
 
-- **host.go** - the "host"/"hosts" verbs: a standalone six-tab view
+- **host.go** - the "host"/"hosts" verbs: a standalone five-tab view
   of everything Tangsible can determine about one host (live facts, all
-  facts as YAML, inventory group chain, which plays would run, host_vars files, raw
-  `ansible-inventory --host` dump).
+  facts as YAML, inventory variables with their origin, inventory group chain, which plays would run; a host_vars tab
+  exists but is hidden).
 - **lastplayrun.go** - the Plays tab's per-play "last ran" line: replays
   the playbook's saved run logs newest first (`LastPlayRuns`).
 - **inventory.go** - the "inventory" verb: a collapsible tree view of the
   whole inventory (groups as nodes, hosts as leaves), reusing host.go's
-  own stub-playbook/ping/six-tab detail machinery to open a host.
+  own stub-playbook/ping/five-tab detail machinery to open a host.
 - **helptables.go** - shared by all three verbs: help tables and bottom
   bars.
 
@@ -408,11 +418,6 @@ thin constructor/wiring shell.
   captured snapshot for the Resolved tab and the watch autocomplete;
   parses `callback/tangsible_events.py`'s `tangsible_snapshot` reply
   (`design-docs/Data Tagging.md`).
-- **varorigin.go** - display labels for where a top-level variable comes
-  from (project-relative `file:line`, `fact`, `built-in`, `registered`,
-  `-e`), mapping shadow-copy paths and spliced line numbers back to the
-  real files (`design-docs/Data Tagging.md`, "Show where a variable
-  originated").
 - **render.go** - plain-text tree dump; unused by the live flow, kept
   as a dependency-free debug aid.
 - **autocomplete.go** - re-run dialog field autocomplete matching

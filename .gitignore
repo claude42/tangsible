@@ -83,3 +83,5 @@ go.work.sum
 
 # Editor swap files
 *.swp
+
+__pycache__/

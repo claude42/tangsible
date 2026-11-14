@@ -18,7 +18,7 @@ import "testing"
 
 func TestHighlightYAMLKeys(t *testing.T) {
 	got := HighlightYAMLKeys("name: install packages\n  - foo: bar\n# a comment\n")
-	want := "[green]name:[-][lightsteelblue] install packages[-]\n  - [green]foo:[-][lightsteelblue] bar[-]\n# a comment\n"
+	want := "[green]name:[-][lightsteelblue] install packages[-]\n  - [green]foo:[-][lightsteelblue] bar[-]\n[gray]# a comment[-]\n"
 	if got != want {
 		t.Errorf("HighlightYAMLKeys() = %q, want %q", got, want)
 	}
@@ -93,5 +93,35 @@ func TestSplitRolePrefix(t *testing.T) {
 	}
 	if role, task := SplitRolePrefix("say hi"); role != "" || task != "say hi" {
 		t.Errorf("SplitRolePrefix() = (%q, %q), want (%q, %q)", role, task, "", "say hi")
+	}
+}
+
+// TestHighlightYAMLKeys_Comments: a trailing comment is not part of the
+// value (it gets the annotation color), but a "#" inside a quoted scalar or
+// glued to a word is.
+func TestHighlightYAMLKeys_Comments(t *testing.T) {
+	cases := map[string]string{
+		"a: 1 # origin":         "[green]a:[-][lightsteelblue] 1 [-][gray]# origin[-]",
+		"a: \"x # y\" # origin": "[green]a:[-][lightsteelblue] \"x # y\" [-][gray]# origin[-]",
+		"a: it's # origin":      "[green]a:[-][lightsteelblue] it's [-][gray]# origin[-]",
+		"a: b#c":                "[green]a:[-][lightsteelblue] b#c[-]",
+		"  - item # origin":     "  - [lightsteelblue]item [-][gray]# origin[-]",
+		"a: # origin":           "[green]a:[-][lightsteelblue] [-][gray]# origin[-]",
+		"  # note":              "[gray]  # note[-]",
+	}
+	for in, want := range cases {
+		if got := HighlightYAMLKeys(in); got != want {
+			t.Errorf("HighlightYAMLKeys(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestHighlightYAMLKeys_BlockScalarKeepsHash: inside a block scalar a "#"
+// is content, not a comment.
+func TestHighlightYAMLKeys_BlockScalarKeepsHash(t *testing.T) {
+	got := HighlightYAMLKeys("k: |\n  a # not a comment\nz: 1\n")
+	want := "[green]k:[-][lightsteelblue] |[-]\n[lightsteelblue]  a # not a comment[-]\n[green]z:[-][lightsteelblue] 1[-]\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

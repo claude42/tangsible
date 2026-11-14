@@ -21,7 +21,7 @@ makes. Both are standalone programs (`internal/host/host.go`): their own
 `tview.Application`, no jsonl tree, no `NewLiveTUI`, same precedent as
 `template`.
 
-`host <hostname>` shows exactly one host's six-tab detail view for the
+`host <hostname>` shows exactly one host's five-tab detail view for the
 process's lifetime; `Esc` is inert there (only `q`/Ctrl-C quit), matching
 `template`'s own reasoning - too easy to close the whole thing by reflex
 while browsing tabs.
@@ -33,19 +33,20 @@ two-paned list, not a plain picker with `Esc` as its only extra
 behavior). `Esc` from a full-screen detail view returns to the list
 there, the one behavioral difference from standalone `host`.
 
-## The six tabs
+## The five tabs
 
 **Summary** - live gathered facts, restructured into three sections (see
 its own section below).
 **Facts** - every gathered fact, as YAML (see "Facts tab" below).
+**Variables** - the host's inventory-level variables as YAML, each with
+where it is defined (see "Variables tab" below).
 **Groups** - the host's full transitive inventory-group chain.
 **Plays** - which plays/tasks would run for this host, from the target
 playbook.
-**host_vars** - the host's own inventory variables, then verbatim contents
-of every `host_vars/<hostname>` file.
-**Everything known** - `ansible-inventory --host <hostname>`'s own
-output, merged with whatever facts the Summary tab itself gathered (see
-"Everything known" below).
+
+Two former tabs are gone: **host_vars** is hidden (the Variables tab covers
+it; the code is kept behind `hostVarsTabEnabled`, see "host_vars tab"), and
+**Everything known** was removed (see its section below).
 
 All five are fetched concurrently, each on its own goroutine, the
 instant the view opens - not deferred until a tab is first viewed. The
@@ -236,6 +237,28 @@ The JSON is parsed into a `yaml.Node` and re-encoded in block style, so large
 integers stay integers (a decoded `float64` would print as `1.9e+09`). Cached
 per host like the other tabs.
 
+## Variables tab
+
+The variables defined for the host at inventory level, as YAML, sorted by
+name, each followed by a comment naming where its winning value was defined:
+`db_host: x # group_vars/all.yml:3` (project-relative file and line, or `-e`).
+Facts, ansible's own variables and config defaults are left out - the Facts
+tab has the facts. A vaulted value (inline `!vault`, anything from a wholly
+encrypted file, and any other occurrence of its text) shows as `<vaulted>`.
+Playbook-level variables (play `vars:`, roles) are out of scope.
+
+Origins exist only inside a real ansible run, so this tab runs a one-task
+stub play (`HostVariablesStubYAML`) with `--limit <host>` whose task is
+tangsible's own action plugin (`callback/action/tangsible_vars.py`,
+`//go:embed`-ed, `runner.ActionPluginEnv`). It runs on the control node and
+never connects to the host. The plugin hands the host's `task_vars` to
+`tangsible_variables` in the callback plugin (shared with debug mode's
+`tangsible_snapshot`), which keeps only variables whose `Origin` tag names a
+file other than the stub itself, or `-e`, and masks secrets in-process so
+they never leave Python. Variables with no origin tag (a dynamic inventory
+plugin's, say) are not shown. Takes a second or two, so it loads with a
+placeholder like the other tabs and is cached per host.
+
 ## Groups tab
 
 Shows the host's full transitive group chain, not just direct
@@ -279,6 +302,10 @@ mismatch.
 
 ## host_vars tab
 
+**Hidden.** The tab no longer shows and its fetch is skipped; `FetchHostVars`
+and the rest stay, and flipping `hostVarsTabEnabled` (host.go) brings it back
+as the last tab. What follows describes it as it was.
+
 Leads with an `inventory` section: the host's own variables from the
 inventory itself (`inventory.ListHostVarsExport`, `ansible-inventory --list
 --export`, group vars not merged in), rendered as YAML. That export also
@@ -312,44 +339,15 @@ tag-prefixed), every following line that's blank or indented further
 than that opener is colored as its own continuation, until indentation
 drops back down.
 
-## Everything known tab
+## Everything known tab (removed)
 
-`ansible-inventory --host <hostname>`'s own pretty-printed JSON output,
-highlighted the same way (a quoted key green, its value - including a
-bare array element with no key of its own, e.g. `"web",` inside a
-`"tags": [...]` array - `lightsteelblue`).
-
-This call never connects to the host itself - it only reads local state
-(inventory/group_vars/host_vars) plus whatever's already sitting in the
-configured fact cache, if `fact_caching` is set up *and* the cache
-already has a fresh entry for this host from *any* prior real gather,
-this session or not. So on its own, this tab's content is "declared
-inventory data, plus whatever's already cached, if anything" - not live
-either way, but not purely static either.
-
-That alone produced a real, confusing inconsistency: Summary (above) can
-show real gathered facts even when the fact cache started out completely
-empty, because it runs its own live `setup:` gather directly and reads
-the result off the event stream, never through the cache. Everything
-Known's own `ansible-inventory --host` call is fast and local, and
-almost always finishes *before* Summary's live gather does - so within a
-single view-open, Everything Known could show no facts at all while
-Summary, moments later, showed a full set. Fixed by having Summary's own
-goroutine hand its resolved `ansible_facts` over to Everything Known's
-goroutine once known (a buffered `summaryFacts` channel, always sent to
-exactly once, `nil` included, so Everything Known's own receive can
-never block forever on a Summary that errored or hit its own
-`skipLiveGather` case). Everything Known still renders immediately from
-its own `ansible-inventory --host` call at unchanged speed, then
-re-renders a second time once those facts arrive, merged on top
-(`mergeFactsIntoEverythingKnown`, facts winning on any key collision).
-
-Two alternatives were considered and rejected: making Everything Known's
-own fetch wait for Summary to finish first would have kept it a strictly
-verbatim dump, but only helps when `fact_caching` is configured at all,
-and makes the tab noticeably slower whenever Summary needs a live
-gather; leaving the race undocumented-but-accepted was rejected as
-genuinely confusing in practice.
+It showed `ansible-inventory --host <hostname>`'s JSON, with Summary's facts
+merged in afterwards (the two fetches raced: the quick, cache-only
+`ansible-inventory` read finished before Summary's live gather, so the tab
+could show no facts at all). The Facts and Variables tabs replaced it, and
+the code - `FetchHostEverythingKnownRaw`, the fact merge and the
+Summary-to-tab handoff - was deleted. `RunAnsibleInventoryHost` stays: the
+fact-cache fast path of `FetchHostFacts` uses it.
 
 ## Coloring
 
@@ -438,7 +436,7 @@ list rows: a ping dot leading the hostname (gray in flight, green
 reachable, red unreachable), fired concurrently once per unique host the
 instant the tree renders.
 
-Enter on a host leaf opens the exact same six-tab detail view
+Enter on a host leaf opens the exact same five-tab detail view
 `tangsible hosts` opens on Enter, including that view's own two-pane
 split layout on a wide enough terminal (tree pane + detail pane side by
 side) - not a separate, simpler picker. No split pane exists at all

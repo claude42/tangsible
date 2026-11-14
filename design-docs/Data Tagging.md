@@ -157,7 +157,7 @@ and registered results carry no origin tag at all.
 `{path, line}`, `{desc}`, or `{kind}` where `kind` is `fact` (name, or
 `ansible_<name>`, is a key of `ansible_facts`), `builtin` (fixed list of
 ansible's special variables) or `registered` (a dict with `changed`). Go
-(`varorigin.go`) formats labels: paths relative to the working directory
+(`internal/origin`) formats labels: paths relative to the working directory
 (absolute when outside it), `-e` for the command-line option. The debug run
 uses a shadow copy, so a path under it is mapped back to the real tree, and
 the line has the inserted `debugger: always` lines above it subtracted. The
@@ -165,4 +165,14 @@ current task's own `register:` name is labelled `registered`. The watch panel
 appends `  (label)` after a value, using the root variable of the expression;
 `(just set)` takes its place until the pause changes, and a variable assigned
 in the panel reads `(set in debugger)` for that pause.
+
+### Variables tab on the host verb
+
+Built on the same `Origin` data: the host verb's Variables tab (see
+`HostVerb.md`) runs a stub play whose task is an embedded action plugin,
+because origins exist only inside a real ansible run, and renders the
+variables as YAML with the origin as a trailing comment. Scope decisions:
+inventory level only, facts left out, vaulted values as `<vaulted>`,
+alphabetical. The origin-label code moved to `internal/origin`, shared with
+the debug watch panel. Only variables with a file (or `-e`) origin are shown.
 

@@ -591,34 +591,6 @@ func TestHighlightRolePrefix(t *testing.T) {
 // infrastructure for the run drill-down's own tabs too, not just this
 // package's.
 
-// TestMergeFactsIntoEverythingKnown confirms design-docs/HostVerb.md's own
-// "Everything known doesn't see what Summary gathered" fix: facts wins on
-// any key collision with raw's own declared data, and a key facts doesn't
-// mention (declared-only) survives untouched.
-func TestMergeFactsIntoEverythingKnown(t *testing.T) {
-	raw := []byte(`{"ansible_connection": "local", "ansible_architecture": "stale"}`)
-	facts := map[string]interface{}{"ansible_architecture": "x86_64", "ansible_memtotal_mb": float64(2048)}
-
-	got, err := mergeFactsIntoEverythingKnown(raw, facts)
-	if err != nil {
-		t.Fatalf("mergeFactsIntoEverythingKnown() error = %v", err)
-	}
-
-	var merged map[string]interface{}
-	if err := json.Unmarshal(got, &merged); err != nil {
-		t.Fatalf("mergeFactsIntoEverythingKnown() didn't produce valid JSON: %v\noutput:\n%s", err, got)
-	}
-	if merged["ansible_connection"] != "local" {
-		t.Errorf("merged[\"ansible_connection\"] = %v, want the declared-only value to survive untouched", merged["ansible_connection"])
-	}
-	if merged["ansible_architecture"] != "x86_64" {
-		t.Errorf("merged[\"ansible_architecture\"] = %v, want facts' own value to win over raw's stale one", merged["ansible_architecture"])
-	}
-	if merged["ansible_memtotal_mb"] != float64(2048) {
-		t.Errorf("merged[\"ansible_memtotal_mb\"] = %v, want a fact absent from raw entirely to still be added", merged["ansible_memtotal_mb"])
-	}
-}
-
 func TestHostSectionHeading(t *testing.T) {
 	if got, want := hostSectionHeading("Recent"), "[green::b]Recent\n======[-::-]\n\n"; got != want {
 		t.Errorf("hostSectionHeading() = %q, want %q", got, want)
@@ -631,14 +603,14 @@ func TestHostSectionHeading(t *testing.T) {
 }
 
 func TestTabIndexByName(t *testing.T) {
-	names := []string{"Summary", "Groups", "Plays", "host_vars", "Everything known"}
+	names := []string{"Summary", "Groups", "Plays", "Variables"}
 	cases := []struct {
 		name string
 		want int
 	}{
 		{"Summary", 0},
 		{"Plays", 2},
-		{"Everything known", 4},
+		{"Variables", 3},
 		{"no such tab", 0}, // documented fallback, not an error
 	}
 	for _, c := range cases {
@@ -694,5 +666,35 @@ func TestRenderHostFactsNone(t *testing.T) {
 	}
 	if got := RenderHostFacts("", "[red]Unreachable[-]\n", nil); !strings.Contains(got, "Unreachable") {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestRenderHostVariables(t *testing.T) {
+	cwd, _ := os.Getwd()
+	raw := json.RawMessage(`{"tangsible_variables":{
+	  "variables":{"zeta":1,"alpha":{"b":2,"a":"x"},"db_password":"<vaulted>","from_cli":"cli"},
+	  "origins":{"alpha":{"path":"` + filepath.Join(cwd, "group_vars/all.yml") + `","line":3},"from_cli":{"desc":"<CLI option '-e'>"},"db_password":{"path":"/elsewhere/vault.yml","line":1}}}}`)
+	got, err := RenderHostVariables(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log("\n" + got)
+	for _, want := range []string{"group_vars/all.yml:3", "-e", "/elsewhere/vault.yml:1", "<vaulted>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Index(got, "alpha") > strings.Index(got, "db_password") || strings.Index(got, "db_password") > strings.Index(got, "zeta") {
+		t.Errorf("not alphabetical:\n%s", got)
+	}
+}
+
+func TestRenderHostVariablesFailureAndEmpty(t *testing.T) {
+	if _, err := RenderHostVariables(json.RawMessage(`{"failed":true,"msg":"boom"}`)); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("err = %v", err)
+	}
+	got, err := RenderHostVariables(json.RawMessage(`{"tangsible_variables":{"variables":{},"origins":{}}}`))
+	if err != nil || !strings.Contains(got, "No variables") {
+		t.Errorf("got %q, %v", got, err)
 	}
 }

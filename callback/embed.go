@@ -23,3 +23,9 @@ import _ "embed"
 //
 //go:embed tangsible_events.py
 var Plugin []byte
+
+// ActionPlugin is the source of action/tangsible_vars.py, behind the host
+// verb's Variables tab.
+//
+//go:embed action/tangsible_vars.py
+var ActionPlugin []byte

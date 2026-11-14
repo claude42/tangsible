@@ -24,6 +24,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"code.aw.net/claude/tangsible/internal/origin"
 )
 
 const (
@@ -47,12 +49,12 @@ type vaultMask struct {
 
 // parseSnapshotQuery splits tangsible_snapshot's JSON reply into the
 // task_vars object, its vault mask and its variable origins.
-func parseSnapshotQuery(raw json.RawMessage) (json.RawMessage, vaultMask, map[string]varOrigin, bool) {
+func parseSnapshotQuery(raw json.RawMessage) (json.RawMessage, vaultMask, map[string]origin.Origin, bool) {
 	var reply struct {
-		Vars    json.RawMessage      `json:"vars"`
-		Vaulted [][]any              `json:"vaulted"`
-		Secrets []string             `json:"secrets"`
-		Origins map[string]varOrigin `json:"origins"`
+		Vars    json.RawMessage          `json:"vars"`
+		Vaulted [][]any                  `json:"vaulted"`
+		Secrets []string                 `json:"secrets"`
+		Origins map[string]origin.Origin `json:"origins"`
 	}
 	if json.Unmarshal(raw, &reply) != nil || len(reply.Vars) == 0 {
 		return nil, vaultMask{}, nil, false

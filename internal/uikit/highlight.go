@@ -80,10 +80,51 @@ var yamlListItemLine = regexp.MustCompile(`^(\s*-\s+)(.+)$`)
 // key/list-item of its own.
 var yamlBlockScalarOpener = regexp.MustCompile(`^(![^\s]+\s+)?[|>][+-]?\d*$`)
 
+// splitYAMLComment splits s at the start of a YAML comment: a "#" at the
+// start of s or after whitespace, outside a quoted scalar. A quote only
+// opens at the start of a value (after whitespace or a flow indicator), so an
+// apostrophe inside a plain scalar ("it's") doesn't hide a comment behind it.
+// comment is "" when there is none; code+comment == s.
+func splitYAMLComment(s string) (code, comment string) {
+	var quote rune
+	prev := ' '
+	for i, r := range s {
+		switch {
+		case quote != 0:
+			if r == '\\' && quote == '"' {
+				prev = r
+				continue
+			}
+			if r == quote && prev != '\\' {
+				quote = 0
+			}
+		case (r == '"' || r == '\'') && strings.ContainsRune(" \t[{,:", prev):
+			quote = r
+		case r == '#' && (prev == ' ' || prev == '\t'):
+			return s[:i], s[i:]
+		}
+		prev = r
+	}
+	return s, ""
+}
+
+// yamlValue renders value (the text after a key or list marker) in the
+// value color, with a trailing comment, if any, in the annotation color.
+func yamlValue(value string) string {
+	code, comment := splitYAMLComment(value)
+	out := "[" + ValueHighlightColor + "]" + tview.Escape(code) + "[-]"
+	if comment != "" {
+		out += "[" + AnnotationColor + "]" + tview.Escape(comment) + "[-]"
+	}
+	return out
+}
+
 // HighlightYAMLKeys highlights each line's own "key:" portion (or, for a
 // bare list item, its whole value - yamlListItemLine) green for the key,
-// lightsteelblue for the value - the same regex-based approach
-// YamlKeyLine's own doc comment already describes. blockScalarIndent
+// lightsteelblue for the value, and any comment (a whole "# ..." line or a
+// trailing " # ...") in the annotation color so it can't be mistaken for a
+// value - the same regex-based approach YamlKeyLine's own doc comment
+// already describes. blockScalarIndent
 // tracks whether the previous key/list-item's own value opened a raw
 // multi-line scalar (yamlBlockScalarOpener, e.g. an ansible-vault-shaped
 // "somekey: !vault |" followed by an indented, multi-line blob) - every
@@ -107,15 +148,19 @@ func HighlightYAMLKeys(raw string) string {
 		}
 
 		if m := YamlKeyLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[" + KeyHighlightColor + "]" + tview.Escape(m[2]+m[3]) + "[-]" + "[" + ValueHighlightColor + "]" + tview.Escape(m[4]) + "[-]"
-			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[4])) {
+			lines[i] = tview.Escape(m[1]) + "[" + KeyHighlightColor + "]" + tview.Escape(m[2]+m[3]) + "[-]" + yamlValue(m[4])
+			if code, _ := splitYAMLComment(m[4]); yamlBlockScalarOpener.MatchString(strings.TrimSpace(code)) {
 				blockScalarIndent = indent
 			}
 			continue
 		}
+		if strings.HasPrefix(trimmed, "#") {
+			lines[i] = "[" + AnnotationColor + "]" + tview.Escape(line) + "[-]"
+			continue
+		}
 		if m := yamlListItemLine.FindStringSubmatch(line); m != nil {
-			lines[i] = tview.Escape(m[1]) + "[" + ValueHighlightColor + "]" + tview.Escape(m[2]) + "[-]"
-			if yamlBlockScalarOpener.MatchString(strings.TrimSpace(m[2])) {
+			lines[i] = tview.Escape(m[1]) + yamlValue(m[2])
+			if code, _ := splitYAMLComment(m[2]); yamlBlockScalarOpener.MatchString(strings.TrimSpace(code)) {
 				blockScalarIndent = indent
 			}
 			continue

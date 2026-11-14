@@ -85,12 +85,19 @@ func hasCallbackPlugin(dir string) bool {
 // it holds one small file. The directory holds nothing but the plugin:
 // ansible loads every .py file in a callback plugin directory.
 func extractPlugin(content []byte, cacheHome, tmpDir string) (string, error) {
+	return extractPluginFile(content, callbackPluginFile, "plugin-", cacheHome, tmpDir)
+}
+
+// extractPluginFile is extractPlugin for any plugin file: dirPrefix names the
+// hash-named directory ("plugin-" for the callback, "action-" for the action
+// plugin, so the two never share a directory).
+func extractPluginFile(content []byte, file, dirPrefix, cacheHome, tmpDir string) (string, error) {
 	sum := sha256.Sum256(content)
-	name := "plugin-" + hex.EncodeToString(sum[:])[:12]
+	name := dirPrefix + hex.EncodeToString(sum[:])[:12]
 	var failures []string
 	if cacheHome != "" {
 		dir := filepath.Join(cacheHome, "tangsible", name)
-		err := writePluginFile(dir, content)
+		err := writePluginFile(dir, file, content)
 		if err == nil {
 			return dir, nil
 		}
@@ -98,12 +105,12 @@ func extractPlugin(content []byte, cacheHome, tmpDir string) (string, error) {
 	}
 	dir, err := os.MkdirTemp(tmpDir, "tangsible-plugin-")
 	if err == nil {
-		if err = writePluginFile(dir, content); err == nil {
+		if err = writePluginFile(dir, file, content); err == nil {
 			return dir, nil
 		}
 	}
 	failures = append(failures, err.Error())
-	return "", fmt.Errorf("could not extract the %s callback plugin: %s", callbackPluginFile, strings.Join(failures, "; "))
+	return "", fmt.Errorf("could not extract the %s plugin: %s", file, strings.Join(failures, "; "))
 }
 
 // writePluginFile makes dir hold exactly content as the plugin file. An
@@ -111,8 +118,8 @@ func extractPlugin(content []byte, cacheHome, tmpDir string) (string, error) {
 // concurrent tangsible never sees it change). Otherwise it is written to a
 // temp name - not .py, so ansible can't pick it up half-written - and
 // renamed into place, which is atomic.
-func writePluginFile(dir string, content []byte) error {
-	target := filepath.Join(dir, callbackPluginFile)
+func writePluginFile(dir, file string, content []byte) error {
+	target := filepath.Join(dir, file)
 	if have, err := os.ReadFile(target); err == nil && bytes.Equal(have, content) {
 		return nil
 	}

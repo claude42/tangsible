@@ -22,6 +22,7 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
+	"code.aw.net/claude/tangsible/internal/origin"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
@@ -483,7 +484,7 @@ func (s *liveSession) debugCaptureSnapshot(sess *debugrun.Session) (json.RawMess
 			raw = vars
 			meta.mask = mask
 			base, _ := os.Getwd()
-			meta.origins = originLabels(origins, s.debugCopyDir, s.debugPlaybookDir, base)
+			meta.origins = origin.Labels(origins, s.debugCopyDir, s.debugPlaybookDir, base)
 		} else {
 			err = errNoSnapshotHelper
 		}
