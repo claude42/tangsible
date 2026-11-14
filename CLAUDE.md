@@ -269,13 +269,13 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   interrupted render then fails instead of leaking); `hosts: all` + `--limit`
   per render, `delegate_to: localhost`; renders are serialized; role-owned
   templates get the role's vars via `vars_files`, never `roles:`.
-- **Host/hosts/inventory** (`HostVerb.md`): five tabs fetched concurrently; the
+- **Host/hosts/inventory** (`HostVerb.md`): six tabs fetched concurrently; the
   Summary tab uses an explicit `setup:` task (an implicit gather is silently
   skipped with a warm fact cache) with a fact-cache fast path
   (`FetchHostFacts`). `hosts`/`inventory` also keep their own session-level
   `HostDetailCache`, keyed by hostname - revisiting a host already opened
   this session (`Left`/`Right`/`n`/`N`, a click, Esc-and-reopen) renders all
-  five tabs instantly from it instead of re-fetching, errors never cached.
+  six tabs instantly from it instead of re-fetching, errors never cached.
   `inventory` is a collapsible group/host tree (`ansible-inventory
   --graph`-shaped) in front of the same detail view; a host that's a direct
   member of several groups gets one node per occurrence but one shared,

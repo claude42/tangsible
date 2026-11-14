@@ -36,7 +36,7 @@ import (
 )
 
 // invNodeKind distinguishes a group node (has children, collapsible) from
-// a host leaf (never has children, opens the five-tab detail view
+// a host leaf (never has children, opens the six-tab detail view
 // instead) in the tree buildInventoryTree builds.
 type invNodeKind int
 
@@ -412,7 +412,7 @@ func RunInventoryVerb(args []string) int {
 // detail flow (design-docs/HostVerb.md's "New ideas"): a scrollable
 // TreeList of the whole inventory, groups as collapsible nodes and hosts
 // as leaves sharing hosts' own ping-dot rendering. Opening a host (Enter,
-// or a click) shows the identical five-tab detail view "tangsible hosts"
+// or a click) shows the identical six-tab detail view "tangsible hosts"
 // already shows, including its own two-pane split layout on a wide enough
 // terminal - BuildHostDetailPrimitive, reused completely unchanged, same
 // as the hosts verb's own RunHostsListTUI.

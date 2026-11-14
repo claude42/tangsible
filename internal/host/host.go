@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Implements the "host" Verb (design-docs/HostVerb.md): a standalone,
-// five-tab program showing everything Tangsible can determine about one
+// six-tab program showing everything Tangsible can determine about one
 // host - live gathered facts, inventory group membership, which plays
 // would run for it, its own host_vars files, and the raw
 // "ansible-inventory --host" dump - entirely separate from the
@@ -847,6 +847,57 @@ type hostFactsResult struct {
 	facts           map[string]interface{}
 }
 
+// factsOutcome is what Summary's goroutine hands the Facts tab: the facts,
+// or why there are none (note is the Summary's own "Unreachable"/"Failed"
+// text, err a fetch that couldn't determine anything at all).
+type factsOutcome struct {
+	facts  map[string]interface{}
+	prefix string
+	note   string
+	err    error
+}
+
+// RenderHostFacts renders a host's complete ansible_facts as YAML, keys
+// sorted, for the Facts tab. prefix is the "(from fact cache)" line when the
+// facts came from there; with no facts at all, note (or a generic line) says
+// so instead. Goes through JSON into a yaml.Node so integers stay integers
+// (a decoded float64 would print as 1.9e+09).
+func RenderHostFacts(prefix, note string, facts map[string]interface{}) string {
+	if len(facts) == 0 {
+		if note == "" {
+			note = "No facts available for this host.\n"
+		}
+		return note
+	}
+	data, err := json.Marshal(facts)
+	if err != nil {
+		return tview.Escape(err.Error())
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return tview.Escape(err.Error())
+	}
+	clearYAMLStyle(&node)
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&node); err != nil {
+		return tview.Escape(err.Error())
+	}
+	_ = enc.Close()
+	return prefix + uikit.HighlightYAMLKeys(buf.String())
+}
+
+// clearYAMLStyle drops the flow/quoted styles a node parsed from JSON
+// carries, so the encoder falls back to block style and quotes only where a
+// string needs it.
+func clearYAMLStyle(n *yaml.Node) {
+	n.Style = 0
+	for _, c := range n.Content {
+		clearYAMLStyle(c)
+	}
+}
+
 // FetchHostFacts first checks whether a fresh fact-cache entry already
 // covers this host (runAnsibleInventoryHost, gated on factCacheCanaryKey)
 // and uses that directly, with no connection to the host at all, when it
@@ -1572,7 +1623,7 @@ func (d summaryDoc) render() string {
 // restore the same tab after rebuilding a brand new TabbedPane for the
 // newly-selected host, since TabbedPane itself has no "jump to tab by
 // name" method, only relative Next()/Prev().
-var HostDetailTabNames = []string{"Summary", "Groups", "Plays", "host_vars", "Everything known"}
+var HostDetailTabNames = []string{"Summary", "Facts", "Groups", "Plays", "host_vars", "Everything known"}
 
 // TabIndexByName finds name's own index in names, defaulting to 0 (the
 // first tab) if it's ever not found - shouldn't happen in practice, since
@@ -1621,6 +1672,7 @@ func TabIndexByName(names []string, name string) int {
 type HostDetailCache struct {
 	summary         map[string]string
 	summaryFacts    map[string]map[string]interface{}
+	factsText       map[string]string
 	groups          map[string]string
 	plays           map[string]string
 	hostVars        map[string]string
@@ -1633,6 +1685,7 @@ func NewHostDetailCache() *HostDetailCache {
 	return &HostDetailCache{
 		summary:         map[string]string{},
 		summaryFacts:    map[string]map[string]interface{}{},
+		factsText:       map[string]string{},
 		groups:          map[string]string{},
 		plays:           map[string]string{},
 		hostVars:        map[string]string{},
@@ -1640,9 +1693,9 @@ func NewHostDetailCache() *HostDetailCache {
 	}
 }
 
-// BuildHostDetailPrimitive builds design-docs/HostVerb.md's five-tab host
+// BuildHostDetailPrimitive builds design-docs/HostVerb.md's six-tab host
 // detail view - a thin header (hostname + playbook, mirroring the
-// "template" Verb's own header pattern) and a five-tab body (TabbedPane,
+// "template" Verb's own header pattern) and a six-tab body (TabbedPane,
 // tabs.go) - shared unchanged between the standalone "host <name>" Verb
 // (runHostDetailStandalone) and the "hosts" Verb's own list-then-detail
 // flow (runHostsListTUI); the two differ only in what Esc does, which the
@@ -1681,20 +1734,21 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	header.SetText(fmt.Sprintf(" Host: %s   Playbook: %s ", tview.Escape(hostname), tview.Escape(playbookLabel)))
 
 	summaryView := tview.NewTextView().SetDynamicColors(true).SetText("Gathering facts...")
+	factsView := tview.NewTextView().SetDynamicColors(true).SetText("Gathering facts...")
 	groupsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	playsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	hostVarsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	everythingView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
 	// Untagged text ("Loading...", most content) needs an explicit color -
 	// tview's default is white, invisible on a light [colors] background.
-	for _, v := range []*tview.TextView{summaryView, groupsView, playsView, hostVarsView, everythingView} {
+	for _, v := range []*tview.TextView{summaryView, factsView, groupsView, playsView, hostVarsView, everythingView} {
 		v.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	}
 
 	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs(
 		HostDetailTabNames,
-		[]tview.Primitive{summaryView, groupsView, playsView, hostVarsView, everythingView},
+		[]tview.Primitive{summaryView, factsView, groupsView, playsView, hostVarsView, everythingView},
 	)
 
 	// searchBar (design-docs/Search.md) replaces the plain footer TextView
@@ -1756,6 +1810,9 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	// cache-only read races Summary's own (possibly live-gathering) one
 	// and almost always loses.
 	summaryFacts := make(chan map[string]interface{}, 1)
+	// factsOutcomes is the same handoff for the Facts tab, which also needs
+	// to know why there are no facts (unreachable, failed, skipped).
+	factsOutcomes := make(chan factsOutcome, 1)
 
 	// Summary gets its own bespoke goroutine rather than the generic fetch
 	// helper above: design-docs/HostVerb.md's own "New ideas" findings -
@@ -1770,6 +1827,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	go func() {
 		if cache != nil {
 			if text, ok := cache.summary[hostname]; ok {
+				factsOutcomes <- factsOutcome{facts: cache.summaryFacts[hostname]}
 				summaryFacts <- cache.summaryFacts[hostname] // may be nil -
 				// Everything Known's own receiver already treats that as
 				// "nothing to merge," same as a live fetch's own nil send.
@@ -1782,6 +1840,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		}
 		res, err := FetchHostFacts(stubPath, hostname, rest, pingKnown && !pingOK)
 		if err != nil {
+			factsOutcomes <- factsOutcome{err: err}
 			summaryFacts <- nil // never leave Everything Known's own
 			// receive blocked forever just because Summary itself failed
 			app.QueueUpdateDraw(func() {
@@ -1791,6 +1850,7 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 			})
 			return
 		}
+		factsOutcomes <- factsOutcome{facts: res.facts, prefix: res.prefix, note: res.characteristics}
 		summaryFacts <- res.facts // nil for any of hostFactsResult's own
 		// pre-rendered cases (Unreachable/Failed/skipped) - Everything
 		// Known's own receiver already treats an empty map as "nothing to
@@ -1836,6 +1896,34 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 				cache.summaryFacts[hostname] = res.facts
 			})
 		}
+	}()
+
+	// Facts renders the moment Summary's gather (or cache read) delivers the
+	// facts - not after Summary's own, slower Recent section has streamed in.
+	go func() {
+		if cache != nil {
+			if text, ok := cache.factsText[hostname]; ok {
+				app.QueueUpdateDraw(func() {
+					factsView.SetText(text)
+					factsView.ScrollToBeginning()
+				})
+				return
+			}
+		}
+		out := <-factsOutcomes
+		app.QueueUpdateDraw(func() {
+			searchBar.ClearForView(factsView)
+			if out.err != nil { // errors are never cached, as in fetch
+				factsView.SetText("[" + uikit.AsyncErrorColor + "::b]Error[-::-]\n\n" + tview.Escape(out.err.Error()))
+			} else {
+				text := RenderHostFacts(out.prefix, out.note, out.facts)
+				factsView.SetText(text)
+				if cache != nil {
+					cache.factsText[hostname] = text
+				}
+			}
+			factsView.ScrollToBeginning()
+		})
 	}()
 
 	var groupsCache, playsCache, hostVarsCache, everythingCache map[string]string
@@ -2073,7 +2161,7 @@ func HostRowText(hostname string, selected bool, pingKnown, pingOK bool) string 
 // has come back. On a wide enough terminal, list and detail show side by
 // side (splitMode below) with the detail pane live-syncing to whichever
 // host the list's own cursor sits on, no Enter needed; on a narrower
-// terminal, Enter opens the identical five-tab detail view "tangsible
+// terminal, Enter opens the identical six-tab detail view "tangsible
 // host <name>" would show for that host (buildHostDetailPrimitive), Esc
 // closes it back to the list - the one behavioral difference from "host
 // <name>"'s own standalone Esc-is-inert view. While a detail view is

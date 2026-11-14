@@ -127,6 +127,7 @@ var hostDetailHelp = uikit.HelpScreen{
 	Sections: []uikit.HelpSection{
 		{Title: "Tabs", Entries: []uikit.HelpEntry{
 			{Keys: "Summary", Desc: "Key facts, gathered live (or from the fact cache)"},
+			{Keys: "Facts", Desc: "All gathered facts, as YAML"},
 			{Keys: "Groups", Desc: "Every group the host belongs to, including inherited ones"},
 			{Keys: "Plays", Desc: "Which plays and tasks would run on this host"},
 			{Keys: "host_vars", Desc: "The host's own inventory variables and host_vars file(s)"},

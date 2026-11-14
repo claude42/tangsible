@@ -665,3 +665,34 @@ func TestInventoryOnlyVars(t *testing.T) {
 		t.Errorf("with no files, got %v, want all keys", got)
 	}
 }
+
+func TestRenderHostFacts(t *testing.T) {
+	facts := map[string]interface{}{
+		"ansible_memtotal_mb":  float64(1934),
+		"ansible_big":          float64(1934000000000),
+		"ansible_distribution": "Debian",
+		"ansible_interfaces":   []interface{}{"lo", "eth0"},
+		"ansible_default_ipv4": map[string]interface{}{"address": "10.0.0.1", "mtu": float64(1500)},
+	}
+	got := RenderHostFacts("", "", facts)
+	for _, want := range []string{"ansible_big", " 1934000000000[-]", "ansible_memtotal_mb", " 1934[-]", "- [", "lo[-]", "address", "10.0.0.1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "{") || strings.Contains(got, "e+") {
+		t.Errorf("flow style or exponent leaked into:\n%s", got)
+	}
+	if strings.Index(got, "ansible_big") > strings.Index(got, "ansible_distribution") {
+		t.Errorf("keys are not alphabetical:\n%s", got)
+	}
+}
+
+func TestRenderHostFactsNone(t *testing.T) {
+	if got := RenderHostFacts("", "", nil); !strings.Contains(got, "No facts") {
+		t.Errorf("got %q", got)
+	}
+	if got := RenderHostFacts("", "[red]Unreachable[-]\n", nil); !strings.Contains(got, "Unreachable") {
+		t.Errorf("got %q", got)
+	}
+}

@@ -21,7 +21,7 @@ makes. Both are standalone programs (`internal/host/host.go`): their own
 `tview.Application`, no jsonl tree, no `NewLiveTUI`, same precedent as
 `template`.
 
-`host <hostname>` shows exactly one host's five-tab detail view for the
+`host <hostname>` shows exactly one host's six-tab detail view for the
 process's lifetime; `Esc` is inert there (only `q`/Ctrl-C quit), matching
 `template`'s own reasoning - too easy to close the whole thing by reflex
 while browsing tabs.
@@ -33,10 +33,11 @@ two-paned list, not a plain picker with `Esc` as its only extra
 behavior). `Esc` from a full-screen detail view returns to the list
 there, the one behavioral difference from standalone `host`.
 
-## The five tabs
+## The six tabs
 
 **Summary** - live gathered facts, restructured into three sections (see
 its own section below).
+**Facts** - every gathered fact, as YAML (see "Facts tab" below).
 **Groups** - the host's full transitive inventory-group chain.
 **Plays** - which plays/tasks would run for this host, from the target
 playbook.
@@ -223,6 +224,17 @@ landing on the detail pane's own content in split mode can steal real
 keyboard focus away from the list until the next host selection resets
 it, unlike the run drill-down's own `handleOutputViewMouse`, which goes
 further to prevent that specific class of bug.
+
+## Facts tab
+
+The complete `ansible_facts` as YAML, keys sorted, from the same gather (or
+fact-cache read) Summary already did: Summary's goroutine hands the facts to
+the Facts goroutine through a buffered channel, so the tab fills in the moment
+the facts arrive, not after Summary's slower Recent section. A host with no
+facts (unreachable, failed, skipped) shows Summary's own message instead.
+The JSON is parsed into a `yaml.Node` and re-encoded in block style, so large
+integers stay integers (a decoded `float64` would print as `1.9e+09`). Cached
+per host like the other tabs.
 
 ## Groups tab
 
@@ -426,7 +438,7 @@ list rows: a ping dot leading the hostname (gray in flight, green
 reachable, red unreachable), fired concurrently once per unique host the
 instant the tree renders.
 
-Enter on a host leaf opens the exact same five-tab detail view
+Enter on a host leaf opens the exact same six-tab detail view
 `tangsible hosts` opens on Enter, including that view's own two-pane
 split layout on a wide enough terminal (tree pane + detail pane side by
 side) - not a separate, simpler picker. No split pane exists at all

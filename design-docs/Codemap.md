@@ -231,15 +231,15 @@ run/rerun/role session and by revisit's own rerun.
 
 ## internal/host
 
-- **host.go** - the "host"/"hosts" verbs: a standalone five-tab view
-  of everything Tangsible can determine about one host (live facts,
-  inventory group chain, which plays would run, host_vars files, raw
+- **host.go** - the "host"/"hosts" verbs: a standalone six-tab view
+  of everything Tangsible can determine about one host (live facts, all
+  facts as YAML, inventory group chain, which plays would run, host_vars files, raw
   `ansible-inventory --host` dump).
 - **lastplayrun.go** - the Plays tab's per-play "last ran" line: replays
   the playbook's saved run logs newest first (`LastPlayRuns`).
 - **inventory.go** - the "inventory" verb: a collapsible tree view of the
   whole inventory (groups as nodes, hosts as leaves), reusing host.go's
-  own stub-playbook/ping/five-tab detail machinery to open a host.
+  own stub-playbook/ping/six-tab detail machinery to open a host.
 - **helptables.go** - shared by all three verbs: help tables and bottom
   bars.
 
