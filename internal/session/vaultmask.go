@@ -46,17 +46,18 @@ type vaultMask struct {
 }
 
 // parseSnapshotQuery splits tangsible_snapshot's JSON reply into the
-// task_vars object and its mask.
-func parseSnapshotQuery(raw json.RawMessage) (json.RawMessage, vaultMask, bool) {
+// task_vars object, its vault mask and its variable origins.
+func parseSnapshotQuery(raw json.RawMessage) (json.RawMessage, vaultMask, map[string]varOrigin, bool) {
 	var reply struct {
-		Vars    json.RawMessage `json:"vars"`
-		Vaulted [][]any         `json:"vaulted"`
-		Secrets []string        `json:"secrets"`
+		Vars    json.RawMessage      `json:"vars"`
+		Vaulted [][]any              `json:"vaulted"`
+		Secrets []string             `json:"secrets"`
+		Origins map[string]varOrigin `json:"origins"`
 	}
 	if json.Unmarshal(raw, &reply) != nil || len(reply.Vars) == 0 {
-		return nil, vaultMask{}, false
+		return nil, vaultMask{}, nil, false
 	}
-	return reply.Vars, vaultMask{Vaulted: reply.Vaulted, Secrets: reply.Secrets}, true
+	return reply.Vars, vaultMask{Vaulted: reply.Vaulted, Secrets: reply.Secrets}, reply.Origins, true
 }
 
 // maskSnapshot returns vars with every vaulted path replaced by

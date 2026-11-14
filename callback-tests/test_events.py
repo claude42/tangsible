@@ -888,6 +888,9 @@ class SnapshotHelperTests(unittest.TestCase):
                       vars_files: [vault.yml, whole.yml]
                       vars: {plain: hello}
                       tasks:
+                        - set_fact: {derived: "{{ plain }}-x"}
+                        - command: "true"
+                          register: earlier
                         - command: "true"
                           debugger: always
                     """))
@@ -916,6 +919,15 @@ class SnapshotHelperTests(unittest.TestCase):
         self.assertIn("hunter2", reply["secrets"])
         self.assertIn("a top secret db password", reply["secrets"])
         self.assertIn("plain", reply["vars"])
+
+    def test_origins_are_described(self):
+        origins = self.run_query()["origins"]
+        self.assertTrue(origins["plain"]["path"].endswith("p.yml"))
+        self.assertEqual(origins["plain"]["line"], 4)
+        self.assertTrue(origins["db_password"]["path"].endswith("vault.yml"))
+        self.assertTrue(origins["derived"]["path"].endswith("p.yml"))
+        self.assertEqual(origins["inventory_hostname"], {"kind": "builtin"})
+        self.assertEqual(origins["earlier"], {"kind": "registered"})
 
 
 if __name__ == "__main__":

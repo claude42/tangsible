@@ -48,11 +48,11 @@ func TestMaskSnapshotKeepsBigNumbersAndHTML(t *testing.T) {
 }
 
 func TestParseSnapshotQuery(t *testing.T) {
-	vars, mask, ok := parseSnapshotQuery(json.RawMessage(`{"vars":{"a":1},"vaulted":[["a"]],"secrets":["s3cret"]}`))
-	if !ok || string(vars) != `{"a":1}` || len(mask.Vaulted) != 1 || mask.Secrets[0] != "s3cret" {
-		t.Errorf("got %s %+v %v", vars, mask, ok)
+	vars, mask, origins, ok := parseSnapshotQuery(json.RawMessage(`{"vars":{"a":1},"vaulted":[["a"]],"secrets":["s3cret"],"origins":{"a":{"path":"/p/x.yml","line":3}}}`))
+	if !ok || string(vars) != `{"a":1}` || len(mask.Vaulted) != 1 || mask.Secrets[0] != "s3cret" || origins["a"].Line != 3 {
+		t.Errorf("got %s %+v %v %v", vars, mask, origins, ok)
 	}
-	if _, _, ok := parseSnapshotQuery(json.RawMessage(`{"a":1}`)); ok {
+	if _, _, _, ok := parseSnapshotQuery(json.RawMessage(`{"a":1}`)); ok {
 		t.Error("a bare task_vars object must not parse as a helper reply")
 	}
 }

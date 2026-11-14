@@ -472,6 +472,11 @@ type liveSession struct {
 	// snapshot are vault-protected (design-docs/Data Tagging.md) - applied
 	// by maskSnapshot wherever the snapshot must not be shown in clear.
 	debugVaultMaskCache map[debugVarsKey]vaultMask
+	// debugOriginCache holds, per the same key, a display label for where
+	// each top-level variable comes from (varorigin.go); debugSetNames the
+	// names the user assigned in the watch panel, which override it.
+	debugOriginCache map[debugVarsKey]map[string]string
+	debugSetNames    map[debugVarsKey]map[string]bool
 }
 
 // debugVarsKey identifies one captured task_vars snapshot - see

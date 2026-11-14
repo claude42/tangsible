@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
@@ -450,14 +451,15 @@ func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause, 
 		if !s.debugAllVars && !willSurface {
 			return
 		}
-		raw, mask, ok := s.debugCaptureSnapshot(sess)
+		raw, meta, ok := s.debugCaptureSnapshot(sess)
 		if !ok {
 			return
 		}
 		s.app.QueueUpdateDraw(func() {
 			key := debugVarsKey{pause.Task, pause.Host}
 			s.debugTaskVarsCache[key] = raw
-			s.debugVaultMaskCache[key] = mask
+			s.debugVaultMaskCache[key] = meta.mask
+			s.debugOriginCache[key] = meta.origins
 		})
 	}
 }
@@ -472,28 +474,43 @@ func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause, 
 // helper can't be queried, it falls back to a bare task_vars with an empty
 // mask. ok=false on any query failure, the same silent-fallback contract
 // debugOnPause's own inline version already had.
-func (s *liveSession) debugCaptureSnapshot(sess *debugrun.Session) (json.RawMessage, vaultMask, bool) {
-	var mask vaultMask
+func (s *liveSession) debugCaptureSnapshot(sess *debugrun.Session) (json.RawMessage, snapshotMeta, bool) {
+	var meta snapshotMeta
 	raw, err := sess.Query(debugSnapshotExpr)
 	if err == nil {
-		var vars json.RawMessage
-		var parsed bool
-		if vars, mask, parsed = parseSnapshotQuery(raw); parsed {
+		vars, mask, origins, parsed := parseSnapshotQuery(raw)
+		if parsed {
 			raw = vars
+			meta.mask = mask
+			base, _ := os.Getwd()
+			meta.origins = originLabels(origins, s.debugCopyDir, s.debugPlaybookDir, base)
 		} else {
 			err = errNoSnapshotHelper
 		}
 	}
 	if err != nil {
-		mask = vaultMask{}
+		meta = snapshotMeta{}
 		raw, err = sess.Query("task_vars")
 		if err != nil {
-			return nil, vaultMask{}, false
+			return nil, snapshotMeta{}, false
 		}
 	}
-	raw = mergeRegisteredResult(raw, sess)
+	raw, regName := mergeRegisteredResultNamed(raw, sess)
+	if regName != "" {
+		if meta.origins == nil {
+			meta.origins = map[string]string{}
+		}
+		meta.origins[regName] = "registered"
+	}
 	raw = s.debugUnfakeShadowPaths(raw)
-	return raw, mask, true
+	return raw, meta, true
+}
+
+// snapshotMeta is what debugCaptureSnapshot learns about a snapshot besides
+// its values: the vault mask and the variables' origin labels.
+type snapshotMeta struct {
+	mask    vaultMask
+	origins map[string]string
 }
 
 var errNoSnapshotHelper = errors.New("tangsible_snapshot reply unusable")
@@ -527,10 +544,10 @@ func (s *liveSession) debugSetWatch(expr, target, value string) bool {
 	go func() {
 		setErr := sess.Set(target, value)
 		var raw json.RawMessage
-		var mask vaultMask
+		var meta snapshotMeta
 		var ok bool
 		if setErr == nil {
-			raw, mask, ok = s.debugCaptureSnapshot(sess)
+			raw, meta, ok = s.debugCaptureSnapshot(sess)
 		}
 		s.app.QueueUpdateDraw(func() {
 			s.debugDriving = false
@@ -542,7 +559,16 @@ func (s *liveSession) debugSetWatch(expr, target, value string) bool {
 			}
 			if ok {
 				s.debugTaskVarsCache[debugVarsKey{label, host}] = raw
-				s.debugVaultMaskCache[debugVarsKey{label, host}] = mask
+				s.debugVaultMaskCache[debugVarsKey{label, host}] = meta.mask
+				s.debugOriginCache[debugVarsKey{label, host}] = meta.origins
+				if ast, parsed := parseWatchExpr(expr); parsed {
+					names := s.debugSetNames[debugVarsKey{label, host}]
+					if names == nil {
+						names = map[string]bool{}
+						s.debugSetNames[debugVarsKey{label, host}] = names
+					}
+					names[ast.root] = true
+				}
 			}
 			s.watch.markJustSet(expr)
 			s.rebuild()
@@ -570,30 +596,37 @@ func (s *liveSession) debugSetWatch(expr, target, value string) bool {
 // unparseable JSON) - the same silent-fallback contract the rest of this
 // cache's consumers already rely on.
 func mergeRegisteredResult(raw json.RawMessage, sess *debugrun.Session) json.RawMessage {
+	merged, _ := mergeRegisteredResultNamed(raw, sess)
+	return merged
+}
+
+// mergeRegisteredResultNamed is mergeRegisteredResult that also reports the
+// register name it merged under ("" when it left raw unchanged).
+func mergeRegisteredResultNamed(raw json.RawMessage, sess *debugrun.Session) (json.RawMessage, string) {
 	regRaw, err := sess.Query("task.register")
 	if err != nil {
-		return raw
+		return raw, ""
 	}
 	var regName string
 	if err := json.Unmarshal(regRaw, &regName); err != nil || regName == "" {
-		return raw
+		return raw, ""
 	}
 
 	resultRaw, err := sess.Query("result._return_data")
 	if err != nil {
-		return raw
+		return raw, ""
 	}
 
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
-		return raw
+		return raw, ""
 	}
 	obj[regName] = resultRaw
 	merged, err := json.Marshal(obj)
 	if err != nil {
-		return raw
+		return raw, ""
 	}
-	return merged
+	return merged, regName
 }
 
 // debugUnfakeShadowPaths rewrites every occurrence of the shadow copy's

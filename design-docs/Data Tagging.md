@@ -118,3 +118,51 @@ case-insensitivity, the length floor). tmux e2e: Resolved tab shows
    masked, but there is no string to match derived values against. Accept?
 3. Tasks using `no_log` stay separate (answer 6); the `secrets` set is a
    natural place for them to join later.
+
+### Next idea
+
+#### Situation
+
+Variables can be defined in lots of different places and sometimes it's not
+clear where a value comes from.
+
+#### Ideas Show where a variable originated
+
+1. In the variable explorer, show the variable's origin after its value
+   (maybe in brackets).
+
+2. I might have more but let's do #1 first
+
+#### Answers
+1. Top-level variables only.
+2. Project-relative path and line.
+3. Show a label where we can ("magic variables" are the ones Ansible itself
+   provides, e.g. `inventory_hostname`, `groups`, `playbook_dir`).
+4. Not in the autocomplete.
+5. `(set in debugger)` for a variable assigned in the watch panel.
+6. Only the winning definition.
+
+#### Spike findings (2026-11-14)
+
+`Origin.get_tag(value)` carries `path`/`line_num`/`col_num` for play `vars:`,
+`vars_files`, `include_vars`, `group_vars`, `host_vars`, inventory host vars
+and `set_fact` (a direct `"{{ other }}"` reference traces through to the
+source; a computed value reports the `set_fact` line). `-e` has only a
+description (`<CLI option '-e'>`). Gathered facts, ansible's own variables
+and registered results carry no origin tag at all.
+
+#### Design
+
+`tangsible_snapshot` also returns `origins`: per top-level variable
+`{path, line}`, `{desc}`, or `{kind}` where `kind` is `fact` (name, or
+`ansible_<name>`, is a key of `ansible_facts`), `builtin` (fixed list of
+ansible's special variables) or `registered` (a dict with `changed`). Go
+(`varorigin.go`) formats labels: paths relative to the working directory
+(absolute when outside it), `-e` for the command-line option. The debug run
+uses a shadow copy, so a path under it is mapped back to the real tree, and
+the line has the inserted `debugger: always` lines above it subtracted. The
+current task's own `register:` name is labelled `registered`. The watch panel
+appends `  (label)` after a value, using the root variable of the expression;
+`(just set)` takes its place until the pause changes, and a variable assigned
+in the panel reads `(set in debugger)` for that pause.
+

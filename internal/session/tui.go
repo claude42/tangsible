@@ -577,6 +577,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.resolveCache = map[resolveKey]uikit.ResolvedRender{}
 	s.debugTaskVarsCache = map[debugVarsKey]json.RawMessage{}
 	s.debugVaultMaskCache = map[debugVarsKey]vaultMask{}
+	s.debugOriginCache = map[debugVarsKey]map[string]string{}
+	s.debugSetNames = map[debugVarsKey]map[string]bool{}
 
 	// s.docsCache holds every module's own ResolvedRender for the "Docs" tab
 	// (ansibledoc.go's ansibledoc.FetchAnsibleDoc), keyed by the task's own "action"

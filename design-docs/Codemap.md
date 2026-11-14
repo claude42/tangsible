@@ -408,6 +408,11 @@ thin constructor/wiring shell.
   captured snapshot for the Resolved tab and the watch autocomplete;
   parses `callback/tangsible_events.py`'s `tangsible_snapshot` reply
   (`design-docs/Data Tagging.md`).
+- **varorigin.go** - display labels for where a top-level variable comes
+  from (project-relative `file:line`, `fact`, `built-in`, `registered`,
+  `-e`), mapping shadow-copy paths and spliced line numbers back to the
+  real files (`design-docs/Data Tagging.md`, "Show where a variable
+  originated").
 - **render.go** - plain-text tree dump; unused by the live flow, kept
   as a dependency-free debug aid.
 - **autocomplete.go** - re-run dialog field autocomplete matching

@@ -160,7 +160,7 @@ func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 // expression simply not resolving against a snapshot that does exist.
 // The heading says so explicitly rather than leaving every single row to
 // separately render "<undefined>" with no explanation why.
-func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen bool, chromeColorName string, width int, snapshotAvailable bool) {
+func (w *watchPanel) render(evaluate func(string) watchResult, origin func(string) string, autocompleteOpen bool, chromeColorName string, width int, snapshotAvailable bool) {
 	var b strings.Builder
 	if w.open || len(w.entries) > 0 {
 		// Leading space on both the heading and every entry row below -
@@ -202,6 +202,8 @@ func (w *watchPanel) render(evaluate func(string) watchResult, autocompleteOpen 
 				// Stage 5: a plain-text suffix, same convention as the
 				// headline's own "(unavailable)" - no new color.
 				valueText += " (just set)"
+			} else if label := origin(e.expr); label != "" {
+				valueText += "  (" + tview.Escape(label) + ")"
 			}
 			fmt.Fprintf(&b, "[%s::-]%s = %s[-::-]\n", color, line, valueText)
 		}
@@ -287,6 +289,24 @@ func (s *liveSession) watchCurrentTaskHost() (task *playbook.TaskNode, host stri
 		return nil, "", false
 	}
 	return task, host, true
+}
+
+// watchOriginLabel is where expr's root variable comes from, for the watch
+// panel - "" when unknown. A variable assigned in the panel says so.
+func (s *liveSession) watchOriginLabel(expr string) string {
+	ast, ok := parseWatchExpr(expr)
+	if !ok {
+		return ""
+	}
+	task, host, ok := s.watchCurrentTaskHost()
+	if !ok {
+		return ""
+	}
+	key := debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}
+	if s.debugSetNames[key][ast.root] {
+		return originSetInDebugger
+	}
+	return s.debugOriginCache[key][ast.root]
 }
 
 // watchCurrentSnapshot resolves watchCurrentTaskHost's own target to its

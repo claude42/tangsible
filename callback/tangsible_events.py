@@ -122,16 +122,63 @@ def _strings(node, out, depth=0):
             _strings(value, out, depth + 1)
 
 
+# Variables ansible itself provides (its "special variables"), which carry
+# no origin of their own.
+_BUILTIN_VARS = frozenset("""
+ansible_check_mode ansible_collection_name ansible_config_file
+ansible_current_hosts ansible_dependent_role_names ansible_diff_mode
+ansible_failed_hosts ansible_forks ansible_index_var ansible_inventory_sources
+ansible_limit ansible_loop ansible_loop_var ansible_parent_role_names
+ansible_parent_role_paths ansible_play_batch ansible_play_hosts
+ansible_play_hosts_all ansible_play_name ansible_play_role_names
+ansible_playbook_python ansible_role_name ansible_role_names ansible_run_tags
+ansible_search_path ansible_skip_tags ansible_verbosity ansible_version
+environment group_names groups hostvars inventory_dir inventory_file
+inventory_hostname inventory_hostname_short omit play_hosts playbook_dir
+role_name role_names role_path vars
+""".split())
+
+
+def _origin_of(name, value, facts, Origin):
+    """Where a top-level variable's value comes from, or None if unknown.
+
+    A file/line or description from its ``Origin`` tag; otherwise a coarse
+    ``kind`` for what carries no tag: gathered facts, ansible's own variables,
+    and registered results.
+    """
+    origin = Origin.get_tag(value) if Origin is not None else None
+    if origin is not None and origin.path:
+        info = {"path": str(origin.path)}
+        if origin.line_num:
+            info["line"] = origin.line_num
+        return info
+    if origin is not None and origin.description:
+        return {"desc": str(origin.description)}
+    if isinstance(facts, dict) and (
+        name == "ansible_facts"
+        or name in facts
+        or (name.startswith("ansible_") and name[len("ansible_"):] in facts)
+    ):
+        return {"kind": "fact"}
+    if name in _BUILTIN_VARS:
+        return {"kind": "builtin"}
+    if isinstance(value, dict) and "changed" in value:
+        return {"kind": "registered"}
+    return None
+
+
 def tangsible_snapshot(task_vars):
     """Describe task_vars plus which of its values come from a vault.
 
     Used by tangsible's debug mode through the debugger REPL. Returns
-    ``{"vars": task_vars, "vaulted": [path, ...], "secrets": [str, ...]}``:
+    ``{"vars": task_vars, "vaulted": [path, ...], "secrets": [str, ...],
+    "origins": {name: {...}}}``:
     ``vaulted`` holds key/index paths of values that are vault-protected as a
     whole (an inline ``!vault`` value, or anything loaded from a wholly
     encrypted file), ``secrets`` the decrypted strings, so a caller can also
-    find them inside derived values. Detection relies on ansible internals; if
-    those are unavailable (older ansible) both lists stay empty.
+    find them inside derived values; ``origins`` says where each top-level
+    variable comes from (see ``_origin_of``). Detection relies on ansible
+    internals; if those are unavailable (older ansible) the lists stay empty.
     """
     try:
         from ansible.parsing.vault import EncryptedString
@@ -176,7 +223,22 @@ def tangsible_snapshot(task_vars):
     if isinstance(task_vars, dict):
         for key, value in task_vars.items():
             visit(value, [str(key)], 0)
-    return {"vars": task_vars, "vaulted": vaulted, "secrets": sorted(set(secrets))}
+    origins = {}
+    if isinstance(task_vars, dict):
+        facts = task_vars.get("ansible_facts")
+        for key, value in task_vars.items():
+            try:
+                info = _origin_of(str(key), value, facts, Origin)
+            except Exception:
+                info = None
+            if info:
+                origins[str(key)] = info
+    return {
+        "vars": task_vars,
+        "vaulted": vaulted,
+        "secrets": sorted(set(secrets)),
+        "origins": origins,
+    }
 
 
 # Strategies that advance every host through a task together. Anything else
