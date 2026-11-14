@@ -231,9 +231,11 @@ func (s *liveSession) chromeColorName() string {
 // always ~0 (design-docs/Revisit.md: only a run's start time was ever
 // saved, never its duration), and showing that would read as "this just
 // finished in no time" rather than as the honest "we don't know" it
-// actually is. Read fresh on every call, same reasoning as
+// actually is. Debug mode hides it too: wall-clock time since startup
+// mostly measures how long the user sat at a breakpoint, not anything
+// about the run. Read fresh on every call, same reasoning as
 // chromeColorName/currentMainBottomBarText just above.
-func (s *liveSession) showElapsed() bool { return !s.revisitActive }
+func (s *liveSession) showElapsed() bool { return !s.revisitActive && !s.debugMode }
 
 // outputBottomBarNormalStyle resolves s.outputBottomBar's own non-search
 // style fresh on every call, the same "s.revisitActive decides, s.chromeStyle
