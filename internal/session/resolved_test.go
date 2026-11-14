@@ -15,6 +15,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,4 +173,28 @@ func emptySnapshot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestResolveTaskValuesFromSnapshot_IgnoresBecome_Live: a snapshot carrying
+// ansible_become/ansible_become_password (from inventory or group_vars)
+// must not make the render stub escalate - the stub only renders a template
+// on the control node, and with the password masked (design-docs/Data
+// Tagging.md) a sudo attempt fails with "Duplicate become password prompt".
+func TestResolveTaskValuesFromSnapshot_IgnoresBecome_Live(t *testing.T) {
+	requireAnsiblePlaybook(t)
+
+	repoRoot, err := filepath.Abs("../../")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot, "callback"))
+
+	snapshot := `{"ansible_become": true, "ansible_become_method": "sudo", "ansible_become_password": "<vaulted>", "x": 2}`
+	got, err := resolveTaskValuesFromSnapshot("/nonexistent/tasks/main.yml:1", "{{ x }}\n", "localhost", []string{"-i", "localhost,"}, json.RawMessage(snapshot), "/my/real/project")
+	if err != nil {
+		t.Fatalf("resolveTaskValuesFromSnapshot: %v", err)
+	}
+	if strings.TrimSpace(got) != "2" {
+		t.Errorf("got %q, want 2", got)
+	}
 }

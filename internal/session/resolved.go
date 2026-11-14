@@ -277,6 +277,25 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 	return strings.ReplaceAll(text, tmpDir, realPlaybookDir), nil
 }
 
+// withoutBecome sets ansible_become to false in snapshot (extra vars win over
+// inventory/group_vars): the render stub only templates a file on the control
+// node and must never escalate - with a become password from the snapshot
+// (masked as <vaulted>, design-docs/Data Tagging.md) it would fail with
+// "Duplicate become password prompt"; with the real one it would silently run
+// through sudo. Returned unchanged if snapshot isn't a JSON object.
+func withoutBecome(snapshot json.RawMessage) json.RawMessage {
+	var vars map[string]json.RawMessage
+	if json.Unmarshal(snapshot, &vars) != nil {
+		return snapshot
+	}
+	vars["ansible_become"] = json.RawMessage("false")
+	out, err := json.Marshal(vars)
+	if err != nil {
+		return snapshot
+	}
+	return out
+}
+
 // resolveTaskValuesFromSnapshot is resolveTaskValues' own debug-mode
 // counterpart (design-docs/DebugMode.md's "Resolved Variables tab"): the
 // same template-stub render - real Jinja evaluation of the task's own
@@ -300,13 +319,14 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 // resolveTaskValues' own doc comment, and debugUnfakeShadowPaths',
 // livesession_debug.go, for the fuller story).
 func resolveTaskValuesFromSnapshot(taskPath, taskSource, host string, rest []string, snapshot json.RawMessage, playbookDir string) (string, error) {
+	rendered := withoutBecome(snapshot)
 	snapFile, err := os.CreateTemp("", "tangsible-resolve-snapshot-*.json")
 	if err != nil {
 		return "", err
 	}
 	snapPath := snapFile.Name()
 	defer os.Remove(snapPath)
-	if _, err := snapFile.Write(snapshot); err != nil {
+	if _, err := snapFile.Write(rendered); err != nil {
 		snapFile.Close()
 		return "", err
 	}
