@@ -150,7 +150,7 @@ func (s *liveSession) debugBottomBarHint() string {
 // F10/F11/F12 are unclaimed anywhere else in this codebase (confirmed by
 // grep before adopting them), so this never shadows an existing binding.
 func (s *liveSession) handleDebugKey(event *tcell.EventKey) (*tcell.EventKey, bool) {
-	if !s.debugMode {
+	if !s.debugMode || s.viewingStats {
 		return nil, false
 	}
 	switch event.Key() {

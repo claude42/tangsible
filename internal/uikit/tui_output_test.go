@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/rolepath"
@@ -993,5 +994,26 @@ func TestRoleFromPath_CustomRolesPath(t *testing.T) {
 		if got := RoleFromPath(path); got != want {
 			t.Errorf("RoleFromPath(%q) = %q, want %q", path, got, want)
 		}
+	}
+}
+
+// TestBuildTaskTab_Duration: the host's own duration, when known, is the
+// Task tab's last line (design-docs/Stats.md); unknown means no line.
+func TestBuildTaskTab_Duration(t *testing.T) {
+	base := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	task := &playbook.TaskNode{
+		Name:     "do it",
+		Started:  map[string]time.Time{"h1": base},
+		Finished: map[string]time.Time{"h1": base.Add(300 * time.Millisecond)},
+	}
+	got := BuildTaskTab(task, "h1", map[string]interface{}{}, playbook.OutcomeOK)
+	if !strings.Contains(got, "Duration:") || !strings.Contains(got, "0.3s") {
+		t.Errorf("want a Duration: 0.3s line, got %q", got)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(got), "0.3s[-]") {
+		t.Errorf("Duration should be the last line, got %q", got)
+	}
+	if got := BuildTaskTab(task, "unknown-host", map[string]interface{}{}, playbook.OutcomeOK); strings.Contains(got, "Duration") {
+		t.Errorf("no known duration, no line; got %q", got)
 	}
 }

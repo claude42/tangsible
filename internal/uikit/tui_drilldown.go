@@ -902,7 +902,7 @@ func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[strin
 }
 
 // BuildTaskTab renders the Task tab's own summary block
-// (Role/Task/Action/Host/Status), keys green and values lightsteelblue
+// (Role/Task/Action/Host/Status/Duration), keys green and values lightsteelblue
 // (design-docs/Colors.md), values aligned to a shared column the same way
 // internal/host/host.go's own formatCharacteristics already does.
 //
@@ -947,7 +947,12 @@ func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]inter
 	fields = append(fields, field{"Host", host})
 
 	const statusLabel = "Status"
+	const durationLabel = "Duration"
 	width := len(statusLabel) + 1
+	duration, haveDuration := HostDuration(task, host)
+	if haveDuration && len(durationLabel)+1 > width {
+		width = len(durationLabel) + 1
+	}
 	for _, f := range fields {
 		if l := len(f.label) + 1; l > width { // +1 for the trailing colon
 			width = l
@@ -966,6 +971,12 @@ func BuildTaskTab(task *playbook.TaskNode, host string, decoded map[string]inter
 	}
 	label := statusLabel + ":"
 	fmt.Fprintf(&b, "[%s]%s[-]%s[%s::b]%s[-::-]\n", KeyHighlightColor, label, strings.Repeat(" ", width-len(label)+1), HostColorTag(task, host, o, true), tview.Escape(status))
+	// design-docs/Stats.md: how long this host took for this task, when
+	// known (HostDuration's own "unknown, not zero" convention).
+	if haveDuration {
+		label = durationLabel + ":"
+		fmt.Fprintf(&b, "[%s]%s[-]%s[%s]%s[-]\n", KeyHighlightColor, label, strings.Repeat(" ", width-len(label)+1), ValueHighlightColor, FormatDuration(duration))
+	}
 	return b.String()
 }
 

@@ -456,6 +456,23 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		AddItem(s.stdoutView, 0, 1, true).
 		AddItem(s.stdoutSearch.footer, 1, 0, false)
 
+	// The statistics screen ('s', livesession_stats.go): own page and bars,
+	// a tab pane over one TextView per statistic.
+	s.statsHostsView = tview.NewTextView().SetDynamicColors(true)
+	s.statsHostsView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	s.statsTabs = uikit.NewTabbedPane()
+	s.statsTabs.SetHeaderStyle(s.chromeStyle, s.chromeColorName())
+	s.statsTabs.SetTabs(statsTabNames, []tview.Primitive{s.statsHostsView})
+	s.statsTopBar = tview.NewTextView().SetDynamicColors(true)
+	s.statsTopBar.SetTextStyle(s.chromeStyle)
+	s.statsBottomBar = tview.NewTextView().SetText(statsBar)
+	s.statsBottomBar.SetTextStyle(s.chromeStyle)
+	statsFlex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(s.statsTopBar, 1, 0, false).
+		AddItem(s.statsTabs.Primitive(), 0, 1, true).
+		AddItem(s.statsBottomBar, 1, 0, false)
+
 	s.outputFlex = tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(s.outputTopBar, 1, 0, false).
@@ -832,6 +849,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.pages.AddPage("output", s.outputFlex, true, false)
 	s.pages.AddPage("split", s.splitFlex, true, false)
 	s.pages.AddPage("stdout", stdoutFlex, true, false)
+	s.pages.AddPage("stats", statsFlex, true, false)
 	s.pages.AddPage("filter", uikit.CenteredModal(s.filterFlex, 46, 11), true, false)
 	s.pages.AddPage("search", uikit.CenteredModal(s.searchDialogFlex, 46, 11), true, false)
 	// Sized for the max case (all three checkboxes present: 7 form items,

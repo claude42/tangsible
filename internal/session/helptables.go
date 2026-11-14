@@ -34,7 +34,7 @@ const (
 // treeBar is the tree view's bottom bar. currentMainBottomBarText drops
 // "r: re-run" when nothing can rerun and appends the revisit and check-mode
 // notes - the same contexts helpEntryHidden covers for the help dialog.
-const treeBar = " ?: help  f: filter  /: search  o: output  r: re-run  q: quit "
+const treeBar = " ?: help  f: filter  /: search  o: output  r: re-run  s: stats  q: quit "
 
 var treeHelp = uikit.HelpScreen{
 	Title: "tree view",
@@ -59,6 +59,7 @@ var treeHelp = uikit.HelpScreen{
 			{Keys: "o", Desc: "ansible-playbook's own console output, following it while the run is live"},
 			{Keys: "r", Desc: "Re-run, optionally with other tags/hosts or from a given play (once the run has finished)", ID: helpIDRerun},
 			{Keys: "d", Desc: "Compare this run with a previous one (once the run has finished)"},
+			{Keys: "s", Desc: "Statistics - time per host (once the run has finished)"},
 		}},
 		{Title: "Debug mode", Entries: []uikit.HelpEntry{
 			{Keys: "F5", Desc: "Run - to the next armed breakpoint, or to completion with none set", ID: helpIDDebug},
@@ -170,6 +171,34 @@ var stdoutHelp = uikit.HelpScreen{
 		}},
 		{Title: "Mouse", Entries: []uikit.HelpEntry{
 			{Keys: "Wheel", Desc: "Scroll (stops following)"},
+		}},
+	},
+}
+
+// statsBar is the statistics screen's ('s') bottom bar.
+const statsBar = " ?: help  tab: next tab  y: copy  esc: back "
+
+var statsHelp = uikit.HelpScreen{
+	Title: "statistics",
+	Sections: []uikit.HelpSection{
+		{Title: "Tabs", Entries: []uikit.HelpEntry{
+			{Keys: "Tab / Shift-Tab", Desc: "Next / previous tab"},
+			{Keys: "Hosts", Desc: "The run's elapsed time, then the time each host spent on tasks, slowest first. A host that failed is red, an unreachable one maroon"},
+		}},
+		{Title: "Scrolling", Entries: []uikit.HelpEntry{
+			{Keys: "↑ / ↓, j / k", Desc: "Scroll a line"},
+			{Keys: "PgUp / PgDn", Desc: "Scroll a page - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E, < / > and G"},
+		}},
+		{Title: "General", Entries: []uikit.HelpEntry{
+			{Keys: "y", Desc: "Copy the active tab to the clipboard"},
+			{Keys: "? / F1", Desc: "This help"},
+			{Keys: "Esc / s / q", Desc: "Back to the tree"},
+			{Keys: "Ctrl-C", Desc: "Quit"},
+		}},
+		{Title: "Mouse", Entries: []uikit.HelpEntry{
+			{Keys: "Click a tab", Desc: "Switch to it"},
+			{Keys: "Wheel", Desc: "Scroll"},
 		}},
 	},
 }

@@ -59,6 +59,9 @@ func (s *liveSession) handleMouse(event *tcell.EventMouse, action tview.MouseAct
 	if s.viewingStdout {
 		return s.handleStdoutViewMouse(event, action)
 	}
+	if s.viewingStats {
+		return s.handleStatsViewMouse(event, action)
+	}
 	if s.viewingOutput {
 		return s.handleOutputViewMouse(event, action)
 	}

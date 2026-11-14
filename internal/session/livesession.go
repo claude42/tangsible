@@ -333,6 +333,13 @@ type liveSession struct {
 	stdoutBottomBar *tview.TextView
 	stdoutSearch    *tabSearchPanel
 	viewingStdout   bool
+	// The statistics screen ('s', livesession_stats.go): own page, bars and
+	// tab pane; statsHostsView is the Hosts tab's body.
+	viewingStats    bool
+	statsTopBar     *tview.TextView
+	statsBottomBar  *tview.TextView
+	statsTabs       *uikit.TabbedPane
+	statsHostsView  *tview.TextView
 	stdoutFollowing bool
 	// stdoutShownLog/stdoutShown: which log stdoutView currently holds
 	// lines from, and how many - syncStdoutView's "what's new" bookmark.

@@ -428,6 +428,10 @@ func (s *liveSession) rebuild() {
 	s.outputFlex.ResizeItem(s.watch.flex, watchTotal, 0)
 	s.outputBody.ResizeItem(s.watch.flex, watchTotal, 0)
 
+	if s.viewingStats {
+		s.renderStats()
+	}
+
 	if s.viewingStdout {
 		// The raw-output view (livesession_stdout.go): new lines first,
 		// then the top bar, whose text reports what was just appended or

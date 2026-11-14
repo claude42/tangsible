@@ -72,6 +72,9 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		// following) - handleStdoutViewKey handles both itself.
 		return s.handleStdoutViewKey(event)
 	}
+	if s.viewingStats {
+		return s.handleStatsViewKey(event) // q backs out here, like the other views
+	}
 	if result, handled := s.handleOutputViewQuit(event); handled {
 		return result
 	}
@@ -504,6 +507,11 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 		// The raw-output view (livesession_stdout.go) - available while
 		// the run is still going too, unlike 'r'/'d'.
 		s.openStdoutView()
+		return nil
+	case event.Key() == tcell.KeyRune && event.Rune() == 's':
+		// design-docs/Stats.md: only once the run has ended (and has
+		// timing to show) - openStatsView checks.
+		s.openStatsView()
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'E':
 		s.expandAll()

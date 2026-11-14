@@ -87,6 +87,8 @@ template, diff, the run list) each wired just a few of them by hand.
 
 * o                - open the raw-output view (see below) - available
                      while the playbook is still running too
+* s                - open the statistics screen (see below) - only once the
+                     run has ended and has timing to show
 * ? / F1           - open the help dialog: every shortcut of this view, as
                      an overlay the tree keeps updating behind. Scroll it
                      with the usual navigation keys; Esc / ? / F1 / q close
@@ -211,6 +213,22 @@ arrives.
 
 **Mouse**
 * Wheel / trackpad - scroll (stops following)
+
+## Statistics screen
+
+Opened with `s` from the tree once the run has ended (also in `revisit` and
+a finished `debug` session); design-docs/Stats.md. One tab per statistic -
+for now Hosts.
+
+* Tab / Shift-Tab  - next / previous tab
+* Up / Down, PgUp / PgDn, Home / End (and the usual aliases) - scroll
+* y                - copy the active tab (see "Copy to clipboard" below)
+* Escape / s / q   - back to the tree (q does NOT quit here)
+* ? / F1           - help for this view
+
+**Mouse**
+* Click a tab      - switch to it
+* Wheel / trackpad - scroll
 
 ## In-tab search
 

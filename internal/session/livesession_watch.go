@@ -520,7 +520,7 @@ func (s *liveSession) watchSyncBottomBar() {
 // a bare 'v' to open it; while open, it owns every key the same modal way
 // the rerun/filter/search dialogs already do.
 func (s *liveSession) handleWatchKey(event *tcell.EventKey) (*tcell.EventKey, bool) {
-	if !s.debugMode || s.viewingStdout {
+	if !s.debugMode || s.viewingStdout || s.viewingStats {
 		return nil, false
 	}
 	if !s.watch.open {
