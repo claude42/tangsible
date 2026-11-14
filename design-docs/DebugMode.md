@@ -4017,3 +4017,13 @@ ordering doesn't reproduce in debug.
 # Resume
 
 claude --resume ffbd62f0-5860-4b91-a329-4872afd4657e
+
+## Registered value on the Resolved tab
+
+`resolveRegisterInText` (`resolve_register.go`) rewrites the task's own
+`register: name` line to `register: name = value`, from the value
+`mergeRegisteredResult` already stores in the cached snapshot. Short values
+stay on the line; longer ones follow as indented JSON, cut at 40 lines.
+Unlike the rest of the tab this is a post-task value (what the task
+produced, not what it saw), so it shows for failed tasks too. Same scope as
+the tab: only a task with a captured pause. Display only, never valid YAML.

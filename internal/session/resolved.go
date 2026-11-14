@@ -316,5 +316,6 @@ func resolveTaskValuesFromSnapshot(taskPath, taskSource, host string, rest []str
 	if err != nil {
 		return "", err
 	}
-	return resolveConditionsInText(text, taskSource, snapshot), nil
+	text = resolveConditionsInText(text, taskSource, snapshot)
+	return resolveRegisterInText(text, snapshot), nil
 }
