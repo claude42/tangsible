@@ -9,6 +9,12 @@ immediately implemented.
 * 'e' works in drill down but doesn't update tab, probably doesn't reread when
   re-run
 
+* debug: mask `no_log` values like vaulted ones (see "Data Tagging.md"). The
+  stock debugger ignores `no_log`; the idea is to hide such values in the
+  Resolved tab and the watch autocomplete, but still show them in the watch
+  panel. Needs a static scan for `no_log` tasks that `register:` or
+  `set_fact:` a variable, as there is no tag to read.
+
 * Statstics
   * host timings
   * task timings
