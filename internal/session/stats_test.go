@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/playbook"
+	"code.aw.net/claude/tangsible/internal/uikit"
 )
 
 func statsFixture() *playbook.PlaybookState {
@@ -78,7 +79,7 @@ func TestRenderHostsTab(t *testing.T) {
 	if strings.Index(plain, "elapsed") > strings.Index(plain, "artha") {
 		t.Errorf("the elapsed bar comes first:\n%s", plain)
 	}
-	// The host names are drawn inside their bars (inverted), like the Plays tab.
+	// The host names are drawn inside their bars (inverted), like the Slowest plays tab.
 	if !strings.Contains(got, ":lightsteelblue] artha") {
 		t.Errorf("the host name should sit inside its bar:\n%s", got)
 	}
@@ -205,7 +206,7 @@ func TestRenderPlaysTab(t *testing.T) {
 		}
 	}
 	if strings.Contains(plain, "elapsed") {
-		t.Errorf("the Plays tab has no elapsed bar:\n%s", plain)
+		t.Errorf("the Slowest plays tab has no elapsed bar:\n%s", plain)
 	}
 	// The failed play's bar is red; the long play's name sits inside its bar.
 	if !strings.Contains(got, ":red]") {
@@ -286,19 +287,22 @@ func TestRenderTasksTab(t *testing.T) {
 	got := renderTasksTab(stats.PlayTasks[0], 60)
 	plain := regexp.MustCompile(`\[[^\]]*\]`).ReplaceAllString(got, "")
 	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
-	// leading blank, one, blank, two, blank, three, blank, untimed
-	if len(lines) != 8 || lines[0] != "" || lines[2] != "" {
+	// leading blank, elapsed, blank, one, blank, two, blank, three, blank, untimed
+	if len(lines) != 10 || lines[0] != "" || lines[2] != "" {
 		t.Fatalf("lines = %q", lines)
 	}
-	if !strings.HasSuffix(lines[1], "4.0s") || !strings.HasSuffix(lines[5], "5.0s") {
+	if !strings.HasPrefix(lines[1], " elapsed") || !strings.HasSuffix(lines[1], "10.0s") {
+		t.Errorf("elapsed row = %q, want the play's 10.0s", lines[1])
+	}
+	if !strings.HasSuffix(lines[3], "4.0s") || !strings.HasSuffix(lines[7], "5.0s") {
 		t.Errorf("durations missing: %q", lines)
 	}
 	// "one" starts at the left edge; "three" starts halfway.
-	if !strings.HasPrefix(lines[1], " one") || strings.Index(lines[5], "three") < 20 {
+	if !strings.HasPrefix(lines[3], " one") || strings.Index(lines[7], "three") < 20 {
 		t.Errorf("offsets wrong: %q", lines)
 	}
-	if strings.TrimSpace(lines[7]) != "untimed" {
-		t.Errorf("untimed row = %q, want a bare name", lines[7])
+	if strings.TrimSpace(lines[9]) != "untimed" {
+		t.Errorf("untimed row = %q, want a bare name", lines[9])
 	}
 }
 
@@ -323,17 +327,40 @@ func TestRenderTimelineTab(t *testing.T) {
 	stats, _ := computeRunStats(playsFixture())
 	plain := regexp.MustCompile(`\[[^\]]*\]`).ReplaceAllString(renderTimelineTab(stats, 60), "")
 	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
-	// leading blank, play, blank, play, blank, play
-	if len(lines) != 6 || lines[0] != "" {
+	// leading blank, elapsed, blank, play, blank, play, blank, play
+	if len(lines) != 8 || lines[0] != "" {
 		t.Fatalf("lines = %q", lines)
 	}
-	if !strings.HasPrefix(lines[1], " Very long play") || !strings.HasSuffix(lines[1], "21.3s") {
-		t.Errorf("first row = %q", lines[1])
+	if !strings.HasPrefix(lines[1], " elapsed") || !strings.HasSuffix(lines[1], uikit.FormatDuration(stats.Wall)) {
+		t.Errorf("elapsed row = %q, want the run's elapsed time", lines[1])
 	}
-	if strings.Index(lines[3], "play 2") < 35 {
-		t.Errorf("play 2 should start late: %q", lines[3])
+	if !strings.HasPrefix(lines[3], " Very long play") || !strings.HasSuffix(lines[3], "21.3s") {
+		t.Errorf("first row = %q", lines[3])
+	}
+	if strings.Index(lines[5], "play 2") < 35 {
+		t.Errorf("play 2 should start late: %q", lines[5])
 	}
 	if got := renderTimelineTab(runStats{}, 60); !strings.Contains(got, "No timing") {
+		t.Errorf("empty = %q", got)
+	}
+}
+
+func TestRenderAllTasksTab(t *testing.T) {
+	stats, _ := computeRunStats(tasksFixture())
+	var names []string
+	for _, task := range stats.AllTasks {
+		names = append(names, task.Name)
+	}
+	if got := strings.Join(names, ","); got != "three,one,two" {
+		t.Fatalf("AllTasks = %s, want the timed tasks longest first, the untimed one left out", got)
+	}
+	plain := regexp.MustCompile(`\[[^\]]*\]`).ReplaceAllString(renderAllTasksTab(stats, 60), "")
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+	// leading blank, three, blank, one, blank, two
+	if len(lines) != 6 || !strings.HasSuffix(lines[1], "5.0s") || !strings.HasSuffix(lines[5], "1.0s") {
+		t.Errorf("lines = %q", lines)
+	}
+	if got := renderAllTasksTab(runStats{}, 60); !strings.Contains(got, "No timing") {
 		t.Errorf("empty = %q", got)
 	}
 }

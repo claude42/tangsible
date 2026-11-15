@@ -84,6 +84,9 @@ type runStats struct {
 	Wall     time.Duration
 	// PlayTasks has the plays that have any timed task, in playbook order.
 	PlayTasks []playTasks
+	// AllTasks has every timed task of the run, longest wall time first (the
+	// All tasks tab).
+	AllTasks []taskStat
 }
 
 // computeRunStats sums every task's known per-host duration (uikit.
@@ -162,6 +165,14 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 	sort.SliceStable(plays, func(i, j int) bool { return plays[i].Wall > plays[j].Wall })
 	stats.Plays = plays
 	stats.PlayTasks = playTaskList
+	for _, pt := range playTaskList {
+		for _, t := range pt.Tasks {
+			if t.Timed {
+				stats.AllTasks = append(stats.AllTasks, t)
+			}
+		}
+	}
+	sort.SliceStable(stats.AllTasks, func(i, j int) bool { return stats.AllTasks[i].Wall > stats.AllTasks[j].Wall })
 	if !first.IsZero() && last.After(first) {
 		stats.Wall = last.Sub(first)
 	}
@@ -336,6 +347,21 @@ func renderPlaysTab(stats runStats, width int) string {
 	return renderBars(rows, width)
 }
 
+// renderAllTasksTab renders the All tasks tab: one bar per task of the whole
+// run with its wall time (first host start to last host finish), longest
+// first, colored as in the tree by the task's worst outcome. Tasks without
+// timing are left out.
+func renderAllTasksTab(stats runStats, width int) string {
+	if len(stats.AllTasks) == 0 {
+		return "No timing was recorded for the tasks."
+	}
+	rows := make([]statRow, len(stats.AllTasks))
+	for i, t := range stats.AllTasks {
+		rows[i] = statRow{t.Name, t.Wall, t.Color}
+	}
+	return renderBars(rows, width)
+}
+
 // timelineRow is one bar of a timeline tab: where it starts and how long it
 // lasts, relative to the scale the whole tab shares.
 type timelineRow struct {
@@ -349,9 +375,13 @@ type timelineRow struct {
 // area) being the span they all fall within: each bar starts where its row
 // began and is as long as its wall time. The name is inside the bar or, for a
 // late short one, right-aligned to the end of the bar area (uikit.SpanBar);
-// the duration is in the right column. An untimed row is a bare name. Blank
+// the duration is in the right column. The first row is a gray full-width
+// "elapsed" bar for scale itself, the ruler the others are read against. An untimed row is a bare name. Blank
 // lines separate rows.
 func renderTimeline(rows []timelineRow, scale time.Duration, width int) string {
+	if scale > 0 {
+		rows = append([]timelineRow{{elapsedLabel, 0, scale, true, uikit.AnnotationColor}}, rows...)
+	}
 	durWidth := 0
 	for _, r := range rows {
 		if r.timed {

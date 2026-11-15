@@ -343,6 +343,7 @@ type liveSession struct {
 	statsPlaysView    *tview.TextView
 	statsTimelineView *tview.TextView
 	statsTasksView    *tview.TextView
+	statsAllTasksView *tview.TextView
 	// statsPlayPicker chooses the play the Tasks tab shows;
 	// statsSyncing guards its selected callback while renderStats
 	// refills the options.

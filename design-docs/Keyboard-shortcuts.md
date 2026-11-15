@@ -218,12 +218,13 @@ arrives.
 
 Opened with `s` from the tree once the run has ended (also in `revisit` and
 a finished `debug` session); design-docs/Stats.md. One tab per statistic -
-Hosts, Plays, Timeline and Tasks.
+Slowest hosts, Slowest plays, Play timeline, Slowest tasks and Task
+timeline.
 
 * Tab / Shift-Tab  - next / previous tab
 * Up / Down, PgUp / PgDn, Home / End (and the usual aliases) - scroll
-* Left / Right     - Tasks tab: previous / next play
-* p                - Tasks tab: open the play picker (type to filter, Enter picks, Esc closes just the picker)
+* Left / Right     - Task timeline tab: previous / next play
+* p                - Task timeline tab: open the play picker (type to filter, Enter picks, Esc closes just the picker)
 * y                - copy the active tab (see "Copy to clipboard" below)
 * Escape / s / q   - back to the tree (q does NOT quit here)
 * ? / F1           - help for this view

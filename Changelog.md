@@ -8,9 +8,11 @@
 - Task definition tab: roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are found too, also outside the project tree
 - `host`/`hosts`/`inventory`: the "Everything known" tab is removed and the "host_vars" tab hidden; the Variables and Facts tabs replace them
 - YAML tabs show comments (a `# ...` line or a trailing `# ...`) in the annotation colour instead of the value colour
-- `s` opens a statistics screen once the run has ended; tabs: Hosts (the run's elapsed time and the time each host spent on tasks) and Plays (how long each play took), as bars with the name drawn inside, slowest first, failed ones red
-- Statistics: a Timeline tab shows the plays in the order they ran, each bar starting when the play began
-- Statistics: a Tasks tab shows one play's tasks on a timeline (bar start = when the task began, length = its wall time), with a play picker (`p`)
+- `s` opens a statistics screen once the run has ended; tabs: Slowest hosts (the run's elapsed time and the time each host spent on tasks) and Slowest plays (how long each play took), as bars with the name drawn inside, slowest first, failed ones red
+- Statistics: a Play timeline tab shows the plays in the order they ran, each bar starting when the play began
+- Statistics: a Task timeline tab shows one play's tasks on a timeline (bar start = when the task began, length = its wall time), with a play picker (`p`)
+- Statistics: the Play timeline and Task timeline tabs start with a full-width `elapsed` bar for the total
+- Statistics: a Slowest tasks tab ranks every task of the run by wall time, longest first, colored by outcome
 - The drill-down's Task tab shows the host's `Duration:` for the task
 - `host`/`hosts`/`inventory`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
 - `host`/`hosts`/`inventory`: new Facts tab with every gathered fact as YAML
