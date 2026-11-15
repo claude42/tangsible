@@ -335,7 +335,7 @@ thin constructor/wiring shell.
   - **livesession_stats.go**/**stats.go** - the statistics screen (`s`,
     `design-docs/Stats.md`): a page with a tab per statistic. `stats.go`
     is the tview-free part (`computeRunStats`, `renderHostsTab`,
-    `renderPlaysTab`, `renderTasksTab`),
+    `renderPlaysTab`, `renderTimelineTab`, `renderTasksTab`),
     `livesession_stats.go` the view (open/close, keys, mouse).
   - **livesession_filter.go** - the tree-level filter (`f`) and search
     (`/`) dialogs: `openFilterDialog`/`openSearchDialog`/`closeDialogs`/

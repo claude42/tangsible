@@ -301,3 +301,39 @@ func TestRenderTasksTab(t *testing.T) {
 		t.Errorf("untimed row = %q, want a bare name", lines[7])
 	}
 }
+
+func TestComputeRunStatsTimeline(t *testing.T) {
+	stats, _ := computeRunStats(playsFixture())
+	if len(stats.Timeline) != 3 {
+		t.Fatalf("Timeline = %+v", stats.Timeline)
+	}
+	// playbook order (not slowest first), starts relative to the run's start
+	want := []struct {
+		name  string
+		start time.Duration
+	}{{"Very long play", 0}, {"play 2", 22 * time.Second}, {"Short", 25 * time.Second}}
+	for i, w := range want {
+		if got := stats.Timeline[i]; got.Name != w.name || got.Start != w.start {
+			t.Errorf("Timeline[%d] = %s @ %v, want %s @ %v", i, got.Name, got.Start, w.name, w.start)
+		}
+	}
+}
+
+func TestRenderTimelineTab(t *testing.T) {
+	stats, _ := computeRunStats(playsFixture())
+	plain := regexp.MustCompile(`\[[^\]]*\]`).ReplaceAllString(renderTimelineTab(stats, 60), "")
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+	// leading blank, play, blank, play, blank, play
+	if len(lines) != 6 || lines[0] != "" {
+		t.Fatalf("lines = %q", lines)
+	}
+	if !strings.HasPrefix(lines[1], " Very long play") || !strings.HasSuffix(lines[1], "21.3s") {
+		t.Errorf("first row = %q", lines[1])
+	}
+	if strings.Index(lines[3], "play 2") < 35 {
+		t.Errorf("play 2 should start late: %q", lines[3])
+	}
+	if got := renderTimelineTab(runStats{}, 60); !strings.Contains(got, "No timing") {
+		t.Errorf("empty = %q", got)
+	}
+}

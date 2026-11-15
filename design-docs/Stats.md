@@ -113,6 +113,15 @@ let's try it).
 
 Write the task names "into" the bars in the same way as in the other two diagrams.
 
+### Timeline tab (implemented)
+
+Plays on a timeline, the Tasks tab's visualization one level up (shared
+`renderTimeline`, `uikit.SpanBar`): the plays in playbook order, each bar
+starting when the play's first task started (relative to the run's first task
+start) and as long as its wall time; the run's elapsed time fills the bar
+area. No picker. Colors as on the Plays tab (failed red, unreachable maroon).
+Plays without timing are left out.
+
 ### Tasks tab (implemented)
 
 * One play at a time, the first by default, chosen with a drop-down above the

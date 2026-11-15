@@ -21,11 +21,11 @@ import (
 )
 
 // The statistics screen (design-docs/Stats.md): 's' from the tree, once the
-// run has ended. A page of its own with a tab per statistic: Hosts, Plays, Tasks. Its content is rebuilt from the run's state on every rebuild(), so a
+// run has ended. A page of its own with a tab per statistic: Hosts, Plays, Timeline, Tasks. Its content is rebuilt from the run's state on every rebuild(), so a
 // terminal resize rescales the bars.
 
 // statsTabNames lists the screen's tabs, in order.
-var statsTabNames = []string{"Hosts", "Plays", "Tasks"}
+var statsTabNames = []string{"Hosts", "Plays", "Timeline", "Tasks"}
 
 // statsAvailable: the run has ended and at least one host has a known
 // duration - the same condition the Hosts tab needs something to show.
@@ -67,12 +67,14 @@ func (s *liveSession) renderStats() {
 	if !ok {
 		s.statsHostsView.SetText("No timing was recorded for this run.")
 		s.statsPlaysView.SetText("No timing was recorded for this run.")
+		s.statsTimelineView.SetText("No timing was recorded for this run.")
 		s.statsTasksView.SetText("No timing was recorded for this run.")
 		return
 	}
 	_, _, width, _ := s.pages.GetInnerRect()
 	s.statsHostsView.SetText(renderHostsTab(stats, width))
 	s.statsPlaysView.SetText(renderPlaysTab(stats, width))
+	s.statsTimelineView.SetText(renderTimelineTab(stats, width))
 	s.renderTasks(stats, width)
 }
 

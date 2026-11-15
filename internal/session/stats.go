@@ -47,6 +47,10 @@ type playStat struct {
 	Wall        time.Duration
 	Failed      bool
 	Unreachable bool
+	// Start is when the play's first task started, relative to the run's
+	// first task start (the Timeline tab).
+	Start time.Duration
+	first time.Time
 }
 
 // taskStat is one task's span within its play: when its first host started,
@@ -75,7 +79,9 @@ type playTasks struct {
 type runStats struct {
 	Hosts []hostStat
 	Plays []playStat
-	Wall  time.Duration
+	// Timeline has the same plays in playbook order, for the Timeline tab.
+	Timeline []playStat
+	Wall     time.Duration
 	// PlayTasks has the plays that have any timed task, in playbook order.
 	PlayTasks []playTasks
 }
@@ -132,6 +138,7 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 		}
 		if !playFirst.IsZero() && playLast.After(playFirst) {
 			ps.Wall = playLast.Sub(playFirst)
+			ps.first = playFirst
 			plays = append(plays, ps)
 		}
 	}
@@ -148,6 +155,10 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 		}
 		return stats.Hosts[i].Host < stats.Hosts[j].Host
 	})
+	stats.Timeline = append([]playStat(nil), plays...)
+	for i := range stats.Timeline {
+		stats.Timeline[i].Start = stats.Timeline[i].first.Sub(first)
+	}
 	sort.SliceStable(plays, func(i, j int) bool { return plays[i].Wall > plays[j].Wall })
 	stats.Plays = plays
 	stats.PlayTasks = playTaskList
@@ -325,17 +336,26 @@ func renderPlaysTab(stats runStats, width int) string {
 	return renderBars(rows, width)
 }
 
-// renderTasksTab renders one play's timeline for the Tasks tab: a bar per
-// task in execution order, starting where the task began and as long as its
-// wall time (first host start to last host finish), on one scale - the play's
-// own wall time fills the bar area. The name is inside the bar or, for a late
-// short one, to its left (uikit.SpanBar); the duration is in the right
-// column. A task without timing is a bare name. Blank lines separate rows.
-func renderTasksTab(p playTasks, width int) string {
+// timelineRow is one bar of a timeline tab: where it starts and how long it
+// lasts, relative to the scale the whole tab shares.
+type timelineRow struct {
+	label       string
+	start, wall time.Duration
+	timed       bool
+	color       string
+}
+
+// renderTimeline renders rows as a timeline, scale (the full width of the bar
+// area) being the span they all fall within: each bar starts where its row
+// began and is as long as its wall time. The name is inside the bar or, for a
+// late short one, right-aligned to the end of the bar area (uikit.SpanBar);
+// the duration is in the right column. An untimed row is a bare name. Blank
+// lines separate rows.
+func renderTimeline(rows []timelineRow, scale time.Duration, width int) string {
 	durWidth := 0
-	for _, t := range p.Tasks {
-		if t.Timed {
-			if n := len(uikit.FormatDuration(t.Wall)); n > durWidth {
+	for _, r := range rows {
+		if r.timed {
+			if n := len(uikit.FormatDuration(r.wall)); n > durWidth {
 				durWidth = n
 			}
 		}
@@ -346,22 +366,49 @@ func renderTasksTab(p playTasks, width int) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n")
-	for i, t := range p.Tasks {
+	for i, r := range rows {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		if !t.Timed {
-			b.WriteString(uikit.SpanBar(t.Name, 0, 0, barWidth, t.Color, "", uikit.StandardTextColor) + "\n")
+		if !r.timed {
+			b.WriteString(uikit.SpanBar(r.label, 0, 0, barWidth, r.color, "", uikit.StandardTextColor) + "\n")
 			continue
 		}
 		var start, length float64
-		if p.Wall > 0 {
-			start = float64(t.Start) / float64(p.Wall)
-			length = float64(t.Wall) / float64(p.Wall)
+		if scale > 0 {
+			start = float64(r.start) / float64(scale)
+			length = float64(r.wall) / float64(scale)
 		}
 		fmt.Fprintf(&b, "%s [%s]%*s[-]\n",
-			uikit.SpanBar(t.Name, start, length, barWidth, t.Color, uikit.ContrastTextColor(t.Color), uikit.StandardTextColor),
-			t.Color, durWidth, uikit.FormatDuration(t.Wall))
+			uikit.SpanBar(r.label, start, length, barWidth, r.color, uikit.ContrastTextColor(r.color), uikit.StandardTextColor),
+			r.color, durWidth, uikit.FormatDuration(r.wall))
 	}
 	return b.String()
+}
+
+// renderTasksTab renders one play's timeline for the Tasks tab: a bar per
+// task in execution order, starting where the task began and as long as its
+// wall time (first host start to last host finish); the play's own wall time
+// fills the bar area.
+func renderTasksTab(p playTasks, width int) string {
+	rows := make([]timelineRow, len(p.Tasks))
+	for i, t := range p.Tasks {
+		rows[i] = timelineRow{t.Name, t.Start, t.Wall, t.Timed, t.Color}
+	}
+	return renderTimeline(rows, p.Wall, width)
+}
+
+// renderTimelineTab renders the Timeline tab: the playbook's plays in
+// execution order, each bar starting when the play began and as long as its
+// wall time, the run's elapsed time filling the bar area. Colored as on the
+// Plays tab.
+func renderTimelineTab(stats runStats, width int) string {
+	if len(stats.Timeline) == 0 || stats.Wall <= 0 {
+		return "No timing was recorded for the plays."
+	}
+	rows := make([]timelineRow, len(stats.Timeline))
+	for i, p := range stats.Timeline {
+		rows[i] = timelineRow{p.Name, p.Start, p.Wall, true, statusColor(p.Failed, p.Unreachable, uikit.ValueHighlightColor)}
+	}
+	return renderTimeline(rows, stats.Wall, width)
 }
