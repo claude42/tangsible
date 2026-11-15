@@ -38,6 +38,8 @@
 - `config.toml`: unknown keys and invalid values for fixed-choice `[general]` settings now print a warning after exit (they still fall back to the default)
 - `debug`: the top bar no longer shows the elapsed-time clock
 - `debug`: variables are captured for every task (the Resolved tab works for any task); the `--all-vars`/`-a` option is gone, and the capture is ~8x faster
+- `host`/`hosts`/`inventory`: the Summary tab's Mounts show the total size first, then the free space, e.g. `/  18.7 GB (4.7 GB available)`
+- `host`/`hosts`/`inventory`: the Facts tab no longer shows inventory variables when the facts come from the fact cache
 - Faster startup: `run`/`role`/`debug`/`rerun` ~300 ms (host groups load in the background), `run`/`role` ~250 ms (no `ansible-config` call before spawning), `role`/`template` ~250 ms (shared, early `ansible-config` call)
 
 ### Fixed

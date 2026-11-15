@@ -152,6 +152,15 @@ A live gather's own `Unreachable`/`Failed` result (as opposed to a
 the field list, same as any other Unreachable/Failed status elsewhere in
 the app.
 
+**Mounts** (`FormatMounts`, from `ansible_mounts`) is one line per mount
+point, `<mount>  <total> (<free> available)`, paths padded and both sizes
+right-aligned. Known limitation: ZFS mounts never show up. Ansible's own
+mount fact skips every mtab entry whose device doesn't start with `/` or
+contain `:/`, and a ZFS device is `rpool/data/...`, so a ZFS-only host
+has an empty `ansible_mounts` (confirmed on a Proxmox LXC whose `/` is a
+ZFS subvolume). Nothing here can format what Ansible never reports; see
+"Mounts on ZFS" below for the idea.
+
 **Recent** lists the last few times any playbook or role recorded in
 `state.toml` touched this host, newest first, with the exact same
 `ok`/`skipped`/`changed`/`unreachable`/`failed`/`warnings`/`ignored`
@@ -507,3 +516,19 @@ the Q&A above, made while building it:
   `n`/`N` = task split) - kept as an addition, not a replacement, since
   `n`/`N` already worked this way before `←`/`→` did too.
 
+## Mounts on ZFS
+
+Open idea, not implemented. See the Summary tab's "Mounts" limitation:
+`ansible_mounts` omits ZFS datasets, so the Mounts line is empty on ZFS
+hosts.
+
+Possible fix: a second task in `HostSummaryStubYAML` running `df -kP -t
+zfs` (local, read-only) and merging its rows into `FormatMounts`' lines,
+total = used + available as `df` reports per dataset. Costs one extra
+task per live Summary open. The fact-cache fast path can't show them (it
+reads cached facts only and never connects), so a ZFS host served from
+the cache would still show no mounts; treating that as incomplete and
+falling through to a live gather would give up the cache's speed-up for
+every cached host. Other systems where `df -t zfs` fails would keep
+today's behaviour. The alternative is to leave the limitation documented
+as is.

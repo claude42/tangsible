@@ -621,7 +621,16 @@ func highlightRolePrefix(task string) string {
 // never arbitrarily stale. fetchHostSummary uses this to skip an actual
 // connection entirely when a fresh cache entry already exists.
 func RunAnsibleInventoryHost(hostname string, rest []string) ([]byte, error) {
+	return runAnsibleInventoryHost(hostname, rest, nil)
+}
+
+// runAnsibleInventoryHost is RunAnsibleInventoryHost with extra environment
+// entries for the child.
+func runAnsibleInventoryHost(hostname string, rest []string, env []string) ([]byte, error) {
 	cmd := exec.Command("ansible-inventory", append([]string{"--host", hostname}, rest...)...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -771,6 +780,28 @@ func FetchHostPing(stubPath, hostname string, rest []string) bool {
 		}
 	}
 	return false
+}
+
+// withoutInventoryVars removes the host's inventory-level variables from
+// merged, an `ansible-inventory --host` dump that mixes them with the cached
+// facts. They come from a second dump with the fact cache pointed at an empty
+// in-memory one; a failure there leaves merged untouched.
+func withoutInventoryVars(merged map[string]interface{}, hostname string, rest []string) map[string]interface{} {
+	out, err := runAnsibleInventoryHost(hostname, rest, []string{"ANSIBLE_CACHE_PLUGIN=memory", "ANSIBLE_CACHE_PLUGIN_CONNECTION="})
+	if err != nil {
+		return merged
+	}
+	var vars map[string]interface{}
+	if json.Unmarshal(out, &vars) != nil {
+		return merged
+	}
+	facts := make(map[string]interface{}, len(merged))
+	for k, v := range merged {
+		if _, isVar := vars[k]; !isVar {
+			facts[k] = v
+		}
+	}
+	return facts
 }
 
 // FactCacheCanaryKey is checked against runAnsibleInventoryHost's own
@@ -1078,6 +1109,7 @@ func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather boo
 		var cached map[string]interface{}
 		if json.Unmarshal(out, &cached) == nil {
 			if _, ok := cached[FactCacheCanaryKey]; ok {
+				cached = withoutInventoryVars(cached, hostname, rest)
 				return hostFactsResult{
 					prefix:          "[" + uikit.AnnotationColor + "](from fact cache)[-]\n\n",
 					characteristics: formatCharacteristics(hostname, cached),
@@ -1231,8 +1263,8 @@ func formatDistribution(facts map[string]interface{}) string {
 }
 
 // FormatMounts renders ansible_facts' "mounts" (a list of objects with
-// mount, size_total and size_available in bytes) as one "<mount>  <free> /
-// <total>" line per mount point, in the order Ansible reports them, with
+// mount, size_total and size_available in bytes) as one "<mount>  <total>
+// (<free> available)" line per mount point, in the order Ansible reports them, with
 // the mount paths padded and both sizes right-aligned across all lines.
 func FormatMounts(raw interface{}) []string {
 	list, _ := raw.([]interface{})
@@ -1258,7 +1290,7 @@ func FormatMounts(raw interface{}) []string {
 	}
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, fmt.Sprintf("%-*s  %*s / %*s", pathW, r.path, freeW, r.free, totalW, r.total))
+		out = append(out, fmt.Sprintf("%-*s  %*s (%*s available)", pathW, r.path, totalW, r.total, freeW, r.free))
 	}
 	return out
 }
