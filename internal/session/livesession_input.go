@@ -48,6 +48,9 @@ func (s *liveSession) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if s.help.HandleKey(event) { // design-docs/Help.md - owns the keyboard while open
 		return nil
 	}
+	if result, handled := s.handleVarPopupKey(event); handled {
+		return result
+	}
 	if result, handled := s.handleSearchDialogKey(event); handled {
 		return result
 	}

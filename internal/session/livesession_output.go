@@ -378,6 +378,7 @@ func (s *liveSession) navigateOutputHost(delta int) {
 // recent one before this fires - there's nothing left to reconcile on
 // the way out.
 func (s *liveSession) closeOutput() {
+	s.closeVarPopup()
 	s.search.clear() // leaving the drill-down entirely - nothing left to
 	// search once its own tabs are gone.
 	s.fileCache = map[resolveKey]uikit.ResolvedRender{} // design-docs/

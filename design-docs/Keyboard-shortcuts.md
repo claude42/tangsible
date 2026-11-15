@@ -661,6 +661,12 @@ collide with:
                      marks the row `(just set)` until the live pause moves
                      on, after which it renders identically to any other
                      watched row again.
+* click            - on a variable in the drill-down's Task definition tab:
+                     a pop-up at the click shows its name, value and origin,
+                     with a Watch button (click or Enter) that adds it to the
+                     variable explorer; Esc or a click outside closes it.
+                     Mouse-only, read-only; nothing opens for a word that
+                     isn't a defined scalar variable.
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
 sketches a `[keys]` config section for these; not wired up yet).

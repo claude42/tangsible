@@ -4097,3 +4097,30 @@ simplify things a lot with the following idea.
 * Mouse gotchas from CLAUDE.md apply: swallow only `MouseLeftClick`, nil-check
   the event, never return `nil` for a `MouseMove`.
 * Update `helptables.go` (table and bottom bar) and `Keyboard-shortcuts.md`.
+
+### Implemented
+
+`livesession_varpopup.go`. Verified live in tmux (two-pane drill-down,
+`debug` on a playbook with play vars): click on `greeting` and `app.port`
+opens the pop-up; `undefined_thing` opens nothing; Watch (click or Enter)
+adds the row; Esc or a click outside closes it.
+
+Where it differs from, or adds to, the plan above:
+
+* Painted from the application's after-draw hook, not a tview page: a page
+  would make `Pages` hand it focus on show and hide, which the existing
+  dialogs each have to undo by hand.
+* Only *scalar* variables open it (`evaluateWatchExpr` resolves scalars
+  only, same as the watch rows), so clicking `app` (a dict) opens nothing;
+  `app.port` works.
+* A click on the word `name` in the YAML also opens a pop-up if the task has
+  a variable called `name` - the "no `{{ }}` check" cost accepted above.
+* Value and origin text are cut at 56 characters (origin from the left, so
+  the file and line stay); the box flips above the click near the bottom.
+* A mouse-wheel scroll closes it (the text moves under it).
+* No bottom-bar hint (the bar has no room, and the feature is
+  discoverable by clicking); the help overlay lists it under "Debug mode".
+
+Seen while testing, not caused by this: in a narrow two-pane drill-down a
+watch row whose origin path is long wraps, and the wrapped line pushes the
+last row (or the explorer's input field) out of the panel.

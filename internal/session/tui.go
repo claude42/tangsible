@@ -908,9 +908,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	terminalSupportsColor := true
 	if screen, err := tcell.NewScreen(); err == nil {
 		s.app.SetScreen(screen)
+		s.screen = screen
 		terminalSupportsColor = screen.Colors() > 1
 	}
 	s.app.EnableMouse(true)
+	s.app.SetAfterDrawFunc(s.drawVarPopup)
 	// Everything else falls out of tview's own defaults once mouse events
 	// are actually turned on (previously never enabled): List's/TextView's
 	// built-in mouse wheel handling already just pans the viewport without
