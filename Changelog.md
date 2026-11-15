@@ -17,6 +17,7 @@
 - `host`/`hosts`/`inventory`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
 - `host`/`hosts`/`inventory`: new Facts tab with every gathered fact as YAML
 - `debug`: clicking a variable in the Task definition tab opens a pop-up with its value and origin and a Watch button
+- `debug`: a watch row with a long origin no longer wraps and hides the rows below it; the origin is shortened to fit
 - `debug`: the variable watch shows where a variable comes from after its value, e.g. `db_host = "x"  (group_vars/all.yml:3)`; also `fact`, `built-in`, `registered`, `-e`, `set in debugger`
 - `debug`: vaulted values show as `<vaulted>` in the Resolved tab and the variable watch's autocomplete (the watch itself still shows them)
 - `debug`: the Resolved tab shows a task's registered value inline, as `register: name = value`

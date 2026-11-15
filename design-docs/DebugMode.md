@@ -4121,6 +4121,9 @@ Where it differs from, or adds to, the plan above:
 * No bottom-bar hint (the bar has no room, and the feature is
   discoverable by clicking); the help overlay lists it under "Debug mode".
 
-Seen while testing, not caused by this: in a narrow two-pane drill-down a
-watch row whose origin path is long wraps, and the wrapped line pushes the
-last row (or the explorer's input field) out of the panel.
+Seen while testing, not caused by the pop-up, and fixed alongside it: in a
+narrow two-pane drill-down a watch row whose origin path was long wrapped, and
+the wrapped line pushed the last row (or the explorer's input field) out of
+the panel, because the panel's height is one row per entry. Rows are now never
+wrapped (`SetWrap(false)`), and `watchPanel.render` cuts the origin from the
+left to the width that's left (dropping it below `watchMinOriginWidth`).

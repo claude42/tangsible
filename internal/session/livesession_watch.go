@@ -44,6 +44,10 @@ type watchEntry struct {
 	justSet bool
 }
 
+// watchMinOriginWidth is the least room worth giving a watch row's origin
+// label; with less, the row shows the value alone.
+const watchMinOriginWidth = 12
+
 // watchPanel is design-docs/DebugMode.md's "Stage 4" variable watch
 // explorer - genuinely separable from the rest of liveSession the same
 // way tabSearchPanel/rerunFieldSync already are. Debug-mode only, but
@@ -78,7 +82,9 @@ func newWatchPanel(app *tview.Application, currentSnapshot func() (json.RawMessa
 	w.input.SetAutocompleteUseTags(false)                              // plain variable names, and avoids a literal '[' in a path being misread as a color tag
 	w.input.SetChangedFunc(func(string) { w.acDismissed = false })
 
-	w.list = tview.NewTextView().SetDynamicColors(true)
+	// No wrapping: height() counts one row per entry, so a long row has to
+	// be clipped, never wrapped (render also shortens the origin to fit).
+	w.list = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
 	w.list.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 
 	w.flex = tview.NewFlex().SetDirection(tview.FlexRow).
@@ -203,7 +209,17 @@ func (w *watchPanel) render(evaluate func(string) watchResult, origin func(strin
 				// headline's own "(unavailable)" - no new color.
 				valueText += " (just set)"
 			} else if label := origin(e.expr); label != "" {
-				valueText += "  (" + tview.Escape(label) + ")"
+				// One row per entry, always: list's height is len(entries)+1,
+				// so a wrapped origin path pushed the last row (or the input
+				// field) out of the panel. The origin is cut from the left to
+				// fit (its file and line are the informative part) and dropped
+				// when there's no sensible room for it.
+				avail := width - tview.TaggedStringWidth(line+" = "+valueText) - len("  ()")
+				if width <= 0 {
+					valueText += "  (" + tview.Escape(label) + ")"
+				} else if avail >= watchMinOriginWidth {
+					valueText += "  (" + tview.Escape(truncateRunesLeft(label, avail)) + ")"
+				}
 			}
 			fmt.Fprintf(&b, "[%s::-]%s = %s[-::-]\n", color, line, valueText)
 		}
