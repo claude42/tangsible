@@ -9,12 +9,6 @@ immediately implemented.
 * 'e' works in drill down but doesn't update tab, probably doesn't reread when
   re-run
 
-* debug: mask `no_log` values like vaulted ones (see "Data Tagging.md"). The
-  stock debugger ignores `no_log`; the idea is to hide such values in the
-  Resolved tab and the watch autocomplete, but still show them in the watch
-  panel. Needs a static scan for `no_log` tasks that `register:` or
-  `set_fact:` a variable, as there is no tag to read.
-
 * Statstics
   * host timings
   * task timings
@@ -22,28 +16,24 @@ immediately implemented.
 
 * Jump to first / next fail
 
-* Roles (see "Tangsible role.md")
-  * support for other role paths in
-    * include_role, import_role and meta/main.yml dependencies
-  * support for roles in collection
 * tangsible host
   * uptime
 
 * Debugger
-  * remove timer
   * configurable keyboard shortcuts
   * mouse control for variable explorer
   * UX improvement for varible explorer
   * Some more things in DebugMode.md
   * show undefined variables in template
-  * don't show passwords etc.
   * change variable - not just for the current step
   * restart from beginning / cursor / redo role (accepting to lose context)
     * re-read files!
-  * Use Data Tagging
-  * show provenance of variables
-  * show value of registered variable
   * click on future tasks which have no host lines yet
+
+* Bring resolved tab for run verb back again with Action Plugins
+  (see Drilldown, Resolved Values.md)
+
+* How to handle no_log
 
 * Details tab shows less info than before (really?)
 
@@ -55,12 +45,10 @@ immediately implemented.
 
 * Debugger
   * restart from beginning
-  * remove timer
-  * variables in conditionals
   * configurable keyboard shortcuts
   * a few more in DebugMode.md
 
-* Details tab shows less than before
+* Show ZFS mounts
 
 * tangsible template seems to be run from /tmp/ - shows in some variables
 

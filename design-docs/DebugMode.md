@@ -4043,3 +4043,57 @@ Earlier sections above that mention `--all-vars` describe the history.
 An action plugin was considered as the capture path and rejected: it would
 need an injected task per real task (a full task execution per host, the
 wrong `task_vars` for the following task, no breakpoints/redo/set).
+
+## Mouse support - new ideas
+
+We're currently not using the mouse very much in DebugMode. I think we could
+simplify things a lot with the following idea.
+
+* When the user clicks on a variable in the task definition tab, a small
+  pop-up will open.
+* Pop-up shows the variable name, its current value and where it was defined.
+* The pop-up can be closed with Esc or by a click somewhere outside of the
+  pop-up
+* In addition the pop-up can also contain a "Watch" Button. When the button
+  is clicked (or the user presses return), the variable will be added to the
+  variable explorer.
+
+### Decisions (v1)
+
+* **Mouse-only.** No keyboard path to the pop-up; the variable explorer (`v`)
+  is the keyboard way. Once open, Esc closes it and Return presses Watch.
+* **Where**: the Task definition tab only (not Resolved - there you'd click
+  on values, which can be long). Always available, whether or not the
+  session is paused.
+* **Word under the click**: the run of identifier characters and `.` around
+  the clicked column, same leniency as the variable explorer's own field. No
+  check for being inside `{{ }}` or a `when:` clause (possible later, not
+  needed now).
+* **Defined or nothing**: the word is looked up like a watch expression
+  (`parseWatchExpr`, evaluated against the selected host/task's captured
+  `task_vars`). If it doesn't resolve, no pop-up opens at all.
+* **Content**: name, current value, origin - the origin comes from
+  `watchOriginLabel` (`debugOriginCache`), the same label the watch panel
+  already shows, so nothing new to capture.
+* **Anchored** at the click position, clamped to the screen edges.
+* **Read-only**: no "set value" from the pop-up. Watch is its only action.
+
+### Implementation notes
+
+* **Click to word: read the terminal's cells.** `TextView` has no public
+  screen-position-to-text lookup, but tcell's `Screen.GetContent(x, y)` reads
+  back what was drawn. `liveSession` already owns the screen (`SetScreen` in
+  `tui.go`). From the clicked cell, walk left and right over identifier
+  characters and `.` to get the word. This reads the rendered text, so
+  wrapping, scroll offset, the two-pane width and `HighlightYAMLKeys`' colour
+  tags need no handling, and `BuildSourceTab` (shared with `run`/`rerun`/
+  `role`) stays untouched.
+  * Bound the walk by the `TextView`'s inner rect (`GetInnerRect`): in
+    two-pane mode a border or the neighbouring pane sits on the same row.
+  * A wide rune's second cell reads back empty - skip it.
+  * A word broken across a wrapped line (e.g. a dotted path) yields a
+    fragment; accepted for v1, as a fragment that doesn't resolve opens no
+    pop-up.
+* Mouse gotchas from CLAUDE.md apply: swallow only `MouseLeftClick`, nil-check
+  the event, never return `nil` for a `MouseMove`.
+* Update `helptables.go` (table and bottom bar) and `Keyboard-shortcuts.md`.
