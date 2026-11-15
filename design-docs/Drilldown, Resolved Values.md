@@ -183,3 +183,39 @@ not ruled out) once this first version is in place and has proven itself
 useful in practice. See `design-docs/Tangsible role, Debug mode.md` for a
 scoped-down version of that idea - real re-execution, but of one role at a
 time via the existing `tangsible role` verb.
+
+## Open idea: a Resolved tab for `run`/`role` via the callback plugin (2026-11-15)
+
+Parked, not started. The Resolved tab was removed from `run`/`role` in
+`655e9b1` (extra `ansible-playbook` runs, no registers/facts) and restored
+for `debug` only in `47f040e`, where the debugger's pause provides the
+variables. Question: can `run`/`role` get a comparable tab with no debugger?
+
+What we established:
+
+* The embedded action plugin `callback/action/tangsible_vars.py` (the one
+  file in `~/.cache/tangsible/action-<hash>/`) only serves the `host`
+  verb's stub play, whose single task is `tangsible_vars:`. It does not
+  wrap any real task, so one file is enough there.
+* Capturing variables for the user's *own* tasks with action plugins would
+  need one thin wrapper per action name: Ansible picks exactly one action
+  plugin per module name (`command`, `shell`, `copy`, `template`, `debug`,
+  `set_fact`, ...; modules without one fall back to `normal`). That is
+  ~25-30 files, and action plugins shipped by collections can't be
+  shadowed by name. Not attractive.
+* Spike (scratchpad, not in the repo): a shadow `command` action plugin
+  that loads the builtin by file path (`importlib`; importing it by name
+  collides on the module name) and calls `tangsible_snapshot(task_vars)`
+  before `super().run()` worked: ~6.5 ms and ~128 KB per task and host.
+  Shadowing `normal` doesn't catch `command` tasks.
+* Preferred next experiment: wrap `TaskExecutor._execute` from the callback
+  plugin. Callback plugins load before workers fork, and `_execute`
+  receives the task's variables for every task regardless of module, so
+  one patch covers all of them. Open questions: does the patch survive the
+  fork, how to hand the snapshot to the parent (file per task uuid + host,
+  as in the spike, or the event fd), size/vault/secret handling, Ansible
+  2.19 data tagging, and the "observe, never change what executes" rule
+  (CLAUDE.md) - a monkeypatch observes only if it always calls through
+  unchanged.
+* To measure: per-task cost, snapshot size on a large inventory, and
+  whether capture can stay always on as in `debug`.
