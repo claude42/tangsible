@@ -164,6 +164,7 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 	// to look up at all - docs stays the zero ResolvedRender{}, which
 	// BuildOutputTabs' DocsTabHidden already treats as "omit the tab."
 	action := uikit.TaskAction(task, host)
+	s.prefetchContextHelp(action) // for the Task definition tab's click pop-up
 	var docs uikit.ResolvedRender
 	docsCached := action == "" // no action to look up - stays the
 	// zero value, and there's nothing to kick off below either.

@@ -175,6 +175,16 @@ placeholder - see the Drilldown, Resolved Values.md design doc).
                      the task's source location couldn't be determined.
 * y                - copy the currently active tab's content to the
                      clipboard (see "Copy to clipboard" below)
+* click            - on a key in the Task definition tab: a pop-up at the
+                     click saying what it is (design-docs/Context Help.md) -
+                     a module option (type, required, default, choices,
+                     first paragraph of its description), the module itself
+                     (short description) or a task keyword like `when`
+                     (description, what it applies to). Which one is decided
+                     by position, so `name:` at task level is the keyword
+                     and `name:` under `user:` the option. Every verb with
+                     the drill-down; mouse-only; Esc or a click outside
+                     closes it. Needs `ansible-doc` to know the module.
 
 When you close the view (Escape/Enter/q), the tree's own cursor updates to
 match whatever (task, host) was last shown - including if you navigated to

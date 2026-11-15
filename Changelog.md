@@ -16,6 +16,7 @@
 - The drill-down's Task tab shows the host's `Duration:` for the task
 - `host`/`hosts`/`inventory`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
 - `host`/`hosts`/`inventory`: new Facts tab with every gathered fact as YAML
+- Clicking a key in the Task definition tab shows what it is: a module option (type, default, choices, description), the module, or a task keyword like `when`
 - `debug`: clicking a variable in the Task definition tab opens a pop-up with its value and origin and a Watch button (vaulted values show as `<vaulted>`)
 - `debug`: a watch row with a long origin no longer wraps and hides the rows below it; the origin is shortened to fit
 - `debug`: the variable watch shows where a variable comes from after its value, e.g. `db_host = "x"  (group_vars/all.yml:3)`; also `fact`, `built-in`, `registered`, `-e`, `set in debugger`

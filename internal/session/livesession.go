@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/ansibledoc"
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
@@ -371,6 +372,12 @@ type liveSession struct {
 	// popup is the click pop-up of the Task definition tab
 	// (livesession_popup.go); zero value = closed.
 	popup infoPopup
+	// moduleDocs/keywordDocs back its context help (livesession_contexthelp.go):
+	// per-action module docs, and the playbook keywords, fetched when a
+	// drill-down opens. keywordDocsRequested: the keyword fetch was started.
+	moduleDocs           map[string]*moduleDocEntry
+	keywordDocs          map[string]ansibledoc.KeywordDoc
+	keywordDocsRequested bool
 	// debugCopyPlaybookPath is the absolute path into the shadow copy
 	// (debugverb.PrepareSession's own CopyPlaybookPath) - what F5/F10/F11
 	// actually spawn, never playbookName/targetPlaybook (the real

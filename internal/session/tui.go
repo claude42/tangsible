@@ -604,6 +604,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.resolveCache = map[resolveKey]uikit.ResolvedRender{}
 	s.debugTaskVarsCache = map[debugVarsKey]json.RawMessage{}
 	s.debugVaultMaskCache = map[debugVarsKey]vaultMask{}
+	s.moduleDocs = map[string]*moduleDocEntry{}
 	s.debugOriginCache = map[debugVarsKey]map[string]string{}
 	s.debugSetNames = map[debugVarsKey]map[string]bool{}
 

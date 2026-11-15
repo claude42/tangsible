@@ -58,12 +58,16 @@ func (s *liveSession) readTaskDefClick(x, y int) (taskDefClick, bool) {
 }
 
 // openContextPopup opens the pop-up for a click at screen cell (x, y) in the
-// Task definition tab and reports whether it opened one: a variable pop-up
-// for a defined variable (debug only).
+// Task definition tab and reports whether it opened one. A word followed by
+// ':' is a key and gets context help (every verb); any other word is a
+// variable candidate (debug only).
 func (s *liveSession) openContextPopup(x, y int) bool {
 	c, ok := s.readTaskDefClick(x, y)
 	if !ok {
 		return false
+	}
+	if c.isKey {
+		return s.openKeyHelp(c, x, y)
 	}
 	if s.debugMode {
 		return s.openVarPopup(c.word, x, y)

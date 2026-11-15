@@ -264,6 +264,13 @@ run/rerun/role session and by revisit's own rerun.
 
 - **ansibledoc.go** - `FetchAnsibleDoc`: shells out to `ansible-doc`
   for the drill-down's "Docs" tab.
+- **contexthelp.go** (+ `_test.go`) - `FetchModuleDoc`/`FetchKeywordDocs`:
+  `ansible-doc -j` parsed into the few fields the click pop-up shows
+  (`ModuleDoc`/`OptionDoc`/`KeywordDoc`), `StripMarkup` for ansible-doc's
+  inline markup (`O()`, `C()`, `L(text,url)`, ...). Pure `parse*` functions.
+- **taskkeys.go** (+ `_test.go`) - `LocateTaskKey`: classifies the key at a
+  line/column of a task's YAML as task keyword, module key or (sub)option, by
+  position (design-docs/Context Help.md).
 
 ## internal/revisit
 
@@ -416,9 +423,12 @@ thin constructor/wiring shell.
   pop-up (design-docs/DebugMode.md, "Mouse support"): looks the clicked word
   up like a watch expression (vaulted values masked) and shows name, value and
   origin with a Watch button.
-- **livesession_taskdefclick.go** - `readTaskDefClick`: what a click on the
-  Task definition tab landed on, read back from tcell's cells (the word, and
-  whether it is a YAML key); `openContextPopup` dispatches to the pop-up.
+- **livesession_contexthelp.go** - the context-help pop-up
+  (design-docs/Context Help.md): reads the clicked word from tcell's cells
+  (`readTaskDefClick`), maps it to a source line by content
+  (`keyLinesMatching`), classifies it (`ansibledoc.LocateTaskKey`) and shows
+  the module option/module/keyword from `ansible-doc` data prefetched when
+  the drill-down opens (`prefetchContextHelp`).
 - **recap.go** - the post-run recap summary section.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`

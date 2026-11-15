@@ -121,6 +121,7 @@ var outputHelp = uikit.HelpScreen{
 			{Keys: "/", Desc: "Search this tab's text"},
 			{Keys: "y", Desc: "Copy this tab's text to the clipboard"},
 			{Keys: "e", Desc: "Open the task's source file in $VISUAL / $EDITOR"},
+			{Keys: "click", Desc: "On a key in the Task definition tab: what that module option, module or task keyword means"},
 		}},
 		{Title: "Debug mode", Entries: []uikit.HelpEntry{
 			{Keys: "F5", Desc: "Run - to the next armed breakpoint, or to completion with none set", ID: helpIDDebug},
