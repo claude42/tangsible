@@ -666,7 +666,8 @@ collide with:
                      with a Watch button (click or Enter) that adds it to the
                      variable explorer; Esc or a click outside closes it.
                      Mouse-only, read-only; nothing opens for a word that
-                     isn't a defined scalar variable.
+                     isn't a defined scalar variable. A vaulted value shows
+                     as `<vaulted>` (only the explorer shows it).
 
 Not yet configurable (design-docs/DebugMode.md's "Stage 1 decisions"
 sketches a `[keys]` config section for these; not wired up yet).

@@ -4077,6 +4077,12 @@ simplify things a lot with the following idea.
   already shows, so nothing new to capture.
 * **Anchored** at the click position, clamped to the screen edges.
 * **Read-only**: no "set value" from the pop-up. Watch is its only action.
+* **Never shows a secret**: a click must not put a password on screen by
+  surprise, so vaulted values (and secrets inside derived strings) show as
+  `<vaulted>`, masked with `maskSnapshot` like the Resolved tab and the
+  explorer's autocomplete. Only the explorer's watch rows show the real value
+  - there it's intentional. Adding the variable via Watch still evaluates
+  against the real snapshot.
 
 ### Implementation notes
 
@@ -4120,6 +4126,9 @@ Where it differs from, or adds to, the plan above:
 * A mouse-wheel scroll closes it (the text moves under it).
 * No bottom-bar hint (the bar has no room, and the feature is
   discoverable by clicking); the help overlay lists it under "Debug mode".
+
+Vault masking verified live against `testdata/vault.yml` (`db_password`
+pop-up: `<vaulted>`; its explorer row: the real value; `region`: normal).
 
 Seen while testing, not caused by the pop-up, and fixed alongside it: in a
 narrow two-pane drill-down a watch row whose origin path was long wrapped, and

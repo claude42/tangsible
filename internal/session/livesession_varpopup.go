@@ -117,6 +117,15 @@ func truncateRunesLeft(s string, n int) string {
 	return "…" + string(r[len(r)-n+1:])
 }
 
+// varPopupValueText renders a resolved value for the pop-up: like a watch
+// row's, except the vault placeholder stands for itself, unquoted.
+func varPopupValueText(v any) string {
+	if v == vaultPlaceholder {
+		return vaultPlaceholder
+	}
+	return formatWatchScalar(v)
+}
+
 // openVarPopup opens the pop-up for a click at screen cell (x, y) if it
 // landed on a defined variable in the Task definition tab; reports whether it
 // opened. The word is read back from the terminal's own cells, so wrapping,
@@ -142,15 +151,17 @@ func (s *liveSession) openVarPopup(x, y int) bool {
 	if word == "" {
 		return false
 	}
+	// Masked: a click must never put a secret on screen by surprise; the
+	// variable explorer is where a vaulted value is shown, on purpose.
 	snapshot, _ := s.watchCurrentSnapshot()
-	res := evaluateWatchExpr(word, snapshot)
+	res := evaluateWatchExpr(word, s.watchMaskVaulted(snapshot))
 	if res.kind != watchResolved {
 		return false // not a defined (scalar) variable: no pop-up
 	}
 	s.varPopup = varPopup{
 		open:    true,
 		expr:    word,
-		value:   formatWatchScalar(res.value),
+		value:   varPopupValueText(res.value),
 		origin:  s.watchOriginLabel(word),
 		anchorX: x,
 		anchorY: y,

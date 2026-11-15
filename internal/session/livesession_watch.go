@@ -341,6 +341,17 @@ func (s *liveSession) watchCurrentSnapshot() (json.RawMessage, bool) {
 	return snap, ok
 }
 
+// watchMaskVaulted is snapshot (the current host/task's own) with vaulted
+// values replaced by vaultPlaceholder, for everything that shows a value
+// other than the watch rows themselves.
+func (s *liveSession) watchMaskVaulted(snapshot json.RawMessage) json.RawMessage {
+	task, host, ok := s.watchCurrentTaskHost()
+	if !ok {
+		return snapshot
+	}
+	return maskSnapshot(snapshot, s.debugVaultMaskCache[debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}])
+}
+
 // watchCandidates lists the currently-selected host/task's own top-level
 // scalar variables, excluding any already being watched, formatted as
 // "name = value" - tview's native autocomplete drop-down has no
@@ -355,9 +366,7 @@ func (s *liveSession) watchCandidates() []string {
 	}
 	// Vaulted values show as a placeholder in the drop-down; adding the
 	// expression to the panel still evaluates against the real snapshot.
-	if task, host, ok := s.watchCurrentTaskHost(); ok {
-		snapshot = maskSnapshot(snapshot, s.debugVaultMaskCache[debugVarsKey{debugverb.TaskLabel(task.Name, task.IsHandler), host}])
-	}
+	snapshot = s.watchMaskVaulted(snapshot)
 	var root map[string]json.RawMessage
 	if json.Unmarshal(snapshot, &root) != nil {
 		return nil

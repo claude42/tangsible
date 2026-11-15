@@ -14,7 +14,10 @@
 
 package session
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestWordAround(t *testing.T) {
 	line := []rune("  msg: {{ foo.bar_1 }}. done")
@@ -79,5 +82,37 @@ func TestTruncateRunesLeft(t *testing.T) {
 	}
 	if got := truncateRunesLeft("/long/dir/vars.yml:5", 12); got != "…/vars.yml:5" {
 		t.Errorf("long: %q", got)
+	}
+}
+
+func TestVarPopupValueText(t *testing.T) {
+	if got := varPopupValueText(vaultPlaceholder); got != "<vaulted>" {
+		t.Errorf("placeholder: %q", got)
+	}
+	if got := varPopupValueText("hello"); got != `"hello"` {
+		t.Errorf("string: %q", got)
+	}
+	if got := varPopupValueText(float64(8080)); got != "8080" {
+		t.Errorf("number: %q", got)
+	}
+}
+
+// A vaulted value (and a secret inside a derived string) is masked before
+// the pop-up evaluates a word, so it can only ever show the placeholder.
+func TestVarPopupMasksVaulted(t *testing.T) {
+	vars := json.RawMessage(`{"pw":"hunter2hunter2","url":"db://hunter2hunter2@host","plain":"ok"}`)
+	masked := maskSnapshot(vars, vaultMask{Vaulted: [][]any{{"pw"}}, Secrets: []string{"hunter2hunter2"}})
+	for expr, want := range map[string]string{"pw": "<vaulted>", "url": "db://<vaulted>@host", "plain": `"ok"`} {
+		res := evaluateWatchExpr(expr, masked)
+		if res.kind != watchResolved {
+			t.Fatalf("%s: not resolved", expr)
+		}
+		got := varPopupValueText(res.value)
+		if expr == "url" {
+			got = res.value.(string)
+		}
+		if got != want {
+			t.Errorf("%s = %q, want %q", expr, got, want)
+		}
 	}
 }
