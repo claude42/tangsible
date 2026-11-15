@@ -36,6 +36,9 @@ subprocesses.
   from env vars, state mapping (`ComputeTerminalProgress`), writer
   (`ProgressIndicator.md`); cleared by `windowtitle.go`'s
   `RunWithTitleStack`.
+- **bars.go**/**headered.go** - `LabeledBar`/`SpanBar` (bars with the
+  name drawn inside) and `HeaderedText` (a header row, e.g. a drop-down,
+  over a TextView, drawn last so an open list isn't overpainted).
 - **tabs.go** - `TabbedPane`, the shared tab-bar widget (drill-down
   view, template page).
 - **dividerdrag.go** - `DividerDrag`: mouse-draggable divider of the
@@ -332,7 +335,7 @@ thin constructor/wiring shell.
   - **livesession_stats.go**/**stats.go** - the statistics screen (`s`,
     `design-docs/Stats.md`): a page with a tab per statistic. `stats.go`
     is the tview-free part (`computeRunStats`, `renderHostsTab`,
-    `renderPlaysTab`),
+    `renderPlaysTab`, `renderTasksTab`),
     `livesession_stats.go` the view (open/close, keys, mouse).
   - **livesession_filter.go** - the tree-level filter (`f`) and search
     (`/`) dialogs: `openFilterDialog`/`openSearchDialog`/`closeDialogs`/

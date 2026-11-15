@@ -95,3 +95,45 @@ should be rendered normally. I hope you understand what I mean.
 * Colors as on Hosts: the bar is red when a host genuinely failed in the play
   (not an ignored failure), maroon when one was unreachable.
 
+### Tab Tasks
+
+At the top, provide a dropdown box which can be used to select a play.
+
+Then show a breakdown like this (not sure if that's the best visulaization,
+let's try it).
+
+██████████████                                                                            4.3s
+
+              ███                                                                         0.1s
+
+                 ███████████████████████████████████                                      6.0s
+
+                                                    ████████████████████████████████████  7.2s
+
+
+Write the task names "into" the bars in the same way as in the other two diagrams.
+
+### Tasks tab (implemented)
+
+* One play at a time, the first by default, chosen with a drop-down above the
+  bars (`tview.DropDown`, styled by `uikit.StyleDropDown`). Plays without any
+  timed task are not offered; no "all plays" entry.
+* A timeline: a task's bar starts where its first host started (relative to
+  the play's first task start) and is as long as its wall time (first host
+  start to last host finish); the play's own wall time fills the bar area.
+  Tasks stay in execution order, a blank line between rows. The duration
+  column is the same wall time. A task without timing is a bare name.
+* Colored as in the tree, by the task's worst outcome across hosts: failed
+  red, unreachable maroon, an ignored failure in its own color, changed,
+  ok, skipped.
+* The name is inside the bar like elsewhere (`uikit.SpanBar`); for a late
+  short bar it doesn't fit to the right, so it is right-aligned to the end of
+  the bar area, ending two cells short of it (never over the duration column): inverted where it overlaps
+  the bar, plain where it doesn't.
+* Left / Right switch to the previous / next play without opening the picker
+  (they stop at the ends); the `P` of the label is underlined as the hint.
+* The drop-down is not focused normally (Tab switches tabs): `p` opens it, and
+  while open `handleStatsViewKey` forwards every key to it (called directly,
+  nested primitives don't reliably get forwarded keys). `HeaderedText` draws
+  the drop-down after the text so the open list isn't painted over.
+  `SetOptions` also replaces the selected callback - pass it every time.

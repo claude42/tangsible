@@ -109,3 +109,112 @@ func LabeledBar(label string, fraction float64, width int, barColor, textColor, 
 	}
 	return b.String()
 }
+
+// spanBarMargin is the gap SpanBar leaves between a right-aligned label and
+// the right edge, so the label ends inside a bar that runs to the edge.
+const spanBarMargin = 2
+
+// SpanBar renders one bar of a timeline: width cells wide, the bar starting
+// at fraction start of it and length (a fraction of width too) long, so a
+// task that began late sits further right. The label goes inside the bar
+// like LabeledBar's (inverted on the filled cells). When it doesn't fit
+// between the bar's start and the right edge it is right-aligned to the
+// edge instead (two cells short of it) (so a late, short bar still shows its whole name), inverted
+// where it overlaps the bar and plain elsewhere; one that is wider than
+// that is cut with "…". The result is exactly width cells wide,
+// tview-tagged.
+func SpanBar(label string, start, length float64, width int, barColor, textColor, outsideColor string) string {
+	if width <= 0 {
+		return ""
+	}
+	if start < 0 {
+		start = 0
+	}
+	off := int(start*float64(width) + 0.5)
+	if off > width-1 {
+		off = width - 1
+	}
+	inner := width - off
+	fraction := length * float64(width) / float64(inner)
+	if length <= 0 {
+		fraction = 0
+	}
+	pad := strings.Repeat(" ", off)
+	n := len([]rune(label))
+	if n <= inner-1 {
+		return pad + LabeledBar(label, fraction, inner, barColor, textColor, outsideColor)
+	}
+
+	runes := []rune(label)
+	if n > width-spanBarMargin {
+		keep := width - spanBarMargin - 1
+		if keep < 0 {
+			keep = 0
+		}
+		runes = append(runes[:keep], '…')
+	}
+	labelAt := width - spanBarMargin - len(runes)
+	if labelAt < 0 {
+		labelAt = 0
+	}
+
+	eighths := 0
+	if fraction > 0 {
+		if fraction > 1 {
+			fraction = 1
+		}
+		if eighths = int(fraction*float64(inner)*8 + 0.5); eighths < 1 {
+			eighths = 1
+		}
+	}
+	full, partial := eighths/8, eighths%8
+
+	const (
+		blank = iota
+		filled
+		inverted
+		plain
+		sliver
+	)
+	var b strings.Builder
+	prev, run := -1, ""
+	flush := func() {
+		if run == "" {
+			return
+		}
+		switch prev {
+		case filled:
+			fmt.Fprintf(&b, "[%s:%s]%s[-:-]", textColor, barColor, run)
+		case inverted:
+			fmt.Fprintf(&b, "[%s:%s]%s[-:-]", textColor, barColor, tview.Escape(run))
+		case plain:
+			fmt.Fprintf(&b, "[%s]%s[-]", outsideColor, tview.Escape(run))
+		case sliver:
+			fmt.Fprintf(&b, "[%s]%s[-]", barColor, run)
+		default:
+			b.WriteString(run)
+		}
+		run = ""
+	}
+	for c := 0; c < width; c++ {
+		inBar := c >= off && c < off+full
+		kind, text := blank, " "
+		switch {
+		case c >= labelAt && c < labelAt+len(runes) && inBar:
+			kind, text = inverted, string(runes[c-labelAt])
+		case c >= labelAt && c < labelAt+len(runes):
+			kind, text = plain, string(runes[c-labelAt])
+		case inBar:
+			kind = filled
+		case c == off+full && partial > 0:
+			kind, text = sliver, string(eighthBlocks[partial])
+		}
+		if kind != prev {
+			flush()
+			prev = kind
+		}
+		run += text
+	}
+	flush()
+	return b.String()
+}

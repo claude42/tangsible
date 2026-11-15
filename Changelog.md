@@ -9,6 +9,7 @@
 - `host`/`hosts`/`inventory`: the "Everything known" tab is removed and the "host_vars" tab hidden; the Variables and Facts tabs replace them
 - YAML tabs show comments (a `# ...` line or a trailing `# ...`) in the annotation colour instead of the value colour
 - `s` opens a statistics screen once the run has ended; tabs: Hosts (the run's elapsed time and the time each host spent on tasks) and Plays (how long each play took), as bars with the name drawn inside, slowest first, failed ones red
+- Statistics: a Tasks tab shows one play's tasks on a timeline (bar start = when the task began, length = its wall time), with a play picker (`p`)
 - The drill-down's Task tab shows the host's `Duration:` for the task
 - `host`/`hosts`/`inventory`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
 - `host`/`hosts`/`inventory`: new Facts tab with every gathered fact as YAML

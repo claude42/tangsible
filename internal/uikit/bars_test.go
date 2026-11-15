@@ -76,3 +76,52 @@ func TestContrastTextColor(t *testing.T) {
 		}
 	}
 }
+
+func TestSpanBarOffsetAndWidth(t *testing.T) {
+	// A bar starting halfway, a quarter long, in 40 cells: 20 blank cells,
+	// then 10 filled cells with the label inside.
+	got := plainCells(SpanBar("build", 0.5, 0.25, 40, "green", "#000000", "white"))
+	if want := strings.Repeat(" ", 20) + " build" + strings.Repeat(" ", 14); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if n := len([]rune(got)); n != 40 {
+		t.Errorf("width = %d, want 40", n)
+	}
+}
+
+func TestSpanBarLabelRightAlignsWhenItCannotFitRight(t *testing.T) {
+	// Starts near the right edge: no room for the name after the bar's
+	// start, so it ends exactly at the right edge.
+	got := plainCells(SpanBar("install", 0.9, 0.1, 40, "green", "#000000", "white"))
+	if n := len([]rune(got)); n != 40 {
+		t.Fatalf("width = %d, want 40: %q", n, got)
+	}
+	if !strings.HasSuffix(got, "install  ") {
+		t.Errorf("label should end two cells before the right edge: %q", got)
+	}
+}
+
+func TestSpanBarRightAlignedLabelIsInvertedOverTheBar(t *testing.T) {
+	got := SpanBar("install", 0.9, 0.1, 40, "green", "#000000", "white")
+	// The bar covers the last 4 cells ("ll" and the 2-cell margin): inverted;
+	// the rest of the label plain.
+	if !strings.Contains(got, "[white]insta[-]") || !strings.Contains(got, "[#000000:green]ll[-:-][#000000:green]  [-:-]") {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestSpanBarTruncatesAtTheWidth(t *testing.T) {
+	got := plainCells(SpanBar("a very long task name indeed", 0.9, 0.1, 20, "green", "#000000", "white"))
+	if n := len([]rune(got)); n != 20 || !strings.HasSuffix(got, "…") && !strings.Contains(got, "…") {
+		t.Errorf("got %q (%d cells), want 20 cells with …", got, n)
+	}
+}
+
+func TestSpanBarEdges(t *testing.T) {
+	for _, tc := range []struct{ start, length float64 }{{0, 0}, {1, 0.5}, {0, 1}, {-1, 2}} {
+		got := plainCells(SpanBar("x", tc.start, tc.length, 10, "green", "#000000", "white"))
+		if n := len([]rune(got)); n != 10 {
+			t.Errorf("start %v length %v: width %d: %q", tc.start, tc.length, n, got)
+		}
+	}
+}

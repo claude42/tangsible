@@ -335,12 +335,18 @@ type liveSession struct {
 	viewingStdout   bool
 	// The statistics screen ('s', livesession_stats.go): own page, bars and
 	// tab pane; statsHostsView/statsPlaysView are the tabs' bodies.
-	viewingStats    bool
-	statsTopBar     *tview.TextView
-	statsBottomBar  *tview.TextView
-	statsTabs       *uikit.TabbedPane
-	statsHostsView  *tview.TextView
-	statsPlaysView  *tview.TextView
+	viewingStats   bool
+	statsTopBar    *tview.TextView
+	statsBottomBar *tview.TextView
+	statsTabs      *uikit.TabbedPane
+	statsHostsView *tview.TextView
+	statsPlaysView *tview.TextView
+	statsTasksView *tview.TextView
+	// statsPlayPicker chooses the play the Tasks tab shows;
+	// statsSyncing guards its selected callback while renderStats
+	// refills the options.
+	statsPlayPicker *tview.DropDown
+	statsSyncing    bool
 	stdoutFollowing bool
 	// stdoutShownLog/stdoutShown: which log stdoutView currently holds
 	// lines from, and how many - syncStdoutView's "what's new" bookmark.

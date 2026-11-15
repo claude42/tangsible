@@ -337,7 +337,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   once the run has ended; a tab per statistic: Hosts (per-host total of
   `uikit.HostDuration`, plus an elapsed bar) and Plays (wall time per play),
   both slowest first, drawn by `renderBars` with the name inside the bar
-  (`uikit.LabeledBar`, eighth-block ends). The Task tab also shows the host's `Duration:`.
+  (`uikit.LabeledBar`, eighth-block ends), and Tasks (one play's tasks on a
+  timeline, `uikit.SpanBar`, play picked via a `tview.DropDown` opened with
+  `p` - keys/mouse are forwarded to it directly while it's open). The Task tab also shows the host's `Duration:`.
 
 ## Scope (deliberate)
 

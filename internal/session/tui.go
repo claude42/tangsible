@@ -462,9 +462,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.statsHostsView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.statsPlaysView = tview.NewTextView().SetDynamicColors(true)
 	s.statsPlaysView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	s.statsTasksView = tview.NewTextView().SetDynamicColors(true)
+	s.statsTasksView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	// The label's P carries a combining low line: the hint for the p key.
+	s.statsPlayPicker = uikit.StyleDropDown(tview.NewDropDown().SetLabel("P\u0332lay: "))
 	s.statsTabs = uikit.NewTabbedPane()
 	s.statsTabs.SetHeaderStyle(s.chromeStyle, s.chromeColorName())
-	s.statsTabs.SetTabs(statsTabNames, []tview.Primitive{s.statsHostsView, s.statsPlaysView})
+	s.statsTabs.SetTabs(statsTabNames, []tview.Primitive{s.statsHostsView, s.statsPlaysView,
+		uikit.NewHeaderedText(s.statsPlayPicker, s.statsTasksView)})
 	s.statsTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.statsTopBar.SetTextStyle(s.chromeStyle)
 	s.statsBottomBar = tview.NewTextView().SetText(statsBar)

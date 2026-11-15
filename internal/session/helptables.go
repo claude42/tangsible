@@ -176,7 +176,7 @@ var stdoutHelp = uikit.HelpScreen{
 }
 
 // statsBar is the statistics screen's ('s') bottom bar.
-const statsBar = " ?: help  tab: next tab  y: copy  esc: back "
+const statsBar = " ?: help  tab: next tab  p: pick play  ←/→: play  y: copy  esc: back "
 
 var statsHelp = uikit.HelpScreen{
 	Title: "statistics",
@@ -184,6 +184,7 @@ var statsHelp = uikit.HelpScreen{
 		{Title: "Tabs", Entries: []uikit.HelpEntry{
 			{Keys: "Tab / Shift-Tab", Desc: "Next / previous tab"},
 			{Keys: "Plays", Desc: "How long each play took (first task start to last finish), slowest first. Red if a host failed in it, maroon if one was unreachable"},
+			{Keys: "Tasks", Desc: "One play's tasks on a timeline, in execution order: each bar starts when the task's first host started and ends when its last host finished. Colored as in the tree. ← / → pick the previous / next play, p opens the play picker (type to filter, Enter picks, Esc closes)"},
 			{Keys: "Hosts", Desc: "The run's elapsed time, then the time each host spent on tasks, slowest first. A host that failed is red, an unreachable one maroon"},
 		}},
 		{Title: "Scrolling", Entries: []uikit.HelpEntry{

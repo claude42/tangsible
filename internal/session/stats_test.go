@@ -230,3 +230,74 @@ func TestRenderPlaysTabEmpty(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// tasksFixture: one play, three tasks on a 10s timeline - 0-4s (ok), 4-5s
+// (changed, on two hosts that overlap) and 5-10s (one host failed).
+func tasksFixture() *playbook.PlaybookState {
+	base := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	at := func(sec float64) time.Time { return base.Add(time.Duration(sec * float64(time.Second))) }
+	mk := func(name string, o playbook.Outcome, spans map[string][2]float64) *playbook.TaskNode {
+		t := &playbook.TaskNode{Name: name, Hosts: map[string]playbook.Outcome{},
+			Started: map[string]time.Time{}, Finished: map[string]time.Time{}}
+		for h, s := range spans {
+			t.Hosts[h] = o
+			t.Started[h], t.Finished[h] = at(s[0]), at(s[1])
+		}
+		return t
+	}
+	return &playbook.PlaybookState{Plays: []*playbook.PlayNode{
+		{Name: "first", Tasks: []*playbook.TaskNode{
+			mk("one", playbook.OutcomeOK, map[string][2]float64{"a": {0, 4}}),
+			mk("two", playbook.OutcomeChanged, map[string][2]float64{"a": {4, 4.5}, "b": {4.2, 5}}),
+			mk("three", playbook.OutcomeFailed, map[string][2]float64{"a": {5, 10}}),
+			{Name: "untimed", Hosts: map[string]playbook.Outcome{"a": playbook.OutcomeOK}},
+		}},
+		{Tasks: []*playbook.TaskNode{{Name: "no timing", Hosts: map[string]playbook.Outcome{"a": playbook.OutcomeOK}}}},
+	}}
+}
+
+func TestComputeRunStatsTasks(t *testing.T) {
+	stats, ok := computeRunStats(tasksFixture())
+	if !ok {
+		t.Fatal("expected stats")
+	}
+	if len(stats.PlayTasks) != 1 || stats.PlayTasks[0].Name != "first" {
+		t.Fatalf("PlayTasks = %+v, want only the timed play", stats.PlayTasks)
+	}
+	p := stats.PlayTasks[0]
+	if p.Wall != 10*time.Second || len(p.Tasks) != 4 {
+		t.Fatalf("play = %+v", p)
+	}
+	two := p.Tasks[1]
+	// first host start to last host finish: 4.0s .. 5.0s
+	if two.Start != 4*time.Second || two.Wall != time.Second || !two.Timed {
+		t.Errorf("two = %+v", two)
+	}
+	if p.Tasks[3].Timed {
+		t.Errorf("a task without timing must not be timed: %+v", p.Tasks[3])
+	}
+	if p.Tasks[2].Color != "red" || p.Tasks[1].Color == p.Tasks[0].Color {
+		t.Errorf("colors = %q %q %q, want the tree's per outcome", p.Tasks[0].Color, p.Tasks[1].Color, p.Tasks[2].Color)
+	}
+}
+
+func TestRenderTasksTab(t *testing.T) {
+	stats, _ := computeRunStats(tasksFixture())
+	got := renderTasksTab(stats.PlayTasks[0], 60)
+	plain := regexp.MustCompile(`\[[^\]]*\]`).ReplaceAllString(got, "")
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+	// leading blank, one, blank, two, blank, three, blank, untimed
+	if len(lines) != 8 || lines[0] != "" || lines[2] != "" {
+		t.Fatalf("lines = %q", lines)
+	}
+	if !strings.HasSuffix(lines[1], "4.0s") || !strings.HasSuffix(lines[5], "5.0s") {
+		t.Errorf("durations missing: %q", lines)
+	}
+	// "one" starts at the left edge; "three" starts halfway.
+	if !strings.HasPrefix(lines[1], " one") || strings.Index(lines[5], "three") < 20 {
+		t.Errorf("offsets wrong: %q", lines)
+	}
+	if strings.TrimSpace(lines[7]) != "untimed" {
+		t.Errorf("untimed row = %q, want a bare name", lines[7])
+	}
+}

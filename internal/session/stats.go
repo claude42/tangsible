@@ -49,6 +49,26 @@ type playStat struct {
 	Unreachable bool
 }
 
+// taskStat is one task's span within its play: when its first host started,
+// relative to the play's first task start, and how long until its last host
+// finished. Timed is false when no host has a known start and finish (the
+// task is then listed without a bar).
+type taskStat struct {
+	Name  string
+	Start time.Duration
+	Wall  time.Duration
+	Timed bool
+	Color string // the bar's color: the tree's, by the task's worst outcome
+}
+
+// playTasks is one play's tasks in execution order, for the Tasks tab. Wall
+// is the play's first task start to last finish - the timeline's scale.
+type playTasks struct {
+	Name  string
+	Wall  time.Duration
+	Tasks []taskStat
+}
+
 // runStats is what the statistics screen shows: per-host totals, slowest
 // first, per-play wall time, slowest first, and the run's wall-clock time
 // (first task start to last finish).
@@ -56,6 +76,8 @@ type runStats struct {
 	Hosts []hostStat
 	Plays []playStat
 	Wall  time.Duration
+	// PlayTasks has the plays that have any timed task, in playbook order.
+	PlayTasks []playTasks
 }
 
 // computeRunStats sums every task's known per-host duration (uikit.
@@ -67,6 +89,7 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 	failed, unreachable := map[string]bool{}, map[string]bool{}
 	var first, last time.Time
 	var plays []playStat
+	var playTaskList []playTasks
 	for i, play := range state.Plays {
 		var playFirst, playLast time.Time
 		ps := playStat{Name: play.Name}
@@ -104,6 +127,9 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 				}
 			}
 		}
+		if pt, ok := playTaskStats(play, ps.Name); ok {
+			playTaskList = append(playTaskList, pt)
+		}
 		if !playFirst.IsZero() && playLast.After(playFirst) {
 			ps.Wall = playLast.Sub(playFirst)
 			plays = append(plays, ps)
@@ -124,10 +150,90 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 	})
 	sort.SliceStable(plays, func(i, j int) bool { return plays[i].Wall > plays[j].Wall })
 	stats.Plays = plays
+	stats.PlayTasks = playTaskList
 	if !first.IsZero() && last.After(first) {
 		stats.Wall = last.Sub(first)
 	}
 	return stats, true
+}
+
+// playTaskStats lays out play's tasks on a timeline starting at its first
+// task start; ok is false when no task has a known span.
+func playTaskStats(play *playbook.PlayNode, name string) (playTasks, bool) {
+	type span struct{ first, last time.Time }
+	spans := make([]span, len(play.Tasks))
+	var playFirst, playLast time.Time
+	for i, task := range play.Tasks {
+		for host := range task.Hosts {
+			st, fin := task.Started[host], task.Finished[host]
+			if st.IsZero() || fin.IsZero() {
+				continue
+			}
+			if spans[i].first.IsZero() || st.Before(spans[i].first) {
+				spans[i].first = st
+			}
+			if fin.After(spans[i].last) {
+				spans[i].last = fin
+			}
+		}
+		if f := spans[i].first; !f.IsZero() && (playFirst.IsZero() || f.Before(playFirst)) {
+			playFirst = f
+		}
+		if l := spans[i].last; l.After(playLast) {
+			playLast = l
+		}
+	}
+	if playFirst.IsZero() {
+		return playTasks{}, false
+	}
+	pt := playTasks{Name: name, Wall: playLast.Sub(playFirst)}
+	for i, task := range play.Tasks {
+		ts := taskStat{Name: task.Name, Color: taskColor(task)}
+		if !spans[i].first.IsZero() {
+			ts.Timed = true
+			ts.Start = spans[i].first.Sub(playFirst)
+			ts.Wall = spans[i].last.Sub(spans[i].first)
+		}
+		pt.Tasks = append(pt.Tasks, ts)
+	}
+	return pt, true
+}
+
+// taskColor is the tree's color for the task's worst outcome across its
+// hosts: failed, unreachable, an ignored failure, changed, ok, skipped.
+func taskColor(task *playbook.TaskNode) string {
+	var failed, unreachable, ignored, changed, ok, skipped bool
+	for host, o := range task.Hosts {
+		switch {
+		case o == playbook.OutcomeFailed && task.Ignored[host]:
+			ignored = true
+		case o == playbook.OutcomeFailed:
+			failed = true
+		case o == playbook.OutcomeUnreachable:
+			unreachable = true
+		case o == playbook.OutcomeChanged:
+			changed = true
+		case o == playbook.OutcomeOK:
+			ok = true
+		case o == playbook.OutcomeSkipped:
+			skipped = true
+		}
+	}
+	switch {
+	case failed:
+		return uikit.ColorTag(playbook.OutcomeFailed)
+	case unreachable:
+		return uikit.ColorTag(playbook.OutcomeUnreachable)
+	case ignored:
+		return uikit.IgnoredColor
+	case changed:
+		return uikit.ColorTag(playbook.OutcomeChanged)
+	case ok:
+		return uikit.ColorTag(playbook.OutcomeOK)
+	case skipped:
+		return uikit.ColorTag(playbook.OutcomeSkipped)
+	}
+	return uikit.NothingReportedColor
 }
 
 // elapsedLabel names the run's own bar, the first row of the Hosts tab.
@@ -217,4 +323,45 @@ func renderPlaysTab(stats runStats, width int) string {
 		rows = append(rows, statRow{p.Name, p.Wall, statusColor(p.Failed, p.Unreachable, uikit.ValueHighlightColor)})
 	}
 	return renderBars(rows, width)
+}
+
+// renderTasksTab renders one play's timeline for the Tasks tab: a bar per
+// task in execution order, starting where the task began and as long as its
+// wall time (first host start to last host finish), on one scale - the play's
+// own wall time fills the bar area. The name is inside the bar or, for a late
+// short one, to its left (uikit.SpanBar); the duration is in the right
+// column. A task without timing is a bare name. Blank lines separate rows.
+func renderTasksTab(p playTasks, width int) string {
+	durWidth := 0
+	for _, t := range p.Tasks {
+		if t.Timed {
+			if n := len(uikit.FormatDuration(t.Wall)); n > durWidth {
+				durWidth = n
+			}
+		}
+	}
+	barWidth := width - durWidth - 2
+	if barWidth < 20 {
+		barWidth = 20
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+	for i, t := range p.Tasks {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		if !t.Timed {
+			b.WriteString(uikit.SpanBar(t.Name, 0, 0, barWidth, t.Color, "", uikit.StandardTextColor) + "\n")
+			continue
+		}
+		var start, length float64
+		if p.Wall > 0 {
+			start = float64(t.Start) / float64(p.Wall)
+			length = float64(t.Wall) / float64(p.Wall)
+		}
+		fmt.Fprintf(&b, "%s [%s]%*s[-]\n",
+			uikit.SpanBar(t.Name, start, length, barWidth, t.Color, uikit.ContrastTextColor(t.Color), uikit.StandardTextColor),
+			t.Color, durWidth, uikit.FormatDuration(t.Wall))
+	}
+	return b.String()
 }

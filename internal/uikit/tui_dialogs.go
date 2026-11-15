@@ -174,6 +174,17 @@ func StyleInputField(f *tview.InputField) *tview.InputField {
 	return f.SetFieldStyle(controlStyle())
 }
 
+// StyleDropDown gives a standalone drop-down the control colors (field and
+// open list; the highlighted entry and a focused field swapped) and a
+// themed label.
+func StyleDropDown(d *tview.DropDown) *tview.DropDown {
+	return d.SetLabelColor(tcell.GetColor(StandardTextColor)).
+		SetFieldStyle(controlStyle()).
+		SetFocusedStyle(controlFocusStyle()).
+		SetPrefixStyle(controlStyle()).
+		SetListStyles(controlStyle(), controlFocusStyle())
+}
+
 // StyleButton gives a standalone button the control colors, swapped
 // while it has focus.
 func StyleButton(b *tview.Button) *tview.Button {

@@ -21,11 +21,11 @@ import (
 )
 
 // The statistics screen (design-docs/Stats.md): 's' from the tree, once the
-// run has ended. A page of its own with a tab per statistic: Hosts, Plays. Its content is rebuilt from the run's state on every rebuild(), so a
+// run has ended. A page of its own with a tab per statistic: Hosts, Plays, Tasks. Its content is rebuilt from the run's state on every rebuild(), so a
 // terminal resize rescales the bars.
 
 // statsTabNames lists the screen's tabs, in order.
-var statsTabNames = []string{"Hosts", "Plays"}
+var statsTabNames = []string{"Hosts", "Plays", "Tasks"}
 
 // statsAvailable: the run has ended and at least one host has a known
 // duration - the same condition the Hosts tab needs something to show.
@@ -67,18 +67,81 @@ func (s *liveSession) renderStats() {
 	if !ok {
 		s.statsHostsView.SetText("No timing was recorded for this run.")
 		s.statsPlaysView.SetText("No timing was recorded for this run.")
+		s.statsTasksView.SetText("No timing was recorded for this run.")
 		return
 	}
 	_, _, width, _ := s.pages.GetInnerRect()
 	s.statsHostsView.SetText(renderHostsTab(stats, width))
 	s.statsPlaysView.SetText(renderPlaysTab(stats, width))
+	s.renderTasks(stats, width)
+}
+
+// statsPlayPicked: the user chose a play in the picker.
+func (s *liveSession) statsPlayPicked(string, int) {
+	if !s.statsSyncing {
+		s.renderStats()
+	}
+}
+
+// renderTasks refills the play picker (keeping the chosen play) and draws the
+// chosen play's timeline into the Tasks tab.
+func (s *liveSession) renderTasks(stats runStats, width int) {
+	if len(stats.PlayTasks) == 0 {
+		s.statsTasksView.SetText("No timing was recorded for the tasks.")
+		return
+	}
+	names := make([]string, len(stats.PlayTasks))
+	widest := 0
+	for i, p := range stats.PlayTasks {
+		names[i] = p.Name
+		if n := len([]rune(p.Name)); n > widest {
+			widest = n
+		}
+	}
+	chosen, _ := s.statsPlayPicker.GetCurrentOption()
+	if chosen < 0 || chosen >= len(names) {
+		chosen = 0
+	}
+	s.statsSyncing = true
+	// SetOptions also replaces the selected callback, so it is passed here.
+	s.statsPlayPicker.SetOptions(names, s.statsPlayPicked)
+	s.statsPlayPicker.SetFieldWidth(widest + 2)
+	s.statsPlayPicker.SetCurrentOption(chosen)
+	s.statsSyncing = false
+	s.statsTasksView.SetText(renderTasksTab(stats.PlayTasks[chosen], width))
+	s.statsTasksView.ScrollToBeginning()
 }
 
 // handleStatsViewKey is handleKey's dispatch while the statistics screen is
 // frontmost - checked before the global 'q' handling, which it replaces
 // (q backs out here, like the other views).
 func (s *liveSession) handleStatsViewKey(event *tcell.EventKey) *tcell.EventKey {
+	if s.statsPlayPicker.IsOpen() {
+		// The open list owns every key (Esc closes just it). Called directly:
+		// see tabSearchPanel.handleComposingKey.
+		s.statsPlayPicker.InputHandler()(event, func(p tview.Primitive) { s.app.SetFocus(p) })
+		if !s.statsPlayPicker.IsOpen() {
+			s.app.SetFocus(s.statsTabs.Primitive())
+		}
+		return nil
+	}
 	switch {
+	case (event.Key() == tcell.KeyLeft || event.Key() == tcell.KeyRight) && s.statsTabs.ActiveName() == "Tasks":
+		// Previous / next play, without opening the picker; stops at the ends.
+		i, _ := s.statsPlayPicker.GetCurrentOption()
+		if event.Key() == tcell.KeyLeft {
+			i--
+		} else {
+			i++
+		}
+		if i >= 0 && i < s.statsPlayPicker.GetOptionCount() {
+			s.statsPlayPicker.SetCurrentOption(i)
+		}
+		return nil
+	case event.Key() == tcell.KeyRune && event.Rune() == 'p' && s.statsTabs.ActiveName() == "Tasks":
+		s.statsPlayPicker.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone),
+			func(p tview.Primitive) { s.app.SetFocus(p) })
+		return nil
 	case event.Key() == tcell.KeyEscape,
 		event.Key() == tcell.KeyRune && (event.Rune() == 's' || event.Rune() == 'q'):
 		s.closeStatsView()
@@ -118,6 +181,13 @@ func (s *liveSession) handleStatsViewKey(event *tcell.EventKey) *tcell.EventKey 
 // steal focus.
 func (s *liveSession) handleStatsViewMouse(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 	x, y := event.Position()
+	if s.statsPlayPicker.IsOpen() || (s.statsTabs.ActiveName() == "Tasks" && uikit.InRect(x, y, s.statsPlayPicker)) {
+		s.statsPlayPicker.MouseHandler()(action, event, func(p tview.Primitive) { s.app.SetFocus(p) })
+		if !s.statsPlayPicker.IsOpen() {
+			s.app.SetFocus(s.statsTabs.Primitive())
+		}
+		return nil, action
+	}
 	if action == tview.MouseLeftClick {
 		s.statsTabs.HandleClick(x, y)
 		return nil, action

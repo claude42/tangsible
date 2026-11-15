@@ -286,8 +286,13 @@ func (p *TabbedPane) ActiveTextView() (*tview.TextView, bool) {
 	if name == "" {
 		return nil, false
 	}
-	tv, ok := p.pages.GetPage(name).(*tview.TextView)
-	return tv, ok
+	switch page := p.pages.GetPage(name).(type) {
+	case *tview.TextView:
+		return page, true
+	case interface{ BodyTextView() *tview.TextView }: // HeaderedText
+		return page.BodyTextView(), true
+	}
+	return nil, false
 }
 
 // Next/Prev switch to the next/previous tab, wrapping at either end - a
