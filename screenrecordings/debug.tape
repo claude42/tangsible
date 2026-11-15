@@ -36,7 +36,7 @@ Sleep 500ms
 Show
 
 # 1. The whole predicted task tree is there before anything runs
-Type "tangsible debug site.yml --all-vars" Sleep 300ms Enter
+Type "tangsible debug site.yml" Sleep 300ms Enter
 Wait+Screen /Schedule nightly backup/
 Sleep 2s
 

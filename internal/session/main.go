@@ -869,7 +869,6 @@ func Main(build BuildInfo) {
 			CopyPlaybookPath: debugPrep.CopyPlaybookPath,
 			BPS:              debugrun.NewBreakpointSet(),
 			Cursor:           debugverb.NewCursor(debugNodes, debugNodePlay, progH.Load(), debugPrep.PathMapping),
-			AllVars:          debugPrep.AllVars,
 			PlaybookDir:      debugPrep.PlaybookDir,
 			CopyDir:          debugPrep.CopyDir,
 		}

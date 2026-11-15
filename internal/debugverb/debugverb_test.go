@@ -16,67 +16,9 @@ package debugverb
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 )
-
-func TestExtractAllVarsFlag(t *testing.T) {
-	cases := []struct {
-		name     string
-		args     []string
-		wantFlag bool
-		wantRest []string
-	}{
-		{
-			name:     "absent",
-			args:     []string{"-i", "localhost,"},
-			wantFlag: false,
-			wantRest: []string{"-i", "localhost,"},
-		},
-		{
-			name:     "present, long form",
-			args:     []string{"-i", "localhost,", "--all-vars"},
-			wantFlag: true,
-			wantRest: []string{"-i", "localhost,"},
-		},
-		{
-			name:     "present, short form",
-			args:     []string{"-i", "localhost,", "-a"},
-			wantFlag: true,
-			wantRest: []string{"-i", "localhost,"},
-		},
-		{
-			name:     "present at the front",
-			args:     []string{"--all-vars", "-i", "localhost,"},
-			wantFlag: true,
-			wantRest: []string{"-i", "localhost,"},
-		},
-		{
-			name:     "repeated, both spellings",
-			args:     []string{"--all-vars", "-a"},
-			wantFlag: true,
-			wantRest: []string{},
-		},
-		{
-			name:     "empty",
-			args:     []string{},
-			wantFlag: false,
-			wantRest: []string{},
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			gotFlag, gotRest := extractAllVarsFlag(c.args)
-			if gotFlag != c.wantFlag {
-				t.Errorf("extractAllVarsFlag(%v) flag = %v, want %v", c.args, gotFlag, c.wantFlag)
-			}
-			if !reflect.DeepEqual(gotRest, c.wantRest) {
-				t.Errorf("extractAllVarsFlag(%v) rest = %v, want %v", c.args, gotRest, c.wantRest)
-			}
-		})
-	}
-}
 
 func TestSummarizeProbeStderr(t *testing.T) {
 	t.Run("cuts right after an argparse error line", func(t *testing.T) {

@@ -634,7 +634,7 @@ collide with:
                      own chrome; it reads "Watched variables
                      (unavailable)" instead whenever the currently
                      selected host/task has no captured variables at all
-                     (never paused there, and `--all-vars` wasn't passed)
+                     (the run hasn't reached it yet)
                      - as opposed to one particular watched expression
                      simply not resolving. The explorer stays otherwise
                      modal while open, with one carve-out: Page Up/Down,

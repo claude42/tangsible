@@ -276,7 +276,7 @@ or on the collections path (`$ANSIBLE_COLLECTIONS_PATH`, `collections_path`).
 <a href="https://gettangsible.aw.net/debug.gif"><img src="https://gettangsible.aw.net/debug.png" alt="Breakpoints and stepping with tangsible debug" width="360" align="right"></a>
 
 ```
-tangsible debug [playbook.yml] [--all-vars|-a] [ansible-playbook args...]
+tangsible debug [playbook.yml] [ansible-playbook args...]
 ```
 
 Full screen debugger. Toggle breakpoints with F9 / left mouse button. Run /
@@ -286,9 +286,8 @@ current task on current host with F12.
 v opens the variable watch explorer. 
 
 When execution is paused additional "Resolved" tab shows current task with
-all variables replaced by their values. --all-vars captures all variables for
-all tasks (at the cost of much slower execution). Variables can be added to
-the watch list. Variable contents can also be changed by entering `var =
+all variables replaced by their values (for every task that has run, not only
+the ones you stopped at). Variables can be added to the watch list. Variable contents can also be changed by entering `var =
 value`.
 
 ## Debugging a Jinja2 template

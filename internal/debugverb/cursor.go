@@ -42,10 +42,6 @@ type DebugConfig struct {
 	// (SeedState's second return value, wrapped - built by main.go right
 	// alongside state itself).
 	Cursor *Cursor
-	// AllVars is PrepareSession's own --all-vars/-a result (design-docs/
-	// DebugMode.md's "Stage 3 follow-up round 5"/round 9) - see
-	// liveSession.debugAllVars's own doc comment for what it does.
-	AllVars bool
 	// PlaybookDir/CopyDir are SessionPrep's own fields of the same name -
 	// see there for why internal/session needs both.
 	PlaybookDir string

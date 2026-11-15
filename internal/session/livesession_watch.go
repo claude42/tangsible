@@ -155,8 +155,8 @@ func (w *watchPanel) watchHint(autocompleteOpen bool) string {
 // padded before their fill tags, elsewhere in this file's siblings).
 // snapshotAvailable is watchCurrentSnapshot's own second return value -
 // false means the current host/task has no captured task_vars at all
-// (the run hasn't paused there, and --all-vars wasn't passed, so nothing
-// was ever captured to evaluate against), as opposed to a single watched
+// (the run hasn't reached that task yet, so nothing was ever captured
+// to evaluate against), as opposed to a single watched
 // expression simply not resolving against a snapshot that does exist.
 // The heading says so explicitly rather than leaving every single row to
 // separately render "<undefined>" with no explanation why.

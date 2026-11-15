@@ -106,8 +106,8 @@ debugger):
 
 **The values are already in hand.** `debugCaptureSnapshot`
 (`internal/session/livesession_debug.go`) already runs
-`Query("task_vars")` - the whole dict - on every pause that surfaces
-(always with `--all-vars`/`-a`) and caches it in `debugTaskVarsCache`,
+`Query("task_vars")` - the whole dict - on every pause (since the
+`--all-vars` flag was removed) and caches it in `debugTaskVarsCache`,
 keyed by (task, host), merged with the registered result. The ~112 KB
 transfer is therefore already paid; the tab only needs one more small
 origin query next to it. The expensive part of this feature would be moving

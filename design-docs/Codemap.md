@@ -184,8 +184,7 @@ possible, and `internal/session` (`main.go`'s `VerbDebug` case,
 
 - **debugverb.go** - `PrepareSession`: resolves "tangsible debug"'s own
   arguments (rejects `--step` outright - a second, unhandled pause
-  mechanism; extracts its own `--all-vars`/`-a` via
-  `extractAllVarsFlag`), builds the shadow copy + `debugger:
+  mechanism), builds the shadow copy + `debugger:
   always` splice (`internal/debugcopy`), and probes the spliced copy for
   its task skeleton (`runner.BuildProgressSkeleton`) - everything up
   through having a real, spawnable playbook ready, returned as
@@ -365,8 +364,8 @@ thin constructor/wiring shell.
     `debugRedo` (F12, drives `debugrun.RedoUntilTarget`),
     `debugOnPause`/`debugCaptureSnapshot`/`mergeRegisteredResult`
     (captures `task_vars`, plus the paused task's own `register:` result
-    if it has one, into `debugTaskVarsCache` - skipped for a pause
-    `willSurface` says won't be shown, unless `--all-vars`/`-a` is set),
+    if it has one, into `debugTaskVarsCache` - for every pause,
+    surfaced or not),
     `debugSetWatch` ("Stage 5," the watch panel's `expr = value` action -
     same `debugDriving`-guarded background-goroutine shape as
     `debugRedo`, re-running `debugCaptureSnapshot` on success to refresh

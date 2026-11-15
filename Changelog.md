@@ -37,6 +37,7 @@
 - The callback plugin is compiled into the binary (extracted to `~/.cache/tangsible/` on first use): `go install` and `go run` work without setup, the release archives and `install.sh` no longer ship or install it
 - `config.toml`: unknown keys and invalid values for fixed-choice `[general]` settings now print a warning after exit (they still fall back to the default)
 - `debug`: the top bar no longer shows the elapsed-time clock
+- `debug`: variables are captured for every task (the Resolved tab works for any task); the `--all-vars`/`-a` option is gone, and the capture is ~8x faster
 - Faster startup: `run`/`role`/`debug`/`rerun` ~300 ms (host groups load in the background), `run`/`role` ~250 ms (no `ansible-config` call before spawning), `role`/`template` ~250 ms (shared, early `ansible-config` call)
 
 ### Fixed

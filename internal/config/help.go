@@ -42,7 +42,7 @@ var VerbHelpTable = []VerbInfo{
 	{VerbInventory, "tangsible inventory [playbook.yml] [ansible-playbook args ...]", "browse the whole inventory as a tree"},
 	{VerbRevisit, "tangsible revisit [playbook.yml or role name] [--tags | -t tags] [--limit | -l hosts]", "browse and reopen previous runs"},
 	{VerbVault, "tangsible vault filename [--vault-password-file path | --ask-vault-pass]", "edit individually vault-encrypted variables in place"},
-	{VerbDebug, "tangsible debug [playbook.yml] [--all-vars|-a] [ansible-playbook args ...]", "step through a playbook, set breakpoints, watch variables"},
+	{VerbDebug, "tangsible debug [playbook.yml] [ansible-playbook args ...]", "step through a playbook, set breakpoints, watch variables"},
 	{VerbVersion, "tangsible version", "print version information about tangsible and the components it uses"},
 	{VerbHelp, "tangsible help [verb]", "list all verbs, or show one verb's synopsis"},
 }

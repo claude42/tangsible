@@ -117,9 +117,9 @@ const (
 // pause's own task_vars (Session.Query) for a task whose breakpoint isn't
 // armed: once applyPolicy's own loop calls Continue again, that pause's
 // data is gone for good, with nothing left to query it from. A caller
-// that only wants that query paid for when a pause will actually be
-// surfaced (design-docs/DebugMode.md's "vars at stops only" default, the
-// --all-vars/-a flag opting out of it) reads willSurface to decide.
+// that only wants some work done for a pause that will actually be
+// surfaced reads willSurface to decide (debug itself no longer does: it
+// queries every pause).
 func RunWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, stopRequested func() bool, onPause func(Pause, bool)) (Pause, bool, error) {
 	pause, eof, err := sess.Start()
 	return applyPolicy(sess, bps, mode, "", pause, eof, err, stopRequested, onPause)
@@ -162,8 +162,8 @@ func ContinueWithBreakpoints(sess *Session, bps *BreakpointSet, mode StepMode, f
 // future Continue/Step call would still stop there as usual, armed
 // breakpoint or not - this only ever affects the one pause being driven
 // past while chasing a specific redo). onPause still fires for every
-// pause encountered (so task_vars can still be cached for it under
-// --all-vars, same as any other not-shown-to-the-caller pause) -
+// pause encountered (so task_vars is still cached for it, same as for
+// any other not-shown-to-the-caller pause) -
 // willSurface is true only for the one ultimately returned (a genuine
 // re-pause of targetTask/targetHost, or a different task entirely if the
 // target was somehow never seen again - e.g. consumed some other way -

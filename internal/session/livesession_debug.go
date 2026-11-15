@@ -414,8 +414,8 @@ func (s *liveSession) debugRedo() {
 }
 
 // debugOnPause returns applyPolicy's own onPause callback (debugrun/
-// breakpoints.go) for sess: with --all-vars/-a, queries task_vars for
-// *every* pause it's given - including one silently continued past under
+// breakpoints.go) for sess: queries task_vars for *every* pause it's
+// given - including one silently continued past under
 // RunTillBreakpoint, never otherwise surfaced to this package at all -
 // design-docs/DebugMode.md's "Resolved Variables tab, every task." Runs
 // on debugStartOrContinue's own background goroutine (the same one
@@ -424,15 +424,11 @@ func (s *liveSession) debugRedo() {
 // event-loop goroutine at all; only the cache write below is
 // QueueUpdateDraw-wrapped.
 //
-// Unless s.debugAllVars is set (--all-vars/-a, design-docs/DebugMode.md's
-// "Stage 3 follow-up round 5"/round 9), skips the query entirely for a
-// pause applyPolicy says won't be surfaced - trading "Resolved tab works
-// for any task you navigate to" for not paying the query's own real cost
-// (its dominant one: design-docs/DebugMode.md's O(n^2) readUntilPrompt
-// investigation, ~0.74s for one gather_facts-sized task_vars) on every
-// single task whether or not the session ever actually stops there. This
-// is the default - --all-vars opts back into the slower "every task"
-// behavior.
+// Every pause is queried, whether or not it will be surfaced (the
+// Resolved tab then works for any task you navigate to): the query is
+// cheap now that readUntilPrompt only matches at a possible prompt end
+// (~90ms for a gather_facts-sized task_vars; it was ~0.75s, and was why
+// this used to be opt-in via --all-vars).
 //
 // Keyed by (pause.Task, pause.Host) - the debugger's own task label and
 // host, not resolveKey{*playbook.TaskNode, string} - deliberately: this
@@ -448,10 +444,7 @@ func (s *liveSession) debugRedo() {
 // TaskLabel's own doc comment: two tasks sharing an exact name alias to
 // the same breakpoint) - a known, pre-existing limitation, not a new one.
 func (s *liveSession) debugOnPause(sess *debugrun.Session) func(debugrun.Pause, bool) {
-	return func(pause debugrun.Pause, willSurface bool) {
-		if !s.debugAllVars && !willSurface {
-			return
-		}
+	return func(pause debugrun.Pause, _ bool) {
 		raw, meta, ok := s.debugCaptureSnapshot(sess)
 		if !ok {
 			return

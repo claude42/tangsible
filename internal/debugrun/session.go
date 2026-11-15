@@ -400,6 +400,9 @@ func (s *Session) readUntilPrompt() (text string, pause Pause, eof bool, err err
 			return buf.String(), Pause{}, true, nil
 		}
 		buf.WriteByte(b)
+		if b != ' ' { // the prompt ends in "(debug)> ": nothing else can match
+			continue
+		}
 		tail := buf.Bytes()
 		if len(tail) > promptCheckTail {
 			tail = tail[len(tail)-promptCheckTail:]

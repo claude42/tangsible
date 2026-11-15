@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-debug" "1" "2026-11-02" "Tangsible" "Tangsible Manual"
+.TH "tangsible-debug" "1" "2026-11-15" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-debug - step through a playbook, set breakpoints, watch variables.\&
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible debug\fR [\fIplaybook.\&yml\fR] [--all-vars|-a] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible debug\fR [\fIplaybook.\&yml\fR] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -34,20 +34,6 @@ can be armed before the first \fBF5\fR/\fBF10\fR/\fBF11\fR/\fBF12\fR.\&
 breakpoint/single step functionality, variable explorer and Resolved tab
 layered on top.\&
 .PP
-.SH ADDITIONAL OPTIONS
-.PP
-\fB--all-vars\fR, \fB-a\fR
-.RS 4
-By default, \fBdebug\fR captures a paused task'\&s own variables only at a
-pause actually shown to you (an armed breakpoint, a step, or a task
-failure) - its Resolved tab works for that task, but not yet for one
-you haven'\&t stopped at.\& This flag captures every task'\&s own
-variables instead, including one silently resumed past with no
-breakpoint armed on it, so the Resolved tab works no matter which
-task you later navigate back to - at the cost of significantly reduced
-performance.\&
-.PP
-.RE
 .SH CONTROLS
 .PP
 Six keys exist only for this verb, on top of everything \fBtangsible-run\fR(1)

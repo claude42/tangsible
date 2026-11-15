@@ -116,7 +116,7 @@ whichever host/task is currently selected, re-evaluating live as the
 cursor moves - not fixed to the host/task that was active when it was
 added. Three different reasons a value can't be shown right now (wrong
 host/task context for this expression; no captured snapshot for this
-task because `--all-vars` wasn't given; a syntactically valid path that
+task because the run hasn't reached it yet; a syntactically valid path that
 just doesn't resolve, e.g. an out-of-range index or a key that doesn't
 exist) all render identically as "unavailable" - the user can't tell
 these apart anyway, and doesn't need to. Rendered as the fourth color
@@ -4027,3 +4027,19 @@ stay on the line; longer ones follow as indented JSON, cut at 40 lines.
 Unlike the rest of the tab this is a post-task value (what the task
 produced, not what it saw), so it shows for failed tasks too. Same scope as
 the tab: only a task with a captured pause. Display only, never valid YAML.
+
+## `--all-vars` removed, capture always on (2026-11-15)
+
+Measured: with a gather_facts-sized `task_vars` (~110 KB) a snapshot query
+took ~750 ms per pause, ~1 ms of it dumping inside ansible and ~5 ms the
+`tangsible_snapshot` walk. The rest was `readUntilPrompt`, which still ran
+its prompt regex over a 4 KB window after *every* byte read. The prompt
+always ends in a space, so the regex now only runs after one: ~92 ms per
+query (9 pauses: 7.3 s -> 0.83 s). That made `--all-vars`/`-a` (the opt-in
+for "every task, not only the surfaced pauses") pointless: `debugOnPause`
+now queries every pause, `AllVars`/`debugAllVars`/`extractAllVarsFlag` are
+gone, and the flag is no longer recognized (ansible-playbook rejects it).
+Earlier sections above that mention `--all-vars` describe the history.
+An action plugin was considered as the capture path and rejected: it would
+need an injected task per real task (a full task execution per host, the
+wrong `task_vars` for the following task, no breakpoints/redo/set).

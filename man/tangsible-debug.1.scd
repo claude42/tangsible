@@ -6,7 +6,7 @@ tangsible-debug - step through a playbook, set breakpoints, watch variables.
 
 # SYNOPSIS
 
-*tangsible debug* [_playbook.yml_] [--all-vars|-a] [_ansible-playbook args_ ...]
+*tangsible debug* [_playbook.yml_] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -26,18 +26,6 @@ can be armed before the first *F5*/*F10*/*F11*/*F12*.
 *debug* is the exact same live tree UI *tangsible-run*(1) uses, with
 breakpoint/single step functionality, variable explorer and Resolved tab
 layered on top.
-
-# ADDITIONAL OPTIONS
-
-*--all-vars*, *-a*
-	By default, *debug* captures a paused task's own variables only at a
-	pause actually shown to you (an armed breakpoint, a step, or a task
-	failure) - its Resolved tab works for that task, but not yet for one
-	you haven't stopped at. This flag captures every task's own
-	variables instead, including one silently resumed past with no
-	breakpoint armed on it, so the Resolved tab works no matter which
-	task you later navigate back to - at the cost of significantly reduced
-	performance.
 
 # CONTROLS
 

@@ -14,7 +14,6 @@
 # passes those straight through unchanged - and tangsible's own synthetic
 # flags (--start-at-play/--dialog/--no-dialog/--only-failed/
 # --only-unreachable/--resume-where-failed, rerunargs.go/dialogflag.go;
-# --all-vars/-a, internal/debugverb/debugverb.go),
 # each offered only for the verbs whose own arg parser actually recognizes
 # it (internal/session/main.go). Positional tracking below only recognizes
 # the leading one or two arguments each verb itself gives meaning to
@@ -56,14 +55,11 @@ _tangsible_ap_file_flags="-i --inventory --inventory-file \
 # itself before ansible-playbook is ever spawned, never forwarded, so they
 # don't appear in `ansible-playbook --help` at all. Scoped per verb to
 # match exactly which ExtractStartAtPlay/ExtractDialogFlag/ExtractRerunFlags
-# call site (internal/session/main.go) - or, for --all-vars/-a,
-# extractAllVarsFlag (internal/debugverb/debugverb.go) - actually
-# recognizes each one. Offering a flag a verb would reject as a usage
+# call site (internal/session/main.go) actually recognizes each one. Offering a flag a verb would reject as a usage
 # error isn't "good enough," it's actively wrong.
 _tangsible_start_play_flag="--start-at-play"
 _tangsible_dialog_flags="--dialog --no-dialog"
 _tangsible_rerun_only_flags="--only-failed --only-unreachable --resume-where-failed"
-_tangsible_debug_flags="--all-vars -a"
 
 # vault's own two flags (design-docs/Vault.md) - spelled the same as two
 # ansible-playbook flags but resolved entirely by tangsible's own password
@@ -93,7 +89,7 @@ _tangsible_flags_for_verb()
 		echo "$_tangsible_ap_flags"
 		;;
 	debug)
-		echo "$_tangsible_ap_flags_no_step $_tangsible_debug_flags"
+		echo "$_tangsible_ap_flags_no_step"
 		;;
 	vault)
 		echo "$_tangsible_vault_flags"
