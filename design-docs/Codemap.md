@@ -407,12 +407,18 @@ thin constructor/wiring shell.
   watch panel's `expr = value` form and rendering a parsed `watchExpr` as
   the Python assignment target `internal/debugrun.Session.Set` writes
   into the live debugger's `task_vars`.
+- **livesession_popup.go** (+ `_test.go`) - the click pop-up of the Task
+  definition tab: `infoPopup` (labelled rows, optional button), painted from
+  the application's after-draw hook (no tview page, so no focus handling),
+  its key/mouse handling, and the text helpers (`wordSpan`, `wrapText`,
+  `truncateRunes`).
 - **livesession_varpopup.go** (+ `_test.go`) - the debug-mode variable
-  pop-up (design-docs/DebugMode.md, "Mouse support"): a click in the
-  Task definition tab reads the word under it back from tcell's screen
-  cells (`wordAround`), looks it up like a watch expression and, if it is a
-  defined scalar, paints a pop-up from the application's after-draw hook
-  (no tview page, so no focus handling); Watch appends to `s.watch.entries`.
+  pop-up (design-docs/DebugMode.md, "Mouse support"): looks the clicked word
+  up like a watch expression (vaulted values masked) and shows name, value and
+  origin with a Watch button.
+- **livesession_taskdefclick.go** - `readTaskDefClick`: what a click on the
+  Task definition tab landed on, read back from tcell's cells (the word, and
+  whether it is a YAML key); `openContextPopup` dispatches to the pop-up.
 - **recap.go** - the post-run recap summary section.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`

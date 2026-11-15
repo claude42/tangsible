@@ -368,9 +368,9 @@ type liveSession struct {
 	// screen is the tcell screen NewLiveTUI created (nil if that failed);
 	// varPopup reads clicked words back from its cells.
 	screen tcell.Screen
-	// varPopup is the variable pop-up of the Task definition tab
-	// (livesession_varpopup.go); zero value = closed.
-	varPopup varPopup
+	// popup is the click pop-up of the Task definition tab
+	// (livesession_popup.go); zero value = closed.
+	popup infoPopup
 	// debugCopyPlaybookPath is the absolute path into the shadow copy
 	// (debugverb.PrepareSession's own CopyPlaybookPath) - what F5/F10/F11
 	// actually spawn, never playbookName/targetPlaybook (the real

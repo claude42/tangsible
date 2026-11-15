@@ -4106,7 +4106,8 @@ simplify things a lot with the following idea.
 
 ### Implemented
 
-`livesession_varpopup.go`. Verified live in tmux (two-pane drill-down,
+`livesession_varpopup.go` (the pop-up itself, shared with context help, is
+`livesession_popup.go`). Verified live in tmux (two-pane drill-down,
 `debug` on a playbook with play vars): click on `greeting` and `app.port`
 opens the pop-up; `undefined_thing` opens nothing; Watch (click or Enter)
 adds the row; Esc or a click outside closes it.

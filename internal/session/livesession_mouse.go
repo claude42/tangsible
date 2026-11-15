@@ -56,7 +56,7 @@ func (s *liveSession) handleMouse(event *tcell.EventMouse, action tview.MouseAct
 	if result, resultAction, handled := s.handleRerunDialogMouse(event, action); handled {
 		return result, resultAction
 	}
-	if result, resultAction, handled := s.handleVarPopupMouse(event, action); handled {
+	if result, resultAction, handled := s.handlePopupMouse(event, action); handled {
 		return result, resultAction
 	}
 	if s.viewingStdout {
