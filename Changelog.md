@@ -44,6 +44,7 @@
 
 ### Fixed
 
+- Resolved tab: an expression using an undefined name (typically `item` in a loop) stays as written instead of failing the whole tab; the other expressions still resolve
 - `debug`: a run whose only problem was unreachable hosts ends "completed - one or more hosts were unreachable", as in `run`, instead of "Playbook failed (exit code 4)"
 - Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving
@@ -64,6 +65,7 @@
 
 ### Fixed
 
+- Resolved tab: an expression using an undefined name (typically `item` in a loop) stays as written instead of failing the whole tab; the other expressions still resolve
 - `hosts`/`inventory`: two-pane mode now behaves like `run`'s own drill-down
   view
 - `hosts`/`inventory`: revisiting a host already opened this session now
@@ -132,6 +134,7 @@
 
 ### Fixed
 
+- Resolved tab: an expression using an undefined name (typically `item` in a loop) stays as written instead of failing the whole tab; the other expressions still resolve
 - `template`: quitting while a render was running could leave
   `/tmp/tangsible-template-out-*` files behind; its scratch files are now
   also cleaned up on SIGTERM/SIGHUP (e.g. closing the terminal).

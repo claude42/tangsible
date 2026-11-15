@@ -75,10 +75,43 @@ var jinjaExpressionPattern = regexp.MustCompile(`\{\{.*?\}\}`)
 // untouched entirely - wrapping them isn't meaningful the same way, and
 // they're rare within a plain task's own source in practice.
 func wrapJinjaDefaults(source string) string {
+	return wrapJinjaDefaultsKeeping(source, nil)
+}
+
+// wrapJinjaDefaultsKeeping is wrapJinjaDefaults, except that every
+// expression keep reports true for is emitted verbatim inside a {% raw %}
+// block instead: the one way to protect an expression whose undefined name
+// raises *inside* it (hostvars[item].x, a ~ b), which default() on the
+// result never gets to see. A nil keep keeps nothing.
+func wrapJinjaDefaultsKeeping(source string, keep func(expr string) bool) string {
 	return jinjaExpressionPattern.ReplaceAllStringFunc(source, func(match string) string {
+		if keep != nil && keep(match) {
+			return "{% raw %}" + match + "{% endraw %}"
+		}
 		inner := strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}")
 		return "{{" + inner + "| default(" + jinjaStringLiteral(match) + ") }}"
 	})
+}
+
+var (
+	undefinedNamePattern = regexp.MustCompile(`'(\w+)' is undefined`)
+	loopSourcePattern    = regexp.MustCompile(`(?m)^\s*(loop|with_\w+):`)
+	loopVarPattern       = regexp.MustCompile(`(?m)^\s*loop_var:\s*["']?(\w+)`)
+)
+
+// maxResolveAttempts bounds resolveTaskValues' retries: each one is a full
+// ansible-playbook run, and a task rarely has more than a couple of
+// distinct unresolvable names.
+const maxResolveAttempts = 4
+
+// mentionsAnyName reports whether expr uses one of names as a whole word.
+func mentionsAnyName(expr string, names map[string]bool) bool {
+	for name := range names {
+		if regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(expr) {
+			return true
+		}
+	}
+	return false
 }
 
 // jinjaStringLiteral quotes s as a Jinja/Python-style double-quoted
@@ -136,6 +169,37 @@ func jinjaStringLiteral(s string) string {
 // role_path/inventory_dir/inventory_file, which *are* overridable and so
 // need no help here). It is the user's real project directory.
 func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVarsFile, realPlaybookDir string) (string, error) {
+	// An expression that raises on an undefined name (a loop variable
+	// inside hostvars[item], say) aborts the whole render, taking every
+	// resolvable expression of the task down with it. Such expressions are
+	// kept literal instead: the loop variable up front, any further name
+	// ansible reports as undefined on a retry.
+	undefined := map[string]bool{}
+	if loopSourcePattern.MatchString(taskSource) {
+		undefined["item"] = true
+		if m := loopVarPattern.FindStringSubmatch(taskSource); m != nil {
+			undefined[m[1]] = true
+		}
+	}
+	var text string
+	var err error
+	for attempt := 1; ; attempt++ {
+		wrapped := wrapJinjaDefaultsKeeping(taskSource, func(expr string) bool { return mentionsAnyName(expr, undefined) })
+		text, err = renderTaskValues(taskPath, wrapped, host, rest, extraVarsFile, realPlaybookDir)
+		if err == nil || attempt == maxResolveAttempts {
+			return text, err
+		}
+		m := undefinedNamePattern.FindStringSubmatch(err.Error())
+		if m == nil || undefined[m[1]] {
+			return text, err
+		}
+		undefined[m[1]] = true
+	}
+}
+
+// renderTaskValues is one render attempt of resolveTaskValues, on source
+// already rewritten by wrapJinjaDefaultsKeeping.
+func renderTaskValues(taskPath, wrapped, host string, rest []string, extraVarsFile, realPlaybookDir string) (string, error) {
 	// Debug mode's own passthrough args (debugverb.PrepareSession's Rest)
 	// never go through config.ParsePassthroughArgs the way run/role's do,
 	// so -t/--tags/--skip-tags (and -l/--limit, already redundant - see
@@ -148,7 +212,6 @@ func resolveTaskValues(taskPath, taskSource, host string, rest []string, extraVa
 	// failure. Stripped unconditionally here rather than trusted to each
 	// caller, so the invariant holds no matter who calls this.
 	rest = config.ParsePassthroughArgs(rest).Rest
-	wrapped := wrapJinjaDefaults(taskSource)
 
 	// One shared, unique-per-call directory for every file this builds,
 	// rather than three independently-named temp files scattered directly

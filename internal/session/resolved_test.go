@@ -164,6 +164,40 @@ func TestResolveTaskValues_StripsTags_Live(t *testing.T) {
 	}
 }
 
+// TestResolveTaskValues_UndefinedNameKeepsRest_Live: an expression that
+// raises on an undefined name (hostvars[item] in a loop, a ~ b) used to
+// fail the whole render; now only that expression stays literal and the
+// rest still resolves - both for a loop variable (kept literal up front)
+// and for any other name ansible reports as undefined (retry).
+func TestResolveTaskValues_UndefinedNameKeepsRest_Live(t *testing.T) {
+	requireAnsiblePlaybook(t)
+
+	repoRoot, err := filepath.Abs("../../")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TANGSIBLE_CALLBACK_DIR", filepath.Join(repoRoot, "callback"))
+	rest := []string{"-i", "localhost,"}
+
+	loopTask := "set_fact:\n  reports: \"{{ 1 + 1 + [hostvars[item].x] | length }}\"\nloop: \"{{ groups['all'] | sort }}\"\n"
+	got, err := resolveTaskValues("/nonexistent/tasks/main.yml:1", loopTask, "localhost", rest, emptySnapshot(t), "/p")
+	if err != nil {
+		t.Fatalf("loop task: %v", err)
+	}
+	if !strings.Contains(got, "{{ 1 + 1 + [hostvars[item].x] | length }}") || !strings.Contains(got, "localhost") {
+		t.Errorf("loop task resolved to %q, want the item expression literal and the loop list resolved", got)
+	}
+
+	plainTask := "a: \"{{ 1 + 1 }}\"\nb: \"{{ nope ~ 'x' }}\"\n"
+	got, err = resolveTaskValues("/nonexistent/tasks/main.yml:1", plainTask, "localhost", rest, emptySnapshot(t), "/p")
+	if err != nil {
+		t.Fatalf("plain task: %v", err)
+	}
+	if !strings.Contains(got, "a: \"2\"") || !strings.Contains(got, "{{ nope ~ 'x' }}") {
+		t.Errorf("plain task resolved to %q, want a resolved and b literal", got)
+	}
+}
+
 // emptySnapshot writes an empty task_vars snapshot (a bare JSON object)
 // for resolveTaskValues' required extraVarsFile.
 func emptySnapshot(t *testing.T) string {

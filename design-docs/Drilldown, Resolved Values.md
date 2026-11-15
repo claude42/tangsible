@@ -132,6 +132,15 @@ Reuses most of `template.go`'s existing plumbing directly:
 * Loop variables (`item`, etc.) always fall back to their own literal
   `{{ item }}` text, per the design's own `default()` fallback - expected,
   not a bug.
+* `default()` can't save an expression that *raises* on an undefined name
+  inside itself (`hostvars[item].x`, `a ~ b`): it only sees the result.
+  Such an expression used to abort the whole render. `resolveTaskValues`
+  now emits it verbatim in a `{% raw %}` block and renders the rest: the
+  loop variable (`item`, or a `loop_var:`) up front for a task with
+  `loop:`/`with_*`, any other name ansible reports as `'x' is undefined` on
+  a retry (up to 4 renders). An expression is all-or-nothing - in
+  `reports + [hostvars[item].x]` the `reports` part isn't resolved on its
+  own. Other render errors still fail the tab.
 * A handful of module parameters don't survive into a resolvable form at
   all regardless of approach (e.g. `ansible.builtin.copy`'s own `content:`
   gets swapped for an internal temp-file reference before ansible ever
