@@ -183,6 +183,7 @@ var statsHelp = uikit.HelpScreen{
 	Sections: []uikit.HelpSection{
 		{Title: "Tabs", Entries: []uikit.HelpEntry{
 			{Keys: "Tab / Shift-Tab", Desc: "Next / previous tab"},
+			{Keys: "Plays", Desc: "How long each play took (first task start to last finish), slowest first. Red if a host failed in it, maroon if one was unreachable"},
 			{Keys: "Hosts", Desc: "The run's elapsed time, then the time each host spent on tasks, slowest first. A host that failed is red, an unreachable one maroon"},
 		}},
 		{Title: "Scrolling", Entries: []uikit.HelpEntry{

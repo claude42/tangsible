@@ -25,7 +25,6 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
-	"github.com/rivo/tview"
 )
 
 // hostStat is the time one host spent on tasks over the whole run.
@@ -39,10 +38,23 @@ type hostStat struct {
 	Unreachable bool
 }
 
-// runStats is what the Hosts tab shows: per-host totals, slowest first, and
-// the run's wall-clock time (first task start to last finish).
+// playStat is one play's wall-clock time: its first task start to its last
+// finish. Plays run one after another, so these add up to about the run time
+// (unlike per-host totals). Failed/Unreachable as in hostStat, over every
+// host of the play.
+type playStat struct {
+	Name        string
+	Wall        time.Duration
+	Failed      bool
+	Unreachable bool
+}
+
+// runStats is what the statistics screen shows: per-host totals, slowest
+// first, per-play wall time, slowest first, and the run's wall-clock time
+// (first task start to last finish).
 type runStats struct {
 	Hosts []hostStat
+	Plays []playStat
 	Wall  time.Duration
 }
 
@@ -54,25 +66,47 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 	totals := map[string]time.Duration{}
 	failed, unreachable := map[string]bool{}, map[string]bool{}
 	var first, last time.Time
-	for _, play := range state.Plays {
+	var plays []playStat
+	for i, play := range state.Plays {
+		var playFirst, playLast time.Time
+		ps := playStat{Name: play.Name}
+		if ps.Name == "" {
+			ps.Name = fmt.Sprintf("play %d", i+1)
+		}
 		for _, task := range play.Tasks {
 			for host, outcome := range task.Hosts {
 				switch {
 				case outcome == playbook.OutcomeFailed && !task.Ignored[host]:
 					failed[host] = true
+					ps.Failed = true
 				case outcome == playbook.OutcomeUnreachable:
 					unreachable[host] = true
+					ps.Unreachable = true
 				}
 				if d, known := uikit.HostDuration(task, host); known {
 					totals[host] += d
 				}
-				if t := task.Started[host]; !t.IsZero() && (first.IsZero() || t.Before(first)) {
-					first = t
+				if t := task.Started[host]; !t.IsZero() {
+					if first.IsZero() || t.Before(first) {
+						first = t
+					}
+					if playFirst.IsZero() || t.Before(playFirst) {
+						playFirst = t
+					}
 				}
-				if t := task.Finished[host]; t.After(last) {
-					last = t
+				if t := task.Finished[host]; !t.IsZero() {
+					if t.After(last) {
+						last = t
+					}
+					if t.After(playLast) {
+						playLast = t
+					}
 				}
 			}
+		}
+		if !playFirst.IsZero() && playLast.After(playFirst) {
+			ps.Wall = playLast.Sub(playFirst)
+			plays = append(plays, ps)
 		}
 	}
 	if len(totals) == 0 {
@@ -88,6 +122,8 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 		}
 		return stats.Hosts[i].Host < stats.Hosts[j].Host
 	})
+	sort.SliceStable(plays, func(i, j int) bool { return plays[i].Wall > plays[j].Wall })
+	stats.Plays = plays
 	if !first.IsZero() && last.After(first) {
 		stats.Wall = last.Sub(first)
 	}
@@ -97,39 +133,35 @@ func computeRunStats(state *playbook.PlaybookState) (runStats, bool) {
 // elapsedLabel names the run's own bar, the first row of the Hosts tab.
 const elapsedLabel = "elapsed"
 
-// renderHostsTab renders the Hosts tab for a view width cells wide: first a
-// bar for the run's total elapsed time (when known), then one bar per host
-// with its total time, slowest first - all scaled to the longest, a blank
-// line between rows. A failed host's whole line is red, an unreachable one's
-// maroon (the tree's own colors); the elapsed bar is in the annotation color.
-func renderHostsTab(stats runStats, width int) string {
-	type row struct {
-		label      string
-		total      time.Duration
-		labelColor string
-		valueColor string
-	}
-	var rows []row
-	if stats.Wall > 0 {
-		rows = append(rows, row{elapsedLabel, stats.Wall, uikit.AnnotationColor, uikit.AnnotationColor})
-	}
-	for _, h := range stats.Hosts {
-		r := row{h.Host, h.Total, uikit.KeyHighlightColor, uikit.ValueHighlightColor}
-		switch {
-		case h.Failed:
-			r.labelColor, r.valueColor = uikit.OutcomeFailedColor, uikit.OutcomeFailedColor
-		case h.Unreachable:
-			r.labelColor, r.valueColor = uikit.OutcomeUnreachableColor, uikit.OutcomeUnreachableColor
-		}
-		rows = append(rows, r)
-	}
+// statRow is one bar of a statistics tab: its label (drawn inside the bar), its
+// value, and the bar's color.
+type statRow struct {
+	label string
+	total time.Duration
+	color string
+}
 
-	labelWidth, durWidth := 0, 0
+// statusColor is a row's bar color: red when it failed, maroon when
+// unreachable, else normal.
+func statusColor(failed, unreachable bool, normal string) string {
+	switch {
+	case failed:
+		return uikit.OutcomeFailedColor
+	case unreachable:
+		return uikit.OutcomeUnreachableColor
+	}
+	return normal
+}
+
+// renderBars renders rows for a view width cells wide, shared by every tab:
+// each row is a bar with its label drawn inside it (uikit.LabeledBar -
+// inverted on the filled cells, plain where it runs past the bar) and the
+// duration in a right-aligned column after it. Bars share one scale, the
+// longest row filling the bar area; a blank line separates rows.
+func renderBars(rows []statRow, width int) string {
+	durWidth := 0
 	var longest time.Duration
 	for _, r := range rows {
-		if n := len([]rune(r.label)); n > labelWidth {
-			labelWidth = n
-		}
 		if n := len(uikit.FormatDuration(r.total)); n > durWidth {
 			durWidth = n
 		}
@@ -137,12 +169,12 @@ func renderHostsTab(stats runStats, width int) string {
 			longest = r.total
 		}
 	}
-	barWidth := width - labelWidth - durWidth - 3 // label + " " + dur + " " + bar, 1 spare
-	if barWidth < 10 {
-		barWidth = 10
+	barWidth := width - durWidth - 2 // bar + " " + dur, 1 spare
+	if barWidth < 20 {
+		barWidth = 20
 	}
-
 	var b strings.Builder
+	b.WriteString("\n")
 	for i, r := range rows {
 		if i > 0 {
 			b.WriteString("\n")
@@ -151,10 +183,38 @@ func renderHostsTab(stats runStats, width int) string {
 		if longest > 0 {
 			fraction = float64(r.total) / float64(longest)
 		}
-		pad := strings.Repeat(" ", labelWidth-len([]rune(r.label)))
-		fmt.Fprintf(&b, "[%s]%s[-]%s [%s]%*s %s[-]\n",
-			r.labelColor, tview.Escape(r.label), pad,
-			r.valueColor, durWidth, uikit.FormatDuration(r.total), uikit.BarEighths(fraction, barWidth))
+		fmt.Fprintf(&b, "%s [%s]%*s[-]\n",
+			uikit.LabeledBar(r.label, fraction, barWidth, r.color, uikit.ContrastTextColor(r.color), uikit.StandardTextColor),
+			r.color, durWidth, uikit.FormatDuration(r.total))
 	}
 	return b.String()
+}
+
+// renderHostsTab renders the Hosts tab: first a bar for the run's total
+// elapsed time (gray, when known), then one bar per host with its total task
+// time, slowest first. A failed host's bar is red, an unreachable one's maroon
+// (the tree's own colors).
+func renderHostsTab(stats runStats, width int) string {
+	var rows []statRow
+	if stats.Wall > 0 {
+		rows = append(rows, statRow{elapsedLabel, stats.Wall, uikit.AnnotationColor})
+	}
+	for _, h := range stats.Hosts {
+		rows = append(rows, statRow{h.Host, h.Total, statusColor(h.Failed, h.Unreachable, uikit.ValueHighlightColor)})
+	}
+	return renderBars(rows, width)
+}
+
+// renderPlaysTab renders the Plays tab: one bar per play with its wall time,
+// slowest first. Red when a host failed in the play, maroon when one was
+// unreachable. No elapsed bar here: the plays are the parts of it.
+func renderPlaysTab(stats runStats, width int) string {
+	if len(stats.Plays) == 0 {
+		return "No timing was recorded for the plays."
+	}
+	var rows []statRow
+	for _, p := range stats.Plays {
+		rows = append(rows, statRow{p.Name, p.Wall, statusColor(p.Failed, p.Unreachable, uikit.ValueHighlightColor)})
+	}
+	return renderBars(rows, width)
 }

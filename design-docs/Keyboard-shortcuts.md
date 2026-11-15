@@ -218,7 +218,7 @@ arrives.
 
 Opened with `s` from the tree once the run has ended (also in `revisit` and
 a finished `debug` session); design-docs/Stats.md. One tab per statistic -
-for now Hosts.
+Hosts and Plays.
 
 * Tab / Shift-Tab  - next / previous tab
 * Up / Down, PgUp / PgDn, Home / End (and the usual aliases) - scroll

@@ -8,7 +8,7 @@
 - Task definition tab: roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are found too, also outside the project tree
 - `host`/`hosts`/`inventory`: the "Everything known" tab is removed and the "host_vars" tab hidden; the Variables and Facts tabs replace them
 - YAML tabs show comments (a `# ...` line or a trailing `# ...`) in the annotation colour instead of the value colour
-- `s` opens a statistics screen once the run has ended; first tab: the run's elapsed time and the time each host spent on tasks, as bars, slowest first (failed hosts red)
+- `s` opens a statistics screen once the run has ended; tabs: Hosts (the run's elapsed time and the time each host spent on tasks) and Plays (how long each play took), as bars with the name drawn inside, slowest first, failed ones red
 - The drill-down's Task tab shows the host's `Duration:` for the task
 - `host`/`hosts`/`inventory`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
 - `host`/`hosts`/`inventory`: new Facts tab with every gathered fact as YAML

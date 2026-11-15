@@ -53,15 +53,17 @@ should be rendered normally. I hope you understand what I mean.
 * Hosts are sorted by duration, slowest first.
 * The screen opens only after the run has ended (and only if timing was
   recorded - a run log from before durations existed has none). More tabs
-  will follow later.
+  will follow later (so far Hosts and Plays).
 * A host's bar is its total: the sum of its tasks' own durations
   (`uikit.HostDuration`). Hosts run in parallel, so these don't add up to the
   run time. The first bar, `elapsed`, is the run's own time (first task start
   to last finish, gray), drawn on the same scale; there is no description
-  text above the bars.
-* Bars use the eighth blocks (U+258F..U+2588, `uikit.BarEighths`) for 1/8
-  cell resolution and are scaled so the longest bar (normally elapsed) fills the width left
-  after the label and duration columns. A positive value always shows at
+  text above the bars. Hosts and Plays share one look (`renderBars`,
+  `uikit.LabeledBar`): the name inside the bar, inverted on the filled cells,
+  the duration in a column on the right (see "Plays tab" below).
+* Bars use the eighth blocks (U+258F..U+2588) for their partial last cell, 1/8
+  cell resolution, scaled so the longest bar (on Hosts normally elapsed) fills
+  the width left of the duration column. A positive value always shows at
   least the thinnest block.
 * `s` is a page of its own (`livesession_stats.go`), dispatched like the raw
   output view: Esc / s / q back, Tab / Shift-Tab between tabs, `y` copies the
@@ -70,7 +72,26 @@ should be rendered normally. I hope you understand what I mean.
   keys are off while it is open.
 * The Task tab of the drill-down has a `Duration:` line (the host's duration
   for that task), shown only when known.
-* A host's line is red when it had a genuinely failed task (not one ignored
+* A host's bar is red when it had a genuinely failed task (not one ignored
   via `ignore_errors`), maroon when it was unreachable (the tree's own
-  colors; failed wins when both apply). Hosts are separated by a blank line.
+  colors; failed wins when both apply). Rows are separated by a blank line.
+
+### Plays tab (implemented)
+
+* A play's bar is its wall-clock time: first task start to last finish,
+  across all its hosts. Plays run one after another, so unlike the host
+  totals these add up to about the run time. Slowest first, the run's
+  a blank line between rows. An unnamed play is called `play N`. No `elapsed`
+  bar here: the plays are the parts of it (it stays on the Hosts tab).
+* The name is drawn inside the bar (`uikit.LabeledBar`): characters on filled
+  cells are inverted (the bar's color as background, black or white text by
+  luminance - `uikit.ContrastTextColor` - as hex, since a theme can remap the
+  palette names), characters beyond the bar are plain. One bar cell precedes
+  the text. The bar's partial last cell is an eighth block unless a text
+  character needs that cell; a bar under one cell shows its sliver, then the
+  name. A name wider than the bar area is cut with `…`.
+* The duration is a right-aligned column after the bar (as on Hosts, since the
+  Hosts tab was moved to the same visualization).
+* Colors as on Hosts: the bar is red when a host genuinely failed in the play
+  (not an ignored failure), maroon when one was unreachable.
 

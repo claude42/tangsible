@@ -460,9 +460,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// a tab pane over one TextView per statistic.
 	s.statsHostsView = tview.NewTextView().SetDynamicColors(true)
 	s.statsHostsView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
+	s.statsPlaysView = tview.NewTextView().SetDynamicColors(true)
+	s.statsPlaysView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.statsTabs = uikit.NewTabbedPane()
 	s.statsTabs.SetHeaderStyle(s.chromeStyle, s.chromeColorName())
-	s.statsTabs.SetTabs(statsTabNames, []tview.Primitive{s.statsHostsView})
+	s.statsTabs.SetTabs(statsTabNames, []tview.Primitive{s.statsHostsView, s.statsPlaysView})
 	s.statsTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.statsTopBar.SetTextStyle(s.chromeStyle)
 	s.statsBottomBar = tview.NewTextView().SetText(statsBar)

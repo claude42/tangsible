@@ -379,7 +379,7 @@ control, and more).
 | `/` | Search filter (task name, source, output) |
 | `r` | Open the re-run dialog (once the run has finished) |
 | `o` | Show ansible-playbook's console output (`F` follows, `Esc` returns) |
-| `s` | Statistics screen (once the run has finished): elapsed time and time per host as bars |
+| `s` | Statistics screen (once the run has finished): elapsed time, time per host and per play as bars |
 | `?`/`F1` | Help: all of the tree view's shortcuts |
 | `q`/`Ctrl-C` | Interrupt the run, or quit once it's finished |
 

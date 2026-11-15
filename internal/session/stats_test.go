@@ -1,6 +1,7 @@
 package session
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -62,19 +63,24 @@ func TestComputeRunStatsNoDurations(t *testing.T) {
 func TestRenderHostsTab(t *testing.T) {
 	stats, _ := computeRunStats(statsFixture())
 	got := renderHostsTab(stats, 60)
-	for _, want := range []string{"artha", "60.0s", "25.3s", "hydra", "elapsed", "████"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing %q in:\n%s", want, got)
+	plain := tagPatternForTest.ReplaceAllString(got, "")
+	for _, want := range []string{"artha", "60.0s", "25.3s", "hydra", "elapsed"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("missing %q in:\n%s", want, plain)
 		}
 	}
-	if strings.Index(got, "artha") > strings.Index(got, "shunya") || strings.Index(got, "shunya") > strings.Index(got, "hydra") {
-		t.Errorf("not sorted by duration:\n%s", got)
+	if strings.Index(plain, "artha") > strings.Index(plain, "shunya") || strings.Index(plain, "shunya") > strings.Index(plain, "hydra") {
+		t.Errorf("not sorted by duration:\n%s", plain)
 	}
-	if strings.Contains(got, "Time each host") || strings.Contains(got, "Run time") {
-		t.Errorf("the description lines are gone, got:\n%s", got)
+	if strings.Contains(plain, "Time each host") || strings.Contains(plain, "Run time") {
+		t.Errorf("the description lines are gone, got:\n%s", plain)
 	}
-	if strings.Index(got, "elapsed") > strings.Index(got, "artha") {
-		t.Errorf("the elapsed bar comes first:\n%s", got)
+	if strings.Index(plain, "elapsed") > strings.Index(plain, "artha") {
+		t.Errorf("the elapsed bar comes first:\n%s", plain)
+	}
+	// The host names are drawn inside their bars (inverted), like the Plays tab.
+	if !strings.Contains(got, ":lightsteelblue] artha") {
+		t.Errorf("the host name should sit inside its bar:\n%s", got)
 	}
 }
 
@@ -108,29 +114,119 @@ func TestRenderHostsTabColorsAndSpacing(t *testing.T) {
 		{Host: "c", Total: time.Second},
 	}}
 	got := renderHostsTab(stats, 40)
-	for _, want := range []string{"[red]a[-]", "[maroon]b[-]", "[green]c[-]"} {
+	for _, want := range []string{":red] a", ":maroon] b", ":lightsteelblue] c"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
-	// a, blank, b, blank, c
-	if len(lines) != 5 || lines[1] != "" || lines[3] != "" {
+	// leading blank, a, blank, b, blank, c
+	if len(lines) != 6 || lines[0] != "" || lines[2] != "" || lines[4] != "" {
 		t.Errorf("want a blank line between hosts, got:\n%q", lines)
 	}
 }
 
+// segment returns the text of the first inverted run that starts with prefix
+// (a "[fg:bg]" tag), up to the closing "[-:-]" - the filled part of a bar.
+func segment(s, prefix string) string {
+	i := strings.Index(s, prefix)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(prefix):]
+	if j := strings.Index(rest, "[-:-]"); j >= 0 {
+		return rest[:j]
+	}
+	return rest
+}
+
 func TestRenderHostsTabElapsedBar(t *testing.T) {
 	stats := runStats{Wall: 10 * time.Second, Hosts: []hostStat{{Host: "a", Total: 5 * time.Second}}}
-	got := renderHostsTab(stats, 33) // label 7 + dur 5 + 3 spare -> 18-cell bars
-	lines := strings.Split(got, "\n")
-	if !strings.Contains(lines[0], "elapsed") || !strings.Contains(lines[0], "10.0s") || !strings.Contains(lines[0], strings.Repeat("█", 18)) {
-		t.Errorf("elapsed row = %q, want a full-width bar", lines[0])
+	got := renderHostsTab(stats, 33) // duration column 5 -> 26-cell bars
+	if n := len([]rune(segment(got, "[#ffffff:gray]"))); n != 26 {
+		t.Errorf("the elapsed bar should fill all 26 cells, got %d in:\n%s", n, got)
 	}
-	if !strings.Contains(lines[2], strings.Repeat("█", 9)) || strings.Contains(lines[2], strings.Repeat("█", 10)) {
-		t.Errorf("a host at half the elapsed time gets a half bar, got %q", lines[2])
+	if n := len([]rune(segment(got, "[#000000:lightsteelblue]"))); n != 13 {
+		t.Errorf("a host at half the elapsed time gets half the cells, got %d in:\n%s", n, got)
 	}
 	if got := renderHostsTab(runStats{Hosts: stats.Hosts}, 33); strings.Contains(got, "elapsed") {
 		t.Errorf("no elapsed bar without a known run time, got %q", got)
+	}
+}
+
+var tagPatternForTest = regexp.MustCompile(`\[[^\]]*\]`)
+
+func playsFixture() *playbook.PlaybookState {
+	base := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	at := func(sec float64) time.Time { return base.Add(time.Duration(sec * float64(time.Second))) }
+	task := func(host string, start, end float64, o playbook.Outcome) *playbook.TaskNode {
+		return &playbook.TaskNode{
+			Hosts:    map[string]playbook.Outcome{host: o},
+			Started:  map[string]time.Time{host: at(start)},
+			Finished: map[string]time.Time{host: at(end)},
+		}
+	}
+	return &playbook.PlaybookState{Plays: []*playbook.PlayNode{
+		{Name: "Very long play", Tasks: []*playbook.TaskNode{
+			task("h1", 0, 4, playbook.OutcomeOK), task("h2", 1, 21.3, playbook.OutcomeOK),
+		}},
+		{Name: "", Tasks: []*playbook.TaskNode{task("h1", 22, 25, playbook.OutcomeFailed)}},
+		{Name: "Short", Tasks: []*playbook.TaskNode{task("h1", 25, 26, playbook.OutcomeOK)}},
+	}}
+}
+
+func TestComputeRunStatsPlays(t *testing.T) {
+	stats, ok := computeRunStats(playsFixture())
+	if !ok {
+		t.Fatal("expected stats")
+	}
+	var got []string
+	for _, p := range stats.Plays {
+		got = append(got, p.Name)
+	}
+	if strings.Join(got, "|") != "Very long play|play 2|Short" {
+		t.Errorf("plays = %v, want slowest first, an unnamed play numbered", got)
+	}
+	if stats.Plays[0].Wall != 21300*time.Millisecond {
+		t.Errorf("wall = %v, want first start to last finish: 21.3s", stats.Plays[0].Wall)
+	}
+	if stats.Plays[0].Failed || !stats.Plays[1].Failed {
+		t.Errorf("failed flags = %v %v", stats.Plays[0].Failed, stats.Plays[1].Failed)
+	}
+}
+
+func TestRenderPlaysTab(t *testing.T) {
+	stats, _ := computeRunStats(playsFixture())
+	got := renderPlaysTab(stats, 60)
+	plain := tagPatternForTest.ReplaceAllString(got, "")
+	for _, want := range []string{"Very long play", "21.3s", "play 2", "Short"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("missing %q in:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "elapsed") {
+		t.Errorf("the Plays tab has no elapsed bar:\n%s", plain)
+	}
+	// The failed play's bar is red; the long play's name sits inside its bar.
+	if !strings.Contains(got, ":red]") {
+		t.Errorf("a failed play should have a red bar:\n%s", got)
+	}
+	if !strings.Contains(got, ":lightsteelblue] Very long play") {
+		t.Errorf("the name should be inverted inside the bar:\n%s", got)
+	}
+	// The short play's name runs past its bar: it is drawn plain after it.
+	if !strings.Contains(got, "[silver]") {
+		t.Errorf("text beyond a short bar should be drawn normally:\n%s", got)
+	}
+	for _, line := range strings.Split(strings.TrimRight(plain, "\n"), "\n") {
+		if len([]rune(line)) > 60 {
+			t.Errorf("line too wide (%d): %q", len([]rune(line)), line)
+		}
+	}
+}
+
+func TestRenderPlaysTabEmpty(t *testing.T) {
+	if got := renderPlaysTab(runStats{}, 60); !strings.Contains(got, "No timing") {
+		t.Errorf("got %q", got)
 	}
 }

@@ -334,9 +334,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   other stderr consumer; current generation only; lines held back during a
   search. Banners stay 79 columns (ansible sizes them via ioctl on fd 1 only).
 - **Statistics** (`s`, `livesession_stats.go`, `Stats.md`): its own page, only
-  once the run has ended; a tab per statistic, today Hosts (per-host total of
-  `uikit.HostDuration`, slowest first, eighth-block bars via
-  `uikit.BarEighths`). The Task tab also shows the host's `Duration:`.
+  once the run has ended; a tab per statistic: Hosts (per-host total of
+  `uikit.HostDuration`, plus an elapsed bar) and Plays (wall time per play),
+  both slowest first, drawn by `renderBars` with the name inside the bar
+  (`uikit.LabeledBar`, eighth-block ends). The Task tab also shows the host's `Duration:`.
 
 ## Scope (deliberate)
 
