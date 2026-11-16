@@ -59,7 +59,10 @@ func (s *tmuxSession) rerunViaDialog() {
 	s.t.Helper()
 	s.send("r")
 	s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 5*time.Second)
-	s.send("Tab", "Tab", "Tab", "Tab", "Tab", "Enter")
+	// Enter runs from whichever field has the focus. (This used to Tab five
+	// times to the Re-run button, which broke whenever the dialog gained a
+	// field: the Tabs then ended on Cancel.)
+	s.send("Enter")
 }
 
 // waitForRuns waits until runs.log in dir has n lines.
