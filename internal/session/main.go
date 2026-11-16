@@ -287,6 +287,13 @@ func Main(build BuildInfo) {
 	// files instead: a later prompt would fight the TUI for the terminal and
 	// hang (internal/credfile). History still records the original flags.
 	askPasswords := func(rest []string) []string {
+		// The terminal-background query (internal/termbg) reads the tty until
+		// its reply arrives, and would swallow a password typed meanwhile -
+		// the prompt hangs. The early applyColors() for a credential flag on
+		// the command line doesn't cover one that only comes back from
+		// history (a bare "tangsible rerun"), so collect the answer here,
+		// before every prompt. (A no-op if it already ran.)
+		applyColors()
 		out, c, err := credfile.Rewrite(rest, credfile.TerminalPrompter)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)

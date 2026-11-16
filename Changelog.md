@@ -56,6 +56,8 @@
 
 ### Fixed
 
+- `tangsible rerun` could hang at its password prompt when the password was typed right away: the terminal-colour query, still waiting for its reply, swallowed the keystrokes (only when `-K`/`--ask-*` came from history, not the command line)
+
 - Resolved tab: an expression using an undefined name (typically `item` in a loop) stays as written instead of failing the whole tab; the other expressions still resolve
 - `debug`: a run whose only problem was unreachable hosts ends "completed - one or more hosts were unreachable", as in `run`, instead of "Playbook failed (exit code 4)"
 - `run` and `debug` no longer show a warning that merely repeats the error beside it when ansible-playbook fails before the playbook starts (a missing vault password file used to appear twice); a warning that adds something, like the host pattern that failed to match, is kept
