@@ -45,6 +45,7 @@ subprocesses.
   two-pane layouts (`run` family, `hosts`, `inventory`).
 - **tui_style.go** - palette/style constants (colors, indents,
   bottom-bar text).
+- **tui_placeholder.go** - `AnimatePlaceholders`: busy-spinner placeholder text for `TextView`s still waiting on async content (host tabs, template renders).
 - **tui_layout.go** - row-text rendering: `TaskLabel`/`HostLabel`/
   `PlayRowText`/`ColorTag`/host-column layout.
 - **tui_rows.go** - the `Row` type, `FlattenRows` (tree → flat row

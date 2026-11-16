@@ -1848,13 +1848,21 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 	}
 	header.SetText(fmt.Sprintf(" Host: %s   Playbook: %s ", tview.Escape(hostname), tview.Escape(playbookLabel)))
 
-	summaryView := tview.NewTextView().SetDynamicColors(true).SetText("Gathering facts...")
-	factsView := tview.NewTextView().SetDynamicColors(true).SetText("Gathering facts...")
-	variablesView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
-	groupsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
-	playsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
-	hostVarsView := tview.NewTextView().SetDynamicColors(true).SetText("Loading...")
-	// Untagged text ("Loading...", most content) needs an explicit color -
+	summaryView := tview.NewTextView().SetDynamicColors(true)
+	factsView := tview.NewTextView().SetDynamicColors(true)
+	variablesView := tview.NewTextView().SetDynamicColors(true)
+	groupsView := tview.NewTextView().SetDynamicColors(true)
+	playsView := tview.NewTextView().SetDynamicColors(true)
+	hostVarsView := tview.NewTextView().SetDynamicColors(true)
+	uikit.AnimatePlaceholders(app, map[*tview.TextView]string{
+		summaryView:   "Gathering facts...",
+		factsView:     "Gathering facts...",
+		variablesView: "Loading...",
+		groupsView:    "Loading...",
+		playsView:     "Loading...",
+		hostVarsView:  "Loading...",
+	})
+	// Untagged text (the placeholders, most content) needs an explicit color -
 	// tview's default is white, invisible on a light [colors] background.
 	for _, v := range []*tview.TextView{summaryView, factsView, variablesView, groupsView, playsView, hostVarsView} {
 		v.SetTextColor(tcell.GetColor(uikit.StandardTextColor))

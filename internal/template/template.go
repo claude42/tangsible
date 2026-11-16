@@ -576,7 +576,6 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 	for i := range renderedViews {
 		renderedViews[i] = tview.NewTextView().SetDynamicColors(true)
 		renderedViews[i].SetTextColor(tcell.GetColor(uikit.StandardTextColor))
-		renderedViews[i].SetText("Rendering...")
 	}
 	// renderFailed mirrors hosts by index (true once that host's own last
 	// render errored - a task failure or a render-level error alike) -
@@ -586,7 +585,7 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 	// task everywhere else in the app.
 	renderFailed := make([]bool, len(hosts))
 	sourceView := tview.NewTextView().SetDynamicColors(true)
-	// Plain text (rendered output, the source, "Rendering...", an error's
+	// Plain text (rendered output, the source, the spinner placeholder, an error's
 	// message) is untagged and takes this view-wide color - one mechanism
 	// for every path, the same as the host tabs, rather than wrapping each
 	// string in its own [standard_text] tag (one path once forgot to,
@@ -751,10 +750,12 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 			return
 		}
 		rendering = true
+		placeholders := map[*tview.TextView]string{}
 		for i, v := range renderedViews {
-			v.SetText("Rendering...")
+			placeholders[v] = "Rendering..."
 			renderFailed[i] = false
 		}
+		uikit.AnimatePlaceholders(app, placeholders)
 		updateTabColors()
 		renders.Add(1)
 		go func() {
@@ -780,7 +781,7 @@ func RunTemplateTUI(ctx context.Context, templatePath, stubPath, outputPath stri
 		}
 		rendering = true
 		host := hosts[i]
-		renderedViews[i].SetText("Rendering...")
+		uikit.AnimatePlaceholders(app, map[*tview.TextView]string{renderedViews[i]: "Rendering..."})
 		renderFailed[i] = false
 		updateTabColors()
 		renders.Add(1)
