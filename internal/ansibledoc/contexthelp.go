@@ -24,12 +24,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/execerr"
+	"code.aw.net/claude/tangsible/internal/runner"
 )
 
 // OptionDoc is one module option (or suboption).
@@ -120,8 +120,14 @@ func parseKeywordNames(list string) []string {
 	return names
 }
 
+// runAnsibleDoc goes through runner.NewToolCommand like FetchAnsibleDoc: in an
+// execution environment the help must describe that environment's modules
+// and keywords, not the host's.
 func runAnsibleDoc(args ...string) ([]byte, error) {
-	cmd := exec.Command("ansible-doc", args...)
+	cmd, err := runner.NewToolCommand("ansible-doc", args, runner.ToolOptions{})
+	if err != nil {
+		return nil, err
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
