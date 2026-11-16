@@ -385,8 +385,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - `strategy: free` is supported (`StrategyFree.md`), except in `debug`,
   which runs it as linear (`DebugMode.md`); a globally configured
   `free` isn't seen by the progress probe.
-- No execution environments / ansible-runner; only a subset of
-  `ansible-playbook`'s CLI is surfaced.
+- Execution environments (`ExecutionEnvironments.md`) are podman-only and
+  Linux-only, for `run`/`rerun`/`role` (and a rerun from `revisit`): no
+  docker, no macOS, not in `debug` or the standalone verbs. No
+  ansible-runner. Only a subset of `ansible-playbook`'s CLI is surfaced.
 
 ## Housekeeping
 
