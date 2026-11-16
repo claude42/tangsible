@@ -345,7 +345,11 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   the source index must agree with the host. **Every** spawn of an ansible
   tool for display purposes (probe, `ansible-doc`, stubs, `python3`) goes
   through `runner.NewToolCommand` so it follows the active EE - a new one
-  must too. The container user's home is a world-writable tmpfs of ours
+  must too. Host-side on purpose: the standalone verbs, `debug`,
+  `ansible-config dump` (it wants host paths) and `ansible-inventory
+  --list` for the re-run dialog's group autocomplete (best effort; a host
+  vs EE difference only costs suggestions, the run's own hosts come from
+  its events). The container user's home is a world-writable tmpfs of ours
   (`/runner/home`, in the passwd entry and `$HOME`): podman's `keep-id`
   alone picks the project dir (5.4) or `/tmp` (5.8) as home, and the image's
   own `/runner` is writable only via group root, which `keep-id` grants on

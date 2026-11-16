@@ -67,6 +67,13 @@ happens to be on the developer's host.
   only; `keep-id`
   behaved differently between them (see the container-home finding), so
   other versions may hold more such differences.
+- **Still run on the host, on purpose:** `ansible-config dump` (the roles
+  path, used for display and wanting host paths) and `ansible-inventory
+  --list` for the re-run dialog's group-name autocomplete. The latter could
+  differ from what the EE sees (an inventory plugin only the EE has, other
+  environment or credentials) - the cost is a missing suggestion list, never
+  a wrong run, since the run's hosts come from its own events - and routing
+  it into the container would add a container start for a nicety.
 - **docker, macOS, `debug`:** deliberately out of scope (`debug` is
   designed for - see "Debug mode in an EE" - not built).
 - **AppArmor** (Ubuntu's confinement) cannot apply to what tangsible runs:
