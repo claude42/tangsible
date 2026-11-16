@@ -4,6 +4,7 @@
 
 ### Added
 
+- `host`/`hosts`/`inventory`: the Summary tab's Mounts also lists ZFS and other mounts Ansible's own mount facts skip (via `mount_facts`, ansible-core 2.18+)
 - `host`/`hosts`/`inventory`/`template`: tabs still loading or rendering show a busy spinner next to their placeholder text
 - `role`: roles inside collections (`namespace.collection.role`) are found, and their tasks get Task definition sections; so do roles used via a play's `collections:` list
 - Task definition tab: roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are found too, also outside the project tree

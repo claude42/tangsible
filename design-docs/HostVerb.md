@@ -154,12 +154,23 @@ the app.
 
 **Mounts** (`FormatMounts`, from `ansible_mounts`) is one line per mount
 point, `<mount>  <total> (<free> available)`, paths padded and both sizes
-right-aligned. Known limitation: ZFS mounts never show up. Ansible's own
-mount fact skips every mtab entry whose device doesn't start with `/` or
-contain `:/`, and a ZFS device is `rpool/data/...`, so a ZFS-only host
-has an empty `ansible_mounts` (confirmed on a Proxmox LXC whose `/` is a
-ZFS subvolume). Nothing here can format what Ansible never reports; see
-"Mounts on ZFS" below for the idea.
+right-aligned. Ansible's own mount fact skips every mtab entry whose
+device doesn't start with `/` or contain `:/`, and a ZFS device is
+`rpool/data/...`, so a ZFS-only host has an empty `ansible_mounts`
+(confirmed on a Proxmox LXC whose `/` is a ZFS subvolume). A second task
+in the live Summary stub runs `ansible.builtin.mount_facts` (ansible-core
+2.18+) for the network/virtual filesystem types (zfs, nfs*, cifs, ceph,
+9p, virtiofs, ...), and `mergeExtraMounts` appends what `ansible_mounts`
+lacks, by mount point. The task's result also lands in the user's fact
+cache (Ansible caches any module's `ansible_facts`) as `mount_points`, which
+the cache fast path reads back and merges the same way. A cache filled by
+anything else lacks that key; `FetchHostFacts` then does one live gather to
+complete it (falling back to the cached facts if that fails, and skipped
+for a host the ping dot found down). An ansible-core without the module
+makes the play fail to load, and `FetchHostFacts` retries with `setup`
+alone; `mountFactsAvailable` (an `ansible-doc` probe, once per process)
+keeps such a controller from going live on every cached open. See "Mounts
+on ZFS" below.
 
 **Recent** lists the last few times any playbook or role recorded in
 `state.toml` touched this host, newest first, with the exact same
@@ -518,17 +529,14 @@ the Q&A above, made while building it:
 
 ## Mounts on ZFS
 
-Open idea, not implemented. See the Summary tab's "Mounts" limitation:
-`ansible_mounts` omits ZFS datasets, so the Mounts line is empty on ZFS
-hosts.
-
-Possible fix: a second task in `HostSummaryStubYAML` running `df -kP -t
-zfs` (local, read-only) and merging its rows into `FormatMounts`' lines,
-total = used + available as `df` reports per dataset. Costs one extra
-task per live Summary open. The fact-cache fast path can't show them (it
-reads cached facts only and never connects), so a ZFS host served from
-the cache would still show no mounts; treating that as incomplete and
-falling through to a live gather would give up the cache's speed-up for
-every cached host. Other systems where `df -t zfs` fails would keep
-today's behaviour. The alternative is to leave the limitation documented
-as is.
+Implemented with `ansible.builtin.mount_facts` rather than the `df -kP -t
+zfs` idea this section first proposed: it reports `device`, `fstype`,
+`mount`, `size_total` and `size_available` under the same names
+`ansible_mounts` uses, and covers NFS, 9p and friends too. Unfiltered it
+also reports proc, sysfs and cgroups, hence the `fstypes` list in
+`HostSummaryStubYAML`; `fuse.*` is left out (LXCFS shows dozens of
+one-file mounts). The task has `ignore_errors`, so `FetchHostFacts` reads
+the events by position (setup first, mount_facts second) instead of the
+last task's result. The Facts tab shows the merged `ansible_mounts`.
+A cache hit merges the cached `mount_points`; see the Mounts paragraph
+above for the one-time live completion of a cache that lacks it.

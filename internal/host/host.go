@@ -698,7 +698,26 @@ func hostPlayHeading(label, suffix string) string {
 // pre-emptively. ignore_unreachable matches the "template" Verb's own
 // stub (template.go/writeTemplateStub) - moot in practice since --limit
 // always narrows this to exactly one host, but harmless and consistent.
-const HostSummaryStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: gather facts\n      ansible.builtin.setup:\n"
+//
+// The second task, ansible.builtin.mount_facts (ansible-core 2.18+), adds
+// the mounts setup's ansible_mounts leaves out: it drops every mount whose
+// device doesn't start with "/" or contain ":/" (ZFS datasets, 9p/virtiofs
+// tags, ...). Limited to network/virtual filesystem types rather than
+// everything, since unfiltered it also reports proc, sysfs, cgroups and the
+// like. ignore_errors keeps a failure of it (an old target Python, a module
+// timeout) from hiding the facts - FetchHostFacts reads the events by
+// position, not "last task wins". On ansible-core without the module the
+// whole play fails to load; FetchHostFacts then retries with
+// HostSetupStubYAML.
+const HostSummaryStubYAML = HostSetupStubYAML + `    - name: gather extra mounts
+      ansible.builtin.mount_facts:
+        fstypes: [zfs, nfs, nfs4, cifs, smb3, ceph, glusterfs, fuse.sshfs, fuse.mergerfs, 9p, virtiofs]
+      ignore_errors: true
+`
+
+// HostSetupStubYAML is HostSummaryStubYAML's first task alone: the
+// fallback for an ansible-core that doesn't know mount_facts.
+const HostSetupStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: gather facts\n      ansible.builtin.setup:\n"
 
 // HostPingStubYAML backs the host list's own connectivity dot
 // (design-docs/HostVerb.md's "New ideas": green if ansible.builtin.ping
@@ -985,6 +1004,16 @@ func clearYAMLStyle(n *yaml.Node) {
 // host's own result from the event stream - the result of its last
 // ok/failed/unreachable task. The error explains why there was none.
 func runHostStub(stubPath, hostname string, rest []string, extraEnv []string) (json.RawMessage, error) {
+	events, err := runHostStubEvents(stubPath, hostname, rest, extraEnv)
+	if err != nil {
+		return nil, err
+	}
+	return events[len(events)-1], nil
+}
+
+// runHostStubEvents is runHostStub returning every ok/failed/unreachable
+// result for hostname, in task order (never empty without an error).
+func runHostStubEvents(stubPath, hostname string, rest []string, extraEnv []string) ([]json.RawMessage, error) {
 	pluginEnv, err := runner.CallbackPluginEnv()
 	if err != nil {
 		return nil, err
@@ -997,6 +1026,7 @@ func runHostStub(stubPath, hostname string, rest []string, extraEnv []string) (j
 	out, runErr := cmd.Output()
 
 	var raw json.RawMessage
+	var events []json.RawMessage
 	// otherHosts/eventCount are diagnostic-only, gathered regardless of
 	// whether they end up needed: if hostname's own event never turns up,
 	// knowing what *did* show up (every other hostname seen in any event's
@@ -1032,6 +1062,7 @@ func runHostStub(stubPath, hostname string, rest []string, extraEnv []string) (j
 		case "v2_runner_on_ok", "v2_runner_on_failed", "v2_runner_on_unreachable":
 			if hostRaw, ok := ev.Hosts[hostname]; ok {
 				raw = hostRaw
+				events = append(events, hostRaw)
 			}
 		}
 	}
@@ -1059,7 +1090,7 @@ func runHostStub(stubPath, hostname string, rest []string, extraEnv []string) (j
 		return nil, fmt.Errorf("%s", msg)
 	}
 
-	return raw, nil
+	return events, nil
 }
 
 // FetchHostFacts first checks whether a fresh fact-cache entry already
@@ -1105,16 +1136,31 @@ func runHostStub(stubPath, hostname string, rest []string, extraEnv []string) (j
 // reported as ordinary displayable text instead, not err, since that's
 // expected, common content for this tab, not a tool failure.
 func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather bool) (hostFactsResult, error) {
+	var cachedRes *hostFactsResult
 	if out, err := RunAnsibleInventoryHost(hostname, rest); err == nil {
 		var cached map[string]interface{}
 		if json.Unmarshal(out, &cached) == nil {
 			if _, ok := cached[FactCacheCanaryKey]; ok {
 				cached = withoutInventoryVars(cached, hostname, rest)
-				return hostFactsResult{
+				// mount_points is what our own live stub's mount_facts
+				// task left in the cache (see HostSummaryStubYAML); a
+				// cache filled by anything else lacks it.
+				mountPoints, haveMounts := cached["mount_points"].(map[string]interface{})
+				if haveMounts {
+					mergeExtraMounts(cached, mountPoints)
+				}
+				res := hostFactsResult{
 					prefix:          "[" + uikit.AnnotationColor + "](from fact cache)[-]\n\n",
 					characteristics: formatCharacteristics(hostname, cached),
 					facts:           cached,
-				}, nil
+				}
+				if haveMounts || skipLiveGather || !mountFactsAvailable() {
+					return res, nil
+				}
+				// Complete the cache with one live gather, which stores
+				// mount_points for every later open; if that doesn't
+				// pan out, the cached facts are still worth showing.
+				cachedRes = &res
 			}
 		}
 	}
@@ -1125,10 +1171,35 @@ func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather boo
 		}, nil
 	}
 
-	raw, err := runHostStub(stubPath, hostname, rest, nil)
-	if err != nil {
-		return hostFactsResult{}, err
+	live, err := fetchHostFactsLive(stubPath, hostname, rest)
+	if cachedRes != nil && (err != nil || live.facts == nil) {
+		return *cachedRes, nil
 	}
+	return live, err
+}
+
+// mountFactsAvailable reports, once per process, whether the local
+// ansible-core ships ansible.builtin.mount_facts (2.18+).
+var mountFactsAvailable = sync.OnceValue(func() bool {
+	return exec.Command("ansible-doc", "-t", "module", "ansible.builtin.mount_facts").Run() == nil
+})
+
+// fetchHostFactsLive runs stubPath against hostname (see FetchHostFacts).
+func fetchHostFactsLive(stubPath, hostname string, rest []string) (hostFactsResult, error) {
+	events, err := runHostStubEvents(stubPath, hostname, rest, nil)
+	if err != nil {
+		// Most likely an ansible-core without mount_facts, whose play
+		// fails to load; retry with the setup task alone.
+		fallback, werr := writeHostStub(HostSetupStubYAML, "tangsible-host-setup-*.yml")
+		if werr != nil {
+			return hostFactsResult{}, err
+		}
+		defer os.Remove(fallback)
+		if events, werr = runHostStubEvents(fallback, hostname, rest, nil); werr != nil {
+			return hostFactsResult{}, err
+		}
+	}
+	raw := events[0] // the setup task's own result
 	var decoded map[string]interface{}
 	_ = json.Unmarshal(raw, &decoded)
 	result := playbook.DecodeHostResult(raw)
@@ -1139,7 +1210,54 @@ func FetchHostFacts(stubPath, hostname string, rest []string, skipLiveGather boo
 		return hostFactsResult{characteristics: fmt.Sprintf("[%s::b]Failed[-::-]\n\n%s\n", uikit.SummaryFailedColor, tview.Escape(result.Msg))}, nil
 	}
 	facts, _ := decoded["ansible_facts"].(map[string]interface{})
+	if len(events) > 1 {
+		mergeExtraMounts(facts, mountPointsOf(events[1]))
+	}
 	return hostFactsResult{characteristics: formatCharacteristics(hostname, facts), facts: facts}, nil
+}
+
+// mountPointsOf extracts "ansible_facts.mount_points" (keyed by mount
+// point) from a mount_facts result; nil for a failed or malformed one.
+func mountPointsOf(raw json.RawMessage) map[string]interface{} {
+	var res struct {
+		Facts struct {
+			MountPoints map[string]interface{} `json:"mount_points"`
+		} `json:"ansible_facts"`
+	}
+	if json.Unmarshal(raw, &res) != nil {
+		return nil
+	}
+	return res.Facts.MountPoints
+}
+
+// mergeExtraMounts appends the entries of mountPoints (mount_facts'
+// "mount_points") that facts' ansible_mounts doesn't list yet, sorted by
+// mount point. Entries share ansible_mounts' field names. An empty
+// mountPoints adds nothing.
+func mergeExtraMounts(facts map[string]interface{}, mountPoints map[string]interface{}) {
+	if len(mountPoints) == 0 {
+		return
+	}
+	mounts, _ := facts["ansible_mounts"].([]interface{})
+	known := map[string]bool{}
+	for _, e := range mounts {
+		if m, ok := e.(map[string]interface{}); ok {
+			if path, _ := m["mount"].(string); path != "" {
+				known[path] = true
+			}
+		}
+	}
+	paths := make([]string, 0, len(mountPoints))
+	for path := range mountPoints {
+		if !known[path] {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		mounts = append(mounts, mountPoints[path])
+	}
+	facts["ansible_mounts"] = mounts
 }
 
 // FactString/factStringList pull a string/[]string field out of a decoded

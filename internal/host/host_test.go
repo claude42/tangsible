@@ -698,3 +698,25 @@ func TestRenderHostVariablesFailureAndEmpty(t *testing.T) {
 		t.Errorf("got %q, %v", got, err)
 	}
 }
+
+func TestMergeExtraMounts(t *testing.T) {
+	facts := map[string]interface{}{"ansible_mounts": []interface{}{
+		map[string]interface{}{"mount": "/", "size_total": 10.0},
+	}}
+	mergeExtraMounts(facts, mountPointsOf(json.RawMessage(`{"ansible_facts":{"mount_points":{
+		"/tank":{"mount":"/tank","fstype":"zfs","size_total":20},
+		"/":{"mount":"/","fstype":"zfs","size_total":99},
+		"/srv":{"mount":"/srv","fstype":"nfs4","size_total":30}}}}`)))
+	got := FormatMounts(facts["ansible_mounts"])
+	if len(got) != 3 || !strings.HasPrefix(got[0], "/ ") || !strings.HasPrefix(got[1], "/srv ") || !strings.HasPrefix(got[2], "/tank ") {
+		t.Fatalf("unexpected mounts: %q", got)
+	}
+
+	// A failed mount_facts result adds nothing, and leaves a missing
+	// ansible_mounts alone.
+	empty := map[string]interface{}{}
+	mergeExtraMounts(empty, mountPointsOf(json.RawMessage(`{"failed":true,"msg":"boom"}`)))
+	if _, ok := empty["ansible_mounts"]; ok {
+		t.Fatalf("failed result must not create ansible_mounts")
+	}
+}
