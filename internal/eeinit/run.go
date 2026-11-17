@@ -242,6 +242,7 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		Requirements:     req,
 		RequirementsPath: reqPath,
 		Installed:        installed,
+		ImageTag:         SuggestTag(cwd),
 
 		Binaries:          missing,
 		ResolvePackages:   opts.ResolvePackages,

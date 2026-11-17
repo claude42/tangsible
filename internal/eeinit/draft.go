@@ -2,6 +2,7 @@ package eeinit
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,9 @@ type Inputs struct {
 	RequirementsPath string
 	// Installed maps a collection to its version on this host.
 	Installed map[string]string
+	// ImageTag is the name suggested for the built image in the commented
+	// tags: stanza ("" means "my-ee:latest").
+	ImageTag string
 
 	// Binaries are the binaries that controller-side command/shell tasks run
 	// and the base image lacks. ResolvePackages says --resolve-packages was
@@ -228,8 +232,21 @@ func Draft(in Inputs) (string, Report) {
 	if f.PackageManager != "" {
 		w("  package_manager_path: %s", scalar(f.PackageManager))
 	} else {
-		todo("  ", "couldn't tell the base image's package manager: set package_manager_path")
+		// ansible-builder's own default, written out so options is not null
+		// (which it rejects)
+		todo("  ", "couldn't tell the base image's package manager: this is ansible-builder's default, set the right one")
+		w("  package_manager_path: /usr/bin/dnf")
 	}
+	tag := in.ImageTag
+	if tag == "" {
+		tag = "my-ee:latest"
+	}
+	w("")
+	w("  # The names the built image gets (ansible-builder build --tag overrides them).")
+	w("  # To set them, uncomment and adjust:")
+	w("")
+	w("  # tags:")
+	w("  #   - %s", scalar(tag))
 	return b.String(), rep
 }
 
@@ -481,4 +498,23 @@ func mergeEntries(in []StanzaEntry) []StanzaEntry {
 		out[i] = StanzaEntry{p, by[p]}
 	}
 	return out
+}
+
+// SuggestTag is the image name suggested for a project in dir: its name,
+// made a valid image name, with "-ee:latest".
+func SuggestTag(dir string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(filepath.Base(dir)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	name := strings.Trim(b.String(), "-._")
+	if name == "" {
+		name = "my"
+	}
+	return name + "-ee:latest"
 }

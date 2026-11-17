@@ -55,6 +55,9 @@ with \fBpodman\fR for its package manager, Python and ansible-core.\&
 .IP \(bu 4
 Annotates each collection with where it was found.\&
 .IP \(bu 4
+Suggests the name of the built image as a commented \fBtags\fR stanza
+(the project directory'\&s name plus \fB-ee:latest\fR) to uncomment and adjust.\&
+.IP \(bu 4
 Finds the lookup plugins the playbook uses (\fBlookup()\fR, \fBquery()\fR, \fBq()\fR with a
 literal name, and \fBwith_*\fR-loops, in task files, variable files,
 \fBgroup_vars\fR and Jinja templates under the playbook'\&s directory); their

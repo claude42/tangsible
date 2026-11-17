@@ -41,6 +41,8 @@ It does the following:
 - Pulls the base image if it is missing (using *pull_policy*) and inspects it
   with *podman* for its package manager, Python and ansible-core.
 - Annotates each collection with where it was found.
+- Suggests the name of the built image as a commented *tags* stanza
+  (the project directory's name plus *-ee:latest*) to uncomment and adjust.
 - Finds the lookup plugins the playbook uses (*lookup()*, *query()*, *q()* with a
   literal name, and *with_\**-loops, in task files, variable files,
   *group_vars* and Jinja templates under the playbook's directory); their

@@ -182,6 +182,12 @@ dependencies:
 
 options:
   package_manager_path: /usr/bin/microdnf
+
+  # The names the built image gets (ansible-builder build --tag overrides them).
+  # To set them, uncomment and adjust:
+
+  # tags:
+  #   - myproject-ee:latest
 ```
 
 Every draft was checked with `ansible-builder create` (see "Implementation
@@ -622,6 +628,15 @@ Where the code decided something the spec left open:
   `include_role`/... with a templated target, so they are reported as a single
   `TODO` without locations ("detected N in all"), after the other items; those
   stay one `TODO` each.
+- **`tags`:** a commented `options.tags` stanza names the built image;
+  tangsible can't know a good name, so it suggests `<project directory>-ee:latest`
+  (made a valid image name, `my-ee:latest` if nothing is left). The other
+  `options` keys (`container_init`, `skip_ansible_check`, ...) are not offered:
+  `container_init`'s defaults suit running `ansible-playbook` in the container,
+  and `skip_ansible_check` would only hide the build-time check that the image
+  has ansible-core and ansible-runner (which the draft's own stanzas address).
+  An unknown package manager writes ansible-builder's default
+  (`/usr/bin/dnf`) with a `TODO`, so `options` is never null.
 - **Empty dependencies:** `galaxy` is always written (`collections: []` when
   nothing was found), so `dependencies` is never null - which ansible-builder
   rejects - and the commented stanzas can be uncommented in place. Drafts were

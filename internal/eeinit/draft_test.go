@@ -61,6 +61,12 @@ dependencies:
 
 options:
   package_manager_path: /usr/bin/microdnf
+
+  # The names the built image gets (ansible-builder build --tag overrides them).
+  # To set them, uncomment and adjust:
+
+  # tags:
+  #   - my-ee:latest
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -175,6 +181,64 @@ func TestDraftBaseImageGaps(t *testing.T) {
 		}
 	}
 	assertValidYAML(t, got)
+}
+
+func TestDraftOptionsNeverNull(t *testing.T) {
+	// no package manager found: ansible-builder's default is written out, with
+	// a TODO, since an options with only comments is null and rejected
+	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: BaseFacts{Python: "/usr/bin/python3", Pip: true, AnsibleCore: "2.21.5"}})
+	if !strings.Contains(got, "  # TODO: couldn't tell the base image's package manager") || !strings.Contains(got, "\n  package_manager_path: /usr/bin/dnf\n") {
+		t.Errorf("got:\n%s", got)
+	}
+	if rep.Todos != 1 {
+		t.Errorf("report = %+v", rep)
+	}
+	var v struct {
+		Options map[string]any `yaml:"options"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &v); err != nil || v.Options["package_manager_path"] != "/usr/bin/dnf" {
+		t.Errorf("options = %v, err %v", v.Options, err)
+	}
+}
+
+func TestDraftTagsStanzaUncommented(t *testing.T) {
+	got, _ := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, ImageTag: "my-project-ee:latest"})
+	var lines []string
+	for _, l := range strings.Split(got, "\n") {
+		switch l {
+		case "  # tags:":
+			l = "  tags:"
+		case "  #   - my-project-ee:latest":
+			l = "    - my-project-ee:latest"
+		}
+		lines = append(lines, l)
+	}
+	var v struct {
+		Options struct {
+			Tags []string `yaml:"tags"`
+			PMP  string   `yaml:"package_manager_path"`
+		} `yaml:"options"`
+	}
+	if err := yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &v); err != nil {
+		t.Fatalf("not valid after uncommenting: %v", err)
+	}
+	if !reflect.DeepEqual(v.Options.Tags, []string{"my-project-ee:latest"}) || v.Options.PMP != "/usr/bin/microdnf" {
+		t.Errorf("options = %+v", v.Options)
+	}
+}
+
+func TestSuggestTag(t *testing.T) {
+	for dir, want := range map[string]string{
+		"/home/u/My Project": "my-project-ee:latest",
+		"/x/web_app.v2":      "web_app.v2-ee:latest",
+		"/x/--weird--":       "weird-ee:latest",
+		"/":                  "my-ee:latest",
+		"/x/ÄÖ":              "my-ee:latest",
+	} {
+		if got := SuggestTag(dir); got != want {
+			t.Errorf("SuggestTag(%q) = %q, want %q", dir, got, want)
+		}
+	}
 }
 
 func assertValidYAML(t *testing.T, s string) {
