@@ -383,15 +383,169 @@ other podman edges.
 - Controller-side *modules* that need binaries (`synchronize` -> `rsync`)
   belong to the deferred implied-dependency rules table, not here.
 
+## Lookups and implied dependencies (follow-up)
+
+**Spec only, not implemented.** The module scan misses what is not a task's
+module: a `lookup('community.general.dig', ...)` in a variable needs its
+collection in the image and, often, a Python library nobody declared. Two
+pieces, both feeding the draft's existing commented stanzas (nothing is ever
+added on its own):
+
+1. **Lookup detection** - `lookup()`, `query()` and `with_*` find the lookup
+   plugins the playbook uses; their collections join the galaxy list.
+2. **Implied-dependency rules** - a small embedded table of packages that a
+   used module or lookup needs and its collection doesn't declare, plus the
+   plugin's own documented requirements as hints.
+
+Filters and tests are **not** part of this (see "Later"): a filter appears as
+`| name` inside a template expression, which can't be told from a shell pipe
+or a plain `|` reliably. Lookups are always called by name as a string.
+
+### Detecting lookups
+
+Lookups run on the controller whatever the task's host, so every one counts
+(no controller-side test as for `command`/`shell`).
+
+- **Where:** every string scalar of every YAML file `ReachableYAML` lists
+  (task arguments, `vars`, `defaults`, `group_vars`/`host_vars`, vars files -
+  not only task lists) and every `.j2`/`.jinja2` file under the playbook's
+  directory (`{# ... #}` comments removed). YAML comments never reach the
+  scan.
+- **What:** `lookup('name', ...)`, `query('name', ...)` and `q('name', ...)`
+  with a literal first argument, single or double quoted, short (`env`, `dig`)
+  or fully qualified (`community.general.dig`); and a task key `with_<name>`
+  (`with_items`, `with_fileglob`, `with_community.general.x`). The pattern is
+  `\b(lookup|query|q)\(\s*['"]([A-Za-z0-9_.]+)['"]`.
+- **Not detected, so a TODO:** a lookup whose name is not a literal
+  (`lookup(var, ...)`), counted like the templated commands ("detected N in
+  all", one general line). Not looked at at all: lookups in templates outside
+  the playbook's directory (see "Open points"), filters, tests.
+- **Collections:** the play's/task's `collections:` list applies to short
+  names, as for modules; a collection role's own collection too.
+
+### Resolving them
+
+`ansible-doc -t lookup -j <names>` (one batch call per 80 names, like the
+module lookup) on the host: the answer carries the owning `collection` and the
+plugin's documented `requirements` (checked: `dig` -> `community.general`,
+`dnspython (python library)`; `hashi_vault` -> `community.hashi_vault`, `hvac`;
+`env`, `file`, `items` -> `ansible.builtin`, which is dropped). A fully
+qualified name needs no lookup. A name the host doesn't know is a `TODO`
+("no collection found on this host"), as for modules.
+
+The collection joins the galaxy list with evidence `lookup dig (site.yml:12)`.
+`LookupCollections` generalizes to a plugin type (`module`, `lookup`) and
+returns the collection and the documented requirements.
+
+### Documented requirements as hints
+
+For each detected lookup whose documentation lists requirements, the
+collection entry gets one more comment, markup removed (`ansibledoc.StripMarkup`):
+
+```yaml
+      # detected: lookup dig (site.yml:12)
+      # documented requirements of dig: dnspython (python library)
+      - name: community.general
+```
+
+Hints only: the text is free-form, so nothing is parsed out of it and nothing
+is derived from it. Module documentation is not used (a module's requirements
+are for its host, usually the target; "python >= 2.7" is noise).
+
+### The rules table
+
+An embedded Go table (`rules.go`), small on purpose: ansible-builder already
+installs each collection's own `requirements.txt` and `bindep.txt`, so the
+table only holds what collections forget to declare.
+
+```go
+type Rule struct {
+    Plugin string   // fully qualified: "community.general.dig", "ansible.posix.synchronize"
+    Kind   string   // "lookup" or "module"
+    Pip    []string // Python requirements (pip syntax), "dnspython"
+    System []string // system packages (bindep syntax), "rsync"
+    Why    string   // one line, shown as the entry's comment
+}
+```
+
+Initial entries (each checked against the plugin's documentation before it is
+added): `community.general.dig` -> `dnspython`; `community.hashi_vault.hashi_vault`
+-> `hvac`; `ansible.posix.synchronize` -> `rsync`. More are added when someone
+meets the gap; a table entry that a collection starts declaring itself just
+becomes redundant.
+
+- A **lookup** rule applies whenever the lookup is detected.
+- A **module** rule applies only when the task is **controller-side** (the
+  detection of "Controller-side binaries": `hosts: localhost`, `delegate_to`,
+  `connection: local`, ...); otherwise the module's host, not the EE, needs the
+  package. `ModuleUse` therefore records whether its task is controller-side.
+- Names are matched after resolution, so `dig` and `community.general.dig`
+  both hit the same rule.
+- Not user-extensible in v1 (see "Later").
+
+### Output
+
+Two stanzas under `dependencies`, commented out like the others and separated
+from their explanation by a blank line. Entries carry their evidence and
+`Why`; the `system:` stanza is **shared** with the one of the controller-side
+binaries (one block, entries from both).
+
+```yaml
+  # Packages implied by what the playbook uses (the collections don't declare them).
+  # To install them, uncomment:
+
+  # python:
+  #   - dnspython   # lookup dig (site.yml:12)
+  # system:
+  #   - rsync       # synchronize on the controller (site.yml:30)
+```
+
+`python:` is a list of pip requirements, `system:` bindep entries (a name
+that differs per distribution gets `[platform:rpm]`/`[platform:dpkg]`
+selectors in the table). `--resolve-packages` doesn't touch these: the table
+already gives package names. Nothing is written when nothing applies. The
+summary line gains a count.
+
+### Code plan
+
+- `lookups.go` (pure): `ScanLookups(path string, data []byte, own []string)`
+  for a YAML file (walks every string scalar and `with_*` keys, keeping
+  `collections:`) and `ScanTemplate(path string, text string)`; both return
+  `LookupUse{Name, Collections, Loc}` and a templated count.
+- `scan.go`: `ModuleUse` gains `Controller bool`.
+- `host.go`: `LookupCollections` -> `LookupPlugins(kind, names)` returning
+  collection and documented requirements per name.
+- `rules.go` (pure): the table and `Implied(modules, lookups) (pip, system []Implied)`.
+- `resolve.go`: lookups join `Resolve`'s needed collections.
+- `draft.go`: the hint comment and the two stanzas; `run.go`: the template
+  walk (`.j2` files under the playbook's directory, skipping `.git`/`.tangsible`).
+- Docs: `man/tangsible-ee.1.scd`, `README.md`, `Changelog.md`, `Codemap.md`.
+
+### Tests
+
+Table tests: lookup patterns (quotes, short and FQCN, `query`/`q`, `with_*`,
+nested in a longer expression, a non-literal name, a `{# ... #}` comment, a
+string that only mentions the word `lookup`); `ScanLookups` on a vars file
+and a task file; `Implied` with controller-side and remote module uses;
+golden `Draft` for the two stanzas and the shared `system:` block. The
+`ansible-doc` call is checked by hand like the other host edges.
+
+### Open points
+
+- Templates outside the playbook's directory (an outside role's `templates/`,
+  a `template:` `src` elsewhere) are not scanned. `ReachableYAML` lists only
+  YAML; a template walk for referenced roles is possible later.
+- Free-form documented requirements are shown, not interpreted.
+- Which entries the table should hold beyond the three above.
+
 ## Later (explicitly deferred)
 
-- **Implied-dependency rules table**: a small editable mapping from a module
-  (and later filter) to extra packages the collection's own requirements
-  don't cover, e.g. `synchronize` -> `rsync`, `json_query` -> `jmespath`,
-  `password_hash` -> `passlib`, `sshpass` for password SSH. Whether it's
-  user-extensible (config or `.tangsible/`) is open.
-- Filters, lookups and tests (regex out of templates/vars, map via
-  `ansible-doc -t filter --list`).
+- **Implied-dependency rules table**: specified above for lookups and
+  controller-side modules. Later: filters (`json_query` -> `jmespath`,
+  `password_hash` -> `passlib`), `sshpass` for password SSH, and whether the
+  table is user-extensible (config or `.tangsible/`).
+- Filters and tests (regex out of templates/vars, map via
+  `ansible-doc -t filter --list`); lookups are specified above.
 - `requires_ansible` check against the pinned ansible-core.
 - Binaries used by `command`/`shell` (now specified above, as "Controller-side
   binaries").
