@@ -1,6 +1,7 @@
 package eeinit
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -13,8 +14,8 @@ func TestDraftDetectedCollections(t *testing.T) {
 	got, rep := Draft(Inputs{
 		Playbook: "site.yml", Base: "img:1", BaseIsDefault: true, Facts: microFacts,
 		Needed: []Needed{
-			{"community.docker", []Item{{"docker_container", []string{"site.yml:5", "a.yml:2", "a.yml:9"}}}},
-			{"x.y", []Item{{"role x.y.web", nil}}},
+			{Collection: "community.docker", Items: []Item{{"docker_container", []string{"site.yml:5", "a.yml:2", "a.yml:9"}}}},
+			{Collection: "x.y", Items: []Item{{"role x.y.web", nil}}},
 		},
 		Todos:     []Todo{{Loc: "site.yml:13", What: "later"}, {Loc: "site.yml:4", What: "earlier"}},
 		Installed: map[string]string{"community.docker": "4.7.0"},
@@ -87,8 +88,8 @@ roles:
 	got, rep := Draft(Inputs{
 		Playbook: "site.yml", Base: "img:1", Facts: microFacts,
 		Needed: []Needed{
-			{"community.docker", []Item{{"docker_container", []string{"site.yml:5"}}}},
-			{"other.coll", []Item{{"m", []string{"site.yml:9"}}}},
+			{Collection: "community.docker", Items: []Item{{"docker_container", []string{"site.yml:5"}}}},
+			{Collection: "other.coll", Items: []Item{{"m", []string{"site.yml:9"}}}},
 		},
 		Requirements: req, RequirementsPath: "requirements.yml",
 		Installed: map[string]string{"community.docker": "9.9.9", "community.general": "11.2.1", "other.coll": "1.0.0"},
@@ -267,12 +268,13 @@ func TestDraftBinariesListedWithoutPackages(t *testing.T) {
 
 func TestDraftBinariesResolved(t *testing.T) {
 	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, Binaries: binNeeds, ResolvePackages: true})
-	want := `  # To install them, uncomment:
+	want := `  # Packages that lookups, controller-side modules and binaries used by the playbook need,
+  # which their collections or the base image don't provide. To install them, uncomment:
 
   # system:
   #   - jq [platform:rpm]   # jq: site.yml:40, roles/x/tasks/main.yml:3, +1 more; sshpass: site.yml:52
-  #   # TODO: "ip": one of iproute, iproute-tc (site.yml:9)
-  #   # TODO: "yq": no package found
+  #   # TODO: binary "ip" (site.yml:9): one of iproute, iproute-tc
+  #   # TODO: binary "yq" (site.yml:60): no package found
 
 `
 	if !strings.Contains(got, want) {
@@ -333,5 +335,71 @@ func TestDraftNoBinariesNoBlockAndTemplatedCommands(t *testing.T) {
 	}
 	if !strings.Contains(got, "# TODO: command/shell on the controller with a binary that can't be determined statically (detected 4 in all)\n") || rep.Todos != 1 {
 		t.Errorf("templated commands: report %+v\n%s", rep, got)
+	}
+}
+
+func TestDraftLookupHintsAndImpliedStanza(t *testing.T) {
+	got, rep := Draft(Inputs{
+		Playbook: "site.yml", Base: "img:1", Facts: microFacts, ResolvePackages: true,
+		Needed: []Needed{{Collection: "community.general", Items: []Item{{"lookup dig", []string{"site.yml:12"}}},
+			Hints: []string{"dig: dnspython (python library)"}}},
+		Installed: map[string]string{"community.general": "11.2.1"},
+		Implied: Implied{
+			Pip:    []StanzaEntry{{"dnspython", "lookup dig (site.yml:12): the dig lookup needs dnspython"}},
+			System: []StanzaEntry{{"rsync", "synchronize (site.yml:30): synchronize runs rsync on the controller"}},
+		},
+		Binaries:         []BinaryNeed{{Name: "jq", Locs: []string{"site.yml:40"}, Packages: []string{"jq"}}},
+		TemplatedLookups: 2,
+	})
+	for _, want := range []string{
+		"      # detected: lookup dig (site.yml:12)\n      # documented requirements of dig: dnspython (python library)\n      - name: community.general\n",
+		// one block: python:, then one system: shared by the binaries and the rules
+		"  # python:\n  #   - dnspython   # lookup dig (site.yml:12): the dig lookup needs dnspython\n  # system:\n  #   - jq [platform:rpm]   # jq: site.yml:40\n  #   - rsync   # synchronize (site.yml:30): synchronize runs rsync on the controller\n",
+		"# TODO: lookup() with a plugin name that can't be determined statically (detected 2 in all)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "# system:"); n != 1 {
+		t.Errorf("%d system: stanzas, want one (a second would be a duplicate key once uncommented):\n%s", n, got)
+	}
+	if rep.Implied != 2 || rep.Binaries != 1 || rep.Todos != 1 {
+		t.Errorf("report = %+v", rep)
+	}
+	assertValidYAML(t, got)
+}
+
+func TestDraftImpliedStanzaUncommented(t *testing.T) {
+	got, _ := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts,
+		Implied: Implied{
+			Pip:    []StanzaEntry{{"dnspython", "c1"}, {"hvac", "c2"}},
+			System: []StanzaEntry{{"rsync", "c3"}},
+		}})
+	var lines []string
+	in := false
+	for _, l := range strings.Split(got, "\n") {
+		switch {
+		case l == "  # python:" || l == "  # system:":
+			in = true
+			l = strings.Replace(l, "# ", "", 1)
+		case in && strings.HasPrefix(l, "  #   - "):
+			l = "    - " + strings.TrimPrefix(l, "  #   - ")
+		default:
+			in = false
+		}
+		lines = append(lines, l)
+	}
+	var v struct {
+		Dependencies struct {
+			Python []string `yaml:"python"`
+			System []string `yaml:"system"`
+		} `yaml:"dependencies"`
+	}
+	if err := yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &v); err != nil {
+		t.Fatalf("not valid after uncommenting: %v\n%s", err, strings.Join(lines, "\n"))
+	}
+	if !reflect.DeepEqual(v.Dependencies.Python, []string{"dnspython", "hvac"}) || !reflect.DeepEqual(v.Dependencies.System, []string{"rsync"}) {
+		t.Errorf("dependencies = %+v", v.Dependencies)
 	}
 }

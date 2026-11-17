@@ -55,6 +55,18 @@ with \fBpodman\fR for its package manager, Python and ansible-core.\&
 .IP \(bu 4
 Annotates each collection with where it was found.\&
 .IP \(bu 4
+Finds the lookup plugins the playbook uses (\fBlookup()\fR, \fBquery()\fR, \fBq()\fR with a
+literal name, and \fBwith_*\fR-loops, in task files, variable files,
+\fBgroup_vars\fR and Jinja templates under the playbook'\&s directory); their
+collections are added, with the plugin'\&s documented requirements as a
+comment.\& A name that is not a literal cannot be determined and becomes a
+single \fB# TODO\fR.\& Filters are not analyzed.\&
+.IP \(bu 4
+Offers packages that used lookups and modules need and their collections
+don'\&t declare (for example \fBdnspython\fR for the \fBdig\fR lookup, \fBrsync\fR for
+\fBsynchronize\fR), from a small built-in table, as a commented \fBpython:\fR and
+\fBsystem:\fR block to uncomment.\&
+.IP \(bu 4
 Lists the binaries that \fBcommand\fR and \fBshell\fR tasks running on the
 controller (and so inside the execution environment) use and the base image
 lacks, as a comment block.\& Only tasks detected as running on the controller

@@ -134,6 +134,8 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 	var uses []ModuleUse
 	var todos []Todo
 	var commands []Command
+	var lookups []LookupUse
+	templatedLookups := 0
 	var roles []RoleUse
 	seenRole := map[RoleUse]bool{}
 	for _, f := range source.ReachableYAML(abs) {
@@ -157,6 +159,16 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		uses = append(uses, scan.Uses...)
 		todos = append(todos, scan.Todos...)
 		commands = append(commands, scan.Commands...)
+		lu, lt := ScanLookups(displayPath(f.Path, cwd), data, own)
+		lookups = append(lookups, lu...)
+		templatedLookups += lt
+	}
+	for _, path := range TemplateFiles(filepath.Dir(abs)) {
+		if data, err := os.ReadFile(path); err == nil {
+			lu, lt := ScanTemplate(displayPath(path, cwd), string(data))
+			lookups = append(lookups, lu...)
+			templatedLookups += lt
+		}
 	}
 
 	// The base image, asked about the binaries controller-side tasks run.
@@ -191,12 +203,25 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 			missing[i].Packages = pkgs[missing[i].Name]
 		}
 	}
-	found, err := LookupCollections(UniqueCandidates(uses))
+	moduleDocs, err := LookupPlugins("module", UniqueCandidates(uses))
 	if err != nil {
 		return err
 	}
+	found := collectionsOfDocs(moduleDocs)
 	needed, unresolved := Resolve(uses, roles, found)
 	todos = append(todos, unresolved...)
+	plugins := ModulePlugins(uses, found)
+
+	// Lookups: their collections join the needed ones, and the rules look at
+	// them and at the modules.
+	lookupDocs, err := LookupPlugins("lookup", LookupCandidates(lookups))
+	if err != nil {
+		return err
+	}
+	lookupNeeded, lookupPlugins, lookupTodos := ResolveLookups(lookups, lookupDocs)
+	needed = MergeNeeded(needed, lookupNeeded)
+	todos = append(todos, lookupTodos...)
+	plugins = append(plugins, lookupPlugins...)
 
 	installed, err := InstalledCollections()
 	if err != nil {
@@ -222,6 +247,9 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		ResolvePackages:   opts.ResolvePackages,
 		PackagesFailed:    packagesFailed,
 		TemplatedCommands: templatedCommands,
+
+		Implied:          ImpliedPackages(plugins),
+		TemplatedLookups: templatedLookups,
 	})
 	// O_EXCL: a file that appeared meanwhile is not overwritten either.
 	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -239,6 +267,9 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(stdout, "Wrote %s: %d collection(s) (%d pinned from this host), %d TODO(s).\n", OutputFile, rep.Collections, rep.Pinned, rep.Todos)
+	if rep.Implied > 0 {
+		fmt.Fprintf(stdout, "%d package(s) implied by lookups or modules; see the comment in the draft.\n", rep.Implied)
+	}
 	if rep.Binaries > 0 {
 		if rep.Binaries == 1 {
 			fmt.Fprintln(stdout, "1 binary used on the controller is missing from the base image; see the comment in the draft.")

@@ -130,11 +130,17 @@ execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
   controller (`Command`).
 - **binaries.go** - `ScanBinaries`: the binaries those commands run (a small
   shell tokenizer: segments, quotes, builtins, wrappers, heredocs).
+- **lookups.go** - `ScanLookups`/`ScanTemplate`: the lookup plugins used (in
+  YAML strings, `with_*` keys and Jinja templates), `TemplateFiles`.
+- **rules.go** - `Rules` (the embedded table of packages a used lookup or
+  module needs but its collection doesn't declare) and `ImpliedPackages`.
 - **packages.go** - `ParsePackages`, `ResolvePackages`: which package
   provides a missing binary (`--resolve-packages`; dnf / apt-file in a
   throw-away container).
 - **resolve.go** - `Candidates`/`Resolve`: module uses to the collections
-  that provide them, given the host's answers.
+  that provide them, given the host's answers; the same for lookups
+  (`ResolveLookups`, with their documented requirements as hints),
+  `ModulePlugins`, `MergeNeeded`.
 - **requirements.go** - `ParseRequirements` (entries kept as written).
 - **base.go** - `ResolveBase` (flag > `base_image` > `DefaultBaseImage`,
   never `image`), `ProbeScript`/`ParseProbe` (the base image's facts).

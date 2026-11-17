@@ -34,6 +34,9 @@ type ModuleUse struct {
 	Collections []string
 	// Loc is "path:line".
 	Loc string
+	// Controller is true when the task runs on the controller (see
+	// runsLocally), so the module's own requirements are the EE's.
+	Controller bool
 }
 
 // Todo is something the scan could not resolve statically.
@@ -190,7 +193,7 @@ func (s *scanner) task(item *yaml.Node, colls []string, local bool) {
 		if !moduleName.MatchString(name) {
 			return
 		}
-		s.out.Uses = append(s.out.Uses, ModuleUse{Module: name, Collections: colls, Loc: s.loc(key)})
+		s.out.Uses = append(s.out.Uses, ModuleUse{Module: name, Collections: colls, Loc: s.loc(key), Controller: local})
 		if shell, ok := commandModule(name); ok && local {
 			if c := commandOf(s.loc(key), shell, key.Value, val, item); c.Text != "" || len(c.Argv) > 0 || c.Executable != "" {
 				s.out.Commands = append(s.out.Commands, c)

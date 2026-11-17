@@ -37,6 +37,12 @@ type Inputs struct {
 	ResolvePackages   bool
 	PackagesFailed    string
 	TemplatedCommands int
+
+	// Implied are the packages the rules ask for (ImpliedPackages);
+	// TemplatedLookups counts lookup() calls whose plugin name can't be
+	// determined.
+	Implied          Implied
+	TemplatedLookups int
 }
 
 // BinaryNeed is a missing binary, where it is used and, once looked up, the
@@ -53,6 +59,7 @@ type Report struct {
 	Pinned      int // from the host (the rest came from requirements.yml or are unpinned)
 	Todos       int
 	Binaries    int // controller-side binaries missing from the base image
+	Implied     int // packages the rules ask for
 }
 
 // maxLocs is how many locations a comment names for one item.
@@ -117,13 +124,47 @@ func Draft(in Inputs) (string, Report) {
 	}
 	dw("")
 
-	binaryBlock(in, &rep, func(line string) {
-		if line == "" {
-			dw("")
-			return
+	// Binaries and implied packages: what can't be offered as a package is
+	// listed, the rest goes into one python:/system: stanza.
+	list, binSystem, binTodos := binaryPlan(in, &rep)
+	for _, l := range list {
+		dw("  # %s", l)
+	}
+	if len(list) > 0 {
+		dw("")
+	}
+	rep.Implied = len(in.Implied.Pip) + len(in.Implied.System)
+	system := mergeEntries(append(binSystem, in.Implied.System...))
+	python := mergeEntries(in.Implied.Pip)
+	switch {
+	case len(python)+len(system) > 0:
+		dw("  # Packages that lookups, controller-side modules and binaries used by the playbook need,")
+		dw("  # which their collections or the base image don't provide. To install them, uncomment:")
+		dw("")
+		for _, group := range []struct {
+			key     string
+			entries []StanzaEntry
+		}{{"python", python}, {"system", system}} {
+			if len(group.entries) == 0 {
+				continue
+			}
+			dw("  # %s:", group.key)
+			for _, e := range group.entries {
+				dw("  #   - %s   # %s", e.Package, e.Comment)
+			}
 		}
-		dw("  # %s", line)
-	})
+		for _, t := range binTodos {
+			rep.Todos++
+			dw("  #   # TODO: %s", t)
+		}
+		dw("")
+	case len(binTodos) > 0:
+		for _, t := range binTodos {
+			rep.Todos++
+			dw("  # TODO: %s", t)
+		}
+		dw("")
+	}
 
 	collections := mergeCollections(in, &rep)
 	if len(collections) == 0 && in.Requirements == nil {
@@ -138,6 +179,9 @@ func Draft(in Inputs) (string, Report) {
 			if c.comment != "" {
 				dw("      # %s", c.comment)
 			}
+			for _, h := range c.hints {
+				dw("      # documented requirements of %s", h)
+			}
 			if c.note != "" {
 				dw("      # %s", c.note)
 			}
@@ -150,7 +194,7 @@ func Draft(in Inputs) (string, Report) {
 			deps.WriteString(entry(r, "      "))
 		}
 	}
-	if len(in.Todos) > 0 || in.TemplatedCommands > 0 {
+	if len(in.Todos) > 0 || in.TemplatedCommands > 0 || in.TemplatedLookups > 0 {
 		dw("")
 		dw("  # Items the scan couldn't place:")
 		todos := append([]Todo(nil), in.Todos...)
@@ -170,6 +214,9 @@ func Draft(in Inputs) (string, Report) {
 		if in.TemplatedCommands > 0 {
 			dtodo("command/shell on the controller with a binary that can't be determined statically (detected %d in all)", in.TemplatedCommands)
 		}
+		if in.TemplatedLookups > 0 {
+			dtodo("lookup() with a plugin name that can't be determined statically (detected %d in all)", in.TemplatedLookups)
+		}
 	}
 	w("")
 	w("dependencies:")
@@ -188,8 +235,9 @@ func Draft(in Inputs) (string, Report) {
 
 type mergedCollection struct {
 	node    *yaml.Node
-	comment string // where it comes from
-	note    string // a warning about its version
+	comment string   // where it comes from
+	hints   []string // documented requirements of what uses it
+	note    string   // a warning about its version
 }
 
 // mergeCollections combines requirements.yml's entries (in their order,
@@ -208,6 +256,7 @@ func mergeCollections(in Inputs, rep *Report) []mergedCollection {
 			m := mergedCollection{node: rc.Node, comment: in.RequirementsPath}
 			if n, ok := needed[rc.Name]; ok {
 				m.comment += "; used by " + describe(n)
+				m.hints = n.Hints
 			}
 			if rc.Plain && rc.Version == "" {
 				m.node, m.note = pin(rc.Name, in.Installed, rep)
@@ -220,7 +269,7 @@ func mergeCollections(in Inputs, rep *Report) []mergedCollection {
 			continue
 		}
 		node, note := pin(n.Collection, in.Installed, rep)
-		out = append(out, mergedCollection{node: node, comment: "detected: " + describe(n), note: note})
+		out = append(out, mergedCollection{node: node, comment: "detected: " + describe(n), hints: n.Hints, note: note})
 	}
 	rep.Collections = len(out)
 	return out
@@ -366,32 +415,32 @@ func locsText(locs []string) string {
 	return out
 }
 
-// binaryBlock writes the comment block about controller-side binaries the
-// base image lacks (nothing when there are none), one line per call of line.
-// Without package lookup it only lists them; with it, it offers a system:
-// stanza to uncomment (bindep syntax) and a TODO for each binary without
-// exactly one provider. Nothing is ever uncommented for the user. An empty
-// line from line means a blank line; one is also written after the block.
-func binaryBlock(in Inputs, rep *Report, line func(string)) {
+// binaryPlan decides what to say about the controller-side binaries the base
+// image lacks (nothing when there are none). Without a package lookup it
+// returns list, the comment lines that name them (no stanza); with one, the
+// entries for the system: stanza (bindep syntax, with the platform selector
+// of the image's family) and a TODO text for each binary without exactly one
+// provider. Nothing is ever uncommented for the user.
+func binaryPlan(in Inputs, rep *Report) (list []string, system []StanzaEntry, todos []string) {
 	if len(in.Binaries) == 0 {
-		return
+		return nil, nil, nil
 	}
 	rep.Binaries = len(in.Binaries)
-	line("Binaries used by tasks that run on the controller and missing from the base image")
-	line("(only tasks detected as running there count; a role's task file has no play context):")
 	resolved := in.ResolvePackages && in.PackagesFailed == ""
 	if !resolved {
+		list = append(list,
+			"Binaries used by tasks that run on the controller and missing from the base image",
+			"(only tasks detected as running there count; a role's task file has no play context):")
 		for _, b := range in.Binaries {
-			line(fmt.Sprintf("  %s: %s", b.Name, locsText(b.Locs)))
+			list = append(list, fmt.Sprintf("  %s: %s", b.Name, locsText(b.Locs)))
 		}
 		if in.PackagesFailed != "" {
 			rep.Todos++
-			line("TODO: couldn't look up their packages: " + in.PackagesFailed)
+			list = append(list, "TODO: couldn't look up their packages: "+in.PackagesFailed)
 		} else {
-			line("Look up their packages with --resolve-packages.")
+			list = append(list, "Look up their packages with --resolve-packages.")
 		}
-		line("")
-		return
+		return list, nil, nil
 	}
 	selector := ""
 	switch in.Facts.Family() {
@@ -400,35 +449,36 @@ func binaryBlock(in Inputs, rep *Report, line func(string)) {
 	case "dpkg":
 		selector = " [platform:dpkg]"
 	}
-	byPackage := map[string][]string{}
-	var packages []string
-	var todos []string
 	for _, b := range in.Binaries {
-		label := b.Name + ": " + locsText(b.Locs)
 		switch len(b.Packages) {
 		case 0:
-			todos = append(todos, fmt.Sprintf("TODO: %q: no package found", b.Name))
+			todos = append(todos, fmt.Sprintf("binary %q (%s): no package found", b.Name, locsText(b.Locs)))
 		case 1:
-			if _, seen := byPackage[b.Packages[0]]; !seen {
-				packages = append(packages, b.Packages[0])
-			}
-			byPackage[b.Packages[0]] = append(byPackage[b.Packages[0]], label)
+			system = append(system, StanzaEntry{b.Packages[0] + selector, b.Name + ": " + locsText(b.Locs)})
 		default:
-			todos = append(todos, fmt.Sprintf("TODO: %q: one of %s (%s)", b.Name, strings.Join(b.Packages, ", "), locsText(b.Locs)))
+			todos = append(todos, fmt.Sprintf("binary %q (%s): one of %s", b.Name, locsText(b.Locs), strings.Join(b.Packages, ", ")))
 		}
 	}
-	sort.Strings(packages)
-	if len(packages) > 0 {
-		line("To install them, uncomment:")
-		line("")
-		line("system:")
-		for _, p := range packages {
-			line(fmt.Sprintf("  - %s%s   # %s", p, selector, strings.Join(byPackage[p], "; ")))
+	return nil, system, todos
+}
+
+// mergeEntries sorts entries by package and joins the comments of those for
+// the same package.
+func mergeEntries(in []StanzaEntry) []StanzaEntry {
+	by := map[string]string{}
+	var pkgs []string
+	for _, e := range in {
+		if c, seen := by[e.Package]; seen {
+			by[e.Package] = c + "; " + e.Comment
+			continue
 		}
+		by[e.Package] = e.Comment
+		pkgs = append(pkgs, e.Package)
 	}
-	for _, t := range todos {
-		rep.Todos++
-		line("  # " + t)
+	sort.Strings(pkgs)
+	out := make([]StanzaEntry, len(pkgs))
+	for i, p := range pkgs {
+		out[i] = StanzaEntry{p, by[p]}
 	}
-	line("")
+	return out
 }

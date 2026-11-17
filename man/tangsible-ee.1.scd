@@ -41,6 +41,16 @@ It does the following:
 - Pulls the base image if it is missing (using *pull_policy*) and inspects it
   with *podman* for its package manager, Python and ansible-core.
 - Annotates each collection with where it was found.
+- Finds the lookup plugins the playbook uses (*lookup()*, *query()*, *q()* with a
+  literal name, and *with_\**-loops, in task files, variable files,
+  *group_vars* and Jinja templates under the playbook's directory); their
+  collections are added, with the plugin's documented requirements as a
+  comment. A name that is not a literal cannot be determined and becomes a
+  single *# TODO*. Filters are not analyzed.
+- Offers packages that used lookups and modules need and their collections
+  don't declare (for example *dnspython* for the *dig* lookup, *rsync* for
+  *synchronize*), from a small built-in table, as a commented *python:* and
+  *system:* block to uncomment.
 - Lists the binaries that *command* and *shell* tasks running on the
   controller (and so inside the execution environment) use and the base image
   lacks, as a comment block. Only tasks detected as running on the controller

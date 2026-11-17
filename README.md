@@ -464,7 +464,10 @@ Ansible which collections provide them, and inspects the base image with
 you have one, otherwise to the ones installed on the host. The result is a
 draft in `./execution-environment.yml` (it never overwrites an existing file)
 in which everything that can't be determined statically is a `# TODO`
-comment. Binaries that `command`/`shell` tasks running on the controller
+comment. Lookups (`lookup()`, `query()`, `with_*`) are found too: their collections are
+added, and packages they need that nothing declares (`dnspython` for `dig`,
+`hvac` for `hashi_vault`, `rsync` for `synchronize`) are offered as a commented
+`python:`/`system:` block to uncomment. Binaries that `command`/`shell` tasks running on the controller
 (`hosts: localhost`, `delegate_to: localhost`, `connection: local`) use, and the
 base image lacks, are listed too; `--resolve-packages` also looks up the package
 for each (downloads repository metadata, can take a minute or two) and offers a

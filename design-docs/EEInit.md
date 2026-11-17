@@ -385,7 +385,7 @@ other podman edges.
 
 ## Lookups and implied dependencies (follow-up)
 
-**Spec only, not implemented.** The module scan misses what is not a task's
+**Implemented** (see the notes at the end of this section). The module scan misses what is not a task's
 module: a `lookup('community.general.dig', ...)` in a variable needs its
 collection in the image and, often, a Python library nobody declared. Two
 pieces, both feeding the draft's existing commented stanzas (nothing is ever
@@ -465,6 +465,7 @@ type Rule struct {
     Pip    []string // Python requirements (pip syntax), "dnspython"
     System []string // system packages (bindep syntax), "rsync"
     Why    string   // one line, shown as the entry's comment
+    ControllerOnly bool // a module rule only for controller-side tasks
 }
 ```
 
@@ -475,20 +476,25 @@ meets the gap; a table entry that a collection starts declaring itself just
 becomes redundant.
 
 - A **lookup** rule applies whenever the lookup is detected.
-- A **module** rule applies only when the task is **controller-side** (the
-  detection of "Controller-side binaries": `hosts: localhost`, `delegate_to`,
-  `connection: local`, ...); otherwise the module's host, not the EE, needs the
-  package. `ModuleUse` therefore records whether its task is controller-side.
+- A **module** rule marked `ControllerOnly` applies only when the task is
+  **controller-side** (the detection of "Controller-side binaries":
+  `hosts: localhost`, `delegate_to`, `connection: local`, ...); otherwise the
+  module's host, not the EE, needs the package. `ModuleUse` therefore records
+  whether its task is controller-side. A module whose action plugin runs on
+  the controller whatever the task's host is not `ControllerOnly`:
+  `synchronize` needs `rsync` on the controller for every task ("`rsync` must
+  be installed on both the local and remote host").
 - Names are matched after resolution, so `dig` and `community.general.dig`
   both hit the same rule.
 - Not user-extensible in v1 (see "Later").
 
 ### Output
 
-Two stanzas under `dependencies`, commented out like the others and separated
-from their explanation by a blank line. Entries carry their evidence and
-`Why`; the `system:` stanza is **shared** with the one of the controller-side
-binaries (one block, entries from both).
+One commented-out block under `dependencies`, separated from its explanation
+by a blank line, with a `python:` and a `system:` stanza. Entries carry their
+evidence and `Why`; the `system:` stanza is **shared** with the one of the
+controller-side binaries (one block, entries from both, so uncommenting never
+gives two `system:` keys).
 
 ```yaml
   # Packages implied by what the playbook uses (the collections don't declare them).
@@ -529,6 +535,27 @@ string that only mentions the word `lookup`); `ScanLookups` on a vars file
 and a task file; `Implied` with controller-side and remote module uses;
 golden `Draft` for the two stanzas and the shared `system:` block. The
 `ansible-doc` call is checked by hand like the other host edges.
+
+### Implementation notes
+
+- Lookups are scanned in every string scalar of every reachable YAML file and
+  every `.j2`/`.jinja2` file under the playbook's directory (`TemplateFiles`);
+  a non-literal first argument (`lookup(var, ...)`) is counted into one
+  "detected N in all" TODO. A multi-line block scalar's locations are the
+  lines inside it.
+- A lookup written as `dig` and as `community.general.dig` is one plugin: one
+  hint, one rule hit.
+- Documented requirements that are cross-references (`R(...)`: "For detailed
+  requirements, see ...") are left out of the hints.
+- `synchronize` is **not** `ControllerOnly` (see above); the other two initial
+  rules are lookups. The table is `Rules` in `rules.go`; a test checks every
+  rule is well-formed.
+- Where the binaries are only listed (no package lookup), that list stays a
+  separate comment block; the shared stanza holds the entries that have a
+  package, from the binaries (with the platform selector) and the rules.
+- Checked by hand against this host's ansible-doc (`dig`, `hashi_vault`,
+  `community.general.dig`, `env`, `items`) and with `ansible-builder create`.
+  Only the scanners, resolution, rules and draft are unit-tested.
 
 ### Open points
 

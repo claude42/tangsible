@@ -5,13 +5,21 @@ import (
 	"testing"
 )
 
-func TestParseDocCollections(t *testing.T) {
-	raw := `{"docker_container": {"doc": {"collection": "community.docker"}}, "copy": {"doc": {"collection": "ansible.builtin"}}, "odd": {"doc": {}}}`
-	want := map[string]string{"docker_container": "community.docker", "copy": "ansible.builtin"}
-	if got := parseDocCollections([]byte(raw)); !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v, want %v", got, want)
+func TestParseDocs(t *testing.T) {
+	raw := `{"dig": {"doc": {"collection": "community.general", "requirements": ["dnspython (python library, http://www.dnspython.org/)"]}},
+	         "copy": {"doc": {"collection": "ansible.builtin"}},
+	         "one": {"doc": {"collection": "a.b", "requirements": ["C(hvac) (L(Python library,https://hvac.readthedocs.io))", "For detailed requirements, see R(the page,ansible_collections.x.y.docsite.z)."]}},
+	         "odd": {"doc": {}}}`
+	got := parseDocs([]byte(raw))
+	want := map[string]PluginDoc{
+		"dig":  {Collection: "community.general", Requirements: []string{"dnspython (python library, http://www.dnspython.org/)"}},
+		"copy": {Collection: "ansible.builtin"},
+		"one":  {Collection: "a.b", Requirements: []string{"hvac (Python library)"}},
 	}
-	if got := parseDocCollections([]byte("not json")); len(got) != 0 {
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v\nwant %+v", got, want)
+	}
+	if got := parseDocs([]byte("not json")); len(got) != 0 {
 		t.Errorf("got %v", got)
 	}
 }

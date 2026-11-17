@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"code.aw.net/claude/tangsible/internal/ansibledoc"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/rolepath"
 )
@@ -18,16 +19,25 @@ import (
 // lookupChunk bounds how many names one ansible-doc call is asked about.
 const lookupChunk = 80
 
-// LookupCollections asks the host's ansible-doc which collection owns each
-// of names (module names, short or qualified). A name the host doesn't know
-// is simply absent from the result.
-func LookupCollections(names []string) (map[string]string, error) {
-	found := map[string]string{}
+// PluginDoc is what the host's ansible-doc knows about a plugin.
+type PluginDoc struct {
+	// Collection is the owning collection ("ansible.builtin" for ansible-core's).
+	Collection string
+	// Requirements are the plugin's documented requirements, markup removed
+	// (free text, e.g. "dnspython (python library)").
+	Requirements []string
+}
+
+// LookupPlugins asks the host's ansible-doc about plugins of one type
+// ("module" or "lookup"), by name (short or qualified). A name the host
+// doesn't know is simply absent from the result.
+func LookupPlugins(kind string, names []string) (map[string]PluginDoc, error) {
+	found := map[string]PluginDoc{}
 	for len(names) > 0 {
 		n := min(lookupChunk, len(names))
 		chunk := names[:n]
 		names = names[n:]
-		cmd := exec.Command("ansible-doc", append([]string{"-t", "module", "-j"}, chunk...)...)
+		cmd := exec.Command("ansible-doc", append([]string{"-t", kind, "-j"}, chunk...)...)
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 		// Unknown names make ansible-doc warn on stderr (and exit non-zero
@@ -41,27 +51,64 @@ func LookupCollections(names []string) (map[string]string, error) {
 				return nil, fmt.Errorf("couldn't run ansible-doc: %w", err)
 			}
 		}
-		for name, coll := range parseDocCollections(stdout.Bytes()) {
-			found[name] = coll
+		for name, d := range parseDocs(stdout.Bytes()) {
+			found[name] = d
 		}
 	}
 	return found, nil
 }
 
-// parseDocCollections reads `ansible-doc -j` output: name -> doc.collection.
-func parseDocCollections(raw []byte) map[string]string {
+// collectionsOfDocs is name -> owning collection.
+func collectionsOfDocs(docs map[string]PluginDoc) map[string]string {
+	out := make(map[string]string, len(docs))
+	for name, d := range docs {
+		out[name] = d.Collection
+	}
+	return out
+}
+
+// parseDocs reads `ansible-doc -j` output: name -> collection and documented
+// requirements.
+func parseDocs(raw []byte) map[string]PluginDoc {
 	var docs map[string]struct {
 		Doc struct {
-			Collection string `json:"collection"`
+			Collection   string          `json:"collection"`
+			Requirements json.RawMessage `json:"requirements"`
 		} `json:"doc"`
 	}
 	if err := json.Unmarshal(raw, &docs); err != nil {
 		return nil
 	}
-	out := map[string]string{}
+	out := map[string]PluginDoc{}
 	for name, d := range docs {
-		if d.Doc.Collection != "" {
-			out[name] = d.Doc.Collection
+		if d.Doc.Collection == "" {
+			continue
+		}
+		out[name] = PluginDoc{Collection: d.Doc.Collection, Requirements: docRequirements(d.Doc.Requirements)}
+	}
+	return out
+}
+
+// docRequirements reads a documentation requirements field: a list of
+// strings or one string.
+func docRequirements(raw json.RawMessage) []string {
+	var list []string
+	if err := json.Unmarshal(raw, &list); err != nil {
+		var one string
+		if json.Unmarshal(raw, &one) != nil {
+			return nil
+		}
+		list = []string{one}
+	}
+	var out []string
+	for _, r := range list {
+		// "see R(the collection requirements page,...)" is a cross-reference,
+		// not a requirement
+		if strings.Contains(r, "R(") {
+			continue
+		}
+		if r = strings.TrimSpace(ansibledoc.StripMarkup(r)); r != "" {
+			out = append(out, r)
 		}
 	}
 	return out
