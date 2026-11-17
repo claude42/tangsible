@@ -220,6 +220,149 @@ notes").
   `internal/ee`'s smoke test; optionally feed the result to
   `ansible-builder` manually while developing.
 
+## Controller-side binaries (follow-up, `--resolve-packages`)
+
+**Spec only, not implemented.** A `command`/`shell` task usually runs on the
+*target*, so its binary is the target's business. When the task runs on the
+**controller** - inside the EE - the binary must be in the image, and neither
+the base image nor a collection's own requirements may have it. This feature
+finds such binaries, checks the base image for them, and (opt-in) looks up the
+package that provides each missing one. **It never adds anything on its own:**
+the result is a commented block to review, like the interpreter stanza.
+
+### Which tasks
+
+Only `ansible.builtin.command` and `ansible.builtin.shell` (also their short
+and `ansible.legacy` names), and only when the task is controller-side:
+
+- the play has `hosts:` `localhost`, `127.0.0.1` or `::1` (literal; a template
+  or a group name is not recognized), or `connection: local`;
+- or the task (or an enclosing block) has `connection: local`, `delegate_to:`
+  one of those three, `vars: ansible_connection: local`, or is `local_action:`.
+
+Limitations, stated in the draft's header comment when this feature ran:
+a role's task file is scanned on its own, so it has no play context (only
+the task-level conditions above apply to it); an `ansible_connection` set in
+the inventory, and `hosts:` given by variable, are invisible. There is no flag
+to widen this to every task: a remote task's binary is not the EE's.
+
+### Which binary
+
+Per task, from the free-form string, `cmd:`, or the first element of `argv:`
+(`shell`'s `executable:` is a binary too). `ScanBinaries` (pure) splits a
+shell string into simple commands (at `|`, `||`, `&&`, `;`, `&`, newlines;
+quotes respected) and takes the first word of each, skipping:
+
+- leading `NAME=value` assignments and the wrappers `sudo`, `env`, `time`,
+  `nohup`, `exec`, `command`;
+- shell builtins and keywords (`cd`, `echo`, `test`, `[`, `export`, `set`,
+  `read`, `source`, `.`, `if`/`then`/`fi`, `for`/`do`/`done`, `while`, `case`,
+  `true`, `false`, `exit`, ...);
+- paths inside the project (`./x`, anything under the playbook's directory).
+
+An absolute path is kept as it is. A first word that is templated (`{{`),
+`eval`, or a command substitution that can't be split becomes a *templated*
+mark: one general `TODO`, counted like the templated includes ("detected N in
+all"), not one per task.
+
+### Checking the base image
+
+The base-image probe takes the binary names as arguments (`sh -c <script>
+probe name...`, so nothing is interpolated into the script; names that aren't
+plain are dropped) and answers `missing=<name>` for each `command -v` that
+fails. Same container run as the existing probe. An absolute path is tested
+with `-x`.
+
+### Resolving packages (`--resolve-packages`)
+
+Without the flag, the missing binaries are only listed (see the output below),
+with a hint about the flag. With it, tangsible runs a second, throw-away
+container of the base image (the image itself is never changed) **with
+network** - it honors `[execution_environment] network`, so `network = "host"`
+fixes DNS trouble - and as root where the family needs it, and asks the
+package manager which package provides each missing binary:
+
+- **rpm family** (os-release `ID`/`ID_LIKE`: fedora, rhel, centos, ...):
+  `dnf -q repoquery --file '*/bin/<name>' --queryformat '%{name}\n'`, and the
+  same with `*/sbin/` if that finds nothing, once per binary (a second
+  argument is a package filter, not a second pattern). Checked on
+  community-ee-base (dnf5): finds `jq`, `sshpass`; needs about 40 MB of
+  repository metadata, so ~25-30 s for the first query. `microdnf` can't do it
+  (its `provides` only refreshes metadata), `dnf` must exist in the image.
+- **dpkg family** (debian, ubuntu): `apt-file`, which needs `apt-get update`
+  and installing it in the throw-away container first; the exact command
+  (`apt-file -x search '^/(usr/)?s?bin/<name>$'`) and its cost are to be
+  verified at implementation, as is whether it is acceptable by default.
+- Other families (apk, zypper, ...), no network, a failed update: no packages,
+  the binaries stay listed with "package unknown", a note on stderr, exit
+  code unaffected.
+
+A binary with several distinct package names (after removing architecture
+and repository duplicates) is listed with all of them as alternatives and is
+not picked for the user. A progress line on stderr says that repository
+metadata is being downloaded.
+
+### Output
+
+One block, grouped, in `dependencies`, with the platform selector from the
+image's family (`[platform:rpm]`, `[platform:dpkg]`). Without the flag:
+
+```yaml
+  # Binaries used by tasks that run on the controller and missing from the
+  # base image: jq (site.yml:40), sshpass (site.yml:52, roles/x/tasks/main.yml:7)
+  # Look up their packages with --resolve-packages.
+```
+
+With it, in the same style as the interpreter stanza, to uncomment (bindep
+syntax):
+
+```yaml
+  # Binaries used by tasks that run on the controller and missing from the base image:
+  # system:
+  #   - jq [platform:rpm]        # jq: site.yml:40
+  #   - sshpass [platform:rpm]   # sshpass: site.yml:52, +1 more
+  #   # TODO: "yq": no package found
+  #   # TODO: "ip": one of iproute, iproute-tc
+```
+
+Nothing is written when no controller-side binary is missing. The summary
+line gains "N binaries missing from the base image". Binaries are
+referenced by file and line like the collections' evidence (at most two
+locations, then "+N more").
+
+### Code plan
+
+- `scan.go`: `ScanYAML` also tracks the controller-side context (play
+  `hosts`/`connection`, block and task keywords) and returns `Command`
+  records (the task's command string/argv, `executable:`, location);
+  `ScanBinaries(commands) (bins []Binary, templated int)` is the pure
+  tokenizer, table-tested.
+- `base.go`/`probe.go`: the probe script takes names and prints `missing=`;
+  `BaseFacts` gains the os family (from `ID_LIKE`) and `Missing []string`.
+- `packages.go`: `ParsePackages` (pure; per family) and `ResolvePackages(engine,
+  image, network, family, names)` (the throw-away container).
+- `draft.go`: the block above, pure like the rest.
+- Flag parsing in `ParseArgs`; `completions/`, `README.md`, `man/`.
+
+### Tests
+
+Tokenizer table (pipes, `&&`, quotes, assignments, wrappers, builtins,
+templated, `argv`, `executable`); controller-side detection table (play
+`hosts`, `connection`, `delegate_to`, `local_action`, block inheritance,
+role file without context); `ParsePackages` on captured `dnf`/`apt-file`
+output (several providers, none, arch duplicates); golden `Draft` with and
+without resolved packages. The container steps are checked by hand, like the
+other podman edges.
+
+### Open points
+
+- The cost of `apt-file` on Debian-family images (metadata size, whether to
+  install it in the throw-away container) is not measured.
+- Role task files have no play context; a play-aware walk (which play calls
+  which role) is possible later, but is a larger change in `source`.
+- Controller-side *modules* that need binaries (`synchronize` -> `rsync`)
+  belong to the deferred implied-dependency rules table, not here.
+
 ## Later (explicitly deferred)
 
 - **Implied-dependency rules table**: a small editable mapping from a module
@@ -230,8 +373,8 @@ notes").
 - Filters, lookups and tests (regex out of templates/vars, map via
   `ansible-doc -t filter --list`).
 - `requires_ansible` check against the pinned ansible-core.
-- Binaries used by `command`/`shell` as commented suggestions (can't tell
-  EE vs target host, so never added automatically).
+- Binaries used by `command`/`shell` (now specified above, as "Controller-side
+  binaries").
 - Smarter handling of an existing file (diff, second file, merge).
 - Resolving collections not installed on the host (Galaxy lookup).
 - `--verify`: build and run `--syntax-check` inside the image.
