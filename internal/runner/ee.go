@@ -287,6 +287,10 @@ func newEERun(s *config.EESettings, playbook string, args []string) (*eeRun, err
 	for _, w := range plan.Warnings {
 		config.QueueWarning("tangsible: execution environment: " + w)
 	}
+	if len(plan.Dropped) > 0 {
+		config.QueueWarning("tangsible: execution environment: not passed into the container, as they name paths on this host: " +
+			strings.Join(plan.Dropped, ", ") + ` (to pass one anyway, list it in pass_env and add the path it names to extra_mounts)`)
+	}
 	run.cmd = exec.Command(plan.Engine, plan.Argv...)
 	run.cmd.Env = append(os.Environ(), plan.Env...)
 	name := run.name

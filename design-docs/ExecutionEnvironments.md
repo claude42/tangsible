@@ -914,3 +914,10 @@ in mind if both are picked up around the same time.
   not an error: running from the home directory is sometimes deliberate, and
   `read_only = true` limits the damage. Neither navigator nor runner guards
   `$HOME` itself (runner refuses `/`, `/home`, `/usr`).
+- **Dropped host-path variables are reported (comparison item 3, in part):**
+  `Plan.Dropped` was computed and never shown. `newEERun` now queues one line
+  after exit naming the dropped `ANSIBLE_*` variables and the remedy: list the
+  variable in `pass_env` and the path it names in `extra_mounts`.
+  `ANSIBLE_REMOTE_TEMP` and `ANSIBLE_FACT_PATH` name paths on the managed host
+  and are forwarded now. Automatic mounting is deferred, with its design, in
+  `EE-NavigatorComparison.md`.

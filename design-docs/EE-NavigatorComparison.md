@@ -69,7 +69,7 @@ SELinux auto-detection.
    re-gathers every time and its log is lost. Runner remaps the fact cache
    into its artifacts dir (`ANSIBLE_CACHE_PLUGIN_CONNECTION`); navigator's FAQ
    tells users to mount paths by hand. Nobody solves it automatically.
-3. **Path-valued `ANSIBLE_*` variables are dropped silently** by our filter
+3. **(Fixed in part: the drop is now reported after exit, with the remedy `pass_env` + `extra_mounts`; the automatic design is kept below, under "Deferred: automatic mounting for item 3".) Path-valued `ANSIBLE_*` variables are dropped silently** by our filter
    (`ANSIBLE_CONFIG`, `ANSIBLE_ROLES_PATH`, `ANSIBLE_COLLECTIONS_PATH(S)`,
    `ANSIBLE_VAULT_PASSWORD_FILE`, `ANSIBLE_INVENTORY`,
    `ANSIBLE_PRIVATE_KEY_FILE`, `ANSIBLE_LIBRARY`, plugin paths; `TestEnvForwarding`).
@@ -179,3 +179,41 @@ Medium, needs a design decision:
   arguments, (9) the options escape hatch, (11) the `$HOME` / `/home` warning.
 
 Later or only if it bites: (12) fuse-overlayfs, (13) `--user=root`, (15).
+
+## Deferred: automatic mounting for item 3
+
+Decided 2026-11-17: only report dropped variables for now (ee.hostPathy still
+decides; `ANSIBLE_REMOTE_TEMP` and `ANSIBLE_FACT_PATH` are exempt since they
+name paths on the managed host). The fuller design, kept in case repeating the
+same `extra_mounts` lines becomes a chore:
+
+- **Classify by ansible's own metadata**, not name fragments:
+  `ansible-config list --format json` (about 230 ms, per ansible version, so
+  cacheable for the session and prefetchable beside the `dump`) gives every
+  setting's `type` and env names. The host-path ones are typed `path`,
+  `pathspec`, `pathlist` or `tmppath` (41 variables in ansible-core 2.19).
+  Special cases: `ANSIBLE_CONFIG` is not in the list (`CONFIG_FILE` has no env
+  name); `ANSIBLE_INVENTORY` is a `pathlist` that may be a comma host list. The
+  list comes from the host's ansible, not the image's.
+- **Behaviour per variable:** not a path type: forward as today. Path type:
+  split (`:` for `pathspec`, `,` for the inventory), expand `~`/`$VAR`, resolve
+  relative entries from the working directory; an existing entry outside the
+  project root is mounted read-only at its own path (an entry inside the root is
+  mounted already) and the variable is forwarded with the expanded values;
+  missing entries stay in the value (ansible tolerates them) and are reported.
+  Variables ansible writes to (`ANSIBLE_LOCAL_TEMP`, `ANSIBLE_HOME`,
+  `ANSIBLE_RETRY_FILES_SAVE_PATH`) stay dropped, visibly. `pass_env`/`set_env`
+  still win.
+- **Open questions:** mount the named entry only (leaning yes - never its
+  parent, which could expose `~/.ssh`); secrets (`ANSIBLE_VAULT_PASSWORD_FILE`,
+  `ANSIBLE_PRIVATE_KEY_FILE`) automatic with a visible line, or opt-in (leaning
+  automatic; `credfile` already swaps password prompts for private files);
+  `ANSIBLE_CONFIG`: the file only, and paths named *inside* it (a `roles_path`)
+  remain unsolved unless read from the `dump` we already fetch.
+- **Compared with navigator:** it forwards every `ANSIBLE_*` unchanged and mounts
+  nothing, leaving users to hard-link files into the project; this design would
+  be more automatic than that, at the price of tangsible deciding what the image
+  can read.
+- **Test plan:** e2e with `ANSIBLE_ROLES_PATH` and `ANSIBLE_VAULT_PASSWORD_FILE`
+  outside the project: a role resolves and a vaulted value decrypts in the
+  container (both fail today).

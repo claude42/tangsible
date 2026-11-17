@@ -23,6 +23,10 @@ func hostPathy(name string) bool {
 	if name == "ANSIBLE_INVENTORY" || name == "ANSIBLE_VAULT_IDENTITY_LIST" {
 		return true
 	}
+	// Paths on the managed host, not on this one.
+	if name == "ANSIBLE_REMOTE_TEMP" || name == "ANSIBLE_FACT_PATH" {
+		return false
+	}
 	for _, frag := range []string{"PATH", "FILE", "CONFIG", "HOME", "DIR", "PLUGINS", "LIBRARY", "TMP"} {
 		if strings.Contains(name, frag) {
 			return true

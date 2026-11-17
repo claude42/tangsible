@@ -491,6 +491,7 @@ func TestEnvForwarding(t *testing.T) {
 		"ANSIBLE_INVENTORY=/home/u/inv",
 		"ANSIBLE_INVENTORY_UNPARSED_WARNING=false",
 		"ANSIBLE_FORCE_COLOR=0",
+		"ANSIBLE_REMOTE_TEMP=/tmp/.ansible",
 		"HTTPS_PROXY=http://proxy:3128",
 		"NO_COLOR=1",
 		"HOME=/home/u",
@@ -501,7 +502,7 @@ func TestEnvForwarding(t *testing.T) {
 	p := build(t, in)
 	wantEnv := []string{
 		"ANSIBLE_FORCE_COLOR=1", "ANSIBLE_HOST_KEY_CHECKING=False",
-		"ANSIBLE_INVENTORY_UNPARSED_WARNING=false", "ANSIBLE_JSON_INDENT=0",
+		"ANSIBLE_INVENTORY_UNPARSED_WARNING=false", "ANSIBLE_JSON_INDENT=0", "ANSIBLE_REMOTE_TEMP=/tmp/.ansible",
 		"HTTPS_PROXY=http://proxy:3128", "NO_COLOR=1",
 	}
 	if !reflect.DeepEqual(p.Env, wantEnv) {

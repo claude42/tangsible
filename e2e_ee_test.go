@@ -492,6 +492,26 @@ func TestE2E_EE_FactCacheAndLogOutsideProjectAreShared(t *testing.T) {
 	}
 }
 
+// A host-path variable that is not passed into the container is said so after
+// exit, with the way to pass it anyway; it used to vanish silently.
+func TestE2E_EE_DroppedHostPathVariableIsReported(t *testing.T) {
+	image := requireEE(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte("- hosts: localhost\n  gather_facts: false\n  connection: local\n  tasks:\n    - ansible.builtin.ping:\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && ANSIBLE_ROLES_PATH=/nonexistent/roles %s %s run p.yml -i localhost, --ee %s",
+		shellQuote(work), e2eCallbackEnv(t), shellQuote(bin), shellQuote(image)), "Enter")
+	s.waitFor("Playbook completed successfully", 90*time.Second)
+	s.send("q")
+	got := s.waitFor("not passed into the container", 10*time.Second)
+	if !strings.Contains(got, "ANSIBLE_ROLES_PATH") || !strings.Contains(got, "extra_mounts") {
+		t.Errorf("the message should name the variable and the remedy:\n%s", got)
+	}
+}
+
 // pass_env and set_env: a listed variable (or prefix) reaches the container, an
 // unlisted one does not, and a set value arrives. The playbook reads them with
 // the env lookup, which runs in the container.
