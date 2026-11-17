@@ -118,6 +118,22 @@ func TestEEMergeCascade(t *testing.T) {
 	}
 }
 
+func TestEEBaseImage(t *testing.T) {
+	var project, global, merged SettingsConfig
+	project.ExecutionEnvironment.Image = "run:1"
+	global.ExecutionEnvironment.BaseImage = " base:2 "
+	mergeEE(&merged, project, global)
+	got := EEFromSettings(merged)
+	// base_image cascades like the other keys, but is its own key: image
+	// never stands in for it.
+	if got.BaseImage != "base:2" || got.Image != "run:1" {
+		t.Errorf("Image %q, BaseImage %q", got.Image, got.BaseImage)
+	}
+	if got := EEFromSettings(SettingsConfig{}); got.BaseImage != "" {
+		t.Errorf("unset BaseImage = %q", got.BaseImage)
+	}
+}
+
 func TestEESettingsWarnings(t *testing.T) {
 	pendingWarnings = nil
 	t.Cleanup(func() { pendingWarnings = nil })

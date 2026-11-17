@@ -13,11 +13,11 @@ design choices. `README.md` is the user-facing tour; `design-docs/Codemap.md`
 maps packages/files (verify against `grep`, it can drift);
 `design-docs/Keyboard-shortcuts.md` is the full key reference.
 
-One Go binary, eleven verbs (`internal/config/resolve.go`'s `ParseVerb`):
+One Go binary, twelve verbs (`internal/config/resolve.go`'s `ParseVerb`):
 `run`, `rerun`, `role`, `revisit`, `debug` share the live tree/TUI
 machinery (`internal/session`) - `debug` (`design-docs/DebugMode.md`)
 adds breakpoint/pause state on top, not a second TUI of its own;
-`template`, `host`/`hosts`/`inventory`, `vault`, `version` are standalone
+`template`, `host`/`hosts`/`inventory`, `vault`, `ee init`, `version` are standalone
 programs that never build the live tree. Requires `ansible-playbook` and
 a real TTY. Root `main.go` just calls `session.Main`.
 
@@ -66,7 +66,7 @@ policy, and skeleton-seeded state/event resolution, respectively -
 `internal/session` is their only caller, same as any other verb-specific
 package above) · `internal/inventory`, `internal/ansibledoc`, `internal/rolepath` (small
 shared clients) · `internal/ee` (execution-environment podman command
-builder, pure; `design-docs/ExecutionEnvironments.md`). Only `internal/session` (its `tui.go` and `livesession*.go`) and
+builder, pure; `design-docs/ExecutionEnvironments.md`) · `internal/eeinit` (`ee init`'s draft generator, pure core; `design-docs/EEInit.md`). Only `internal/session` (its `tui.go` and `livesession*.go`) and
 `internal/uikit` touch `tview`/`tcell`; `session/main.go` doesn't, and
 neither does any of debug mode's own three packages.
 
@@ -366,6 +366,13 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   5.4 but not 5.8. Under SELinux only `selinux = disable` (what `auto`
   picks when enforcing) lets the container reach the agent socket; `z`/`Z`
   skip it with a warning rather than relabel the user's live socket.
+- **EE draft** (`EEInit.md`): `tangsible ee init` writes `./execution-environment.yml`
+  (builder schema v3), never overwriting. Modules only; the host's `ansible-doc`
+  is the source of truth for short names, so an uninstalled collection is a
+  `# TODO`, not a guess. The base image is `--base` > `base_image` > a pinned
+  built-in default - **never `[execution_environment] image`** (it is usually
+  the build's own output). Draft text is built by pure `eeinit.Draft`; keep
+  file/ansible/podman access in `host.go`/`probe.go`/`run.go`.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

@@ -130,6 +130,7 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `image` | string | *(none — host run)* | e.g. `ghcr.io/ansible-community/community-ee-base:latest`; pulled before the TUI starts if missing |
+| `base_image` | string | *(`tangsible ee init`'s built-in default, a pinned `community-ee-base` tag)* | the image `tangsible ee init` builds its draft on (`EEInit.md`); `--base` overrides it. Deliberately separate from `image`, which is what runs and is often the output of that build - `image` is never used as a base |
 | `engine` | string: `"podman"` | `"podman"` | docker is not supported yet; another value warns and uses podman |
 | `network` | string | *(engine default)* | `"host"` shares the host's network stack (its resolver, routes, VPN) instead of the container's own; use it when host names don't resolve or targets are only reachable through host-side routing. The cost: the container can then reach services listening on the host's loopback |
 | `selinux` | string: `"auto"` \| `"disable"` \| `"z"` \| `"Z"` \| `"none"` | `"auto"` | auto = `disable` (`--security-opt label=disable`) only when SELinux is enforcing, `none` otherwise; `none` on an enforcing host usually leaves the container unable to read the project (a warning says so); `z`/`Z` relabel permanently - the project, scratch and plugin directories and `known_hosts` - and cannot forward the SSH agent (SELinux blocks the socket whatever its label; skipped with a warning), so they suit setups without agent authentication |

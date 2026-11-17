@@ -205,11 +205,34 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 	// roles are walked, never a whole system directory. Display only:
 	// ListTaskLocations deliberately doesn't do this (debug mode can only
 	// splice files in its shadow copy of the project tree).
-	//
-	// Roles named by include_role/import_role tasks (includedRoles) join
-	// it too. A located role's meta/main.yml dependencies join the worklist - also
-	// those of roles inside the project tree, which may depend on outside
-	// ones. visited (by directory) stops dependency cycles.
+	walkRoles(root, worklist, func(f string, inProject bool, _ roleInfo) {
+		if !inProject {
+			indexFile(f, index, tagSet, nameSet, nil)
+		}
+	})
+	return index, sortedSet(tagSet), sortedSet(nameSet)
+}
+
+// roleInfo says which role a file visited by walkRoles belongs to.
+type roleInfo struct {
+	// name is the role's name as it was referenced.
+	name string
+	// collection is the "namespace.collection" the role came from, "" for a
+	// plain role.
+	collection string
+}
+
+// walkRoles resolves worklist (the roles named in the project's files) and,
+// transitively, their meta/main.yml dependencies, and calls visit for every
+// YAML file of a role that lives outside the project tree under root or
+// comes from a collection (any other role's files are the project walk's
+// own), with inProject saying whether the file is under root.
+//
+// Roles named by include_role/import_role tasks (includedRoles) join it
+// too. A located role's meta/main.yml dependencies join the worklist - also
+// those of roles inside the project tree, which may depend on outside
+// ones. visited (by directory) stops dependency cycles.
+func walkRoles(root string, worklist []roleRef, visit func(file string, inProject bool, role roleInfo)) {
 	visited := map[string]bool{}
 	for len(worklist) > 0 {
 		ref := worklist[0]
@@ -225,7 +248,7 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 			continue
 		}
 		visited[dir] = true
-		inProject := isUnder(dir, root) // the walk above already indexed it
+		inProject := isUnder(dir, root) // the project walk already covers it
 		// A role from a collection resolves the unqualified names it
 		// uses against its own collection, too.
 		var own []string
@@ -234,8 +257,8 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 		}
 		if !inProject || own != nil {
 			for _, f := range yamlFilesUnder(dir, "") {
-				if !inProject {
-					indexFile(f, index, tagSet, nameSet, nil)
+				if visit != nil {
+					visit(f, inProject, roleInfo{name: ref.name, collection: collection})
 				}
 				for _, r := range includedRoles(f) {
 					r.collections = append(r.collections, own...)
@@ -247,7 +270,52 @@ func BuildTaskSourceIndex(playbookPath string) (TaskSourceIndex, []string, []str
 			worklist = append(worklist, roleRef{name: name, parent: filepath.Dir(dir), collections: own})
 		}
 	}
-	return index, sortedSet(tagSet), sortedSet(nameSet)
+}
+
+// ReachableFile is one YAML file that can take part in a playbook run.
+type ReachableFile struct {
+	Path string
+	// Role and Collection are set for a file of a role that came from a
+	// collection ("namespace.collection"): Role is the name it was
+	// referenced by.
+	Role, Collection string
+}
+
+// ReachableYAML lists every YAML file that may hold tasks of the playbook:
+// all of those under the playbook's own directory (found by shape, like the
+// task index does), plus the files of the roles it references from outside
+// that tree (roles_path, collections), followed through role dependencies.
+// Never fails outward; unreadable parts just mean less coverage.
+func ReachableYAML(playbookPath string) []ReachableFile {
+	abs, err := filepath.Abs(playbookPath)
+	if err != nil {
+		return nil
+	}
+	root := filepath.Dir(abs)
+	files := append([]string{abs}, yamlFilesUnder(root, abs)...)
+
+	var out []ReachableFile
+	at := map[string]int{}
+	add := func(f ReachableFile) {
+		if i, seen := at[f.Path]; seen {
+			if out[i].Collection == "" {
+				out[i].Role, out[i].Collection = f.Role, f.Collection
+			}
+			return
+		}
+		at[f.Path] = len(out)
+		out = append(out, f)
+	}
+	var worklist []roleRef
+	for _, f := range files {
+		add(ReachableFile{Path: f})
+		worklist = append(worklist, indexFile(f, TaskSourceIndex{}, map[string]bool{}, map[string]bool{}, nil)...)
+		worklist = append(worklist, includedRoles(f)...)
+	}
+	walkRoles(root, worklist, func(f string, _ bool, r roleInfo) {
+		add(ReachableFile{Path: f, Role: r.name, Collection: r.collection})
+	})
+	return out
 }
 
 // roleRef is one role awaiting lookup in BuildTaskSourceIndex: parent is the

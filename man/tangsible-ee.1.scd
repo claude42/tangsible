@@ -1,0 +1,70 @@
+tangsible-ee(1) "Tangsible" "Tangsible Manual"
+
+# NAME
+
+tangsible-ee - draft an execution-environment.yml for ansible-builder from a playbook
+
+# SYNOPSIS
+
+*tangsible ee init* [_playbook.yml_] [--base _image_]
+
+# DESCRIPTION
+
+*ee init* writes a draft *execution-environment.yml* (ansible-builder schema
+version 3) to the current directory. The stock execution environment images
+carry almost no collections, so using one for real work means building a
+custom image, and most of that definition is boilerplate. The draft fills in
+what can be determined; everything else is marked with a *# TODO* comment.
+It is a starting point to review and extend, not a complete definition, and
+*tangsible* does not build the image (use *ansible-builder*(1) for that).
+
+If _playbook.yml_ is omitted, it is resolved the same way as
+*tangsible-run*(1) (see *tangsible*(1)).
+
+It does the following:
+
+- Reads the playbook and the roles it uses (*roles:*, *include_role*,
+  *import_role*, role dependencies), and collects the module of every task,
+  including handlers, *block*/*rescue*/*always* and the *action:* and
+  *local_action:* forms. Modules only: filters, lookups and tests are not
+  analyzed.
+- Asks the host's Ansible (*ansible-doc*(1)) which collection owns each
+  module, honoring *collections:* keywords. *ansible.builtin* modules are
+  left out, as ansible-core ships with them. A module the host has no
+  collection for, a templated module name and a templated *include_tasks* or
+  *include_role* target become *# TODO* comments.
+- Takes collections and roles from a *requirements.yml* (or *collections/requirements.yml*)
+  next to the playbook or in the current directory, if there is one, and adds
+  the collections the playbook uses that it doesn't list. Its versions win;
+  otherwise a collection is pinned to the version installed on the host
+  (*ansible-galaxy collection list*), or left unpinned with a comment.
+- Pulls the base image if it is missing (using *pull_policy*) and inspects it
+  with *podman* for its package manager, Python and ansible-core.
+- Annotates each collection with where it was found.
+
+The base image is, in this order: *--base* _image_, *base_image* under
+*[execution_environment]* in *config.toml*, or the built-in default
+(a pinned *ghcr.io/ansible-community/community-ee-base* tag, named in the
+draft's header when used). *image* under *[execution_environment]* is never
+used: it is the image tangsible runs, often the result of building this very
+draft.
+
+If *execution-environment.yml* already exists, *ee init* fails and writes
+nothing.
+
+# EXIT STATUS
+
+*0*
+	The draft was written.
+
+*1*
+	No draft was written: the file already exists, *podman* is missing, the
+	base image couldn't be pulled or inspected, or the playbook couldn't be
+	read.
+
+*2*
+	Usage error.
+
+# SEE ALSO
+
+*tangsible*(1), *tangsible-run*(1), *ansible-builder*(1)

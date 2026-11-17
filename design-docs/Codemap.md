@@ -119,6 +119,28 @@ package reads.
   `ansible-config dump`, built-in defaults as fallback), `Find` a role by
   name, `FromPath` the role a file belongs to.
 
+## internal/eeinit
+
+`tangsible ee init` (`design-docs/EEInit.md`): drafts an
+execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
+
+- **scan.go** - `ScanYAML`: the modules each task of one file uses (plays,
+  blocks, handlers, `action:`/`local_action:`, `collections:`), plus `Todo`s
+  for what is templated.
+- **resolve.go** - `Candidates`/`Resolve`: module uses to the collections
+  that provide them, given the host's answers.
+- **requirements.go** - `ParseRequirements` (entries kept as written).
+- **base.go** - `ResolveBase` (flag > `base_image` > `DefaultBaseImage`,
+  never `image`), `ProbeScript`/`ParseProbe` (the base image's facts).
+- **draft.go** - `Draft`: the YAML text and a `Report`.
+- **host.go** - `LookupCollections` (`ansible-doc`), `InstalledCollections`
+  (`ansible-galaxy`), `FindRequirements`.
+- **probe.go** - `ProbeBase`: `podman run` the probe script.
+- **run.go** - `ParseArgs`, `RunEEVerb`: the verb.
+
+`internal/source.ReachableYAML` supplies the files (project plus referenced
+roles, shared with the task index's role walk).
+
 ## internal/ee
 
 Execution-environment command builder (`design-docs/ExecutionEnvironments.md`)

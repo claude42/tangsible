@@ -36,6 +36,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/diff"
+	"code.aw.net/claude/tangsible/internal/eeinit"
 	"code.aw.net/claude/tangsible/internal/host"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
@@ -129,7 +130,7 @@ func Main(build BuildInfo) {
 	// of the password.
 	startupSettings := config.MergedSettingsConfig()
 	var bgQuery *termbg.Query
-	if config.ColorSchemeAuto(startupSettings) && v != config.VerbVault {
+	if config.ColorSchemeAuto(startupSettings) && v != config.VerbVault && v != config.VerbEE {
 		bgQuery = termbg.Start()
 	}
 	var applyColorsOnce sync.Once
@@ -179,6 +180,13 @@ func Main(build BuildInfo) {
 	// "debug" (design-docs/DebugMode.md) used to be a fifth standalone
 	// program, with its own separate, smaller TUI - it's a liveSession
 	// now, same as run/role, so it's handled in the switch below instead.
+	// "ee" (design-docs/EEInit.md) is one too, but a batch one: no TUI, so
+	// no colors to resolve either.
+	if v == config.VerbEE {
+		code := eeinit.RunEEVerb(args)
+		printStartupWarnings()
+		os.Exit(code)
+	}
 	if v == config.VerbTemplate {
 		applyColors()
 		code := template.RunTemplateVerb(args)

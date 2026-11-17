@@ -757,3 +757,50 @@ func TestBuildTaskSourceIndex_CollectionRoles(t *testing.T) {
 		t.Error("index contains the system copy shadowed by ./collections")
 	}
 }
+
+func TestReachableYAML(t *testing.T) {
+	roles, colls, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	defer rolepath.SetDirs([]string{roles})()
+	defer rolepath.SetCollectionDirs([]string{colls})()
+
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proj := t.TempDir()
+	pb := filepath.Join(proj, "site.yml")
+	write(pb, "- hosts: all\n  roles:\n    - acme.tools.fromcoll\n    - plain\n")
+	write(filepath.Join(proj, "roles", "local", "tasks", "main.yml"), "- debug: msg=hi\n")
+	write(filepath.Join(colls, "ansible_collections", "acme", "tools", "roles", "fromcoll", "tasks", "main.yml"), "- debug: msg=hi\n")
+	write(filepath.Join(roles, "plain", "tasks", "main.yml"), "- debug: msg=hi\n")
+	write(filepath.Join(outside, "unrelated.yml"), "- debug: msg=hi\n")
+
+	got := map[string]ReachableFile{}
+	for _, f := range ReachableYAML(pb) {
+		if _, dup := got[f.Path]; dup {
+			t.Errorf("%s listed twice", f.Path)
+		}
+		got[f.Path] = f
+	}
+	if _, ok := got[pb]; !ok {
+		t.Errorf("the playbook itself is missing: %v", got)
+	}
+	if _, ok := got[filepath.Join(proj, "roles", "local", "tasks", "main.yml")]; !ok {
+		t.Errorf("a role inside the project is missing: %v", got)
+	}
+	if f, ok := got[filepath.Join(roles, "plain", "tasks", "main.yml")]; !ok || f.Collection != "" {
+		t.Errorf("a plain role from roles_path: %+v, %v", f, ok)
+	}
+	f, ok := got[filepath.Join(colls, "ansible_collections", "acme", "tools", "roles", "fromcoll", "tasks", "main.yml")]
+	if !ok || f.Collection != "acme.tools" || f.Role != "acme.tools.fromcoll" {
+		t.Errorf("a collection role: %+v, %v", f, ok)
+	}
+	if _, ok := got[filepath.Join(outside, "unrelated.yml")]; ok {
+		t.Errorf("an unreferenced file outside the project is listed")
+	}
+}

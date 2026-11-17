@@ -108,6 +108,7 @@ normally require writing temporary playbooks.
 - **Run / test a role in isolation** with `tangsible role <role>`.
 - **Set breakpoints and step through a playbook**, inspecting variables at each pause, with `tangsible debug <playbook>`.
 - **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
+- **Draft an execution environment definition** from a playbook with `tangsible ee init` (see "Running in an execution environment").
 - **Easily edit individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
 - A **host-centric view** of all relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, variables (with where they are defined), groups, plays
 - A **tree view of the whole inventory** with `tangsible inventory` &ndash; groups as collapsible nodes, hosts as leaves, similar to `ansible-inventory --graph`
@@ -448,6 +449,24 @@ the host's own routing or VPN, set `network = "host"`. The re-run dialog (`r`) h
 a re-run to another image, or to the host by emptying it; the image of every
 run is recorded, so `tangsible rerun` and re-runs from `tangsible revisit` use
 the environment that run used.
+
+The stock images carry almost no collections, so you usually need to build
+your own with `ansible-builder`. `tangsible ee init` drafts the
+`execution-environment.yml` for it from your playbook:
+
+```
+tangsible ee init site.yml [--base <image>]
+```
+
+It collects the modules used by the playbook and its roles, asks your host's
+Ansible which collections provide them, and inspects the base image with
+`podman`. Collections are pinned to the versions of a `requirements.yml` if
+you have one, otherwise to the ones installed on the host. The result is a
+draft in `./execution-environment.yml` (it never overwrites an existing file)
+in which everything that can't be determined statically is a `# TODO`
+comment. Set `base_image` in `[execution_environment]` to choose the base
+image; `image` is never used for that, as it is what you run, usually the
+result of that build.
 
 ## Configuration
 

@@ -22,7 +22,7 @@
 # chased further" heuristic tangsible's own source uses for similar
 # judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts inventory revisit vault debug version help"
+_tangsible_verbs="run rerun role template host hosts inventory revisit vault ee debug version help"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards
@@ -68,6 +68,9 @@ _tangsible_rerun_only_flags="--only-failed --only-unreachable --resume-where-fai
 # spawns it in the first place.
 _tangsible_vault_flags="--vault-password-file --ask-vault-pass"
 
+# ee init's own flag (design-docs/EEInit.md); ee never spawns ansible-playbook.
+_tangsible_ee_init_flags="--base"
+
 # _tangsible_flags_for_verb echoes the complete flag set a given verb
 # actually understands - the union of ansible-playbook's own flags (for
 # every verb that shells out to it) plus whichever synthetic flags that
@@ -94,6 +97,9 @@ _tangsible_flags_for_verb()
 		;;
 	vault)
 		echo "$_tangsible_vault_flags"
+		;;
+	ee)
+		echo "$_tangsible_ee_init_flags"
 		;;
 	version | help)
 		echo ""
@@ -162,6 +168,10 @@ _tangsible()
 		COMPREPLY=($(compgen -W "local smart ssh paramiko docker" -- "$cur"))
 		return
 		;;
+	--base)
+		# An image name: nothing to complete without asking the engine.
+		return
+		;;
 	--start-at-play)
 		# A play name, not a file - completing this for real would need a
 		# static scan of the playbook's own top-level plays
@@ -205,7 +215,7 @@ _tangsible()
 		fi
 		case "$w" in
 		-*)
-			case " $_tangsible_ap_file_flags --become-method -c --connection --start-at-play " in
+			case " $_tangsible_ap_file_flags --become-method -c --connection --start-at-play --base " in
 			*" $w "*) skip=1 ;;
 			esac
 			;;
@@ -267,6 +277,14 @@ _tangsible()
 	vault)
 		# tangsible vault <filename> [--vault-password-file <path> | --ask-vault-pass]
 		if [ "$pos" -eq 0 ]; then
+			_tangsible_ymlfiles "$cur"
+		fi
+		;;
+	ee)
+		# tangsible ee init [<playbook>] [--base <image>]
+		if [ "$pos" -eq 0 ]; then
+			COMPREPLY=($(compgen -W "init" -- "$cur"))
+		elif [ "$pos" -eq 1 ]; then
 			_tangsible_ymlfiles "$cur"
 		fi
 		;;

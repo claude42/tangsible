@@ -50,6 +50,9 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 *tangsible-debug*(1)
 	Step through a playbook, set breakpoints, watch variables.
 
+*tangsible-ee*(1)
+	Draft an execution-environment.yml for *ansible-builder*(1) from a playbook: the collections it uses, the base image's facts, and a *# TODO* for everything that can't be determined.
+
 *tangsible version*
 	Print version information about tangsible and all components it's using.
 
@@ -109,7 +112,7 @@ past this count.
 image built for Ansible (an execution environment) instead of with the
 host's own ansible-core, so a playbook can be checked against what CI or AWX
 will use. It needs *podman* (Linux only for now). Keys: *image* (without
-one, nothing changes), *engine* (only *"podman"*), *network* (*"host"* to
+one, nothing changes), *base_image* (the image *tangsible ee init* builds its draft on; see *tangsible-ee*(1)), *engine* (only *"podman"*), *network* (*"host"* to
 use the host's own network stack, for DNS or routing problems), *selinux* (*"auto"*, *"disable"*, *"z"*, *"Z"*,
 *"none"*; auto disables label separation only when SELinux is enforcing; *"z"* and *"Z"* relabel the project and cannot forward the SSH agent),
 *read_only* (mount the project read-only), *ssh_agent*, *ssh_known_hosts* and *ssh_dir*
@@ -150,4 +153,4 @@ because it exposes private keys to the image) and *pass_env* (host environment v
 
 # SEE ALSO
 
-*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-revisit*(1), *tangsible-vault*(1), *tangsible-debug*(1)
+*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-revisit*(1), *tangsible-vault*(1), *tangsible-debug*(1), *tangsible-ee*(1)

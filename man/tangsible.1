@@ -77,6 +77,11 @@ Edit individually vault-encrypted variables in a file in place, without hand-run
 Step through a playbook, set breakpoints, watch variables.\&
 .PP
 .RE
+\fBtangsible-ee\fR(1)
+.RS 4
+Draft an execution-environment.\&yml for \fBansible-builder\fR(1) from a playbook: the collections it uses, the base image'\&s facts, and a \fB# TODO\fR for everything that can'\&t be determined.\&
+.PP
+.RE
 \fBtangsible version\fR
 .RS 4
 Print version information about tangsible and all components it'\&s using.\&
@@ -149,7 +154,7 @@ past this count.\&
 image built for Ansible (an execution environment) instead of with the
 host'\&s own ansible-core, so a playbook can be checked against what CI or AWX
 will use.\& It needs \fBpodman\fR (Linux only for now).\& Keys: \fBimage\fR (without
-one, nothing changes), \fBengine\fR (only \fB"podman"\fR), \fBnetwork\fR (\fB"host"\fR to
+one, nothing changes), \fBbase_image\fR (the image \fBtangsible ee init\fR builds its draft on; see \fBtangsible-ee\fR(1)), \fBengine\fR (only \fB"podman"\fR), \fBnetwork\fR (\fB"host"\fR to
 use the host'\&s own network stack, for DNS or routing problems), \fBselinux\fR (\fB"auto"\fR, \fB"disable"\fR, \fB"z"\fR, \fB"Z"\fR,
 \fB"none"\fR; auto disables label separation only when SELinux is enforcing; \fB"z"\fR and \fB"Z"\fR relabel the project and cannot forward the SSH agent),
 \fBread_only\fR (mount the project read-only), \fBssh_agent\fR, \fBssh_known_hosts\fR and \fBssh_dir\fR
@@ -208,4 +213,4 @@ Tangsible is developed and tested against inventories on the order of ten hosts,
 .PP
 .SH SEE ALSO
 .PP
-\fBansible-playbook\fR(1), \fBtangsible-run\fR(1), \fBtangsible-rerun\fR(1), \fBtangsible-role\fR(1), \fBtangsible-template\fR(1), \fBtangsible-host\fR(1), \fBtangsible-hosts\fR(1), \fBtangsible-inventory\fR(1), \fBtangsible-revisit\fR(1), \fBtangsible-vault\fR(1), \fBtangsible-debug\fR(1)
+\fBansible-playbook\fR(1), \fBtangsible-run\fR(1), \fBtangsible-rerun\fR(1), \fBtangsible-role\fR(1), \fBtangsible-template\fR(1), \fBtangsible-host\fR(1), \fBtangsible-hosts\fR(1), \fBtangsible-inventory\fR(1), \fBtangsible-revisit\fR(1), \fBtangsible-vault\fR(1), \fBtangsible-debug\fR(1), \fBtangsible-ee\fR(1)

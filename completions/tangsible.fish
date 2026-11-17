@@ -51,13 +51,14 @@ complete -c tangsible -n '__fish_is_nth_token 1' -a hosts -d 'List inventory hos
 complete -c tangsible -n '__fish_is_nth_token 1' -a inventory -d 'Browse the whole inventory as a tree'
 complete -c tangsible -n '__fish_is_nth_token 1' -a revisit -d 'Browse and reopen a previous run'
 complete -c tangsible -n '__fish_is_nth_token 1' -a vault -d 'Edit vault-encrypted variables in place'
+complete -c tangsible -n '__fish_is_nth_token 1' -a ee -d 'Draft an execution-environment.yml from a playbook'
 complete -c tangsible -n '__fish_is_nth_token 1' -a debug -d 'Set breakpoints and step through a playbook'
 complete -c tangsible -n '__fish_is_nth_token 1' -a version -d 'Print version and build info, then exit'
 complete -c tangsible -n '__fish_is_nth_token 1' -a help -d 'List all verbs with their synopsis'
 
 # --- Verb-specific positionals ---
 
-complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_token 2' -a 'run rerun role template host hosts inventory revisit vault debug version help'
+complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_token 2' -a 'run rerun role template host hosts inventory revisit vault ee debug version help'
 
 # run/rerun/hosts/inventory/revisit/debug: tangsible <playbook.yml> [ansible-playbook args...]
 # revisit's own positional is optional too (falls back to the most
@@ -89,6 +90,12 @@ complete -c tangsible -n '__fish_seen_subcommand_from host; and __fish_is_nth_to
 # vault: tangsible vault <filename> [--vault-password-file <path> | --ask-vault-pass]
 complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d 'Vars file'
+
+# ee: tangsible ee init [<playbook>] [--base <image>]
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 2' -a init -d 'Draft an execution-environment.yml'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 3' \
+	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
+complete -c tangsible -n '__fish_seen_subcommand_from ee' -l base -x -d 'Base image for the draft'
 
 # --- ansible-playbook's own flags, forwarded verbatim by every verb ---
 # Shown once a verb is already chosen (any verb: tangsible passes these

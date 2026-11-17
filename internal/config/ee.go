@@ -9,13 +9,17 @@ import (
 // (design-docs/ExecutionEnvironments.md) with every default applied. Image
 // "" means no execution environment is configured.
 type EESettings struct {
-	Image    string
-	Engine   string
-	Network  string
-	SELinux  string // "", "disable", "z", "Z" or "none"; "" is auto
-	ReadOnly bool
-	SSHAgent bool
-	SSHDir   bool
+	Image string
+	// BaseImage is what `tangsible ee init` builds the draft on
+	// (design-docs/EEInit.md); "" means its built-in default. Never derived
+	// from Image.
+	BaseImage string
+	Engine    string
+	Network   string
+	SELinux   string // "", "disable", "z", "Z" or "none"; "" is auto
+	ReadOnly  bool
+	SSHAgent  bool
+	SSHDir    bool
 	// SSHKnownHosts mounts just ~/.ssh/known_hosts (public host keys) so
 	// host-key checking works without exposing private keys.
 	SSHKnownHosts bool
@@ -50,6 +54,7 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 	for _, t := range tiers {
 		e := t.ExecutionEnvironment
 		m.Image = firstNonEmpty(m.Image, e.Image)
+		m.BaseImage = firstNonEmpty(m.BaseImage, e.BaseImage)
 		m.Engine = firstNonEmpty(m.Engine, e.Engine)
 		m.Network = firstNonEmpty(m.Network, e.Network)
 		m.SELinux = firstNonEmpty(m.SELinux, e.SELinux)
@@ -95,6 +100,7 @@ func EEFromSettings(cfg SettingsConfig) EESettings {
 	e := cfg.ExecutionEnvironment
 	s := EESettings{
 		Image:            strings.TrimSpace(e.Image),
+		BaseImage:        strings.TrimSpace(e.BaseImage),
 		Engine:           "podman",
 		Network:          e.Network,
 		ReadOnly:         e.ReadOnly != nil && *e.ReadOnly,

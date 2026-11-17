@@ -155,6 +155,7 @@ type SettingsConfig struct {
 	// defaults each key gets.
 	ExecutionEnvironment struct {
 		Image            string            `toml:"image"`
+		BaseImage        string            `toml:"base_image"`
 		Engine           string            `toml:"engine"`
 		Network          string            `toml:"network"`
 		SELinux          string            `toml:"selinux"`
@@ -390,6 +391,7 @@ const (
 	VerbInventory Verb = "inventory"
 	VerbRevisit   Verb = "revisit"
 	VerbVault     Verb = "vault"
+	VerbEE        Verb = "ee"
 	VerbVersion   Verb = "version"
 	VerbDebug     Verb = "debug"
 	VerbHelp      Verb = "help"
@@ -403,7 +405,7 @@ func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 		return "", nil, false
 	}
 	switch Verb(args[0]) {
-	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbVersion, VerbDebug, VerbHelp:
+	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbEE, VerbVersion, VerbDebug, VerbHelp:
 		return Verb(args[0]), args[1:], true
 	default:
 		return "", nil, false
