@@ -98,6 +98,54 @@ type PendingGeneration struct {
 	First       StreamItem
 	RunID       string
 	OutLog      *OutputLog
+
+	// Waiting is true when no event had arrived yet after firstEventWait:
+	// First is then the zero value and the TUI comes up empty, to show a
+	// waiting row while the run (a container, say) is still starting. Adopt
+	// wraps the session's apply to learn of the first event.
+	Waiting bool
+	gate    *gateStdout
+	started chan struct{}
+	seen    atomic.Bool
+}
+
+// firstEventWait is how long StartFirstGeneration holds the terminal back,
+// waiting for the first event, before it hands over to a TUI that shows a
+// waiting row instead. Quick failures and --list-tasks never see a TUI.
+var firstEventWait = 2 * time.Second
+
+// Adopt wraps apply so that the first event ends the waiting state: the
+// output held back for a possible plain printout is dropped, and the start
+// watcher stops. A no-op wrapper when nothing was waiting.
+func (p *PendingGeneration) Adopt(apply func(StreamItem)) func(StreamItem) {
+	if !p.Waiting {
+		return apply
+	}
+	var once sync.Once
+	return func(item StreamItem) {
+		if item.IsEvent {
+			once.Do(func() {
+				p.seen.Store(true)
+				p.gate.discard()
+				close(p.started)
+			})
+		}
+		apply(item)
+	}
+}
+
+// NoEvents reports that a waiting generation ended without a single event:
+// the caller then prints what the process wrote (PrintCaptured) as the
+// pre-flight gate would have.
+func (p *PendingGeneration) NoEvents() bool {
+	return p != nil && p.Waiting && !p.seen.Load()
+}
+
+// PrintCaptured writes the stdout held back while nothing was known to be a
+// real run - --list-tasks, --syntax-check - verbatim, as a plain
+// ansible-playbook would have.
+func (p *PendingGeneration) PrintCaptured() {
+	printGateStdout(p.gate)
 }
 
 // GenerationOutcome is one ansible-playbook invocation's result. main
@@ -308,15 +356,22 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 	// visible. "rerun" has no equivalent of this: its own TUI is already
 	// visible by the time anything is ever spawned, so a pre-flight
 	// failure has nowhere to hide from and nothing to skip.
-	// Nothing is on screen until the first event: a container that takes long
-	// to start must not look like a hang (startwatch.go).
-	startDone := make(chan struct{})
-	if ExecutionEnvironment() != nil {
-		s := ExecutionEnvironment()
-		go watchStart(os.Stderr, CommandLine(cmd), tryLine(s.Engine, s.Image), outLog, outLog.Len(), startDone)
+	// Nothing is on screen until the first event, at most firstEventWait: a
+	// run that takes longer (a container starting) gets the TUI with a
+	// waiting row, and its notices go to the o view (startwatch.go).
+	var first StreamItem
+	var ok bool
+	timer := time.NewTimer(firstEventWait)
+	select {
+	case first, ok = <-stdoutCh:
+		timer.Stop()
+	case <-timer.C:
+		started := make(chan struct{})
+		if s := ExecutionEnvironment(); s != nil {
+			go watchStart(outLog.Stderr(), "", tryLine(s.Engine, s.Image), outLog, outLog.Len(), started)
+		}
+		return &PendingGeneration{Cmd: cmd, StdoutCh: stdoutCh, StderrLines: stderrLines, RunID: runID, OutLog: outLog, Waiting: true, gate: childStdout, started: started}, true
 	}
-	first, ok := <-stdoutCh
-	close(startDone)
 	if !ok {
 		// Nothing ever arrived: safe to call cmd.Wait() here because
 		// ScanEvents's goroutine only closes its channel after its scan
@@ -345,16 +400,7 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 		// the callback system entirely, so never opens the TUI - reads
 		// and pipes exactly as a plain ansible-playbook run's would.
 		// cmd.Wait() above has already finished copying it.
-		out, truncated := childStdout.contents()
-		if !term.IsTerminal(int(os.Stdout.Fd())) {
-			// forceColorEnv colored it for the TUI's own sake; a pipe or
-			// file shouldn't get escape codes it never asked for.
-			out = []byte(StripANSI(string(out)))
-		}
-		os.Stdout.Write(out)
-		if truncated {
-			fmt.Fprintf(os.Stderr, "tangsible: ansible-playbook output truncated after %d bytes\n", gateStdoutMax)
-		}
+		printGateStdout(childStdout)
 		if waitErr != nil {
 			fmt.Fprintln(os.Stderr, "ansible-playbook exited with error:", waitErr)
 			os.Exit(1)
@@ -366,6 +412,19 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 	// writing, gateStdout keeps draining).
 	childStdout.discard()
 	return &PendingGeneration{Cmd: cmd, StdoutCh: stdoutCh, StderrLines: stderrLines, First: first, RunID: runID, OutLog: outLog}, true
+}
+
+func printGateStdout(g *gateStdout) {
+	out, truncated := g.contents()
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		// forceColorEnv colored it for the TUI's own sake; a pipe or
+		// file shouldn't get escape codes it never asked for.
+		out = []byte(StripANSI(string(out)))
+	}
+	os.Stdout.Write(out)
+	if truncated {
+		fmt.Fprintf(os.Stderr, "tangsible: ansible-playbook output truncated after %d bytes\n", gateStdoutMax)
+	}
 }
 
 // forceColorEnv turns on ansible-playbook's colored output even though its

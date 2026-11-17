@@ -581,6 +581,11 @@ func (s *liveSession) rebuild() {
 	durationLayout := uikit.ComputeDurationLayout(s.state, treeAllHosts)
 
 	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, durationLayout, treeAllHosts, activeTasks, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor, s.debugArmed, s.debugIsPaused)
+	if s.everStarted && !frozen && len(s.state.Plays) == 0 {
+		// Nothing has come back yet: a container or a slow connection still
+		// starting. The spinner turns with the heartbeat's redraws.
+		s.currentRows = append(s.currentRows, uikit.Row{Text: startingRowText(uikit.SpinnerAt(elapsed)), ID: startingRowID{}})
+	}
 	hasStatusRow := false
 	if frozen && s.everStarted {
 		if text := uikit.StatusRowText(int(s.exitCode.Load()), s.state.HadUnreachable, runner.AnsibleUserInterruptedExitCode); text != "" {
@@ -782,4 +787,16 @@ func (s *liveSession) rebuild() {
 			}
 		}
 	}
+}
+
+// startingRowID marks the placeholder row shown while a generation has
+// produced no event yet. Decorative: it has no Selected callback.
+type startingRowID struct{}
+
+func startingRowText(frame rune) string {
+	what := "ansible-playbook to start"
+	if runner.ExecutionEnvironment() != nil {
+		what += " in the container (see o for the engine's output)"
+	}
+	return fmt.Sprintf("%c Waiting for %s ...", frame, what)
 }

@@ -163,7 +163,11 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - **Pre-flight gate**: `StartFirstGeneration` peeks the first event before
   building any TUI; no event at all (bad playbook, parse error, `--list-tasks`)
   means print captured stdout/stderr and exit. Only `run`/`role`'s first
-  generation goes through it.
+  generation goes through it. It waits at most `firstEventWait` (2 s): a run
+  still silent then (a container starting) gets the TUI with a waiting row
+  (`startingRowText`), `PendingGeneration.Waiting`; if that run ends with no
+  event at all, `Main` stops the TUI and prints the held-back stdout
+  (`NoEvents`/`PrintCaptured`), as the gate would have.
 - **Events** (`events.go`): fields are empirically confirmed - re-verify
   against real output before relying on new ones. `Hosts` stays
   `map[string]json.RawMessage`; raw bytes are kept for display.
@@ -340,9 +344,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   per-generation event FIFO (opened non-blocking plus a held write end
   that closes when the engine's stderr ends - never rely on the fd
   transport, it can't cross the container boundary). A container slow to
-  start is not silent (`runner/startwatch.go`: a notice to stderr in the
-  pre-flight gate - the TUI doesn't exist yet - and into the `o` view for a
-  re-run; the exact engine command is the `o` view's first line). **Identity mounts:**
+  start is not silent (the waiting row, and `runner/startwatch.go`'s notices
+  in the `o` view - never on stderr; the exact engine command is the `o`
+  view's first line). **Identity mounts:**
   the project and every path an argument names (for an inventory file
   outside the project also its `group_vars`/`host_vars` siblings, nothing
   else of its directory) are mounted at their own

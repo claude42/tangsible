@@ -912,8 +912,32 @@ func Main(build BuildInfo) {
 	applyColors() // collects the terminal's answer if color_scheme = "auto" - see above
 	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, &knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)
 
+	runDone := make(chan struct{})
 	if pending != nil {
-		go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.OutLog, pending.RunID, pending.First)
+		if pending.Waiting {
+			// The first event hadn't come yet when the TUI went up (a slow
+			// container start). Should the process end without ever
+			// producing one - --list-tasks, a bad playbook - there is
+			// nothing to show: leave the TUI and print what it wrote, as
+			// the pre-flight gate would have.
+			apply = pending.Adopt(apply)
+			go func() {
+				runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.OutLog, pending.RunID)
+				if pending.NoEvents() && !quitting.Load() {
+					quitting.Store(true)
+					for {
+						app.Stop()
+						select {
+						case <-runDone:
+							return
+						case <-time.After(100 * time.Millisecond):
+						}
+					}
+				}
+			}()
+		} else {
+			go runGeneration(pending.Cmd, pending.StdoutCh, pending.StderrLines, pending.OutLog, pending.RunID, pending.First)
+		}
 	}
 
 	// SIGTERM (plain kill, a session manager, shutdown) and SIGHUP (the
@@ -925,7 +949,6 @@ func Main(build BuildInfo) {
 	// everything below run - saved stderr printed, cleanup done - before
 	// exiting with the conventional 128+signal status.
 	var signalExit atomic.Int32
-	runDone := make(chan struct{})
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
@@ -985,6 +1008,10 @@ func Main(build BuildInfo) {
 				fmt.Fprintln(os.Stderr, "[ansible-playbook stderr]", l)
 			}
 		}
+	}
+
+	if pending.NoEvents() && signalExit.Load() == 0 {
+		pending.PrintCaptured()
 	}
 
 	if sig := signalExit.Load(); sig != 0 {

@@ -402,27 +402,58 @@ func TestE2E_EE_SlowStartIsReported(t *testing.T) {
 	s := startTmuxSession(t)
 	s.send(fmt.Sprintf("cd %s && env PATH=%s %s %s run p.yml -i localhost, --ee %s",
 		shellQuote(work), shellQuote(shim+":"+os.Getenv("PATH")), e2eCallbackEnv(t), shellQuote(bin), shellQuote(image)), "Enter")
-	got := s.waitFor("waiting for ansible-playbook to start in the container", 20*time.Second)
-	if !strings.Contains(got, "first start of a newly pulled or built image can take a while") {
-		t.Errorf("the notice should explain itself:\n%s", got)
-	}
-	got = s.waitFor("tangsible: command: podman run --rm -i --name tangsible-", 5*time.Second)
-	if !strings.Contains(got, image+" ansible-playbook p.yml") {
-		t.Errorf("the printed command should be complete (image and playbook):\n%s", got)
+	// After two seconds the TUI comes up with a waiting row; the engine's
+	// notices go to the o view, nothing is printed to the terminal.
+	s.waitFor("Waiting for ansible-playbook to start in the container", 20*time.Second)
+	s.send("o")
+	got := s.waitFor("first start of a newly pulled or built image can take a while", 10*time.Second)
+	if !strings.Contains(got, "waiting for ansible-playbook to start in the container") {
+		t.Errorf("the notice should say what it waits for:\n%s", got)
 	}
 	got = s.waitFor("to try the image on its own", 5*time.Second)
 	if !strings.Contains(got, "run --rm --userns=keep-id "+image+" true") {
 		t.Errorf("the hint should be a bare command for the image:\n%s", got)
 	}
+	s.send("Escape")
 	s.waitFor("Playbook completed successfully", 60*time.Second) // it did start, after the delay
 
 	s.send("o")
 	view := s.waitFor("tangsible: running: podman run --rm -i --name tangsible-", 5*time.Second)
-	if !strings.Contains(view, "ansible-playbook") {
+	if !strings.Contains(view, image+" ansible-playbook p.yml") {
 		t.Errorf("the raw-output view should open with the command:\n%s", view)
 	}
 	s.send("Escape")
 	s.send("q")
+	waitNoContainers(t, 10*time.Second)
+}
+
+// A slow start that ends without any event (--list-tasks): the TUI came up
+// for the waiting row, then leaves by itself and the plain output is printed.
+func TestE2E_EE_SlowListTasksLeavesTheTUIAndPrints(t *testing.T) {
+	image := requireEE(t)
+	real, err := exec.LookPath("podman")
+	if err != nil {
+		t.Skip("podman not found")
+	}
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	shim := t.TempDir()
+	script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = run ]; then sleep 4; fi\nexec %s \"$@\"\n", real)
+	if err := os.WriteFile(filepath.Join(shim, "podman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte("- name: The only play\n  hosts: localhost\n  gather_facts: false\n  tasks:\n    - name: A listed task\n      ansible.builtin.ping:\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && env PATH=%s %s %s run p.yml -i localhost, --ee %s --list-tasks",
+		shellQuote(work), shellQuote(shim+":"+os.Getenv("PATH")), e2eCallbackEnv(t), shellQuote(bin), shellQuote(image)), "Enter")
+	s.waitFor("Waiting for ansible-playbook to start in the container", 20*time.Second)
+	got := s.waitFor("A listed task", 60*time.Second)
+	if strings.Contains(got, "Waiting for ansible-playbook") {
+		t.Errorf("the TUI should be gone, leaving only the printed list:\n%s", got)
+	}
 	waitNoContainers(t, 10*time.Second)
 }
 

@@ -872,3 +872,17 @@ Not scheduled - like `OwnCallbackPlugin.md`, this waits behind
 `TODOsBeforeLaunch.md`. No dependency ordering forces one before the
 other; the transport-fallback interaction (#1) is the only thing to keep
 in mind if both are picked up around the same time.
+- **Waiting in the TUI, not before it:** the notices above first went to
+  stderr in the pre-flight gate, which left text in the scrollback and used
+  two paths (first run on stderr, re-run in `o`). Now the gate holds the
+  terminal back for at most 2 s (`firstEventWait`); a run still silent then
+  gets the TUI with an empty tree and one animated row, "Waiting for
+  ansible-playbook to start in the container", and everything `startwatch.go`
+  says goes to the `o` view for first runs and re-runs alike. A row, not a
+  modal: a modal would have to let `q`, Ctrl-C and `o` through. Without any
+  event the process may simply be `--list-tasks` or a bad playbook: when it ends
+  that way the TUI stops by itself and the stdout held back meanwhile is
+  printed, like the gate does. Applies to every `run`/`role` first start, not
+  only EE. Verified (`TestE2E_EE_SlowStartIsReported`,
+  `TestE2E_EE_SlowListTasksLeavesTheTUIAndPrints`, delayed stand-in
+  `podman`), full e2e suite green.
