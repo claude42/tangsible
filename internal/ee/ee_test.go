@@ -499,3 +499,47 @@ func TestDNSSearchFlags(t *testing.T) {
 		t.Errorf("host network: %q", build(t, in).Argv)
 	}
 }
+
+func TestSystemKnownHostsMount(t *testing.T) {
+	in := base()
+	if joined := strings.Join(build(t, in).Argv, " "); strings.Contains(joined, "ssh_known_hosts") {
+		t.Errorf("nothing given, yet: %q", joined)
+	}
+	in.SSHSystemKnownHosts = "/etc/ssh/ssh_known_hosts"
+	if !hasPair(build(t, in).Argv, "-v", "/etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro") {
+		t.Errorf("not mounted read-only at its own path: %q", build(t, in).Argv)
+	}
+	// It is a separate file from the user's: mounted whether or not the whole
+	// ssh dir is, and alongside the user's known_hosts.
+	in.SSHDir = "/home/u/.ssh"
+	in.SSHKnownHosts = "/home/u/.ssh/known_hosts"
+	if !hasPair(build(t, in).Argv, "-v", "/etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro") {
+		t.Errorf("with ssh_dir: %q", build(t, in).Argv)
+	}
+}
+
+// Under :z/:Z the engine would relabel a file in /etc, so it is left out
+// (with a warning) instead.
+func TestSystemKnownHostsSkippedUnderRelabelModes(t *testing.T) {
+	for _, mode := range []string{"z", "Z"} {
+		in := base()
+		in.SELinux = mode
+		in.SSHSystemKnownHosts = "/etc/ssh/ssh_known_hosts"
+		p := build(t, in)
+		if strings.Contains(strings.Join(p.Argv, " "), "/etc/ssh/ssh_known_hosts") {
+			t.Errorf("%s: still mounted: %q", mode, p.Argv)
+		}
+		if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "system-wide /etc/ssh/ssh_known_hosts is not mounted") {
+			t.Errorf("%s: warnings = %q", mode, p.Warnings)
+		}
+	}
+	for _, mode := range []string{"", "none", "disable"} {
+		in := base()
+		in.SELinux = mode
+		in.SSHSystemKnownHosts = "/etc/ssh/ssh_known_hosts"
+		p := build(t, in)
+		if !hasPair(p.Argv, "-v", "/etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro") || len(p.Warnings) != 0 {
+			t.Errorf("%q: should be mounted silently: %q %q", mode, p.Argv, p.Warnings)
+		}
+	}
+}

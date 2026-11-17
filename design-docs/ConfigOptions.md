@@ -135,7 +135,7 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 | `selinux` | string: `"auto"` \| `"disable"` \| `"z"` \| `"Z"` \| `"none"` | `"auto"` | auto = `disable` (`--security-opt label=disable`) only when SELinux is enforcing, `none` otherwise; `none` on an enforcing host usually leaves the container unable to read the project (a warning says so); `z`/`Z` relabel permanently - the project, scratch and plugin directories and `known_hosts` - and cannot forward the SSH agent (SELinux blocks the socket whatever its label; skipped with a warning), so they suit setups without agent authentication |
 | `read_only` | bool | `false` | mount the project read-only |
 | `ssh_agent` | bool | `true` | mount `$SSH_AUTH_SOCK` into the container |
-| `ssh_known_hosts` | bool | `true` | mount just `~/.ssh/known_hosts` read-only (public host keys only), so host-key checking behaves as on the host; skipped when `ssh_dir` is true |
+| `ssh_known_hosts` | bool | `true` | mount the host's public host key files read-only, so host-key checking behaves as on the host: `~/.ssh/known_hosts` (skipped when `ssh_dir` is true, which carries it) and the system-wide `/etc/ssh/ssh_known_hosts` (ssh reads both; hosts recorded only in the system file otherwise fail with "Host key verification failed"). Under `selinux = "z"`/`"Z"` the `/etc` file is left out with a warning, since the engine would relabel it |
 | `ssh_dir` | bool | `false` | mount `~/.ssh` read-only (known_hosts, config). Off by default because it also exposes private keys to the image |
 | `extra_mounts` | array of strings | `[]` | `"/host/path:/container/path[:ro]"`; the first tier that sets a non-empty list wins |
 

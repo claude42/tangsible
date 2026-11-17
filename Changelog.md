@@ -56,6 +56,8 @@
 
 ### Fixed
 
+- Execution environments: hosts whose SSH key is recorded only in the system-wide `/etc/ssh/ssh_known_hosts` (not in `~/.ssh/known_hosts`) failed with "Host key verification failed" in the container while working on the host; the file is now mounted read-only too (`ssh_known_hosts`)
+
 - Execution environments: short host names resolve inside the container when the host's `resolv.conf` sets its search domain with a `domain` line (podman drops that line; tangsible now passes it as `--dns-search`)
 
 - `tangsible rerun` could hang at its password prompt when the password was typed right away: the terminal-colour query, still waiting for its reply, swallowed the keystrokes (only when `-K`/`--ask-*` came from history, not the command line)

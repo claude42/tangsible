@@ -485,6 +485,25 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   options (as ansible-navigator's `--container-options`), a possible later
   addition (it would need guarding against the flags the builder owns); only
   this one gap is closed automatically.
+- **System-wide known_hosts (found on the user's workstation with 12
+  inventory hosts, 7 answering in the container and 5 not, while all 12
+  answered on the host, with no pattern in IPv6/dual-stack):** ssh reads
+  two host key lists, `~/.ssh/known_hosts` and `/etc/ssh/ssh_known_hosts`,
+  and only the first was mounted. The 7 hosts recorded in the user's file
+  worked; the 5 recorded only in the system file failed with `Host key
+  verification failed`. Reproduced with the exact container setup (`ssh
+  ansible@<host> hostname`: the five failed, then all five succeeded with
+  the system file also mounted read-only), then fixed: `ssh_known_hosts`
+  now also mounts `/etc/ssh/ssh_known_hosts` (`Inputs.SSHSystemKnownHosts`,
+  at the same path, read-only, regardless of `ssh_dir`, only if the file
+  exists). Under `selinux = "z"`/`"Z"` it is left out with a warning,
+  because the relabel would rewrite the label of a system file. Checked
+  end to end with the user's own `ping.yml` and config: 5 of 5 previously
+  failing hosts, then 12 of 12. Not mounted, on purpose: `/etc/ssh/ssh_config`
+  and `~/.ssh/config` (per-host options such as `ProxyJump`, `User`,
+  `Port` or `IdentityFile` live there; `ssh_dir = true` brings the user's
+  one into the container). A host-key difference like this is invisible in
+  the error text, which only says the key could not be verified.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

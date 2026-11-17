@@ -39,6 +39,10 @@ func EEHistoryValue() string {
 
 const selinuxEnforcePath = "/sys/fs/selinux/enforce"
 
+// systemKnownHostsPath is ssh's system-wide host key list (a variable so a test
+// can point it elsewhere).
+var systemKnownHostsPath = "/etc/ssh/ssh_known_hosts"
+
 // resolvConfPath is the host's resolver configuration (a variable only so a
 // test can point it elsewhere).
 var resolvConfPath = "/etc/resolv.conf"
@@ -222,6 +226,11 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 			if fi, err := os.Stat(d); err == nil && fi.IsDir() {
 				in.SSHDir = d
 			}
+		}
+	}
+	if s.SSHKnownHosts {
+		if fi, err := os.Stat(systemKnownHostsPath); err == nil && fi.Mode().IsRegular() {
+			in.SSHSystemKnownHosts = systemKnownHostsPath
 		}
 	}
 	if s.SSHKnownHosts && in.SSHDir == "" {

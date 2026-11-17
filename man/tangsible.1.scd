@@ -113,8 +113,9 @@ one, nothing changes), *engine* (only *"podman"*), *network* (*"host"* to
 use the host's own network stack, for DNS or routing problems), *selinux* (*"auto"*, *"disable"*, *"z"*, *"Z"*,
 *"none"*; auto disables label separation only when SELinux is enforcing; *"z"* and *"Z"* relabel the project and cannot forward the SSH agent),
 *read_only* (mount the project read-only), *ssh_agent*, *ssh_known_hosts* and *ssh_dir*
-(forward *$SSH_AUTH_SOCK*, default true; mount just *~/.ssh/known_hosts*
-read-only, default true; and mount all of *~/.ssh* read-only, default false
+(forward *$SSH_AUTH_SOCK*, default true; mount the public host key files
+*~/.ssh/known_hosts* and */etc/ssh/ssh_known_hosts* read-only, default true;
+and mount all of *~/.ssh* read-only, default false
 because it exposes private keys to the image) and *extra_mounts* (a list of *host:container[:ro]*). *--ee* and
 *--no-ee* override the image per invocation. See *tangsible-run*(1).
 

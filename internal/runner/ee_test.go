@@ -2,6 +2,7 @@ package runner
 
 import (
 	"bufio"
+	"code.aw.net/claude/tangsible/internal/config"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -90,5 +91,34 @@ func TestHostDNSSearch(t *testing.T) {
 	}
 	if got := hostDNSSearch(); got != nil {
 		t.Errorf("search file: %q, want nil (the engine copies a search line)", got)
+	}
+}
+
+func TestBaseEEInputsSystemKnownHosts(t *testing.T) {
+	old := systemKnownHostsPath
+	defer func() { systemKnownHostsPath = old }()
+	dir := t.TempDir()
+	systemKnownHostsPath = filepath.Join(dir, "ssh_known_hosts")
+
+	on := &config.EESettings{Image: "img", Engine: "podman", SSHKnownHosts: true}
+	off := &config.EESettings{Image: "img", Engine: "podman", SSHKnownHosts: false}
+
+	in, err := baseEEInputs(on)
+	if err != nil || in.SSHSystemKnownHosts != "" {
+		t.Errorf("file missing: %q, %v", in.SSHSystemKnownHosts, err)
+	}
+	if err := os.WriteFile(systemKnownHostsPath, []byte("h ssh-ed25519 AAAA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if in, _ = baseEEInputs(on); in.SSHSystemKnownHosts != systemKnownHostsPath {
+		t.Errorf("file present, ssh_known_hosts on: %q", in.SSHSystemKnownHosts)
+	}
+	if in, _ = baseEEInputs(off); in.SSHSystemKnownHosts != "" {
+		t.Errorf("ssh_known_hosts off must not mount it: %q", in.SSHSystemKnownHosts)
+	}
+	// A directory of that name is not the file ssh reads.
+	systemKnownHostsPath = dir
+	if in, _ = baseEEInputs(on); in.SSHSystemKnownHosts != "" {
+		t.Errorf("a directory was taken for the file: %q", in.SSHSystemKnownHosts)
 	}
 }

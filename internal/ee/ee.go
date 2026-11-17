@@ -26,6 +26,9 @@ const (
 	ContainerEvents = "/runner/events"
 	ContainerHome   = "/runner/home"
 	ContainerSock   = "/runner/ssh-agent.sock"
+	// ContainerSystemKnownHosts is where ssh looks for the system-wide list
+	// of host keys, next to the user's own.
+	ContainerSystemKnownHosts = "/etc/ssh/ssh_known_hosts"
 )
 
 // DefaultEngine is the only engine supported so far.
@@ -69,7 +72,12 @@ type Inputs struct {
 	SSHAuthSock   string
 	SSHDir        string
 	SSHKnownHosts string
-	HostEnv       []string // os.Environ()
+	// SSHSystemKnownHosts is the host's /etc/ssh/ssh_known_hosts, mounted
+	// read-only at the same place in the container: ssh reads it as well as
+	// the user's file, so a host whose key is only recorded there verifies on
+	// the host and must in the container.
+	SSHSystemKnownHosts string
+	HostEnv             []string // os.Environ()
 	// DNSSearch are search domains passed to the engine (--dns-search): see
 	// DomainOnlySearch for the gap they close.
 	DNSSearch []string
@@ -170,6 +178,17 @@ func Build(in Inputs) (*Plan, error) {
 	}
 	if in.SSHKnownHosts != "" && in.SSHDir == "" {
 		p.Mounts = append(p.Mounts, Mount{Host: in.SSHKnownHosts, Container: ContainerHome + "/.ssh/known_hosts", ReadOnly: true})
+	}
+	// A relabel mode would have :z/:Z rewrite the label of a system file
+	// under /etc, which can upset the services that own it; the file is
+	// public host keys only, so the cost of leaving it out is a host key
+	// that doesn't verify, said so once.
+	if in.SSHSystemKnownHosts != "" {
+		if in.SELinux == "z" || in.SELinux == "Z" {
+			p.Warnings = append(p.Warnings, `the system-wide `+ContainerSystemKnownHosts+` is not mounted: with selinux = "`+in.SELinux+`" it would be relabeled, and hosts recorded only there will fail host key verification (selinux = "disable" mounts it)`)
+		} else {
+			p.Mounts = append(p.Mounts, Mount{Host: in.SSHSystemKnownHosts, Container: ContainerSystemKnownHosts, ReadOnly: true})
+		}
 	}
 	// A confined container cannot connect to the agent's socket whatever its
 	// file label is (the socket belongs to another SELinux domain; checked
