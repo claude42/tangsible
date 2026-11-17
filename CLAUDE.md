@@ -343,7 +343,8 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   the project and every path an argument names (for an inventory file
   outside the project also its `group_vars`/`host_vars` siblings, nothing
   else of its directory) are mounted at their own
-  host path, never translated, because event `task.path`, saved logs and
+  host path, never translated (a `~` or `$VAR` in a path option is expanded from the
+  host's home/environment first, as Ansible does on the host), because event `task.path`, saved logs and
   the source index must agree with the host. **Every** spawn of an ansible
   tool for display purposes (probe, `ansible-doc`, stubs, `python3`) goes
   through `runner.NewToolCommand` so it follows the active EE - a new one

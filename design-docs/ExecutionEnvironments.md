@@ -522,6 +522,25 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   target, the container beside the link), an inventory named only by
   `ANSIBLE_INVENTORY` or `ansible.cfg` outside the project (that variable is
   still dropped, see the comparison document's item 3).
+- **`~` and `$VAR` in path options (from the navigator/runner comparison,
+  item 5):** Ansible expands `$NAME`/`${NAME}` and a leading `~` in path
+  options on the host (`unfrackpath`: variables first, then the tilde). In the
+  container `~` is the container's home (`/runner/home`) and `$NAME` refers to
+  the container's environment, so `-e @~/vars.yml` (the shell does not expand
+  a `~` that isn't at the start of a word) failed there while working on the
+  host; we only warned. `expandPath` now expands both from the host's home
+  (`Inputs.HomeDir`) and environment (`Inputs.HostEnv`) before the path is
+  mapped and mounted, so the argument that reaches the container is the
+  absolute host path (the identity mount makes it valid). Applies to the
+  playbook argument and to every path option (`-i` entries, `-e @file`,
+  `--limit @file`, `-M` entries, the vault/become/connection password files,
+  `--private-key`, the source of `--vault-id`); an undefined variable and
+  `~user` are left as written (the latter warned about, as before); plain
+  `-e key=~/x` assignments and non-path arguments are not touched. A path that
+  doesn't exist after expansion is reported with the *expanded* path.
+  Verified on the user's workstation: `-e @~/…` read a vars file in the home
+  directory in a host run, failed in the container before the change and
+  matched the host after it.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

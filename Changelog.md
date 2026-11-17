@@ -56,6 +56,8 @@
 
 ### Fixed
 
+- Execution environments: `~` and `$VAR` in path options (`-e @~/vars.yml`, `--vault-password-file=$DIR/pw`, `--private-key ~/k`, ...) are expanded from the host's home and environment, as Ansible does on the host, and the file is mounted; before, the container looked for them in its own home and failed
+
 - Execution environments: an inventory file outside the project brings its `group_vars/` and `host_vars/` directories into the container (read-only); before, their variables were silently undefined there while a host run had them
 
 - Execution environments: hosts whose SSH key is recorded only in the system-wide `/etc/ssh/ssh_known_hosts` (not in `~/.ssh/known_hosts`) failed with "Host key verification failed" in the container while working on the host; the file is now mounted read-only too (`ssh_known_hosts`)

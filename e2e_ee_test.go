@@ -299,6 +299,43 @@ func TestE2E_EE_InventoryOutsideProjectKeepsItsGroupVars(t *testing.T) {
 	waitNoContainers(t, 10*time.Second)
 }
 
+// A path option written with a variable is expanded on the host, as Ansible
+// does there; the container knows neither the host's variables nor its home,
+// so it would otherwise look for a literal "$NAME/...". (The same code expands
+// a leading "~" - tested in internal/ee; an e2e test would have to write into
+// the real home directory.) The variable exists only in tangsible's own
+// environment.
+func TestE2E_EE_VariableInPathOptionIsExpandedOnTheHost(t *testing.T) {
+	image := requireEE(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	vars := t.TempDir() // outside the project: it has to be mounted as well
+	if err := os.WriteFile(filepath.Join(vars, "vars.yml"), []byte("marker: from-a-file-named-with-a-variable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	play := "- hosts: localhost\n  gather_facts: false\n  connection: local\n  tasks:\n" +
+		"    - ansible.builtin.copy:\n" +
+		"        content: \"marker={{ marker | default('UNDEFINED') }}\\n\"\n" +
+		"        dest: \"{{ playbook_dir }}/out.txt\"\n"
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte(play), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && VARSDIR=%s %s %s run p.yml -i localhost, -e '@$VARSDIR/vars.yml' --ee %s",
+		shellQuote(work), shellQuote(vars), e2eCallbackEnv(t), shellQuote(bin), shellQuote(image)), "Enter")
+	s.waitFor("Completed", 60*time.Second)
+	got, err := os.ReadFile(filepath.Join(work, "out.txt"))
+	if err != nil {
+		t.Fatalf("the playbook did not run (no out.txt); pane:\n%s", s.capture())
+	}
+	if want := "marker=from-a-file-named-with-a-variable\n"; string(got) != want {
+		t.Errorf("the container saw %q, want %q", got, want)
+	}
+	s.send("q")
+	waitNoContainers(t, 10*time.Second)
+}
+
 // SIGTERM must take the container down with it and leave no scratch
 // directory behind (tangsible's TMPDIR is a directory of the test's own).
 func TestE2E_EE_SIGTERMRemovesContainerAndScratch(t *testing.T) {

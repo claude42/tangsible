@@ -641,3 +641,132 @@ func TestInventoryTildeIsNotGuessed(t *testing.T) {
 		t.Errorf("a ~ path produced mounts: %q", got)
 	}
 }
+
+func TestExpandPath(t *testing.T) {
+	env := map[string]string{"HOME": "/home/u", "DIR": "/srv/x", "REL": "rel"}
+	cases := []struct {
+		in, home, want string
+	}{
+		{"~/k", "/home/u", "/home/u/k"},
+		{"~", "/home/u", "/home/u"},
+		{"~/k", "", "~/k"}, // no home known: left for the caller to warn about
+		{"~other/k", "/home/u", "~other/k"},
+		{"a~/b", "/home/u", "a~/b"},
+		{"$HOME/k", "", "/home/u/k"},
+		{"${DIR}/k", "", "/srv/x/k"},
+		{"$DIR/$REL", "", "/srv/x/rel"},
+		{"$UNDEFINED/k", "", "$UNDEFINED/k"},
+		{"${UNDEFINED}/k", "", "${UNDEFINED}/k"},
+		{"/plain/path", "/home/u", "/plain/path"},
+		{"", "/home/u", ""},
+		{"$", "", "$"},
+	}
+	for _, c := range cases {
+		if got := expandPath(c.in, c.home, env); got != c.want {
+			t.Errorf("expandPath(%q, %q) = %q, want %q", c.in, c.home, got, c.want)
+		}
+	}
+	// Variables first, then the tilde, as Ansible does: a variable whose value
+	// starts with ~ is expanded too.
+	if got := expandPath("$T/x", "/home/u", map[string]string{"T": "~/t"}); got != "/home/u/t/x" {
+		t.Errorf("variable holding a ~ path: %q", got)
+	}
+}
+
+// A ~ in a path option means the host user's home; inside the container it
+// would be the container's, so it is expanded first and the result mounted.
+func TestTildeAndVariablesInPathOptions(t *testing.T) {
+	in := base()
+	in.HomeDir = "/home/u"
+	in.HostEnv = []string{"DATA=/srv/data", "HOME=/home/u"}
+	in.Playbook = "site.yml"
+	in.Exists = existsIn(
+		"/home/u/pw", "/home/u/k", "/home/u/vars.yml", "/home/u/lib", "/home/u/lib2",
+		"/home/u/vault-pw", "/home/u/inv/hosts.ini", "/home/u/inv/group_vars", "/srv/data/extra.yml",
+	)
+	in.IsDir = dirsIn("/home/u/inv/group_vars")
+	in.Args = []string{
+		"--vault-password-file=~/pw",
+		"--private-key", "~/k",
+		"-e", "@~/vars.yml",
+		"-e@$DATA/extra.yml",
+		"-M", "~/lib:${HOME}/lib2:/nonexistent",
+		"--vault-id", "dev@~/vault-pw",
+		"-i", "~/inv/hosts.ini",
+		"-e", "k=~/not-a-file", // a plain variable assignment, not a path
+		"-t", "~tag",
+	}
+	p := build(t, in)
+	want := []string{
+		"--vault-password-file=/home/u/pw",
+		"--private-key", "/home/u/k",
+		"-e", "@/home/u/vars.yml",
+		"-e@/srv/data/extra.yml",
+		"-M", "/home/u/lib:/home/u/lib2:/nonexistent",
+		"--vault-id", "dev@/home/u/vault-pw",
+		"-i", "/home/u/inv/hosts.ini",
+		"-e", "k=~/not-a-file",
+		"-t", "~tag",
+	}
+	if got := tail(p)[2:]; !reflect.DeepEqual(got, want) {
+		t.Errorf("args =\n%q\nwant\n%q", got, want)
+	}
+	have := map[string]bool{}
+	for _, mt := range p.Mounts {
+		have[mt.Host] = mt.ReadOnly
+	}
+	for _, path := range []string{"/home/u/pw", "/home/u/k", "/home/u/vars.yml", "/srv/data/extra.yml", "/home/u/lib", "/home/u/lib2", "/home/u/vault-pw", "/home/u/inv/hosts.ini", "/home/u/inv/group_vars"} {
+		if ro, ok := have[path]; !ok || !ro {
+			t.Errorf("%s: not mounted read-only (mounts: %v)", path, p.Mounts)
+		}
+	}
+	if len(p.Warnings) != 0 {
+		t.Errorf("warnings = %q", p.Warnings)
+	}
+}
+
+func TestTildeUserAndMissingHomeStayWarned(t *testing.T) {
+	// ~other has no home we know of.
+	in := base()
+	in.HomeDir = "/home/u"
+	in.Args = []string{"--private-key", "~other/k"}
+	p := build(t, in)
+	if got := tail(p)[1:]; !reflect.DeepEqual(got, []string{"--private-key", "~other/k"}) || len(p.Warnings) != 1 {
+		t.Errorf("~user: args %q, warnings %q", got, p.Warnings)
+	}
+	// No home given at all (cannot happen from the runner, but the builder must not guess).
+	in = base()
+	in.Args = []string{"--private-key", "~/k"}
+	p = build(t, in)
+	if got := tail(p)[1:]; !reflect.DeepEqual(got, []string{"--private-key", "~/k"}) || len(p.Warnings) != 1 {
+		t.Errorf("no home: args %q, warnings %q", got, p.Warnings)
+	}
+}
+
+func TestTildeInPlaybookArgument(t *testing.T) {
+	in := base() // cwd /home/u/proj
+	in.HomeDir = "/home/u"
+	in.Playbook = "~/proj/site.yml"
+	p := build(t, in)
+	if got := tail(p)[1]; got != "/home/u/proj/site.yml" {
+		t.Errorf("playbook argument = %q", got)
+	}
+	if p.Mounts[0].Host != "/home/u/proj" {
+		t.Errorf("project root = %q", p.Mounts[0].Host)
+	}
+}
+
+// A path that doesn't exist after expansion is reported with the expanded
+// (host) path, which is what the user can act on.
+func TestExpandedPathThatDoesNotExistWarns(t *testing.T) {
+	in := base()
+	in.HomeDir = "/home/u"
+	in.Args = []string{"--vault-password-file", "~/missing"}
+	p := build(t, in)
+	if got := tail(p)[1:]; !reflect.DeepEqual(got, []string{"--vault-password-file", "/home/u/missing"}) {
+		t.Errorf("args = %q", got)
+	}
+	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "/home/u/missing does not exist") {
+		t.Errorf("warnings = %q", p.Warnings)
+	}
+}

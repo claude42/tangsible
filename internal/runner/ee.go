@@ -213,6 +213,9 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 		HostEnv:   os.Environ(),
 		DNSSearch: hostDNSSearch(),
 	}
+	if home, err := os.UserHomeDir(); err == nil {
+		in.HomeDir = home
+	}
 	if s.SSHAgent {
 		if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 			if fi, err := os.Stat(sock); err == nil && fi.Mode()&os.ModeSocket != 0 {

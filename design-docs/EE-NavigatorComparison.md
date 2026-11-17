@@ -86,7 +86,8 @@ SELinux auto-detection.
    it. Navigator: `--penv NAME` (pass; warns "not currently set, discarded")
    and `--senv NAME=value` (set), config keys
    `execution-environment.environment-variables.pass/set`.
-5. **`~` in path arguments** (e.g. `-e @~/vars.yml`, `--flag=~/x`): navigator
+5. **(Fixed: `expandPath`, see `ExecutionEnvironments.md`; it also expands
+   `$VAR`.) `~` in path arguments** (e.g. `-e @~/vars.yml`, `--flag=~/x`): navigator
    expands `~` and `$VAR` (`expand_path`) before mounting; we warn and pass it
    unchanged, so inside the container `~` is the container's home and the file
    isn't found.

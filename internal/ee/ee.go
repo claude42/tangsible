@@ -78,6 +78,9 @@ type Inputs struct {
 	// the host and must in the container.
 	SSHSystemKnownHosts string
 	HostEnv             []string // os.Environ()
+	// HomeDir is the host user's home: a leading "~" in a path argument is
+	// expanded to it (empty: not expanded, and warned about instead).
+	HomeDir string
 	// DNSSearch are search domains passed to the engine (--dns-search): see
 	// DomainOnlySearch for the gap they close.
 	DNSSearch []string
@@ -144,6 +147,8 @@ func Build(in Inputs) (*Plan, error) {
 	// a stub inside a scratch directory, which is mounted by itself and
 	// must not pull the project root up towards /.
 	root := filepath.Clean(in.Cwd)
+	hostEnv := envMap(in.HostEnv)
+	in.Playbook = expandPath(in.Playbook, in.HomeDir, hostEnv)
 	if in.Playbook != "" {
 		pb := absPath(in.Cwd, in.Playbook)
 		inScratch := false
@@ -164,7 +169,7 @@ func Build(in Inputs) (*Plan, error) {
 	}
 
 	p := &Plan{Engine: engine}
-	m := &mapper{cwd: in.Cwd, root: root, exists: exists, isDir: isDir, plan: p}
+	m := &mapper{cwd: in.Cwd, root: root, exists: exists, isDir: isDir, plan: p, home: in.HomeDir, env: hostEnv}
 	p.Mounts = append(p.Mounts, Mount{Host: root, Container: root, ReadOnly: in.ReadOnly})
 	p.Workdir = filepath.Clean(in.Cwd)
 	for _, d := range in.Scratch {
@@ -436,6 +441,8 @@ type mapper struct {
 	scratch   []string
 	exists    func(string) bool
 	isDir     func(string) bool
+	home      string
+	env       map[string]string
 	plan      *Plan
 	mounted   map[string]bool
 }
@@ -454,6 +461,7 @@ func (m *mapper) covered(abs string) bool {
 // left alone (and warned about): mounting it would make the engine fail
 // before ansible could report the real problem.
 func (m *mapper) translate(p string) string {
+	p = expandPath(p, m.home, m.env)
 	if strings.HasPrefix(p, "~") {
 		m.plan.Warnings = append(m.plan.Warnings, fmt.Sprintf("%s starts with ~ and can't be mapped; passed through unchanged", p))
 		return p
@@ -477,6 +485,7 @@ func (m *mapper) translate(p string) string {
 // translateExisting is translate for a list entry that may instead be a
 // hostname or pattern: only an existing path is touched.
 func (m *mapper) translateExisting(p string) string {
+	p = expandPath(p, m.home, m.env)
 	if p == "" || strings.HasPrefix(p, "~") || !m.exists(absPath(m.cwd, p)) {
 		return p
 	}
@@ -497,10 +506,10 @@ var inventoryCompanions = []string{"group_vars", "host_vars"}
 // is mounted whole by translateExisting already.
 func (m *mapper) translateInventory(p string) string {
 	out := m.translateExisting(p)
-	if p == "" || strings.HasPrefix(p, "~") {
+	if out == "" || strings.HasPrefix(out, "~") {
 		return out
 	}
-	abs := absPath(m.cwd, p)
+	abs := absPath(m.cwd, out)
 	if !m.exists(abs) || m.isDir(abs) {
 		return out
 	}
@@ -516,4 +525,44 @@ func (m *mapper) translateInventory(p string) string {
 		m.plan.Mounts = append(m.plan.Mounts, Mount{Host: dir, Container: dir, ReadOnly: true})
 	}
 	return out
+}
+
+// envRef matches $NAME and ${NAME}.
+var envRef = regexp.MustCompile(`\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})`)
+
+// envMap turns an os.Environ()-style list into a lookup table.
+func envMap(env []string) map[string]string {
+	m := make(map[string]string, len(env))
+	for _, kv := range env {
+		if name, val, ok := strings.Cut(kv, "="); ok {
+			m[name] = val
+		}
+	}
+	return m
+}
+
+// expandPath expands what Ansible itself expands in a path option on the
+// host - $NAME / ${NAME} from the host environment, then a leading "~" to
+// home - before the path is handed to a container, where "~" would mean the
+// container's own home and the variables the container's own environment.
+// An undefined variable is left as written, as os.path.expandvars does;
+// "~user" is not expanded; an empty home leaves "~" alone.
+func expandPath(p, home string, env map[string]string) string {
+	if strings.Contains(p, "$") {
+		p = envRef.ReplaceAllStringFunc(p, func(ref string) string {
+			sub := envRef.FindStringSubmatch(ref)
+			name := sub[1]
+			if name == "" {
+				name = sub[2]
+			}
+			if v, ok := env[name]; ok {
+				return v
+			}
+			return ref
+		})
+	}
+	if home != "" && (p == "~" || strings.HasPrefix(p, "~/")) {
+		p = home + p[1:]
+	}
+	return p
 }
