@@ -44,10 +44,27 @@ type Todo struct {
 	TemplatedInclude bool
 }
 
+// Command is a command/shell task that runs on the controller, which
+// means inside the execution environment: what it runs has to be in the
+// image (design-docs/EEInit.md, "Controller-side binaries").
+type Command struct {
+	// Loc is "path:line".
+	Loc string
+	// Shell is true for the shell module (pipes, &&, ... are interpreted).
+	Shell bool
+	// Text is the command line (free-form string or cmd:), Argv the argv:
+	// list; one of them is set.
+	Text string
+	Argv []string
+	// Executable is shell's executable: argument.
+	Executable string
+}
+
 // FileScan is what ScanYAML found in one file.
 type FileScan struct {
-	Uses  []ModuleUse
-	Todos []Todo
+	Uses     []ModuleUse
+	Todos    []Todo
+	Commands []Command
 }
 
 // taskKeywords are the play, block and task keywords: a task's module is
@@ -108,14 +125,17 @@ func ScanYAML(path string, data []byte, own []string) FileScan {
 		}
 	}
 	if !isPlaybook {
-		s.tasks(root, own)
+		// A task file has no play around it: only what its own tasks say
+		// makes them controller-side.
+		s.tasks(root, own, false)
 		return s.out
 	}
 	for _, play := range root.Content {
 		colls := append(collectionsOf(play), own...)
+		local := hostsLocal(value(play, "hosts")) || runsLocally(play)
 		for i := 0; i+1 < len(play.Content); i += 2 {
 			if seq := play.Content[i+1]; playTaskLists[play.Content[i].Value] && seq.Kind == yaml.SequenceNode {
-				s.tasks(seq, colls)
+				s.tasks(seq, colls, local)
 			}
 		}
 	}
@@ -129,25 +149,28 @@ type scanner struct {
 
 func (s *scanner) loc(n *yaml.Node) string { return fmt.Sprintf("%s:%d", s.path, n.Line) }
 
-func (s *scanner) tasks(seq *yaml.Node, colls []string) {
+// tasks scans a task list; local says the play or an enclosing block already
+// runs on the controller.
+func (s *scanner) tasks(seq *yaml.Node, colls []string, local bool) {
 	for _, item := range seq.Content {
 		if item.Kind != yaml.MappingNode {
 			continue
 		}
 		colls := append(collectionsOf(item), colls...)
+		local := local || runsLocally(item)
 		if value(item, "block") != nil {
 			for _, key := range []string{"block", "rescue", "always"} {
 				if sub := value(item, key); sub != nil && sub.Kind == yaml.SequenceNode {
-					s.tasks(sub, colls)
+					s.tasks(sub, colls, local)
 				}
 			}
 			continue
 		}
-		s.task(item, colls)
+		s.task(item, colls, local)
 	}
 }
 
-func (s *scanner) task(item *yaml.Node, colls []string) {
+func (s *scanner) task(item *yaml.Node, colls []string, local bool) {
 	for i := 0; i+1 < len(item.Content); i += 2 {
 		key, val := item.Content[i], item.Content[i+1]
 		name := key.Value
@@ -155,6 +178,7 @@ func (s *scanner) task(item *yaml.Node, colls []string) {
 		case taskKeywords[name] || strings.HasPrefix(name, "with_"):
 			continue
 		case name == "action" || name == "local_action":
+			local = local || name == "local_action"
 			name = actionModule(val)
 			if name == "" || strings.Contains(name, "{{") {
 				s.out.Todos = append(s.out.Todos, Todo{Loc: s.loc(key), What: "module name of " + key.Value + ": can't be determined statically"})
@@ -167,6 +191,11 @@ func (s *scanner) task(item *yaml.Node, colls []string) {
 			return
 		}
 		s.out.Uses = append(s.out.Uses, ModuleUse{Module: name, Collections: colls, Loc: s.loc(key)})
+		if shell, ok := commandModule(name); ok && local {
+			if c := commandOf(s.loc(key), shell, key.Value, val, item); c.Text != "" || len(c.Argv) > 0 || c.Executable != "" {
+				s.out.Commands = append(s.out.Commands, c)
+			}
+		}
 		if includeActions[lastPart(name)] && templated(val) {
 			s.out.Todos = append(s.out.Todos, Todo{Loc: s.loc(key), What: name + " with a templated target", TemplatedInclude: true})
 		}
@@ -229,7 +258,7 @@ func collectionsOf(m *yaml.Node) []string {
 
 // value returns the value of key in mapping m, nil if absent.
 func value(m *yaml.Node, key string) *yaml.Node {
-	if m.Kind != yaml.MappingNode {
+	if m == nil || m.Kind != yaml.MappingNode {
 		return nil
 	}
 	for i := 0; i+1 < len(m.Content); i += 2 {
@@ -238,4 +267,97 @@ func value(m *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// localNames are the host names that mean the controller.
+var localNames = map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
+
+// hostsLocal reports whether a play's hosts: is the controller itself,
+// written literally (a name, or a list of them); a template or a group name
+// is not recognized.
+func hostsLocal(v *yaml.Node) bool {
+	if v == nil {
+		return false
+	}
+	switch v.Kind {
+	case yaml.ScalarNode:
+		return localNames[strings.TrimSpace(v.Value)]
+	case yaml.SequenceNode:
+		for _, h := range v.Content {
+			if h.Kind != yaml.ScalarNode || !localNames[strings.TrimSpace(h.Value)] {
+				return false
+			}
+		}
+		return len(v.Content) > 0
+	}
+	return false
+}
+
+// runsLocally reports whether a play, block or task says it runs on the
+// controller: connection: local, delegate_to: localhost, or
+// vars: ansible_connection: local.
+func runsLocally(n *yaml.Node) bool {
+	isLocal := func(v *yaml.Node) bool {
+		return v != nil && v.Kind == yaml.ScalarNode && (v.Value == "local" || v.Value == "ansible.builtin.local")
+	}
+	if isLocal(value(n, "connection")) {
+		return true
+	}
+	if d := value(n, "delegate_to"); d != nil && d.Kind == yaml.ScalarNode && localNames[strings.TrimSpace(d.Value)] {
+		return true
+	}
+	return isLocal(value(value(n, "vars"), "ansible_connection"))
+}
+
+// commandModule reports whether name is the command or shell module (under
+// any of its spellings) and which.
+func commandModule(name string) (shell, ok bool) {
+	for _, prefix := range []string{"ansible.builtin.", "ansible.legacy."} {
+		name = strings.TrimPrefix(name, prefix)
+	}
+	switch name {
+	case "command":
+		return false, true
+	case "shell":
+		return true, true
+	}
+	return false, false
+}
+
+// commandOf reads the command of a command/shell task: its argument (a
+// string, or a mapping with cmd:/argv:/executable:), also in the task's
+// args:. For action:/local_action: the module name is the first word of the
+// argument string and the rest is the command.
+func commandOf(loc string, shell bool, keyword string, val, item *yaml.Node) Command {
+	c := Command{Loc: loc, Shell: shell}
+	fromMapping := func(m *yaml.Node) {
+		if m == nil || m.Kind != yaml.MappingNode {
+			return
+		}
+		for _, k := range []string{"cmd", "_raw_params"} {
+			if v := value(m, k); v != nil && v.Kind == yaml.ScalarNode {
+				c.Text = v.Value
+			}
+		}
+		if v := value(m, "argv"); v != nil && v.Kind == yaml.SequenceNode {
+			for _, a := range v.Content {
+				c.Argv = append(c.Argv, a.Value)
+			}
+		}
+		if v := value(m, "executable"); v != nil && v.Kind == yaml.ScalarNode {
+			c.Executable = v.Value
+		}
+	}
+	switch {
+	case val.Kind == yaml.ScalarNode && (keyword == "action" || keyword == "local_action"):
+		if _, rest, ok := strings.Cut(strings.TrimSpace(val.Value), " "); ok {
+			c.Text = strings.TrimSpace(rest)
+		}
+	case val.Kind == yaml.ScalarNode:
+		c.Text = val.Value
+	default:
+		fromMapping(val)
+	}
+	fromMapping(value(item, "args"))
+	return c
 }

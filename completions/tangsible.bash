@@ -69,7 +69,7 @@ _tangsible_rerun_only_flags="--only-failed --only-unreachable --resume-where-fai
 _tangsible_vault_flags="--vault-password-file --ask-vault-pass"
 
 # ee init's own flag (design-docs/EEInit.md); ee never spawns ansible-playbook.
-_tangsible_ee_init_flags="--base"
+_tangsible_ee_init_flags="--base --resolve-packages"
 
 # _tangsible_flags_for_verb echoes the complete flag set a given verb
 # actually understands - the union of ansible-playbook's own flags (for

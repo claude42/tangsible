@@ -96,6 +96,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_toke
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 3' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 complete -c tangsible -n '__fish_seen_subcommand_from ee' -l base -x -d 'Base image for the draft'
+complete -c tangsible -n '__fish_seen_subcommand_from ee' -l resolve-packages -d 'Look up the packages for binaries the base image lacks'
 
 # --- ansible-playbook's own flags, forwarded verbatim by every verb ---
 # Shown once a verb is already chosen (any verb: tangsible passes these

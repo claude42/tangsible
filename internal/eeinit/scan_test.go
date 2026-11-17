@@ -99,3 +99,104 @@ func TestScanYAMLIgnoresOtherFiles(t *testing.T) {
 		}
 	}
 }
+
+func cmds(fs FileScan) []string {
+	var out []string
+	for _, c := range fs.Commands {
+		t := c.Text
+		if len(c.Argv) > 0 {
+			t = "argv:" + c.Argv[0]
+		}
+		out = append(out, c.Loc+" "+t)
+	}
+	return out
+}
+
+func TestScanYAMLControllerSideCommands(t *testing.T) {
+	src := `- hosts: webservers
+  tasks:
+    - name: remote, not interesting
+      command: remote-tool
+    - name: delegated
+      shell: deleg-tool | sort
+      delegate_to: localhost
+    - name: connection
+      command: conn-tool
+      connection: local
+    - name: vars
+      command: vars-tool
+      vars:
+        ansible_connection: local
+    - name: local_action string
+      local_action: command la-tool x
+    - name: local_action mapping
+      local_action:
+        module: shell
+        cmd: lam-tool
+    - block:
+        - command: block-tool
+      delegate_to: 127.0.0.1
+    - name: args form
+      command:
+        argv: [argv-tool, a]
+      delegate_to: localhost
+    - name: shell executable
+      shell: echo hi
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
+    - name: not a command module
+      copy: {src: a, dest: b}
+      delegate_to: localhost
+- hosts: localhost
+  tasks:
+    - command: play-tool
+    - ansible.builtin.shell: |
+        multi-tool
+        other-tool
+- hosts: all
+  connection: local
+  tasks:
+    - ansible.legacy.command: conn-play-tool
+- hosts: [localhost, "::1"]
+  tasks:
+    - command: list-tool
+- hosts: "{{ target }}"
+  tasks:
+    - command: templated-hosts-tool
+`
+	got := cmds(ScanYAML("site.yml", []byte(src), nil))
+	want := []string{
+		"site.yml:6 deleg-tool | sort",
+		"site.yml:9 conn-tool",
+		"site.yml:12 vars-tool",
+		"site.yml:16 la-tool x",
+		"site.yml:18 lam-tool",
+		"site.yml:22 block-tool",
+		"site.yml:25 argv:argv-tool",
+		"site.yml:29 echo hi",
+		"site.yml:38 play-tool",
+		"site.yml:39 multi-tool\nother-tool\n",
+		"site.yml:45 conn-play-tool",
+		"site.yml:48 list-tool",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("commands:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestScanYAMLRoleTaskFileHasNoPlayContext(t *testing.T) {
+	src := "- command: plain-tool\n- command: local-tool\n  delegate_to: localhost\n"
+	got := cmds(ScanYAML("roles/x/tasks/main.yml", []byte(src), nil))
+	if !reflect.DeepEqual(got, []string{"roles/x/tasks/main.yml:2 local-tool"}) {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestScanYAMLCommandExecutable(t *testing.T) {
+	src := "- shell: echo hi\n  args:\n    executable: /bin/bash\n  delegate_to: localhost\n"
+	fs := ScanYAML("t.yml", []byte(src), nil)
+	if len(fs.Commands) != 1 || fs.Commands[0].Executable != "/bin/bash" || !fs.Commands[0].Shell {
+		t.Errorf("commands = %+v", fs.Commands)
+	}
+}

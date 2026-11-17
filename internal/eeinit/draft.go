@@ -27,6 +27,24 @@ type Inputs struct {
 	RequirementsPath string
 	// Installed maps a collection to its version on this host.
 	Installed map[string]string
+
+	// Binaries are the binaries that controller-side command/shell tasks run
+	// and the base image lacks. ResolvePackages says --resolve-packages was
+	// given; PackagesFailed is why the lookup could not be done ("" if it
+	// could). TemplatedCommands counts controller-side commands whose binary
+	// can't be determined.
+	Binaries          []BinaryNeed
+	ResolvePackages   bool
+	PackagesFailed    string
+	TemplatedCommands int
+}
+
+// BinaryNeed is a missing binary, where it is used and, once looked up, the
+// packages that provide it (none: nothing found).
+type BinaryNeed struct {
+	Name     string
+	Locs     []string
+	Packages []string
 }
 
 // Report summarizes a draft for the end-of-run message.
@@ -34,6 +52,7 @@ type Report struct {
 	Collections int
 	Pinned      int // from the host (the rest came from requirements.yml or are unpinned)
 	Todos       int
+	Binaries    int // controller-side binaries missing from the base image
 }
 
 // maxLocs is how many locations a comment names for one item.
@@ -88,9 +107,23 @@ func Draft(in Inputs) (string, Report) {
 	if f.Python != "" && f.AnsibleCore == "" {
 		dtodo("the base image has no ansible-core: uncomment ansible_core and ansible_runner below")
 	}
-	for _, line := range stanza(f) {
+	intro, body := stanza(f)
+	for _, line := range intro {
 		dw("  # %s", line)
 	}
+	dw("")
+	for _, line := range body {
+		dw("  # %s", line)
+	}
+	dw("")
+
+	binaryBlock(in, &rep, func(line string) {
+		if line == "" {
+			dw("")
+			return
+		}
+		dw("  # %s", line)
+	})
 
 	collections := mergeCollections(in, &rep)
 	if len(collections) == 0 && in.Requirements == nil {
@@ -117,7 +150,8 @@ func Draft(in Inputs) (string, Report) {
 			deps.WriteString(entry(r, "      "))
 		}
 	}
-	if len(in.Todos) > 0 {
+	if len(in.Todos) > 0 || in.TemplatedCommands > 0 {
+		dw("")
 		dw("  # Items the scan couldn't place:")
 		todos := append([]Todo(nil), in.Todos...)
 		sort.SliceStable(todos, func(i, j int) bool { return locLess(todos[i].Loc, todos[j].Loc) })
@@ -132,6 +166,9 @@ func Draft(in Inputs) (string, Report) {
 		// Dozens of these are common: one general comment, no locations.
 		if templated > 0 {
 			dtodo("include/import with a templated target (detected %d in all): what they load can't be determined statically", templated)
+		}
+		if in.TemplatedCommands > 0 {
+			dtodo("command/shell on the controller with a binary that can't be determined statically (detected %d in all)", in.TemplatedCommands)
 		}
 	}
 	w("")
@@ -217,15 +254,7 @@ func describe(n Needed) string {
 	for _, it := range n.Items {
 		s := it.Label
 		if len(it.Locs) > 0 {
-			shown := it.Locs
-			if len(shown) > maxLocs {
-				shown = shown[:maxLocs]
-			}
-			s += " (" + strings.Join(shown, ", ")
-			if extra := len(it.Locs) - len(shown); extra > 0 {
-				s += fmt.Sprintf(", +%d more", extra)
-			}
-			s += ")"
+			s += " (" + locsText(it.Locs) + ")"
 		}
 		parts = append(parts, s)
 	}
@@ -283,11 +312,12 @@ func orUnknown(v string) string {
 
 // stanza is the commented-out part of dependencies the user can uncomment
 // to change the interpreter or ansible, filled in with what the base image
-// has. The interpreter's real path and owning package come from the probe
+// has: intro explains it, body is the part to uncomment (the draft puts a
+// blank line between them). The interpreter's real path and owning package come from the probe
 // (the package from the image's own package database); a package it couldn't
 // find is replaced by the usual rpm name for the version (python3.14), which
 // other distributions may not share, and the note says so.
-func stanza(f BaseFacts) []string {
+func stanza(f BaseFacts) (intro, body []string) {
 	py := "python3"
 	if parts := strings.Split(f.PythonVersion, "."); len(parts) >= 2 {
 		py = "python" + parts[0] + "." + parts[1]
@@ -307,14 +337,12 @@ func stanza(f BaseFacts) []string {
 	if f.PythonPackage != "" {
 		note = "the base image's; package_system is the package that owns it in the base image):"
 	}
-	intro := "To change them, uncomment (python_interpreter installs that Python on top of"
+	introLine := "To change them, uncomment (python_interpreter installs that Python on top of"
 	if f.Python == "" {
-		intro = "To add them, uncomment (python_interpreter installs that Python;"
+		introLine = "To add them, uncomment (python_interpreter installs that Python;"
 		note = "package_system is a guess at the distribution's package name, adjust it):"
 	}
-	return []string{
-		intro,
-		note,
+	return []string{introLine, note}, []string{
 		"python_interpreter:",
 		"  package_system: " + pkg,
 		"  python_path: " + path,
@@ -323,4 +351,84 @@ func stanza(f BaseFacts) []string {
 		"ansible_runner:",
 		"  package_pip: ansible-runner",
 	}
+}
+
+// locsText is "a.yml:1, b.yml:2, +3 more": at most maxLocs locations.
+func locsText(locs []string) string {
+	shown := locs
+	if len(shown) > maxLocs {
+		shown = shown[:maxLocs]
+	}
+	out := strings.Join(shown, ", ")
+	if extra := len(locs) - len(shown); extra > 0 {
+		out += fmt.Sprintf(", +%d more", extra)
+	}
+	return out
+}
+
+// binaryBlock writes the comment block about controller-side binaries the
+// base image lacks (nothing when there are none), one line per call of line.
+// Without package lookup it only lists them; with it, it offers a system:
+// stanza to uncomment (bindep syntax) and a TODO for each binary without
+// exactly one provider. Nothing is ever uncommented for the user. An empty
+// line from line means a blank line; one is also written after the block.
+func binaryBlock(in Inputs, rep *Report, line func(string)) {
+	if len(in.Binaries) == 0 {
+		return
+	}
+	rep.Binaries = len(in.Binaries)
+	line("Binaries used by tasks that run on the controller and missing from the base image")
+	line("(only tasks detected as running there count; a role's task file has no play context):")
+	resolved := in.ResolvePackages && in.PackagesFailed == ""
+	if !resolved {
+		for _, b := range in.Binaries {
+			line(fmt.Sprintf("  %s: %s", b.Name, locsText(b.Locs)))
+		}
+		if in.PackagesFailed != "" {
+			rep.Todos++
+			line("TODO: couldn't look up their packages: " + in.PackagesFailed)
+		} else {
+			line("Look up their packages with --resolve-packages.")
+		}
+		line("")
+		return
+	}
+	selector := ""
+	switch in.Facts.Family() {
+	case "rpm":
+		selector = " [platform:rpm]"
+	case "dpkg":
+		selector = " [platform:dpkg]"
+	}
+	byPackage := map[string][]string{}
+	var packages []string
+	var todos []string
+	for _, b := range in.Binaries {
+		label := b.Name + ": " + locsText(b.Locs)
+		switch len(b.Packages) {
+		case 0:
+			todos = append(todos, fmt.Sprintf("TODO: %q: no package found", b.Name))
+		case 1:
+			if _, seen := byPackage[b.Packages[0]]; !seen {
+				packages = append(packages, b.Packages[0])
+			}
+			byPackage[b.Packages[0]] = append(byPackage[b.Packages[0]], label)
+		default:
+			todos = append(todos, fmt.Sprintf("TODO: %q: one of %s (%s)", b.Name, strings.Join(b.Packages, ", "), locsText(b.Locs)))
+		}
+	}
+	sort.Strings(packages)
+	if len(packages) > 0 {
+		line("To install them, uncomment:")
+		line("")
+		line("system:")
+		for _, p := range packages {
+			line(fmt.Sprintf("  - %s%s   # %s", p, selector, strings.Join(byPackage[p], "; ")))
+		}
+	}
+	for _, t := range todos {
+		rep.Todos++
+		line("  # " + t)
+	}
+	line("")
 }

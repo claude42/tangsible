@@ -126,7 +126,13 @@ execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
 
 - **scan.go** - `ScanYAML`: the modules each task of one file uses (plays,
   blocks, handlers, `action:`/`local_action:`, `collections:`), plus `Todo`s
-  for what is templated.
+  for what is templated, and the `command`/`shell` tasks that run on the
+  controller (`Command`).
+- **binaries.go** - `ScanBinaries`: the binaries those commands run (a small
+  shell tokenizer: segments, quotes, builtins, wrappers, heredocs).
+- **packages.go** - `ParsePackages`, `ResolvePackages`: which package
+  provides a missing binary (`--resolve-packages`; dnf / apt-file in a
+  throw-away container).
 - **resolve.go** - `Candidates`/`Resolve`: module uses to the collections
   that provide them, given the host's answers.
 - **requirements.go** - `ParseRequirements` (entries kept as written).
@@ -135,7 +141,7 @@ execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
 - **draft.go** - `Draft`: the YAML text and a `Report`.
 - **host.go** - `LookupCollections` (`ansible-doc`), `InstalledCollections`
   (`ansible-galaxy`), `FindRequirements`.
-- **probe.go** - `ProbeBase`: `podman run` the probe script.
+- **probe.go** - `ProbeBase`: `podman run` the probe script (also asked which binaries the image lacks).
 - **run.go** - `ParseArgs`, `RunEEVerb`: the verb.
 
 `internal/source.ReachableYAML` supplies the files (project plus referenced

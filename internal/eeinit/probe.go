@@ -11,9 +11,12 @@ import (
 )
 
 // ProbeBase runs ProbeScript in image with the engine and returns what it
-// found. The container gets no network and is removed afterwards.
-func ProbeBase(engine, image string) (BaseFacts, error) {
-	cmd := exec.Command(engine, "run", "--rm", "--network=none", "--entrypoint", "/bin/sh", image, "-c", ProbeScript)
+// found, including which of binaries the image lacks. The names are the
+// script's arguments, never part of the script. The container gets no network
+// and is removed afterwards.
+func ProbeBase(engine, image string, binaries []string) (BaseFacts, error) {
+	args := []string{"run", "--rm", "--network=none", "--entrypoint", "/bin/sh", image, "-c", ProbeScript, "probe"}
+	cmd := exec.Command(engine, append(args, binaries...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

@@ -455,7 +455,7 @@ your own with `ansible-builder`. `tangsible ee init` drafts the
 `execution-environment.yml` for it from your playbook:
 
 ```
-tangsible ee init site.yml [--base <image>]
+tangsible ee init site.yml [--base <image>] [--resolve-packages]
 ```
 
 It collects the modules used by the playbook and its roles, asks your host's
@@ -464,7 +464,11 @@ Ansible which collections provide them, and inspects the base image with
 you have one, otherwise to the ones installed on the host. The result is a
 draft in `./execution-environment.yml` (it never overwrites an existing file)
 in which everything that can't be determined statically is a `# TODO`
-comment. Set `base_image` in `[execution_environment]` to choose the base
+comment. Binaries that `command`/`shell` tasks running on the controller
+(`hosts: localhost`, `delegate_to: localhost`, `connection: local`) use, and the
+base image lacks, are listed too; `--resolve-packages` also looks up the package
+for each (downloads repository metadata, can take a minute or two) and offers a
+`system:` block to uncomment. Set `base_image` in `[execution_environment]` to choose the base
 image; `image` is never used for that, as it is what you run, usually the
 result of that build.
 

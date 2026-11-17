@@ -22,10 +22,13 @@ const OutputFile = "execution-environment.yml"
 type Options struct {
 	Playbook string // "" means resolve it like run does
 	Base     string
+	// ResolvePackages looks up the packages for controller-side binaries
+	// the base image lacks (it downloads repository metadata).
+	ResolvePackages bool
 }
 
 // ParseArgs reads the arguments after "ee": the subcommand init, an
-// optional playbook and --base <image>.
+// optional playbook, --base <image> and --resolve-packages.
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	if len(args) == 0 || args[0] != "init" {
@@ -43,6 +46,8 @@ func ParseArgs(args []string) (Options, error) {
 			o.Base = args[i]
 		case strings.HasPrefix(a, "--base="):
 			o.Base = strings.TrimPrefix(a, "--base=")
+		case a == "--resolve-packages":
+			o.ResolvePackages = true
 		case strings.HasPrefix(a, "-"):
 			return o, fmt.Errorf("unknown option %s", a)
 		case o.Playbook != "":
@@ -120,10 +125,6 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 	if err := runner.EnsureImage(stderr); err != nil {
 		return err
 	}
-	facts, err := ProbeBase(settings.Engine, base)
-	if err != nil {
-		return err
-	}
 
 	// What the playbook uses.
 	abs, err := filepath.Abs(playbook)
@@ -132,6 +133,7 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 	}
 	var uses []ModuleUse
 	var todos []Todo
+	var commands []Command
 	var roles []RoleUse
 	seenRole := map[RoleUse]bool{}
 	for _, f := range source.ReachableYAML(abs) {
@@ -154,6 +156,40 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		scan := ScanYAML(displayPath(f.Path, cwd), data, own)
 		uses = append(uses, scan.Uses...)
 		todos = append(todos, scan.Todos...)
+		commands = append(commands, scan.Commands...)
+	}
+
+	// The base image, asked about the binaries controller-side tasks run.
+	binaries, templatedCommands := ScanBinaries(commands, filepath.Dir(abs))
+	names := make([]string, len(binaries))
+	for i, b := range binaries {
+		names[i] = b.Name
+	}
+	facts, err := ProbeBase(settings.Engine, base, names)
+	if err != nil {
+		return err
+	}
+	var missing []BinaryNeed
+	for _, b := range binaries {
+		if contains(facts.Missing, b.Name) {
+			missing = append(missing, BinaryNeed{Name: b.Name, Locs: b.Locs})
+		}
+	}
+	var packagesFailed string
+	if opts.ResolvePackages && len(missing) > 0 {
+		fmt.Fprintf(stderr, "tangsible: looking up packages for %d binaries in the base image (this downloads repository metadata and can take a minute) ...\n", len(missing))
+		missingNames := make([]string, len(missing))
+		for i, b := range missing {
+			missingNames[i] = b.Name
+		}
+		pkgs, err := ResolvePackages(settings.Engine, base, settings.Network, facts.Family(), missingNames)
+		if err != nil {
+			packagesFailed = err.Error()
+			fmt.Fprintf(stderr, "tangsible: package lookup failed: %v\n", err)
+		}
+		for i := range missing {
+			missing[i].Packages = pkgs[missing[i].Name]
+		}
 	}
 	found, err := LookupCollections(UniqueCandidates(uses))
 	if err != nil {
@@ -181,6 +217,11 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		Requirements:     req,
 		RequirementsPath: reqPath,
 		Installed:        installed,
+
+		Binaries:          missing,
+		ResolvePackages:   opts.ResolvePackages,
+		PackagesFailed:    packagesFailed,
+		TemplatedCommands: templatedCommands,
 	})
 	// O_EXCL: a file that appeared meanwhile is not overwritten either.
 	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -198,5 +239,12 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(stdout, "Wrote %s: %d collection(s) (%d pinned from this host), %d TODO(s).\n", OutputFile, rep.Collections, rep.Pinned, rep.Todos)
+	if rep.Binaries > 0 {
+		if rep.Binaries == 1 {
+			fmt.Fprintln(stdout, "1 binary used on the controller is missing from the base image; see the comment in the draft.")
+		} else {
+			fmt.Fprintf(stdout, "%d binaries used on the controller are missing from the base image; see the comment in the draft.\n", rep.Binaries)
+		}
+	}
 	return nil
 }

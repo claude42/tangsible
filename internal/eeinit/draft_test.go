@@ -36,6 +36,7 @@ dependencies:
   # The base image has Python 3.14.8 (/usr/bin/python3) and ansible-core 2.21.5.
   # To change them, uncomment (python_interpreter installs that Python on top of
   # the base image's; package_system is the package that owns it in the base image):
+
   # python_interpreter:
   #   package_system: python3
   #   python_path: /usr/bin/python3.14
@@ -43,6 +44,7 @@ dependencies:
   #   package_pip: ansible-core==2.21.5
   # ansible_runner:
   #   package_pip: ansible-runner
+
   galaxy:
     collections:
       # detected: docker_container (site.yml:5, a.yml:2, +1 more)
@@ -51,6 +53,7 @@ dependencies:
       # detected: role x.y.web
       # unpinned: not installed on this host
       - name: x.y
+
   # Items the scan couldn't place:
   # TODO: site.yml:4: earlier
   # TODO: site.yml:13: later
@@ -207,7 +210,10 @@ func TestDraftTemplatedIncludesReportedOnce(t *testing.T) {
 }
 
 func TestStanzaPythonFacts(t *testing.T) {
-	text := func(f BaseFacts) string { return strings.Join(stanza(f), "\n") }
+	text := func(f BaseFacts) string {
+		intro, body := stanza(f)
+		return strings.Join(append(intro, body...), "\n")
+	}
 	// not owned by any package (a python.org image): the real path is still
 	// known, the package is a guess and says so
 	got := text(BaseFacts{Python: "/usr/local/bin/python3", PythonReal: "/usr/local/bin/python3.12", PythonVersion: "3.12.16"})
@@ -225,5 +231,107 @@ func TestStanzaPythonFacts(t *testing.T) {
 	}
 	if got := text(BaseFacts{}); !strings.Contains(got, "package_system: python3\n") || !strings.Contains(got, "package_pip: ansible-core\n") {
 		t.Errorf("no facts:\n%s", got)
+	}
+}
+
+var binNeeds = []BinaryNeed{
+	{Name: "ip", Locs: []string{"site.yml:9"}, Packages: []string{"iproute", "iproute-tc"}},
+	{Name: "jq", Locs: []string{"site.yml:40", "roles/x/tasks/main.yml:3", "a.yml:1"}, Packages: []string{"jq"}},
+	{Name: "sshpass", Locs: []string{"site.yml:52"}, Packages: []string{"jq"}},
+	{Name: "yq", Locs: []string{"site.yml:60"}},
+}
+
+func TestDraftBinariesListedWithoutPackages(t *testing.T) {
+	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, Binaries: []BinaryNeed{
+		{Name: "jq", Locs: []string{"site.yml:40", "b.yml:1", "c.yml:2"}}, {Name: "yq", Locs: []string{"site.yml:60"}},
+	}})
+	for _, want := range []string{
+		"  # Binaries used by tasks that run on the controller and missing from the base image\n",
+		"  # (only tasks detected as running there count; a role's task file has no play context):\n",
+		"  #   jq: site.yml:40, b.yml:1, +1 more\n",
+		"  #   yq: site.yml:60\n",
+		"  # Look up their packages with --resolve-packages.\n\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "# system:") {
+		t.Errorf("no stanza without a lookup:\n%s", got)
+	}
+	if rep.Binaries != 2 || rep.Todos != 0 {
+		t.Errorf("report = %+v", rep)
+	}
+	assertValidYAML(t, got)
+}
+
+func TestDraftBinariesResolved(t *testing.T) {
+	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, Binaries: binNeeds, ResolvePackages: true})
+	want := `  # To install them, uncomment:
+
+  # system:
+  #   - jq [platform:rpm]   # jq: site.yml:40, roles/x/tasks/main.yml:3, +1 more; sshpass: site.yml:52
+  #   # TODO: "ip": one of iproute, iproute-tc (site.yml:9)
+  #   # TODO: "yq": no package found
+
+`
+	if !strings.Contains(got, want) {
+		t.Errorf("missing:\n%s\nin:\n%s", want, got)
+	}
+	if rep.Binaries != 4 || rep.Todos != 2 {
+		t.Errorf("report = %+v", rep)
+	}
+	assertValidYAML(t, got)
+}
+
+func TestDraftBinariesUncommented(t *testing.T) {
+	got, _ := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: BaseFacts{PackageManager: "/usr/bin/apt-get", Python: "/usr/bin/python3", Pip: true}, ResolvePackages: true,
+		Binaries: []BinaryNeed{{Name: "jq", Locs: []string{"s.yml:1"}, Packages: []string{"jq"}}}})
+	var lines []string
+	in := false
+	for _, l := range strings.Split(got, "\n") {
+		switch {
+		case l == "  # system:":
+			in = true
+			l = "  system:"
+		case in && strings.HasPrefix(l, "  #   "):
+			l = "    " + strings.TrimPrefix(l, "  #   ")
+		default:
+			in = false
+		}
+		lines = append(lines, l)
+	}
+	var v struct {
+		Dependencies struct {
+			System []string `yaml:"system"`
+		} `yaml:"dependencies"`
+	}
+	if err := yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &v); err != nil {
+		t.Fatalf("not valid after uncommenting: %v", err)
+	}
+	if len(v.Dependencies.System) != 1 || !strings.HasPrefix(v.Dependencies.System[0], "jq [platform:dpkg]") {
+		// the trailing "# ..." is a YAML comment, so only the bindep entry is left
+		t.Errorf("system = %q", v.Dependencies.System)
+	}
+}
+
+func TestDraftBinariesLookupFailed(t *testing.T) {
+	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, ResolvePackages: true, PackagesFailed: "no network",
+		Binaries: []BinaryNeed{{Name: "jq", Locs: []string{"s.yml:1"}}}})
+	if !strings.Contains(got, "  #   jq: s.yml:1\n") || !strings.Contains(got, "# TODO: couldn't look up their packages: no network\n") || strings.Contains(got, "# system:") {
+		t.Errorf("got:\n%s", got)
+	}
+	if rep.Todos != 1 {
+		t.Errorf("report = %+v", rep)
+	}
+}
+
+func TestDraftNoBinariesNoBlockAndTemplatedCommands(t *testing.T) {
+	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, TemplatedCommands: 4})
+	if strings.Contains(got, "Binaries used by tasks") {
+		t.Errorf("nothing missing, so no block:\n%s", got)
+	}
+	if !strings.Contains(got, "# TODO: command/shell on the controller with a binary that can't be determined statically (detected 4 in all)\n") || rep.Todos != 1 {
+		t.Errorf("templated commands: report %+v\n%s", rep, got)
 	}
 }

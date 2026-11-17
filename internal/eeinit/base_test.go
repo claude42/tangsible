@@ -1,6 +1,9 @@
 package eeinit
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestResolveBase(t *testing.T) {
 	for _, c := range []struct {
@@ -22,7 +25,7 @@ func TestResolveBase(t *testing.T) {
 func TestParseProbe(t *testing.T) {
 	out := "os=Fedora Linux 44\npkg=/usr/bin/dnf\npkg=/usr/bin/microdnf\npython=/usr/bin/python3\npython_real=/usr/bin/python3.14\npython_pkg=python3\npython_version=3.14.8\npip=yes\nansible_core=2.21.5\n"
 	want := BaseFacts{OS: "Fedora Linux 44", PackageManager: "/usr/bin/microdnf", Python: "/usr/bin/python3", PythonReal: "/usr/bin/python3.14", PythonPackage: "python3", PythonVersion: "3.14.8", Pip: true, AnsibleCore: "2.21.5"}
-	if got := ParseProbe(out); got != want {
+	if got := ParseProbe(out); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 	if got := ParseProbe("os=Debian\npkg=/usr/bin/apt-get\nansible_core=\n"); got.PackageManager != "/usr/bin/apt-get" || got.Python != "" || got.Pip {

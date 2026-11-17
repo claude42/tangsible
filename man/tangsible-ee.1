@@ -13,7 +13,7 @@ tangsible-ee - draft an execution-environment.\&yml for ansible-builder from a p
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR]
+\fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages]
 .PP
 .SH DESCRIPTION
 .PP
@@ -54,6 +54,18 @@ Pulls the base image if it is missing (using \fBpull_policy\fR) and inspects it
 with \fBpodman\fR for its package manager, Python and ansible-core.\&
 .IP \(bu 4
 Annotates each collection with where it was found.\&
+.IP \(bu 4
+Lists the binaries that \fBcommand\fR and \fBshell\fR tasks running on the
+controller (and so inside the execution environment) use and the base image
+lacks, as a comment block.\& Only tasks detected as running on the controller
+count: a play with \fBhosts: localhost\fR (or \fB127.\&0.\&0.\&1\fR, \fB::1\fR) or
+\fBconnection: local\fR, or a task or block with \fBconnection: local\fR,
+\fBdelegate_to: localhost\fR, \fBansible_connection: local\fR in its \fBvars\fR, or
+\fBlocal_action\fR.\& Tasks on other hosts are the targets'\& business.\& A role'\&s
+task file is looked at without its play, so only the task-level conditions
+apply to it.\& The binary is the first word of each command of a shell line
+(builtins, shell keywords, assignments and wrappers like \fBsudo\fR are skipped);
+one that is templated cannot be determined and becomes a single \fB# TODO\fR.\&
 .PD
 .PP
 The base image is, in this order: \fB--base\fR \fIimage\fR, \fBbase_image\fR under
@@ -63,6 +75,22 @@ draft'\&s header when used).\& \fBimage\fR under \fB[execution_environment]\fR i
 used: it is the image tangsible runs, often the result of building this very
 draft.\&
 .PP
+\fB--resolve-packages\fR
+.RS 4
+Also look up which package provides each missing binary, and offer them as
+a \fBsystem:\fR block to uncomment (bindep syntax, with \fB[platform:rpm]\fR or
+\fB[platform:dpkg]\fR).\& This starts a throw-away container of the base image
+(the image itself is never changed) with network access, as root, and
+downloads repository metadata, so it can take from half a minute to a
+couple of minutes: \fBdnf\fR is queried on Fedora/RHEL-family images (the image
+needs \fBdnf\fR; \fBmicrodnf\fR can'\&t answer this) and \fBapt-file\fR on
+Debian/Ubuntu-family images.\& A binary with several candidate packages is
+listed with all of them, one with none as a \fB# TODO\fR.\& If the lookup can'\&t be
+done (no network, no \fBdnf\fR), the binaries are only listed.\& The
+\fBnetwork\fR key under \fB[execution_environment]\fR is used for the container
+(\fBhost\fR fixes DNS trouble).\& Nothing is ever added without you uncommenting it.\&
+.PP
+.RE
 If \fBexecution-environment.\&yml\fR already exists, \fBee init\fR fails and writes
 nothing.\&
 .PP

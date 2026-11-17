@@ -6,7 +6,7 @@ tangsible-ee - draft an execution-environment.yml for ansible-builder from a pla
 
 # SYNOPSIS
 
-*tangsible ee init* [_playbook.yml_] [--base _image_]
+*tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages]
 
 # DESCRIPTION
 
@@ -41,6 +41,17 @@ It does the following:
 - Pulls the base image if it is missing (using *pull_policy*) and inspects it
   with *podman* for its package manager, Python and ansible-core.
 - Annotates each collection with where it was found.
+- Lists the binaries that *command* and *shell* tasks running on the
+  controller (and so inside the execution environment) use and the base image
+  lacks, as a comment block. Only tasks detected as running on the controller
+  count: a play with *hosts: localhost* (or *127.0.0.1*, *::1*) or
+  *connection: local*, or a task or block with *connection: local*,
+  *delegate_to: localhost*, *ansible_connection: local* in its *vars*, or
+  *local_action*. Tasks on other hosts are the targets' business. A role's
+  task file is looked at without its play, so only the task-level conditions
+  apply to it. The binary is the first word of each command of a shell line
+  (builtins, shell keywords, assignments and wrappers like *sudo* are skipped);
+  one that is templated cannot be determined and becomes a single *# TODO*.
 
 The base image is, in this order: *--base* _image_, *base_image* under
 *[execution_environment]* in *config.toml*, or the built-in default
@@ -48,6 +59,20 @@ The base image is, in this order: *--base* _image_, *base_image* under
 draft's header when used). *image* under *[execution_environment]* is never
 used: it is the image tangsible runs, often the result of building this very
 draft.
+
+*--resolve-packages*
+	Also look up which package provides each missing binary, and offer them as
+	a *system:* block to uncomment (bindep syntax, with *[platform:rpm]* or
+	*[platform:dpkg]*). This starts a throw-away container of the base image
+	(the image itself is never changed) with network access, as root, and
+	downloads repository metadata, so it can take from half a minute to a
+	couple of minutes: *dnf* is queried on Fedora/RHEL-family images (the image
+	needs *dnf*; *microdnf* can't answer this) and *apt-file* on
+	Debian/Ubuntu-family images. A binary with several candidate packages is
+	listed with all of them, one with none as a *# TODO*. If the lookup can't be
+	done (no network, no *dnf*), the binaries are only listed. The
+	*network* key under *[execution_environment]* is used for the container
+	(*host* fixes DNS trouble). Nothing is ever added without you uncommenting it.
 
 If *execution-environment.yml* already exists, *ee init* fails and writes
 nothing.

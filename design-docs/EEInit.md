@@ -147,7 +147,8 @@ Not done in v1: `requires_ansible` compatibility check, binaries from
 
 Terse, reference-bearing comments (a collection is annotated with the modules
 that need it and where); we'll see after use whether that's too much. Shape
-(abridged; the real draft starts with a header comment):
+(abridged; the real draft starts with a header comment). Explanatory comments
+and the commented-out stanzas to uncomment are separated by blank lines:
 
 ```yaml
 ---
@@ -160,6 +161,7 @@ images:
 dependencies:
   # The base image has Python 3.14.10 (/usr/bin/python3) and ansible-core 2.21.6.
   # To change them, uncomment (...):
+
   # python_interpreter:
   #   package_system: python3
   #   python_path: /usr/bin/python3.14
@@ -167,11 +169,13 @@ dependencies:
   #   package_pip: ansible-core==2.21.6
   # ansible_runner:
   #   package_pip: ansible-runner
+
   galaxy:
     collections:
       # detected: community.docker.docker_image (roles/web/tasks/main.yml:2), docker_container (site.yml:5)
       - name: community.docker
         version: 4.7.0
+
   # Items the scan couldn't place:
   # TODO: site.yml:11: module "frobnicate": no collection found on this host
   # TODO: include/import with a templated target (detected 3 in all): what they load can't be determined statically
@@ -222,7 +226,7 @@ notes").
 
 ## Controller-side binaries (follow-up, `--resolve-packages`)
 
-**Spec only, not implemented.** A `command`/`shell` task usually runs on the
+**Implemented** (see the notes at the end of this section). A `command`/`shell` task usually runs on the
 *target*, so its binary is the target's business. When the task runs on the
 **controller** - inside the EE - the binary must be in the image, and neither
 the base image nor a collection's own requirements may have it. This feature
@@ -240,7 +244,7 @@ and `ansible.legacy` names), and only when the task is controller-side:
 - or the task (or an enclosing block) has `connection: local`, `delegate_to:`
   one of those three, `vars: ansible_connection: local`, or is `local_action:`.
 
-Limitations, stated in the draft's header comment when this feature ran:
+Limitations, stated in the comment of the binaries block of the draft:
 a role's task file is scanned on its own, so it has no play context (only
 the task-level conditions above apply to it); an `ansible_connection` set in
 the inventory, and `hosts:` given by variable, are invisible. There is no flag
@@ -282,17 +286,18 @@ network** - it honors `[execution_environment] network`, so `network = "host"`
 fixes DNS trouble - and as root where the family needs it, and asks the
 package manager which package provides each missing binary:
 
-- **rpm family** (os-release `ID`/`ID_LIKE`: fedora, rhel, centos, ...):
+- **rpm family** (the image's package manager is microdnf, dnf or yum):
   `dnf -q repoquery --file '*/bin/<name>' --queryformat '%{name}\n'`, and the
   same with `*/sbin/` if that finds nothing, once per binary (a second
   argument is a package filter, not a second pattern). Checked on
   community-ee-base (dnf5): finds `jq`, `sshpass`; needs about 40 MB of
   repository metadata, so ~25-30 s for the first query. `microdnf` can't do it
   (its `provides` only refreshes metadata), `dnf` must exist in the image.
-- **dpkg family** (debian, ubuntu): `apt-file`, which needs `apt-get update`
-  and installing it in the throw-away container first; the exact command
-  (`apt-file -x search '^/(usr/)?s?bin/<name>$'`) and its cost are to be
-  verified at implementation, as is whether it is acceptable by default.
+- **dpkg family** (apt-get): `apt-file`, which needs `apt-get update`,
+  installing `apt-file` and `apt-file update` in the throw-away container
+  first, then `apt-file -x search '^/(usr/)?s?bin/<name>$'` per binary.
+  Measured on ubuntu:24.04: about 223 MB of Contents metadata and ~75 s in
+  all, on a fast connection - hence the flag.
 - Other families (apk, zypper, ...), no network, a failed update: no packages,
   the binaries stay listed with "package unknown", a note on stderr, exit
   code unaffected.
@@ -354,10 +359,25 @@ output (several providers, none, arch duplicates); golden `Draft` with and
 without resolved packages. The container steps are checked by hand, like the
 other podman edges.
 
+### Implementation notes
+
+- The family comes from the image's package manager (`BaseFacts.Family`), not
+  from os-release.
+- The probe takes the names as arguments (`sh -c <script> probe name...`);
+  the resolve scripts likewise, in a throw-away `podman run --rm --user root
+  [--network=<network>]` of the base image.
+- The tokenizer (`binaries.go`) keeps `{{ ... }}`/`{% ... %}` whole, so a
+  filter's `|` is not a shell pipe; a `(` or `{` glued to a word is dropped;
+  heredoc bodies are data. `command` (no shell) takes only the first word.
+- `dnf repoquery --file` takes one pattern per call (a second argument is a
+  package filter), so `*/bin/<name>` and then `*/sbin/<name>`.
+- Checked by hand on community-ee-base (rpm, `jq`->`jq`, `ip`->`iproute`) and
+  ubuntu:24.04 (`jq`, `ip`->`iproute2`, `curl`, `sshpass`); a lookup that can't
+  run (no network, no dnf) leaves the binaries listed with a `TODO`. Only the
+  parsers and the draft are unit-tested.
+
 ### Open points
 
-- The cost of `apt-file` on Debian-family images (metadata size, whether to
-  install it in the throw-away container) is not measured.
 - Role task files have no play context; a play-aware walk (which play calls
   which role) is possible later, but is a larger change in `source`.
 - Controller-side *modules* that need binaries (`synchronize` -> `rsync`)

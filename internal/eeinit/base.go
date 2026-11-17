@@ -1,6 +1,7 @@
 package eeinit
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -40,10 +41,26 @@ type BaseFacts struct {
 	PythonVersion string
 	Pip           bool
 	AnsibleCore   string
+	// Missing are those of the binaries asked about (ProbeScript's
+	// arguments) that the image doesn't have.
+	Missing []string
+}
+
+// Family is the kind of packages the image's package manager installs:
+// "rpm" (microdnf, dnf, yum), "dpkg" (apt-get), or "" if unknown.
+func (f BaseFacts) Family() string {
+	switch filepath.Base(f.PackageManager) {
+	case "microdnf", "dnf", "yum":
+		return "rpm"
+	case "apt-get":
+		return "dpkg"
+	}
+	return ""
 }
 
 // ProbeScript runs inside the base image (sh) and prints key=value lines
-// for ParseProbe.
+// for ParseProbe. Its arguments are binaries (names, or absolute paths) to
+// look for; each one the image lacks is reported as missing=<name>.
 const ProbeScript = `
 . /etc/os-release 2>/dev/null
 echo "os=$PRETTY_NAME"
@@ -68,6 +85,12 @@ if [ -n "$py" ]; then
   $py -m pip --version >/dev/null 2>&1 && echo "pip=yes"
   echo "ansible_core=$($py -c 'import ansible.release as r; print(r.__version__)' 2>/dev/null)"
 fi
+for n in "$@"; do
+  case "$n" in
+    /*) [ -x "$n" ] || echo "missing=$n" ;;
+    *) command -v "$n" >/dev/null 2>&1 || echo "missing=$n" ;;
+  esac
+done
 `
 
 // packageName is what a package name can look like; the probe's output ends
@@ -94,6 +117,8 @@ func ParseProbe(out string) BaseFacts {
 			pkgs = append(pkgs, v)
 		case "python":
 			f.Python = v
+		case "missing":
+			f.Missing = append(f.Missing, v)
 		case "python_real":
 			f.PythonReal = v
 		case "python_pkg":
