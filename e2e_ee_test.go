@@ -457,6 +457,41 @@ func TestE2E_EE_SlowListTasksLeavesTheTUIAndPrints(t *testing.T) {
 	waitNoContainers(t, 10*time.Second)
 }
 
+// A fact cache and a log file that ansible.cfg puts outside the project are
+// reachable in the container at their host paths, so the cache is filled and
+// the log written; without it every container run re-gathers facts and loses
+// its log.
+func TestE2E_EE_FactCacheAndLogOutsideProjectAreShared(t *testing.T) {
+	image := requireEE(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	state := t.TempDir()
+	cacheDir := filepath.Join(state, "facts") // does not exist yet: created like ansible would
+	logFile := filepath.Join(state, "ansible.log")
+	cfg := fmt.Sprintf("[defaults]\ngathering = smart\nfact_caching = jsonfile\nfact_caching_connection = %s\nlog_path = %s\n", cacheDir, logFile)
+	if err := os.WriteFile(filepath.Join(work, "ansible.cfg"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte("- hosts: localhost\n  connection: local\n  tasks:\n    - ansible.builtin.ping:\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s %s run p.yml -i localhost, --ee %s",
+		shellQuote(work), e2eCallbackEnv(t), shellQuote(bin), shellQuote(image)), "Enter")
+	s.waitFor("Playbook completed successfully", 90*time.Second)
+	s.send("q")
+	waitNoContainers(t, 10*time.Second)
+
+	if entries, err := os.ReadDir(cacheDir); err != nil || len(entries) == 0 {
+		t.Errorf("the fact cache %s should hold localhost's facts (err %v, %d entries)", cacheDir, err, len(entries))
+	}
+	// (Host-side helper runs write to the log too; only a real run logs the recap.)
+	if b, err := os.ReadFile(logFile); err != nil || !strings.Contains(string(b), "PLAY RECAP") {
+		t.Errorf("the log %s should hold the run's recap (err %v):\n%s", logFile, err, b)
+	}
+}
+
 // pass_env and set_env: a listed variable (or prefix) reaches the container, an
 // unlisted one does not, and a set value arrives. The playbook reads them with
 // the env lookup, which runs in the container.

@@ -886,3 +886,22 @@ in mind if both are picked up around the same time.
   only EE. Verified (`TestE2E_EE_SlowStartIsReported`,
   `TestE2E_EE_SlowListTasksLeavesTheTUIAndPrints`, delayed stand-in
   `podman`), full e2e suite green.
+- **Fact cache and log outside the project (comparison item 2):** a container
+  run left no fact cache and no log in directories ansible.cfg names outside
+  the project, so `gathering = smart` re-gathered on every run and the log was
+  lost. Now each generation asks `ansible-config dump` on the host (at most 5 s
+  old, so an edited ansible.cfg counts at the next re-run) for `CACHE_PLUGIN`
+  (only the on-disk plugins `jsonfile`, `yaml`, `pickle`),
+  `CACHE_PLUGIN_CONNECTION` and `DEFAULT_LOG_PATH`; a value whose origin is not
+  `default` and that lies outside the working directory is mounted read-write at
+  its own path (`ee.StatePaths`, pure; `runner.addStatePaths`) and handed to
+  ansible through `ANSIBLE_CACHE_PLUGIN[_CONNECTION]`/`ANSIBLE_LOG_PATH`, since
+  the config file that names it may be out of the container's reach. A missing
+  cache directory is created, and a missing log file when its directory exists
+  (a bind mount needs its source), as ansible would. Not handled: a log
+  rotated by replacing the file (the bind mount keeps the old inode), a path
+  containing a colon (warned about), a setting that only the container's own
+  config would change. Under `selinux = "z"`/`"Z"` the usual relabel applies to
+  these mounts as to every other. Verified
+  (`TestE2E_EE_FactCacheAndLogOutsideProjectAreShared`): fails without the
+  change (empty cache, no recap in the log), passes with it.

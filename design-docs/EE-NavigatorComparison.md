@@ -61,7 +61,7 @@ SELinux auto-detection.
    Care needed: mounting the parent of an inventory in `$HOME` would expose
    `~/.ssh`. A narrower design: mount the file plus its sibling `group_vars`
    and `host_vars` directories, nothing else; an inventory *directory* whole.
-2. **Fact cache and `log_path` outside the project are not shared.** Test
+2. **(Fixed: `addStatePaths` / `ee.StatePaths`, see `ExecutionEnvironments.md`.) Fact cache and `log_path` outside the project are not shared.** Test
    with an `ansible.cfg` like the user's (`gathering = smart`,
    `fact_caching = jsonfile`, absolute `fact_caching_connection`, absolute
    `log_path`): after two container runs the configured directory held no

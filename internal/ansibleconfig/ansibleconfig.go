@@ -30,8 +30,11 @@ import (
 // Entry is one setting of the dump. Value stays raw: its shape depends on
 // the setting.
 type Entry struct {
-	Name  string          `json:"name"`
-	Value json.RawMessage `json:"value"`
+	Name string `json:"name"`
+	// Origin is where the value comes from: "default", or the config file
+	// or environment variable that set it.
+	Origin string          `json:"origin"`
+	Value  json.RawMessage `json:"value"`
 }
 
 type fetch struct {

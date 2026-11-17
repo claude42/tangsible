@@ -3,6 +3,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/ansibleconfig"
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/ee"
 	"code.aw.net/claude/tangsible/internal/execerr"
@@ -271,10 +273,11 @@ func newEERun(s *config.EESettings, playbook string, args []string) (*eeRun, err
 	}
 	in.Playbook = playbook
 	in.Args = args
+	addStatePaths(&in)
 	in.PluginDir = pluginDir
 	in.EventDir = dir
 	in.EventFile = "events"
-	in.ExtraEnv = append(forceColorEnv(), "ANSIBLE_JSON_INDENT=0")
+	in.ExtraEnv = append(append(forceColorEnv(), "ANSIBLE_JSON_INDENT=0"), in.ExtraEnv...)
 	in.Name = run.name
 	plan, err := ee.Build(in)
 	if err != nil {
@@ -289,6 +292,63 @@ func newEERun(s *config.EESettings, playbook string, args []string) (*eeRun, err
 	name := run.name
 	activeContainer.Store(&name)
 	return run, nil
+}
+
+// addStatePaths makes the fact cache directory and the log file ansible's
+// configuration names - when they lie outside the project - reachable in the
+// container at their host paths, and tells ansible there where they are (the
+// configuration file that names them may not be visible in the container, or
+// is set through a host-path variable the environment filter drops). Without
+// it a container run would re-gather facts every time (gathering = smart) and
+// lose its log. The effective values come from ansible-config on the host;
+// a missing directory or file is created as ansible would have.
+func addStatePaths(in *ee.Inputs) {
+	settings := map[string]ee.StateSetting{}
+	for _, e := range ansibleconfig.Get(stateConfigMaxAge) {
+		var v string
+		_ = json.Unmarshal(e.Value, &v) // null or a non-string stays ""
+		settings[e.Name] = ee.StateSetting{Value: v, Origin: e.Origin}
+	}
+	paths, plugin := ee.StatePaths(settings, in.Cwd, in.HomeDir, in.HostEnv)
+	for _, sp := range paths {
+		if strings.Contains(sp.Path, ":") {
+			config.QueueWarning("tangsible: execution environment: " + sp.Path + " has a colon in its name and is not mounted into the container")
+			continue
+		}
+		if err := ensureStatePath(sp); err != nil {
+			config.QueueWarning("tangsible: execution environment: " + sp.Path + " is not mounted into the container: " + err.Error())
+			continue
+		}
+		in.ExtraMounts = append(append([]string(nil), in.ExtraMounts...), sp.Path+":"+sp.Path)
+		in.ExtraEnv = append(in.ExtraEnv, sp.Env+"="+sp.Path)
+		if sp.Dir && plugin != "" {
+			in.ExtraEnv = append(in.ExtraEnv, "ANSIBLE_CACHE_PLUGIN="+plugin)
+		}
+	}
+}
+
+// stateConfigMaxAge: how old an ansible-config dump may be for a generation,
+// short enough that an ansible.cfg edited between re-runs is noticed.
+const stateConfigMaxAge = 5 * time.Second
+
+// ensureStatePath creates what ansible itself would create on first use: the
+// cache directory, or the log file when its directory exists (a bind mount
+// needs its source to be there).
+func ensureStatePath(sp ee.StatePath) error {
+	if sp.Dir {
+		return os.MkdirAll(sp.Path, 0o755)
+	}
+	if fi, err := os.Stat(sp.Path); err == nil {
+		if !fi.Mode().IsRegular() {
+			return errors.New("not a regular file")
+		}
+		return nil
+	}
+	f, err := os.OpenFile(sp.Path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // baseEEInputs fills in what every container invocation shares: the
