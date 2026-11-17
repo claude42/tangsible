@@ -563,6 +563,31 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   each stop with a clear message; a valid entry with `$VAR` and `ro,z` is
   visible in the container and read-only there (a write failed, nothing was
   created on the host).
+- **Image check and pull policies (comparison items 7 and 8):**
+  `EnsureImage` treated any failure of `podman image exists` as "absent" and
+  pulled; podman answers by exit code (0 present, 1 absent, 125 error), so an
+  engine error (database locked, storage damage) was followed by a pull that
+  only buried it. Now an error is reported as "couldn't check whether the
+  image X is available: <engine's words>", only exit 1 means absent. On top,
+  navigator's four policies (`ee.DecidePull`, pure): `missing` (default),
+  `always`, `never`, `tag`, plus `pull_arguments`. Differences from
+  navigator: the default stays `missing` (its default `tag` pulls every
+  `:latest` at each start - a network dependency for a tool run all day);
+  a refreshing policy acts **once per session per image** (a re-run doesn't
+  pull again, `refreshed` in `runner/ee.go`); a refresh that fails while a
+  local copy exists is a warning, not a stop (offline work); a digest-pinned
+  reference is never "latest". An image under `localhost/` is never pulled
+  (podman's local namespace has no registry - before, a missing one produced
+  a registry error about a host called `localhost`) and an absent one says
+  to `podman build`/`podman load`. `pull_arguments` expand `$VAR`/`~`
+  (navigator #1590 expands env variables there too). Verified against real
+  podman: the localhost and `never` messages; `always` on the user's
+  5-week-old `community-ee-base:latest` started fetching *new layers*, i.e.
+  `:latest` had moved on - the case these policies are for. Tests: pure table
+  (`pull_test.go`), a fake engine script that logs calls and answers by exit
+  code (`runner/ee_test.go`: every policy, once-per-session, engine error,
+  engine missing, pull arguments), and an e2e test that needs podman but no
+  image.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

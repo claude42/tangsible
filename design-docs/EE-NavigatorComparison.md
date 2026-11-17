@@ -96,7 +96,7 @@ SELinux auto-detection.
    non-string source/destination, a source that does not exist, and unknown
    options *before* starting, and expands `~`. Our `extra_mounts` check only
    the shape; a typo surfaces as podman's own error after exit.
-7. **Image presence check**: `EnsureImage` treats *any* failure of
+7. **(Fixed: `imagePresent`, see `ExecutionEnvironments.md`.) Image presence check**: `EnsureImage` treats *any* failure of
    `podman image exists` as "missing" and pulls (exit 1 means absent, 125 an
    error). Navigator uses `image inspect`, tells "no such image" from other
    failures ("image assumed to be corrupted or missing") and prints the
@@ -104,7 +104,7 @@ SELinux auto-detection.
 
 ### Read in their code, not (yet) reproduced here
 
-8. **Pull policy**: `always`, `missing`, `never`, `tag` (pull when the tag is
+8. **(Fixed: `pull_policy` / `pull_arguments`; registry credentials via `pull_arguments`.) Pull policy**: `always`, `missing`, `never`, `tag` (pull when the tag is
    `latest` or the image is absent; navigator's default), with a clear error
    and hint for `never` + absent ("Try again with --pp missing or pull
    manually"). Plus `--pull-arguments` (e.g. `--tls-verify=false`, with

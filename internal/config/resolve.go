@@ -163,6 +163,8 @@ type SettingsConfig struct {
 		SSHDir        *bool    `toml:"ssh_dir"`
 		SSHKnownHosts *bool    `toml:"ssh_known_hosts"`
 		ExtraMounts   []string `toml:"extra_mounts"`
+		PullPolicy    string   `toml:"pull_policy"`
+		PullArguments []string `toml:"pull_arguments"`
 	} `toml:"execution_environment"`
 
 	// Colors is design-docs/ColorConfig.md's own `[colors]` table - see

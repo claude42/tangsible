@@ -49,7 +49,7 @@ func TestHasEEFlag(t *testing.T) {
 
 func TestEEFromSettingsDefaults(t *testing.T) {
 	got := EEFromSettings(SettingsConfig{})
-	want := EESettings{Engine: "podman", SSHAgent: true, SSHKnownHosts: true}
+	want := EESettings{Engine: "podman", SSHAgent: true, SSHKnownHosts: true, PullPolicy: "missing"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults = %+v, want %+v", got, want)
 	}
@@ -65,7 +65,7 @@ func TestEEFromSettingsValues(t *testing.T) {
 	e.ExtraMounts = []string{"/a:/b"}
 	got := EEFromSettings(cfg)
 	want := EESettings{Image: "img:1", Engine: "podman", Network: "host", SELinux: "Z",
-		SSHAgent: false, SSHDir: true, SSHKnownHosts: false, ExtraMounts: []string{"/a:/b"}}
+		SSHAgent: false, SSHDir: true, SSHKnownHosts: false, ExtraMounts: []string{"/a:/b"}, PullPolicy: "missing"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -201,5 +201,48 @@ func TestResolveEEWithHistory(t *testing.T) {
 	// Without a configured image, a recorded one still stands on its own.
 	if got := ResolveEEWithHistory(SettingsConfig{}, EEOverride{}, "old:1"); got == nil || got.Image != "old:1" {
 		t.Errorf("recorded image with no config: %+v", got)
+	}
+}
+
+func TestPullSettings(t *testing.T) {
+	var cfg SettingsConfig
+	if got := EEFromSettings(cfg); got.PullPolicy != "missing" || got.PullArguments != nil {
+		t.Errorf("defaults: %+v", got)
+	}
+	cfg.ExecutionEnvironment.PullPolicy = " Always "
+	cfg.ExecutionEnvironment.PullArguments = []string{"--tls-verify=false"}
+	got := EEFromSettings(cfg)
+	if got.PullPolicy != "always" || !reflect.DeepEqual(got.PullArguments, []string{"--tls-verify=false"}) {
+		t.Errorf("values: %+v", got)
+	}
+	cfg.ExecutionEnvironment.PullPolicy = "sometimes"
+	if got := EEFromSettings(cfg); got.PullPolicy != "missing" {
+		t.Errorf("an invalid policy must fall back to missing: %q", got.PullPolicy)
+	}
+}
+
+func TestPullSettingsCascade(t *testing.T) {
+	var project, global, merged SettingsConfig
+	project.ExecutionEnvironment.PullPolicy = "never"
+	global.ExecutionEnvironment.PullPolicy = "always"
+	global.ExecutionEnvironment.PullArguments = []string{"--authfile=/a"}
+	mergeEE(&merged, project, global)
+	e := merged.ExecutionEnvironment
+	if e.PullPolicy != "never" || !reflect.DeepEqual(e.PullArguments, []string{"--authfile=/a"}) {
+		t.Errorf("merged = %+v", e)
+	}
+}
+
+func TestPullPolicyWarning(t *testing.T) {
+	pendingWarnings = nil
+	t.Cleanup(func() { pendingWarnings = nil })
+	ReadSettingsConfig(writeConfig(t, "[execution_environment]\nimage = \"i\"\npull_policy = \"sometimes\"\n"))
+	if len(pendingWarnings) != 1 || !strings.Contains(pendingWarnings[0], `invalid value "sometimes" for [execution_environment] pull_policy (allowed: always, missing, never, tag)`) {
+		t.Errorf("warnings = %q", pendingWarnings)
+	}
+	pendingWarnings = nil
+	ReadSettingsConfig(writeConfig(t, "[execution_environment]\nimage = \"i\"\npull_policy = \"Tag\"\npull_arguments = [\"--tls-verify=false\"]\n"))
+	if len(pendingWarnings) != 0 {
+		t.Errorf("a valid policy (any case) warned: %q", pendingWarnings)
 	}
 }

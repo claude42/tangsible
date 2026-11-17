@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -77,34 +80,110 @@ func ValidateExecutionEnvironment() error {
 	return ee.CheckExtraMounts(s.ExtraMounts, cwd, home, os.Environ(), nil)
 }
 
-// EnsureImage makes sure the active image is present locally, pulling it
-// (with the engine's own progress output going to w) when it isn't. It runs
-// before any TUI exists - a pull can take minutes and has nowhere to show
-// itself afterwards. A no-op without an active execution environment.
+// refreshed records the images this process has already tried to refresh: a
+// refreshing pull policy (always, tag) acts once per session, not before every
+// re-run.
+var (
+	refreshedMu sync.Mutex
+	refreshed   = map[string]bool{}
+)
+
+func markRefreshed(image string) {
+	refreshedMu.Lock()
+	refreshed[image] = true
+	refreshedMu.Unlock()
+}
+
+func wasRefreshed(image string) bool {
+	refreshedMu.Lock()
+	defer refreshedMu.Unlock()
+	return refreshed[image]
+}
+
+// imagePresent asks the engine whether the image is in local storage. podman's
+// "image exists" answers by exit code: 0 present, 1 absent, anything else an
+// error (storage trouble, say) - which must not be mistaken for "absent",
+// because pulling would only bury the real problem under a second one.
+func imagePresent(engine, image string) (bool, error) {
+	cmd := exec.Command(engine, "image", "exists", image)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		if msg := execerr.NotFoundMessage(engine, err); msg != "" {
+			return false, errors.New(msg)
+		}
+		return false, fmt.Errorf("couldn't run %s: %w", engine, err)
+	}
+	if exit.ExitCode() == 1 {
+		return false, nil
+	}
+	detail := strings.TrimSpace(stderr.String())
+	if detail == "" {
+		detail = exit.Error()
+	}
+	return false, fmt.Errorf("couldn't check whether the image %s is available: %s", image, detail)
+}
+
+// pullArguments expands $VAR (and ~, also after "--flag=") in the configured
+// pull arguments from the host, so e.g. "--authfile=~/auth.json" works.
+func pullArguments(args []string) []string {
+	home, _ := os.UserHomeDir()
+	env := os.Environ()
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			if k, v, ok := strings.Cut(a, "="); ok {
+				out = append(out, k+"="+ee.ExpandPath(v, home, env))
+				continue
+			}
+		}
+		out = append(out, ee.ExpandPath(a, home, env))
+	}
+	return out
+}
+
+// EnsureImage applies the pull policy to the active image before anything
+// runs (ee.DecidePull): it is pulled when the policy says so, with the
+// engine's own progress going to w. It runs before any TUI exists - a pull can
+// take minutes and has nowhere to show itself afterwards - and again, cheaply,
+// before a re-run (the dialog can name another image). A refresh of an image
+// that is already here, which fails (offline), is reported and the local copy
+// used. A no-op without an active execution environment.
 func EnsureImage(w io.Writer) error {
 	s := ExecutionEnvironment()
 	if s == nil {
 		return nil
 	}
-	exists := exec.Command(s.Engine, "image", "exists", s.Image)
-	err := exists.Run()
-	if err == nil {
+	present, err := imagePresent(s.Engine, s.Image)
+	if err != nil {
+		return err
+	}
+	d := ee.DecidePull(s.PullPolicy, s.Image, present, wasRefreshed(s.Image))
+	if d.Err != nil {
+		return d.Err
+	}
+	if !d.Pull {
 		return nil
 	}
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) {
-		if msg := execerr.NotFoundMessage(s.Engine, err); msg != "" {
-			return errors.New(msg)
-		}
-		return fmt.Errorf("couldn't run %s: %w", s.Engine, err)
-	}
-	fmt.Fprintf(w, "tangsible: pulling %s ...\n", s.Image)
-	pull := exec.Command(s.Engine, "pull", s.Image)
+	fmt.Fprintf(w, "tangsible: pulling %s (%s) ...\n", s.Image, d.Reason)
+	args := append([]string{"pull"}, pullArguments(s.PullArguments)...)
+	pull := exec.Command(s.Engine, append(args, s.Image)...)
 	pull.Stdout, pull.Stderr = w, w
-	if err := pull.Run(); err != nil {
-		return fmt.Errorf("couldn't pull %s: %w", s.Image, err)
+	perr := pull.Run()
+	markRefreshed(s.Image)
+	switch {
+	case perr == nil:
+		return nil
+	case d.Optional:
+		fmt.Fprintf(w, "tangsible: couldn't refresh %s (%v); using the local copy\n", s.Image, perr)
+		return nil
 	}
-	return nil
+	return fmt.Errorf("couldn't pull %s: %w", s.Image, perr)
 }
 
 // eeRun is one container invocation's host-side plumbing: the scratch

@@ -336,6 +336,47 @@ func TestE2E_EE_VariableInPathOptionIsExpandedOnTheHost(t *testing.T) {
 	waitNoContainers(t, 10*time.Second)
 }
 
+// The pull policy decides before anything starts, and an image that cannot be
+// had stops tangsible with a hint instead of a registry error. Needs the
+// podman binary (it asks it whether the image exists) but no image: nothing
+// here exists, and nothing may be pulled.
+func TestE2E_EE_PullPolicyStopsWithAHint(t *testing.T) {
+	requireE2ETools(t)
+	if _, err := exec.LookPath("podman"); err != nil {
+		t.Skip("podman not found on PATH")
+	}
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte("- hosts: localhost\n  gather_facts: false\n  tasks: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, image, extra, want string }{
+		{"a local-only image that is not there", "localhost/tangsible-e2e-no-such-image:1", "", "images under localhost/ exist only locally"},
+		{"never, and the image is not there", "example.invalid/tangsible/none:1", `pull_policy = "never"`, `pull_policy is "never"`},
+	}
+	for _, c := range cases {
+		cfg := fmt.Sprintf("[execution_environment]\nimage = %q\n%s\n", c.image, c.extra)
+		if err := os.WriteFile(filepath.Join(work, ".tangsible", "config.toml"), []byte(cfg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(bin, "run", "p.yml", "-i", "localhost,")
+		cmd.Dir = work
+		out, err := cmd.CombinedOutput()
+		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+			t.Errorf("%s: exit = %v, want 1\n%s", c.name, err, out)
+		}
+		if !strings.Contains(string(out), c.want) || !strings.Contains(string(out), "hint:") {
+			t.Errorf("%s: output %q lacks %q and a hint", c.name, out, c.want)
+		}
+		if strings.Contains(string(out), "pulling") || strings.Contains(string(out), "Trying to pull") {
+			t.Errorf("%s: it tried to pull: %s", c.name, out)
+		}
+	}
+}
+
 // A mistake in extra_mounts stops tangsible at startup - before an image is
 // pulled (the image here does not exist anywhere) or a TUI is built - with a
 // message naming the entry.

@@ -61,6 +61,9 @@ func settingsWarnings(path string, cfg SettingsConfig, undecoded []toml.Key) []s
 	if e.Engine != "" && !containsString(eeEngines, strings.ToLower(e.Engine)) {
 		warnings = append(warnings, fmt.Sprintf("tangsible: %s: unsupported value %q for [execution_environment] engine (supported: %s), using %q", path, e.Engine, strings.Join(eeEngines, ", "), "podman"))
 	}
+	if e.PullPolicy != "" && !containsString(EEPullPolicies, strings.ToLower(strings.TrimSpace(e.PullPolicy))) {
+		warnings = append(warnings, fmt.Sprintf("tangsible: %s: invalid value %q for [execution_environment] pull_policy (allowed: %s), using \"missing\"", path, e.PullPolicy, strings.Join(EEPullPolicies, ", ")))
+	}
 	if e.SELinux != "" && !containsString(eeSELinuxModes, e.SELinux) {
 		warnings = append(warnings, fmt.Sprintf("tangsible: %s: invalid value %q for [execution_environment] selinux (allowed: %s), using \"auto\"", path, e.SELinux, strings.Join(eeSELinuxModes, ", ")))
 	}

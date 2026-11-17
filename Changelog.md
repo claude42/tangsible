@@ -27,6 +27,7 @@
 - `host`/`template`: tabs still loading or rendering show a busy spinner next to their placeholder text
 - `role`: accepts a fully qualified collection role name (`namespace.collection.role`)
 - Roles outside the projec t (`~/.ansible/roles`, `/etc/ansible/roles`, `role_path`, inside collections (`namespace.collection.role`), roles used via a play's `collections:`, roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are now found too
+- Execution environments: `pull_policy` (`missing`, `always`, `never`, `tag`) says when the image is pulled, and `pull_arguments` passes extra arguments to the pull (`--tls-verify=false`, `--authfile=...`)
 - YAML tabs show comments (a `# ...` line or a trailing `# ...`) in the annotation colour instead of the value colour
 - Task definition tab: Click on a task keyword keyword or module option will show only help
 - Task definition tab (debug only): clicking on a variable shows it's value and origin
@@ -55,6 +56,8 @@
 - Faster startup: `run`/`role`/`debug`/`rerun` ~300 ms (host groups load in the background), `run`/`role` ~250 ms (no `ansible-config` call before spawning), `role`/`template` ~250 ms (shared, early `ansible-config` call)
 
 ### Fixed
+
+- Execution environments: an engine error while checking for the image (storage trouble, say) is reported as such instead of being taken for "image missing" and followed by a confusing pull; an image under `localhost/` that isn't there says to build or load it instead of trying to pull from a registry called `localhost`
 
 - Execution environments: `extra_mounts` entries are checked at startup, before the image is pulled: a source that doesn't exist, an unknown option, a relative destination, or a destination tangsible already uses is reported with the entry and a hint instead of surfacing as an engine error after the run failed; `~`/`$VAR` are expanded, a relative source is taken from the working directory (an engine would read it as a named volume), and `ro,z`-style option lists are accepted
 

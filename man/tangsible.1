@@ -156,7 +156,7 @@ use the host'\&s own network stack, for DNS or routing problems), \fBselinux\fR 
 (forward \fB$SSH_AUTH_SOCK\fR, default true; mount the public host key files
 \fB~/.\&ssh/known_hosts\fR and \fB/etc/ssh/ssh_known_hosts\fR read-only, default true;
 and mount all of \fB~/.\&ssh\fR read-only, default false
-because it exposes private keys to the image) and \fBextra_mounts\fR (a list of \fBSOURCE:DESTINATION[:OPTIONS]\fR, OPTIONS a comma-separated list of \fBro\fR, \fBrw\fR, \fBz\fR, \fBZ\fR, \fBO\fR; \fB~\fR and \fB$VAR\fR are expanded, the source must exist, and mistakes are reported at startup).\& \fB--ee\fR and
+because it exposes private keys to the image) and \fBpull_policy\fR (\fB"missing"\fR, the default, pulls only an image that isn'\&t there; \fB"always"\fR refreshes it once per session; \fB"never"\fR; \fB"tag"\fR refreshes a \fBlatest\fR tag; an image under \fBlocalhost/\fR is never pulled), \fBpull_arguments\fR (extra arguments for the engine'\&s pull) and \fBextra_mounts\fR (a list of \fBSOURCE:DESTINATION[:OPTIONS]\fR, OPTIONS a comma-separated list of \fBro\fR, \fBrw\fR, \fBz\fR, \fBZ\fR, \fBO\fR; \fB~\fR and \fB$VAR\fR are expanded, the source must exist, and mistakes are reported at startup).\& \fB--ee\fR and
 \fB--no-ee\fR override the image per invocation.\& See \fBtangsible-run\fR(1).\&
 .PP
 .SH FILES

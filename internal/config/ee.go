@@ -20,7 +20,16 @@ type EESettings struct {
 	// host-key checking works without exposing private keys.
 	SSHKnownHosts bool
 	ExtraMounts   []string
+	// PullPolicy is one of EEPullPolicies ("missing" by default);
+	// PullArguments are extra arguments for the engine's pull.
+	PullPolicy    string
+	PullArguments []string
 }
+
+// EEPullPolicies are the accepted pull_policy values (the same list as
+// ee.PullPolicies, which config deliberately doesn't import; a test keeps
+// them equal).
+var EEPullPolicies = []string{"always", "missing", "never", "tag"}
 
 // eeEngines and eeSELinuxModes are the accepted values of the two
 // fixed-choice keys; "" (unset) is always fine.
@@ -44,6 +53,10 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 		if len(m.ExtraMounts) == 0 {
 			m.ExtraMounts = e.ExtraMounts
 		}
+		m.PullPolicy = firstNonEmpty(m.PullPolicy, e.PullPolicy)
+		if len(m.PullArguments) == 0 {
+			m.PullArguments = e.PullArguments
+		}
 	}
 }
 
@@ -62,6 +75,11 @@ func EEFromSettings(cfg SettingsConfig) EESettings {
 		SSHDir:        e.SSHDir != nil && *e.SSHDir,
 		SSHKnownHosts: e.SSHKnownHosts == nil || *e.SSHKnownHosts,
 		ExtraMounts:   e.ExtraMounts,
+		PullPolicy:    "missing",
+		PullArguments: e.PullArguments,
+	}
+	if pol := strings.ToLower(strings.TrimSpace(e.PullPolicy)); containsString(EEPullPolicies, pol) {
+		s.PullPolicy = pol
 	}
 	if eng := strings.ToLower(e.Engine); containsString(eeEngines, eng) {
 		s.Engine = eng

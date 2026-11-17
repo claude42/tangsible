@@ -44,6 +44,8 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # ssh_agent = true            # forward $SSH_AUTH_SOCK
 # ssh_known_hosts = true      # mount ~/.ssh/known_hosts and /etc/ssh/ssh_known_hosts (public host keys)
 # ssh_dir = false             # mount ~/.ssh read-only (known_hosts, config - but also your keys)
+# pull_policy = "missing"     # "missing" | "always" | "never" | "tag" - when to pull the image
+# pull_arguments = []         # extra arguments for the pull, e.g. ["--tls-verify=false"]
 # extra_mounts = []           # ["SOURCE:DESTINATION[:ro,z,...]", e.g. "~/.aws:/runner/home/.aws:ro"]
 
 [colors]
