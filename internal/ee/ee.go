@@ -177,6 +177,9 @@ func Build(in Inputs) (*Plan, error) {
 	}
 
 	p := &Plan{Engine: engine}
+	if w := broadRoot(root, in.HomeDir); w != "" {
+		p.Warnings = append(p.Warnings, w)
+	}
 	m := &mapper{cwd: in.Cwd, root: root, exists: exists, isDir: isDir, plan: p, home: in.HomeDir, env: hostEnv}
 	p.Mounts = append(p.Mounts, Mount{Host: root, Container: root, ReadOnly: in.ReadOnly})
 	p.Workdir = filepath.Clean(in.Cwd)
@@ -536,6 +539,27 @@ func systemDir(path string) string {
 		}
 	}
 	return ""
+}
+
+// broadRoot describes why mounting root, read-write, hands the container far
+// more than a project: it is the user's home directory (keys, tokens and
+// shell history included) or a directory above it (a playbook in /home/a run
+// from /home/b makes /home the root). "" for an ordinary project directory.
+func broadRoot(root, home string) string {
+	root = filepath.Clean(root)
+	var what string
+	switch {
+	case home != "" && root == filepath.Clean(home):
+		what = "your home directory"
+	case home != "" && strings.HasPrefix(filepath.Clean(home), root+string(filepath.Separator)):
+		what = root + ", which contains your home directory"
+	case root == "/home" || root == "/root" || root == "/Users":
+		what = root
+	default:
+		return ""
+	}
+	return "the project directory is " + what + ", and all of it is mounted into the container (including anything like ~/.ssh and tokens): run from the project's own directory instead" +
+		" (or set read_only = true to at least stop writes)"
 }
 
 // mapper makes the paths an invocation names available in the container.

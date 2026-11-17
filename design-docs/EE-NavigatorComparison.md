@@ -125,7 +125,7 @@ SELinux auto-detection.
     tag, pull policy and "pull needed" before pulling. We had to read `ps` to
     see our own command when a new image stalled for 34 s (the first
     `--userns=keep-id` start of an image re-owns its layers, silently).
-11. **Mount-safety**: runner refuses to mount `/`, `/home`, `/usr`
+11. **(Fixed as a warning: `broadRoot`, see `ExecutionEnvironments.md`.) Mount-safety**: runner refuses to mount `/`, `/home`, `/usr`
     (`_ensure_path_safe_to_mount`). We refuse `/` and a list of system
     directories but not `/home` - a playbook in `/home/a` run from `/home/b`
     makes `/home` the root - nor `$HOME` itself when the project *is* the home

@@ -1050,3 +1050,36 @@ func TestCheckEnv(t *testing.T) {
 		t.Errorf("a prefix is not a reserved name: %v", err)
 	}
 }
+
+func TestBroadRoot(t *testing.T) {
+	for _, c := range []struct {
+		root, home string
+		warn       bool
+	}{
+		{"/home/u/proj", "/home/u", false},
+		{"/home/u", "/home/u", true},
+		{"/home/u/", "/home/u", true},
+		{"/home", "/home/u", true},
+		{"/home", "", true},
+		{"/srv/ansible", "/home/u", false},
+		{"/home/u/proj", "", false},
+		{"/home/ux", "/home/u", false},
+	} {
+		if got := broadRoot(c.root, c.home) != ""; got != c.warn {
+			t.Errorf("broadRoot(%q, %q) warns = %v, want %v", c.root, c.home, got, c.warn)
+		}
+	}
+}
+
+func TestHomeAsProjectWarns(t *testing.T) {
+	in := base()
+	in.HomeDir = "/home/u"
+	if w := build(t, in).Warnings; len(w) != 0 {
+		t.Errorf("an ordinary project should not warn: %v", w)
+	}
+	in.Cwd = "/home/u"
+	w := build(t, in).Warnings
+	if len(w) != 1 || !strings.Contains(w[0], "your home directory") {
+		t.Errorf("running from $HOME should warn once: %v", w)
+	}
+}

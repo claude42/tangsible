@@ -905,3 +905,12 @@ in mind if both are picked up around the same time.
   these mounts as to every other. Verified
   (`TestE2E_EE_FactCacheAndLogOutsideProjectAreShared`): fails without the
   change (empty cache, no recap in the log), passes with it.
+- **Broad mount root (comparison item 11):** the project root is where the
+  working directory and the playbook meet, so `tangsible run` from `$HOME`, or
+  a playbook in `/home/a` run from `/home/b`, mounted a whole home (or `/home`)
+  read-write, keys and tokens included. `/` and the system directories were
+  already refused; now `broadRoot` adds a warning (after exit, once) when the
+  root is `$HOME`, contains it, or is `/home`, `/root` or `/Users`. A warning,
+  not an error: running from the home directory is sometimes deliberate, and
+  `read_only = true` limits the damage. Neither navigator nor runner guards
+  `$HOME` itself (runner refuses `/`, `/home`, `/usr`).
