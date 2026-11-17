@@ -464,6 +464,27 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
     sits before it when the copy created the file). Lethe's extra warning
     ("Module invocation had junk after the JSON data") appears in both
     modes. No containers or scratch files left over.
+- **Short host names (found with a playbook that uses no FQDNs):**
+  podman builds the container's `resolv.conf` from the host's: it copies
+  `nameserver`, `options` and a `search` line but **drops a `domain` line**,
+  with the default network and with `--network=host` alike (checked on
+  podman 5.4: the container's file had no search or domain line, and
+  `shunya` did not resolve while `shunya.aw.net` did). `--dns-search aw.net`
+  makes the short name resolve in both modes. `ee.DomainOnlySearch` parses
+  the host's file (the last `domain` counts; a `search` line anywhere
+  means "leave it to the engine"; only hostname-shaped values are accepted,
+  since the result goes onto a command line) and `baseEEInputs` passes the
+  result as `Inputs.DNSSearch`, so the playbook run and every helper run
+  (probe, Docs, File, ...) get `--dns-search=<domain>`. Verified with an
+  inventory entry `shunya` (no domain), host `resolv.conf` `domain aw.net`,
+  `network = "host"`: before the change the EE run failed with `Could not
+  resolve hostname shunya`, after it the outcome is the same as the host run
+  (the name resolves; the run then stopped at authentication, because the
+  test hosts had rejected the key by then - the error text is what
+  distinguishes the two). Not covered: a generic way to pass engine
+  options (as ansible-navigator's `--container-options`), a possible later
+  addition (it would need guarding against the flags the builder owns); only
+  this one gap is closed automatically.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

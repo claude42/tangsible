@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -67,5 +68,27 @@ func TestEventFIFOLifecycle(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("scratch dir not removed: %v", err)
+	}
+}
+
+func TestHostDNSSearch(t *testing.T) {
+	old := resolvConfPath
+	defer func() { resolvConfPath = old }()
+
+	resolvConfPath = filepath.Join(t.TempDir(), "resolv.conf")
+	if got := hostDNSSearch(); got != nil {
+		t.Errorf("missing file: %q, want nil", got)
+	}
+	if err := os.WriteFile(resolvConfPath, []byte("domain aw.net\nnameserver 127.0.0.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := hostDNSSearch(); !reflect.DeepEqual(got, []string{"aw.net"}) {
+		t.Errorf("domain file: %q, want [aw.net]", got)
+	}
+	if err := os.WriteFile(resolvConfPath, []byte("search aw.net\nnameserver 127.0.0.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := hostDNSSearch(); got != nil {
+		t.Errorf("search file: %q, want nil (the engine copies a search line)", got)
 	}
 }

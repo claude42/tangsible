@@ -448,3 +448,54 @@ func TestSSHAgentSkippedUnderRelabelModes(t *testing.T) {
 		}
 	}
 }
+
+func TestDomainOnlySearch(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"domain only (the dropped case)", "domain aw.net\nnameserver 127.0.0.1\n", []string{"aw.net"}},
+		{"search is left to the engine", "search aw.net corp.example\nnameserver 10.0.0.1\n", nil},
+		{"search wins when both exist", "domain aw.net\nsearch other.example\n", nil},
+		{"search wins even when it comes first", "search other.example\ndomain aw.net\n", nil},
+		{"neither directive", "nameserver 127.0.0.53\noptions edns0\n", nil},
+		{"the last domain counts", "domain first.example\ndomain aw.net\n", []string{"aw.net"}},
+		{"comments and blank lines", "# domain nope.example\n; domain nope2.example\n\n  domain  aw.net  \n", []string{"aw.net"}},
+		{"tabs", "domain\taw.net\n", []string{"aw.net"}},
+		{"domain without a value", "domain\nnameserver 1.1.1.1\n", nil},
+		{"a flag-shaped value is ignored", "domain --privileged\n", nil},
+		{"a value with a space-separated extra is cut to the first word", "domain aw.net extra\n", []string{"aw.net"}},
+		{"empty file", "", nil},
+	}
+	for _, c := range cases {
+		if got := DomainOnlySearch(c.in); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: DomainOnlySearch(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestDNSSearchFlags(t *testing.T) {
+	in := base()
+	if joined := strings.Join(build(t, in).Argv, " "); strings.Contains(joined, "--dns-search") {
+		t.Errorf("no search domain given, yet: %q", joined)
+	}
+	in.DNSSearch = []string{"aw.net", "corp.example"}
+	argv := build(t, in).Argv
+	for _, want := range []string{"--dns-search=aw.net", "--dns-search=corp.example"} {
+		found := false
+		for _, a := range argv {
+			if a == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing %s in %q", want, argv)
+		}
+	}
+	// With the host network as well: the engine drops "domain" there too.
+	in.Network = "host"
+	if !strings.Contains(strings.Join(build(t, in).Argv, " "), "--network=host --dns-search=aw.net") {
+		t.Errorf("host network: %q", build(t, in).Argv)
+	}
+}

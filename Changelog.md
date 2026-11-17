@@ -56,6 +56,8 @@
 
 ### Fixed
 
+- Execution environments: short host names resolve inside the container when the host's `resolv.conf` sets its search domain with a `domain` line (podman drops that line; tangsible now passes it as `--dns-search`)
+
 - `tangsible rerun` could hang at its password prompt when the password was typed right away: the terminal-colour query, still waiting for its reply, swallowed the keystrokes (only when `-K`/`--ask-*` came from history, not the command line)
 
 - Resolved tab: an expression using an undefined name (typically `item` in a loop) stays as written instead of failing the whole tab; the other expressions still resolve

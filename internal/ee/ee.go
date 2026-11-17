@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -69,8 +70,11 @@ type Inputs struct {
 	SSHDir        string
 	SSHKnownHosts string
 	HostEnv       []string // os.Environ()
-	ExtraEnv      []string // NAME=value set in the container (colors, json indent)
-	Name          string   // container name, for a fallback kill
+	// DNSSearch are search domains passed to the engine (--dns-search): see
+	// DomainOnlySearch for the gap they close.
+	DNSSearch []string
+	ExtraEnv  []string // NAME=value set in the container (colors, json indent)
+	Name      string   // container name, for a fallback kill
 	// Exists reports whether a host path exists; nil means os.Stat.
 	Exists func(string) bool
 }
@@ -226,6 +230,9 @@ func Build(in Inputs) (*Plan, error) {
 	if in.Network != "" {
 		argv = append(argv, "--network="+in.Network)
 	}
+	for _, d := range in.DNSSearch {
+		argv = append(argv, "--dns-search="+d)
+	}
 	if in.SELinux == "disable" {
 		argv = append(argv, "--security-opt", "label=disable")
 	}
@@ -304,6 +311,42 @@ func ShortImageName(image string) string {
 		image = image[:i+1] + digest
 	}
 	return image
+}
+
+// domainRe is what a search domain may look like: a hostname's characters.
+// resolv.conf is read from the host and the result ends up on a command
+// line, so anything else (a flag-shaped value, whitespace) is ignored.
+var domainRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$`)
+
+// DomainOnlySearch returns the search domain a host's resolv.conf names with
+// a "domain" directive when podman would lose it. The engine builds the
+// container's resolv.conf from the host's: it copies the nameserver and
+// options lines and a "search" line, but not "domain" - so on such a host a
+// short name (shunya) resolves outside the container and not inside it, with
+// the default network or --network=host alike. A file with a "search" line
+// is left to the engine, which copies it, and so is one without either
+// directive; the result is nil in both cases. Of several "domain" lines the
+// last one counts, as for glibc.
+func DomainOnlySearch(resolvConf string) []string {
+	domain := ""
+	for _, line := range strings.Split(resolvConf, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 || strings.HasPrefix(f[0], "#") || strings.HasPrefix(f[0], ";") {
+			continue
+		}
+		switch f[0] {
+		case "search":
+			return nil
+		case "domain":
+			if len(f) >= 2 {
+				domain = f[1]
+			}
+		}
+	}
+	if domain == "" || !domainRe.MatchString(domain) {
+		return nil
+	}
+	return []string{domain}
 }
 
 // SELinuxEnforcing reports whether the host's SELinux is in enforcing mode,

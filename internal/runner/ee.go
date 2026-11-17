@@ -39,6 +39,21 @@ func EEHistoryValue() string {
 
 const selinuxEnforcePath = "/sys/fs/selinux/enforce"
 
+// resolvConfPath is the host's resolver configuration (a variable only so a
+// test can point it elsewhere).
+var resolvConfPath = "/etc/resolv.conf"
+
+// hostDNSSearch is the host's "domain" search domain that the engine would
+// drop from the container's resolv.conf (ee.DomainOnlySearch); nil when the
+// file can't be read or has nothing to add.
+func hostDNSSearch() []string {
+	b, err := os.ReadFile(resolvConfPath)
+	if err != nil {
+		return nil
+	}
+	return ee.DomainOnlySearch(string(b))
+}
+
 // EnsureImage makes sure the active image is present locally, pulling it
 // (with the engine's own progress output going to w) when it isn't. It runs
 // before any TUI exists - a pull can take minutes and has nowhere to show
@@ -190,8 +205,9 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 			SELinux:     ee.ResolveSELinux(s.SELinux, enforcing),
 			ReadOnly:    s.ReadOnly,
 		},
-		Cwd:     cwd,
-		HostEnv: os.Environ(),
+		Cwd:       cwd,
+		HostEnv:   os.Environ(),
+		DNSSearch: hostDNSSearch(),
 	}
 	if s.SSHAgent {
 		if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {

@@ -139,6 +139,13 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 | `ssh_dir` | bool | `false` | mount `~/.ssh` read-only (known_hosts, config). Off by default because it also exposes private keys to the image |
 | `extra_mounts` | array of strings | `[]` | `"/host/path:/container/path[:ro]"`; the first tier that sets a non-empty list wins |
 
+Name resolution follows the host as far as the engine allows: podman builds
+the container's `resolv.conf` from the host's but drops a `domain` line (it
+copies `search`), so short host names would stop resolving. When the host's
+file has a `domain` line and no `search` line, tangsible passes that domain
+as `--dns-search` (both with the default network and with `network =
+"host"`); nothing to configure.
+
 Host `ANSIBLE_*` variables are forwarded except those holding host paths
 (`*PATH*`, `*FILE*`, `*CONFIG*`, `*HOME*`, `*DIR*`, `*PLUGINS*`,
 `ANSIBLE_LIBRARY`, `*TMP*`, `ANSIBLE_INVENTORY`), and so are proxy
