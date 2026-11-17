@@ -919,3 +919,134 @@ func TestExpandedPathThatDoesNotExistWarns(t *testing.T) {
 		t.Errorf("warnings = %q", p.Warnings)
 	}
 }
+
+func envOf(p *Plan) map[string]string {
+	m := map[string]string{}
+	for _, kv := range p.Env {
+		k, v, _ := strings.Cut(kv, "=")
+		m[k] = v
+	}
+	return m
+}
+
+func TestPassEnv(t *testing.T) {
+	in := base()
+	in.HostEnv = []string{
+		"AWS_PROFILE=prod", "AWS_REGION=eu-west-1", "AWS_SECRET_ACCESS_KEY=s3cr3t-value",
+		"KUBECONFIG=/home/u/.kube/config", "OTHER=nope", "AWSX=prefix-needs-the-underscore",
+	}
+	in.PassEnv = []string{"AWS_*", "KUBECONFIG", "NOT_SET_ANYWHERE"}
+	p := build(t, in)
+	got := envOf(p)
+	want := map[string]string{
+		"AWS_PROFILE": "prod", "AWS_REGION": "eu-west-1", "AWS_SECRET_ACCESS_KEY": "s3cr3t-value",
+		"KUBECONFIG": "/home/u/.kube/config",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("env = %v, want %v", got, want)
+	}
+	// The values travel in the engine process's own environment, never as arguments.
+	joined := strings.Join(p.Argv, "\x00")
+	for _, secret := range []string{"s3cr3t-value", "prod", "/home/u/.kube/config"} {
+		if strings.Contains(joined, secret) {
+			t.Errorf("a passed value leaked into argv: %q", secret)
+		}
+	}
+	for _, name := range []string{"AWS_PROFILE", "AWS_SECRET_ACCESS_KEY", "KUBECONFIG"} {
+		if !hasPair(p.Argv, "-e", name) {
+			t.Errorf("no bare -e %s in %q", name, p.Argv)
+		}
+	}
+}
+
+func TestSetEnv(t *testing.T) {
+	in := base()
+	in.HostEnv = []string{"ANSIBLE_FORKS=3"}
+	in.SetEnv = map[string]string{"LANG": "C.UTF-8", "ANSIBLE_FORKS": "20", "EMPTY": ""}
+	got := envOf(build(t, in))
+	// A set value beats a forwarded host value; an empty one is still set.
+	want := map[string]string{"LANG": "C.UTF-8", "ANSIBLE_FORKS": "20", "EMPTY": ""}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("env = %v, want %v", got, want)
+	}
+}
+
+// What was asked for beats the automatic filter, but never what tangsible
+// itself needs.
+func TestUserEnvPrecedence(t *testing.T) {
+	in := base()
+	in.PluginDir = "/cache/plugin"
+	in.HostEnv = []string{"ANSIBLE_CONFIG=/home/u/ansible.cfg", "ANSIBLE_ROLES_PATH=/home/u/roles", "HOME=/home/u"}
+	in.ExtraEnv = []string{"ANSIBLE_JSON_INDENT=0"}
+	in.PassEnv = []string{"ANSIBLE_CONFIG", "HOME"}
+	in.SetEnv = map[string]string{"ANSIBLE_JSON_INDENT": "4", "SSH_AUTH_SOCK": "/evil", "ANSIBLE_CALLBACK_PLUGINS": "/evil"}
+	p := build(t, in)
+	got := envOf(p)
+	if got["ANSIBLE_CONFIG"] != "/home/u/ansible.cfg" {
+		t.Errorf("an explicitly passed path-like variable was dropped: %v", got)
+	}
+	if !reflect.DeepEqual(p.Dropped, []string{"ANSIBLE_ROLES_PATH"}) {
+		t.Errorf("dropped = %q, want only the one nobody asked for", p.Dropped)
+	}
+	if got["ANSIBLE_JSON_INDENT"] != "0" {
+		t.Errorf("tangsible's own ExtraEnv must win over set_env: %v", got)
+	}
+	for _, name := range []string{"HOME", "SSH_AUTH_SOCK", "ANSIBLE_CALLBACK_PLUGINS"} {
+		if _, ok := got[name]; ok {
+			t.Errorf("%s was forwarded although tangsible sets it itself: %v", name, got)
+		}
+	}
+	if !hasPair(p.Argv, "-e", "ANSIBLE_CALLBACK_PLUGINS=/runner/plugin") || !hasPair(p.Argv, "-e", "HOME=/runner/home") {
+		t.Errorf("tangsible's own values are missing: %q", p.Argv)
+	}
+}
+
+func TestCheckEnv(t *testing.T) {
+	host := []string{"AWS_PROFILE=p", "KUBECONFIG=/k"}
+	ok := func(pass []string, set map[string]string) []string {
+		t.Helper()
+		w, err := CheckEnv(pass, set, host)
+		if err != nil {
+			t.Fatalf("CheckEnv(%q, %v): %v", pass, set, err)
+		}
+		return w
+	}
+	if w := ok([]string{"AWS_*", "KUBECONFIG"}, map[string]string{"LANG": "C"}); len(w) != 0 {
+		t.Errorf("clean config warned: %q", w)
+	}
+	w := ok([]string{"NOT_SET", "GOOGLE_*"}, nil)
+	if len(w) != 2 || !strings.Contains(w[0], "NOT_SET is not set") || !strings.Contains(w[1], `"GOOGLE_*" matches no variable`) {
+		t.Errorf("warnings = %q", w)
+	}
+
+	bad := []struct {
+		pass []string
+		set  map[string]string
+		want []string
+	}{
+		{[]string{"*"}, nil, []string{"whole environment"}},
+		{[]string{"1BAD"}, nil, []string{`pass_env entry "1BAD"`, "not a valid variable name"}},
+		{[]string{"A B"}, nil, []string{"not a valid variable name"}},
+		{[]string{"A=B"}, nil, []string{"not a valid variable name"}},
+		{[]string{"HOME"}, nil, []string{`pass_env entry "HOME": tangsible sets this variable itself`}},
+		{nil, map[string]string{"SSH_AUTH_SOCK": "x"}, []string{`set_env entry "SSH_AUTH_SOCK": tangsible sets this variable itself`}},
+		{nil, map[string]string{"has space": "x"}, []string{`set_env entry "has space"`}},
+		{[]string{"HOME", "9"}, map[string]string{"TANGSIBLE_EVENT_FILE": "x"}, []string{"HOME", "9", "TANGSIBLE_EVENT_FILE"}}, // every problem at once
+	}
+	for _, c := range bad {
+		_, err := CheckEnv(c.pass, c.set, host)
+		if err == nil {
+			t.Errorf("CheckEnv(%q, %v): want an error", c.pass, c.set)
+			continue
+		}
+		for _, part := range c.want {
+			if !strings.Contains(err.Error(), part) {
+				t.Errorf("CheckEnv(%q, %v): %q lacks %q", c.pass, c.set, err, part)
+			}
+		}
+	}
+	// A prefix that merely begins like a reserved name is fine.
+	if _, err := CheckEnv([]string{"HOME_*", "ANSIBLE_*"}, nil, host); err != nil {
+		t.Errorf("a prefix is not a reserved name: %v", err)
+	}
+}

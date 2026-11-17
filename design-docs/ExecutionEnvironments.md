@@ -588,6 +588,29 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   code (`runner/ee_test.go`: every policy, once-per-session, engine error,
   engine missing, pull arguments), and an e2e test that needs podman but no
   image.
+- **`pass_env` / `set_env` (comparison item 4):** only `ANSIBLE_*`,
+  proxy variables and `NO_COLOR` reached the container, so cloud credentials
+  and tool settings (`AWS_*`, `KUBECONFIG`, `VAULT_ADDR`, ...) had no way in.
+  Navigator has `--penv`/`--senv` (and `execution-environment.environment-variables.pass/set`,
+  warning about a passed variable that isn't set); runner just takes an env
+  dict. Here: config keys `pass_env` (names, or `PREFIX_*`; never a bare `*`)
+  and `set_env` (table), applied in `forwardEnv` with this precedence:
+  tangsible's own (`HOME`, plugin path, event file, agent socket, JSON indent,
+  `ExtraEnv`) > `set_env` > `pass_env` > the automatic filter, so naming a
+  path-like `ANSIBLE_*` variable overrides its being dropped (the user knows
+  what it means) while the reserved ones can never be overridden - `CheckEnv`
+  rejects them with the other malformed names at startup (exit 2, every
+  problem listed), and the builder skips them anyway. Values still travel as a
+  bare `-e NAME` plus the engine process's environment (a unit test checks
+  none appears in argv). Across the config tiers `pass_env` adds up and
+  `set_env` merges per name. The same environment reaches the helper runs
+  (Docs/File/Resolved), since they share `baseEEInputs`. Variables that hold a
+  *path* need a matching mount; mounts at the same path on both sides keep
+  the value valid (the `~/.aws:~/.aws:ro` recipe in `ConfigOptions.md`) - the
+  open design question of forwarding-and-mounting path values automatically
+  stays with comparison item 3. Verified in a real container: a prefix and a
+  name arrive, an unlisted variable and an unset one don't, a `set_env` value
+  does.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

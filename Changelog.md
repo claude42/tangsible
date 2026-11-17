@@ -27,6 +27,7 @@
 - `host`/`template`: tabs still loading or rendering show a busy spinner next to their placeholder text
 - `role`: accepts a fully qualified collection role name (`namespace.collection.role`)
 - Roles outside the projec t (`~/.ansible/roles`, `/etc/ansible/roles`, `role_path`, inside collections (`namespace.collection.role`), roles used via a play's `collections:`, roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are now found too
+- Execution environments: `pass_env` passes listed host environment variables (names or `PREFIX_*`) into the container and `set_env` sets fixed values there, for cloud credentials and tool settings; a variable that holds a path also needs an `extra_mounts` entry (mounts keep their host path, so the value stays valid)
 - Execution environments: `pull_policy` (`missing`, `always`, `never`, `tag`) says when the image is pulled, and `pull_arguments` passes extra arguments to the pull (`--tls-verify=false`, `--authfile=...`)
 - YAML tabs show comments (a `# ...` line or a trailing `# ...`) in the annotation colour instead of the value colour
 - Task definition tab: Click on a task keyword keyword or module option will show only help

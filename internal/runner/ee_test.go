@@ -294,3 +294,27 @@ func TestPullPolicyListsAgree(t *testing.T) {
 		t.Errorf("config.EEPullPolicies = %q, ee.PullPolicies = %q", config.EEPullPolicies, ee.PullPolicies)
 	}
 }
+
+func TestValidateExecutionEnvironment(t *testing.T) {
+	t.Setenv("TANGSIBLE_TEST_PASSED", "x")
+	defer SetExecutionEnvironment(nil)
+
+	SetExecutionEnvironment(nil)
+	if w, err := ValidateExecutionEnvironment(); w != nil || err != nil {
+		t.Errorf("no execution environment: %q, %v", w, err)
+	}
+	SetExecutionEnvironment(&config.EESettings{Image: "i", Engine: "podman",
+		PassEnv: []string{"TANGSIBLE_TEST_PASSED", "TANGSIBLE_TEST_NOT_SET"}, SetEnv: map[string]string{"LANG": "C"}})
+	w, err := ValidateExecutionEnvironment()
+	if err != nil || len(w) != 1 || !strings.Contains(w[0], "TANGSIBLE_TEST_NOT_SET is not set") {
+		t.Errorf("valid settings: warnings %q, err %v", w, err)
+	}
+	SetExecutionEnvironment(&config.EESettings{Image: "i", Engine: "podman", SetEnv: map[string]string{"HOME": "/x"}})
+	if _, err := ValidateExecutionEnvironment(); err == nil || !strings.Contains(err.Error(), `set_env entry "HOME"`) {
+		t.Errorf("reserved name: %v", err)
+	}
+	SetExecutionEnvironment(&config.EESettings{Image: "i", Engine: "podman", ExtraMounts: []string{"/tangsible-no-such-dir:/x"}})
+	if _, err := ValidateExecutionEnvironment(); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("mount error must still be reported first: %v", err)
+	}
+}

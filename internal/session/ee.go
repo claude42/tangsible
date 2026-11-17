@@ -38,10 +38,14 @@ func extractEEFlags(v config.Verb, args []string) (config.EEOverride, []string) 
 func activateExecutionEnvironment(o config.EEOverride, recorded string) {
 	s := config.ResolveEEWithHistory(config.MergedSettingsConfig(), o, recorded)
 	runner.SetExecutionEnvironment(s)
-	if err := runner.ValidateExecutionEnvironment(); err != nil {
+	warnings, err := runner.ValidateExecutionEnvironment()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "tangsible:", err)
-		fmt.Fprintln(os.Stderr, "tangsible: hint: [execution_environment] extra_mounts entries read SOURCE:DESTINATION[:OPTIONS], OPTIONS a comma-separated list of ro, rw, z, Z, O; ~ and $VAR are expanded")
+		fmt.Fprintln(os.Stderr, "tangsible: hint: [execution_environment] extra_mounts entries read SOURCE:DESTINATION[:OPTIONS], OPTIONS a comma-separated list of ro, rw, z, Z, O (~ and $VAR are expanded); pass_env lists variable names or AWS_*-style prefixes, set_env is a table of NAME = \"value\"")
 		os.Exit(2)
+	}
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "tangsible: warning:", w)
 	}
 	if err := runner.EnsureImage(os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "tangsible:", err)

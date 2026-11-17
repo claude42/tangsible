@@ -62,22 +62,27 @@ func hostDNSSearch() []string {
 }
 
 // ValidateExecutionEnvironment checks the active setting against the host
-// before anything is pulled or started - today the extra_mounts entries (a
-// source that doesn't exist, an unknown option, a clashing destination): the
-// same rules Build applies at every spawn, reported here once, early, as a
-// usage error instead of a failed first run. A no-op without an active
+// before anything is pulled or started: the extra_mounts entries (a source
+// that doesn't exist, an unknown option, a clashing destination) and the
+// pass_env/set_env entries (bad or reserved names). Those are the rules Build
+// applies at every spawn, reported here once, early, as a usage error instead
+// of a failed first run. The warnings (a passed variable that isn't set) are
+// for the caller to show. A no-op without an active
 // execution environment.
-func ValidateExecutionEnvironment() error {
+func ValidateExecutionEnvironment() (warnings []string, err error) {
 	s := ExecutionEnvironment()
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	home, _ := os.UserHomeDir()
-	return ee.CheckExtraMounts(s.ExtraMounts, cwd, home, os.Environ(), nil)
+	if err := ee.CheckExtraMounts(s.ExtraMounts, cwd, home, os.Environ(), nil); err != nil {
+		return nil, err
+	}
+	return ee.CheckEnv(s.PassEnv, s.SetEnv, os.Environ())
 }
 
 // refreshed records the images this process has already tried to refresh: a
@@ -310,6 +315,8 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 		Cwd:       cwd,
 		HostEnv:   os.Environ(),
 		DNSSearch: hostDNSSearch(),
+		PassEnv:   s.PassEnv,
+		SetEnv:    s.SetEnv,
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		in.HomeDir = home

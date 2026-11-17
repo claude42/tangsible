@@ -246,3 +246,51 @@ func TestPullPolicyWarning(t *testing.T) {
 		t.Errorf("a valid policy (any case) warned: %q", pendingWarnings)
 	}
 }
+
+func TestEnvSettingsMergeAcrossTiers(t *testing.T) {
+	var project, global, system, merged SettingsConfig
+	project.ExecutionEnvironment.PassEnv = []string{"KUBECONFIG", "AWS_PROFILE"}
+	global.ExecutionEnvironment.PassEnv = []string{"AWS_PROFILE", "AWS_*"}
+	system.ExecutionEnvironment.PassEnv = []string{"HTTPS_PROXY"}
+	project.ExecutionEnvironment.SetEnv = map[string]string{"LANG": "project"}
+	global.ExecutionEnvironment.SetEnv = map[string]string{"LANG": "global", "TZ": "UTC"}
+	mergeEE(&merged, project, global, system)
+	e := merged.ExecutionEnvironment
+	if want := []string{"KUBECONFIG", "AWS_PROFILE", "AWS_*", "HTTPS_PROXY"}; !reflect.DeepEqual(e.PassEnv, want) {
+		t.Errorf("pass_env = %q, want the union %q", e.PassEnv, want)
+	}
+	if want := map[string]string{"LANG": "project", "TZ": "UTC"}; !reflect.DeepEqual(e.SetEnv, want) {
+		t.Errorf("set_env = %v, want %v (per name, the project wins)", e.SetEnv, want)
+	}
+	got := EEFromSettings(merged)
+	if !reflect.DeepEqual(got.PassEnv, e.PassEnv) || !reflect.DeepEqual(got.SetEnv, e.SetEnv) {
+		t.Errorf("EEFromSettings dropped them: %+v", got)
+	}
+}
+
+func TestEnvSettingsFromTOML(t *testing.T) {
+	pendingWarnings = nil
+	t.Cleanup(func() { pendingWarnings = nil })
+	path := writeConfig(t, `[execution_environment]
+image = "i"
+pass_env = ["AWS_*", "KUBECONFIG"]
+
+[execution_environment.set_env]
+LANG = "C.UTF-8"
+ANSIBLE_FORKS = "20"
+`)
+	cfg := ReadSettingsConfig(path)
+	e := cfg.ExecutionEnvironment
+	if !reflect.DeepEqual(e.PassEnv, []string{"AWS_*", "KUBECONFIG"}) ||
+		!reflect.DeepEqual(e.SetEnv, map[string]string{"LANG": "C.UTF-8", "ANSIBLE_FORKS": "20"}) {
+		t.Errorf("parsed = %+v", e)
+	}
+	if len(pendingWarnings) != 0 {
+		t.Errorf("valid keys warned (an undecoded-key false positive?): %q", pendingWarnings)
+	}
+	// Inline-table form too.
+	cfg = ReadSettingsConfig(writeConfig(t, "[execution_environment]\nimage = \"i\"\nset_env = { TZ = \"UTC\" }\n"))
+	if !reflect.DeepEqual(cfg.ExecutionEnvironment.SetEnv, map[string]string{"TZ": "UTC"}) || len(pendingWarnings) != 0 {
+		t.Errorf("inline table: %+v, warnings %q", cfg.ExecutionEnvironment.SetEnv, pendingWarnings)
+	}
+}

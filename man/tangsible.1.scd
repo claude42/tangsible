@@ -116,7 +116,7 @@ use the host's own network stack, for DNS or routing problems), *selinux* (*"aut
 (forward *$SSH_AUTH_SOCK*, default true; mount the public host key files
 *~/.ssh/known_hosts* and */etc/ssh/ssh_known_hosts* read-only, default true;
 and mount all of *~/.ssh* read-only, default false
-because it exposes private keys to the image) and *pull_policy* (*"missing"*, the default, pulls only an image that isn't there; *"always"* refreshes it once per session; *"never"*; *"tag"* refreshes a *latest* tag; an image under *localhost/* is never pulled), *pull_arguments* (extra arguments for the engine's pull) and *extra_mounts* (a list of *SOURCE:DESTINATION[:OPTIONS]*, OPTIONS a comma-separated list of *ro*, *rw*, *z*, *Z*, *O*; *~* and *$VAR* are expanded, the source must exist, and mistakes are reported at startup). *--ee* and
+because it exposes private keys to the image) and *pass_env* (host environment variables to pass into the container: names, or name prefixes ending in an asterisk such as AWS_ plus the asterisk; a variable holding a path also needs an *extra_mounts* entry), *set_env* (a table of *NAME = "value"*), *pull_policy* (*"missing"*, the default, pulls only an image that isn't there; *"always"* refreshes it once per session; *"never"*; *"tag"* refreshes a *latest* tag; an image under *localhost/* is never pulled), *pull_arguments* (extra arguments for the engine's pull) and *extra_mounts* (a list of *SOURCE:DESTINATION[:OPTIONS]*, OPTIONS a comma-separated list of *ro*, *rw*, *z*, *Z*, *O*; *~* and *$VAR* are expanded, the source must exist, and mistakes are reported at startup). *--ee* and
 *--no-ee* override the image per invocation. See *tangsible-run*(1).
 
 # FILES

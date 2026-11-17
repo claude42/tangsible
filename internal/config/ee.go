@@ -24,6 +24,10 @@ type EESettings struct {
 	// PullArguments are extra arguments for the engine's pull.
 	PullPolicy    string
 	PullArguments []string
+	// PassEnv are host variables to pass into the container (names, or
+	// prefixes ending in *); SetEnv are values to set there.
+	PassEnv []string
+	SetEnv  map[string]string
 }
 
 // EEPullPolicies are the accepted pull_policy values (the same list as
@@ -53,6 +57,23 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 		if len(m.ExtraMounts) == 0 {
 			m.ExtraMounts = e.ExtraMounts
 		}
+		// pass_env adds up across the tiers (a user-wide AWS_PROFILE and a
+		// project's KUBECONFIG are both wanted); set_env merges per name, the
+		// more specific tier winning - unlike the list keys above, where the
+		// first tier that sets one wins outright.
+		for _, name := range e.PassEnv {
+			if !containsString(m.PassEnv, name) {
+				m.PassEnv = append(m.PassEnv, name)
+			}
+		}
+		for name, val := range e.SetEnv {
+			if _, set := m.SetEnv[name]; !set {
+				if m.SetEnv == nil {
+					m.SetEnv = map[string]string{}
+				}
+				m.SetEnv[name] = val
+			}
+		}
 		m.PullPolicy = firstNonEmpty(m.PullPolicy, e.PullPolicy)
 		if len(m.PullArguments) == 0 {
 			m.PullArguments = e.PullArguments
@@ -77,6 +98,8 @@ func EEFromSettings(cfg SettingsConfig) EESettings {
 		ExtraMounts:   e.ExtraMounts,
 		PullPolicy:    "missing",
 		PullArguments: e.PullArguments,
+		PassEnv:       e.PassEnv,
+		SetEnv:        e.SetEnv,
 	}
 	if pol := strings.ToLower(strings.TrimSpace(e.PullPolicy)); containsString(EEPullPolicies, pol) {
 		s.PullPolicy = pol

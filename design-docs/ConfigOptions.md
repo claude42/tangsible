@@ -137,6 +137,8 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 | `ssh_agent` | bool | `true` | mount `$SSH_AUTH_SOCK` into the container |
 | `ssh_known_hosts` | bool | `true` | mount the host's public host key files read-only, so host-key checking behaves as on the host: `~/.ssh/known_hosts` (skipped when `ssh_dir` is true, which carries it) and the system-wide `/etc/ssh/ssh_known_hosts` (ssh reads both; hosts recorded only in the system file otherwise fail with "Host key verification failed"). Under `selinux = "z"`/`"Z"` the `/etc` file is left out with a warning, since the engine would relabel it |
 | `ssh_dir` | bool | `false` | mount `~/.ssh` read-only (known_hosts, config). Off by default because it also exposes private keys to the image |
+| `pass_env` | array of strings | `[]` | host environment variables to pass into the container: names, or a prefix ending in `*` (`"AWS_*"`; a bare `*` is refused). A listed variable that isn't set only warns, once at startup (ansible-navigator does the same). Beats the filter that drops path-valued `ANSIBLE_*` variables; the value travels in the engine process's environment, never on a command line. Lists from the project, user and system files add up |
+| `set_env` | table | `{}` | `NAME = "value"` pairs to set in the container; per name, the more specific file wins. Not allowed for the variables tangsible sets itself (`HOME`, `ANSIBLE_CALLBACK_PLUGINS`, `ANSIBLE_JSON_INDENT`, `SSH_AUTH_SOCK`, `TANGSIBLE_EVENT_FILE`/`_FD`): an error at startup, like a malformed name |
 | `pull_policy` | string: `"missing"` \| `"always"` \| `"never"` \| `"tag"` | `"missing"` | when to pull the image before a run: `missing` only if it isn't available locally; `always` refresh it once per session (a failed refresh, e.g. offline, is reported and the local copy used); `never` never, an absent image is an error with a hint; `tag` refresh an image tagged `latest` (or untagged), else like `missing`. An image under `localhost/` (a local build or a loaded archive) is never pulled whatever the policy - there is no registry - and an absent one is an error with a build/load hint. ansible-navigator defaults to `tag`; we keep `missing` so a run never needs the network once the image is there |
 | `pull_arguments` | array of strings | `[]` | extra arguments for the engine's `pull`, e.g. `["--tls-verify=false"]` or `["--authfile=~/auth.json"]`; `$VAR` and `~` (also after `--flag=`) are expanded from the host. Used for pulls only |
 | `extra_mounts` | array of strings | `[]` | `"SOURCE:DESTINATION[:OPTIONS]"`, checked at startup, before anything is pulled: `~` and `$VAR` are expanded from the host, a relative source is taken from the working directory, the source must exist, the destination must be absolute, OPTIONS is a comma-separated list of `ro`, `rw`, `z`, `Z`, `O` (`ro` with `rw`, or `z` with `Z`, is refused; an entry's own `z`/`Z` replaces the `selinux` mode's label), and a destination tangsible already uses is refused. The same mount listed twice, or once more than an automatic one such as `known_hosts`, counts once. The first tier that sets a non-empty list wins |
@@ -147,6 +149,17 @@ copies `search`), so short host names would stop resolving. When the host's
 file has a `domain` line and no `search` line, tangsible passes that domain
 as `--dns-search` (both with the default network and with `network =
 "host"`); nothing to configure.
+
+**Credentials that live in a file.** A variable like `KUBECONFIG`,
+`AWS_SHARED_CREDENTIALS_FILE` or `GOOGLE_APPLICATION_CREDENTIALS` holds a host
+*path*; passing it is not enough, the file has to exist in the container.
+Mounts are at the same path on both sides, so the value stays valid:
+
+```toml
+[execution_environment]
+pass_env = ["AWS_PROFILE", "AWS_REGION", "AWS_SHARED_CREDENTIALS_FILE"]
+extra_mounts = ["~/.aws:~/.aws:ro"]   # same path in the container, so the variable still points at it
+```
 
 Host `ANSIBLE_*` variables are forwarded except those holding host paths
 (`*PATH*`, `*FILE*`, `*CONFIG*`, `*HOME*`, `*DIR*`, `*PLUGINS*`,

@@ -80,7 +80,7 @@ SELinux auto-detection.
    `ANSIBLE_VAULT_PASSWORD_FILE` to the relative name. With identity mounts we
    can do better than either: forward the variable **and** mount the existing
    paths it names (read-only), and say once what was dropped or mounted.
-4. **No way to pass other environment variables** (only `ANSIBLE_*`, proxies,
+4. **(Fixed: `pass_env` / `set_env`, see `ExecutionEnvironments.md`.) No way to pass other environment variables** (only `ANSIBLE_*`, proxies,
    `NO_COLOR`). Cloud credentials and tool settings (`AWS_*`, `AZURE_*`,
    `GOOGLE_*`, `KUBECONFIG`, `VAULT_ADDR`, ...) are the normal reason to need
    it. Navigator: `--penv NAME` (pass; warns "not currently set, discarded")

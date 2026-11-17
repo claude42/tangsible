@@ -377,6 +377,79 @@ func TestE2E_EE_PullPolicyStopsWithAHint(t *testing.T) {
 	}
 }
 
+// pass_env and set_env: a listed variable (or prefix) reaches the container, an
+// unlisted one does not, and a set value arrives. The playbook reads them with
+// the env lookup, which runs in the container.
+func TestE2E_EE_PassEnvAndSetEnvReachTheContainer(t *testing.T) {
+	image := requireEE(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf("[execution_environment]\nimage = %q\npass_env = [\"E2E_PASS_*\", \"E2E_SINGLE\", \"E2E_NOT_SET\"]\n\n[execution_environment.set_env]\nE2E_FIXED = \"fixed-value\"\n", image)
+	if err := os.WriteFile(filepath.Join(work, ".tangsible", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var tpl []string
+	for _, name := range []string{"E2E_PASS_A", "E2E_PASS_B", "E2E_SINGLE", "E2E_FIXED", "E2E_NOT_LISTED", "E2E_NOT_SET"} {
+		tpl = append(tpl, fmt.Sprintf("%s={{ lookup('env', '%s') | default('UNSET', true) }}", name, name))
+	}
+	play := "- hosts: localhost\n  gather_facts: false\n  connection: local\n  tasks:\n" +
+		"    - ansible.builtin.copy:\n" +
+		"        content: \"" + strings.Join(tpl, " ") + "\\n\"\n" +
+		"        dest: \"{{ playbook_dir }}/out.txt\"\n"
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte(play), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && E2E_PASS_A=a E2E_PASS_B=b E2E_SINGLE=single E2E_NOT_LISTED=hidden %s %s run p.yml -i localhost,",
+		shellQuote(work), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
+	s.waitFor("Completed", 60*time.Second)
+	got, err := os.ReadFile(filepath.Join(work, "out.txt"))
+	if err != nil {
+		t.Fatalf("the playbook did not run (no out.txt); pane:\n%s", s.capture())
+	}
+	want := "E2E_PASS_A=a E2E_PASS_B=b E2E_SINGLE=single E2E_FIXED=fixed-value E2E_NOT_LISTED=UNSET E2E_NOT_SET=UNSET\n"
+	if string(got) != want {
+		t.Errorf("the container saw\n  %q\nwant\n  %q", got, want)
+	}
+	s.send("q")
+	waitNoContainers(t, 10*time.Second)
+}
+
+// Bad pass_env/set_env entries stop tangsible at startup, naming each one.
+func TestE2E_EE_BadEnvSettingsStopAtStartup(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte("- hosts: localhost\n  gather_facts: false\n  tasks: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "[execution_environment]\nimage = \"example.invalid/none:1\"\npass_env = [\"*\", \"HOME\", \"1BAD\"]\n\n[execution_environment.set_env]\nSSH_AUTH_SOCK = \"x\"\n"
+	if err := os.WriteFile(filepath.Join(work, ".tangsible", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "run", "p.yml", "-i", "localhost,")
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 {
+		t.Errorf("exit = %v, want 2\n%s", err, out)
+	}
+	for _, want := range []string{`pass_env entry "*"`, `pass_env entry "HOME"`, `pass_env entry "1BAD"`, `set_env entry "SSH_AUTH_SOCK"`, "hint:"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(string(out), "pulling") {
+		t.Errorf("it got as far as pulling:\n%s", out)
+	}
+}
+
 // A mistake in extra_mounts stops tangsible at startup - before an image is
 // pulled (the image here does not exist anywhere) or a TUI is built - with a
 // message naming the entry.

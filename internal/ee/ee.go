@@ -86,7 +86,11 @@ type Inputs struct {
 	// DomainOnlySearch for the gap they close.
 	DNSSearch []string
 	ExtraEnv  []string // NAME=value set in the container (colors, json indent)
-	Name      string   // container name, for a fallback kill
+	// PassEnv and SetEnv are the user's pass_env / set_env: host variables to
+	// pass (names, or prefixes ending in *) and fixed values to set.
+	PassEnv []string
+	SetEnv  map[string]string
+	Name    string // container name, for a fallback kill
 	// Exists reports whether a host path exists, IsDir whether it is a
 	// directory; nil means os.Stat.
 	Exists func(string) bool
@@ -258,7 +262,7 @@ func Build(in Inputs) (*Plan, error) {
 	if sock != "" {
 		fixed = append(fixed, "SSH_AUTH_SOCK="+ContainerSock)
 	}
-	forwarded, dropped := forwardEnv(in.HostEnv, in.ExtraEnv, fixed)
+	forwarded, dropped := forwardEnv(in.HostEnv, in.ExtraEnv, fixed, in.PassEnv, in.SetEnv)
 	p.Env, p.Dropped = forwarded, dropped
 
 	argv := []string{"run", "--rm", "-i"}
