@@ -76,7 +76,8 @@ The image is pulled if missing, using the existing pull logic (`runner/ee.go`,
 | Fact | Used for |
 |---|---|
 | `/etc/os-release` | pick `package_manager_path` (dnf/microdnf/apt/...) |
-| python version/path | a comment, and the `python_interpreter` stanza (`TODO` if there is none) |
+| python path (symlinks resolved), version | a comment, and the `python_interpreter` stanza (`TODO` if there is none) |
+| package owning that python | `rpm -qf` / `dpkg -S` in the image: `package_system` of the stanza |
 | pip present? | `TODO` if absent |
 | ansible-core version | a comment, and the `ansible_core` stanza (`TODO` if there is none) |
 
@@ -89,7 +90,7 @@ adjust:
 ```yaml
   # The base image has Python 3.14.10 (/usr/bin/python3) and ansible-core 2.21.6.
   # python_interpreter:
-  #   package_system: python3.14
+  #   package_system: python3
   #   python_path: /usr/bin/python3.14
   # ansible_core:
   #   package_pip: ansible-core==2.21.6
@@ -97,8 +98,16 @@ adjust:
   #   package_pip: ansible-runner
 ```
 
-`python_path` is reliable; `package_system` is the usual rpm name derived from
-the version and may differ on other distributions (the draft says so).
+`python_path` is the interpreter with symlinks resolved. `package_system` is
+the package that owns it in the image's own package database (`rpm -qf`, or
+`dpkg -S` on Debian and Ubuntu): offline, no repository metadata, and for
+`community-ee-base` it is `python3`, not the `python3.14` a guess from the
+version would give. Where no package owns it (a python.org image keeps Python
+in `/usr/local`) or the image has neither tool, `package_system` falls back to
+the usual rpm name for the version (`python3.14`) and the draft says it is a
+guess. Not done: `apt-file search`/`dnf provides` (what *could* be installed),
+which need network and repository metadata - only useful for suggesting a
+different Python than the installed one.
 
 Inspection failures degrade to `TODO` comments, never to guessed values.
 
@@ -152,7 +161,7 @@ dependencies:
   # The base image has Python 3.14.10 (/usr/bin/python3) and ansible-core 2.21.6.
   # To change them, uncomment (...):
   # python_interpreter:
-  #   package_system: python3.14
+  #   package_system: python3
   #   python_path: /usr/bin/python3.14
   # ansible_core:
   #   package_pip: ansible-core==2.21.6

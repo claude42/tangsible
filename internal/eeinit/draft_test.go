@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var microFacts = BaseFacts{PackageManager: "/usr/bin/microdnf", Python: "/usr/bin/python3", PythonVersion: "3.14.8", Pip: true, AnsibleCore: "2.21.5"}
+var microFacts = BaseFacts{PackageManager: "/usr/bin/microdnf", Python: "/usr/bin/python3", PythonReal: "/usr/bin/python3.14", PythonPackage: "python3", PythonVersion: "3.14.8", Pip: true, AnsibleCore: "2.21.5"}
 
 func TestDraftDetectedCollections(t *testing.T) {
 	got, rep := Draft(Inputs{
@@ -35,9 +35,9 @@ images:
 dependencies:
   # The base image has Python 3.14.8 (/usr/bin/python3) and ansible-core 2.21.5.
   # To change them, uncomment (python_interpreter installs that Python on top of
-  # the base image's; package_system is the distribution's package name, adjust it):
+  # the base image's; package_system is the package that owns it in the base image):
   # python_interpreter:
-  #   package_system: python3.14
+  #   package_system: python3
   #   python_path: /usr/bin/python3.14
   # ansible_core:
   #   package_pip: ansible-core==2.21.5
@@ -145,7 +145,7 @@ func TestDraftStanzaCanBeUncommented(t *testing.T) {
 		t.Fatalf("not valid after uncommenting: %v", err)
 	}
 	d := v.Dependencies
-	if d["python_interpreter"]["package_system"] != "python3.14" || d["python_interpreter"]["python_path"] != "/usr/bin/python3.14" ||
+	if d["python_interpreter"]["package_system"] != "python3" || d["python_interpreter"]["python_path"] != "/usr/bin/python3.14" ||
 		d["ansible_core"]["package_pip"] != "ansible-core==2.21.5" || d["ansible_runner"]["package_pip"] != "ansible-runner" {
 		t.Errorf("uncommented dependencies = %+v", d)
 	}
@@ -203,5 +203,27 @@ func TestDraftTemplatedIncludesReportedOnce(t *testing.T) {
 	}
 	if !strings.Contains(got, "# TODO: site.yml:30: other\n") || rep.Todos != 2 {
 		t.Errorf("other todos must stay; report = %+v\n%s", rep, got)
+	}
+}
+
+func TestStanzaPythonFacts(t *testing.T) {
+	text := func(f BaseFacts) string { return strings.Join(stanza(f), "\n") }
+	// not owned by any package (a python.org image): the real path is still
+	// known, the package is a guess and says so
+	got := text(BaseFacts{Python: "/usr/local/bin/python3", PythonReal: "/usr/local/bin/python3.12", PythonVersion: "3.12.16"})
+	for _, want := range []string{"package_system: python3.12\n", "python_path: /usr/local/bin/python3.12\n", "a guess at the distribution's package name"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	// nothing known: the usual names for the version, or plain python3
+	if got := text(BaseFacts{PythonVersion: "3.11.2"}); !strings.Contains(got, "package_system: python3.11\n") || !strings.Contains(got, "python_path: /usr/bin/python3.11\n") {
+		t.Errorf("guess:\n%s", got)
+	}
+	if got := text(BaseFacts{}); !strings.Contains(got, "To add them, uncomment") || strings.Contains(got, "on top of") {
+		t.Errorf("no python in the image, so nothing to change:\n%s", got)
+	}
+	if got := text(BaseFacts{}); !strings.Contains(got, "package_system: python3\n") || !strings.Contains(got, "package_pip: ansible-core\n") {
+		t.Errorf("no facts:\n%s", got)
 	}
 }

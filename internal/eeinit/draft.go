@@ -283,23 +283,41 @@ func orUnknown(v string) string {
 
 // stanza is the commented-out part of dependencies the user can uncomment
 // to change the interpreter or ansible, filled in with what the base image
-// has. The package name for the interpreter is the usual rpm one
-// (python3.14); other distributions name it differently, hence the note.
+// has. The interpreter's real path and owning package come from the probe
+// (the package from the image's own package database); a package it couldn't
+// find is replaced by the usual rpm name for the version (python3.14), which
+// other distributions may not share, and the note says so.
 func stanza(f BaseFacts) []string {
 	py := "python3"
 	if parts := strings.Split(f.PythonVersion, "."); len(parts) >= 2 {
 		py = "python" + parts[0] + "." + parts[1]
 	}
+	pkg, path := py, "/usr/bin/"+py
+	if f.PythonReal != "" {
+		path = f.PythonReal
+	}
+	if f.PythonPackage != "" {
+		pkg = f.PythonPackage
+	}
 	core := "ansible-core"
 	if f.AnsibleCore != "" {
 		core += "==" + f.AnsibleCore
 	}
+	note := "the base image's; package_system is a guess at the distribution's package name, adjust it):"
+	if f.PythonPackage != "" {
+		note = "the base image's; package_system is the package that owns it in the base image):"
+	}
+	intro := "To change them, uncomment (python_interpreter installs that Python on top of"
+	if f.Python == "" {
+		intro = "To add them, uncomment (python_interpreter installs that Python;"
+		note = "package_system is a guess at the distribution's package name, adjust it):"
+	}
 	return []string{
-		"To change them, uncomment (python_interpreter installs that Python on top of",
-		"the base image's; package_system is the distribution's package name, adjust it):",
+		intro,
+		note,
 		"python_interpreter:",
-		"  package_system: " + py,
-		"  python_path: /usr/bin/" + py,
+		"  package_system: " + pkg,
+		"  python_path: " + path,
 		"ansible_core:",
 		"  package_pip: " + core,
 		"ansible_runner:",

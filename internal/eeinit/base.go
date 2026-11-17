@@ -1,6 +1,7 @@
 package eeinit
 
 import (
+	"regexp"
 	"strings"
 )
 
@@ -31,9 +32,14 @@ type BaseFacts struct {
 	OS             string // pretty name from os-release
 	PackageManager string // path
 	Python         string // path
-	PythonVersion  string
-	Pip            bool
-	AnsibleCore    string
+	// PythonReal is Python with symlinks resolved; PythonPackage the
+	// package that owns it, from the image's own package database (rpm or
+	// dpkg). Either may be empty.
+	PythonReal    string
+	PythonPackage string
+	PythonVersion string
+	Pip           bool
+	AnsibleCore   string
 }
 
 // ProbeScript runs inside the base image (sh) and prints key=value lines
@@ -47,11 +53,26 @@ done
 py=$(command -v python3 2>/dev/null)
 if [ -n "$py" ]; then
   echo "python=$py"
+  real=$(readlink -f "$py" 2>/dev/null)
+  if [ -n "$real" ]; then
+    echo "python_real=$real"
+    pkg=
+    if command -v rpm >/dev/null 2>&1; then
+      pkg=$(rpm -qf --qf '%{NAME}\n' "$real" 2>/dev/null | head -1) || pkg=
+    elif command -v dpkg >/dev/null 2>&1; then
+      pkg=$(dpkg -S "$real" 2>/dev/null | head -1 | sed -e 's/: .*//' -e 's/,.*//' -e 's/:.*//') || pkg=
+    fi
+    [ -n "$pkg" ] && echo "python_pkg=$pkg"
+  fi
   echo "python_version=$($py -c 'import platform; print(platform.python_version())' 2>/dev/null)"
   $py -m pip --version >/dev/null 2>&1 && echo "pip=yes"
   echo "ansible_core=$($py -c 'import ansible.release as r; print(r.__version__)' 2>/dev/null)"
 fi
 `
+
+// packageName is what a package name can look like; the probe's output ends
+// up in the draft, so anything else is ignored.
+var packageName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]*$`)
 
 // packageManagerOrder is the preference when an image has several: the
 // community images are built with microdnf.
@@ -73,6 +94,12 @@ func ParseProbe(out string) BaseFacts {
 			pkgs = append(pkgs, v)
 		case "python":
 			f.Python = v
+		case "python_real":
+			f.PythonReal = v
+		case "python_pkg":
+			if packageName.MatchString(v) {
+				f.PythonPackage = v
+			}
 		case "python_version":
 			f.PythonVersion = v
 		case "pip":
