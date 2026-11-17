@@ -41,6 +41,9 @@ type Config struct {
 	Engine      string   // "" means DefaultEngine
 	Network     string   // "" leaves the engine's default; "host" for real remote hosts
 	ExtraMounts []string // host:container[:opts]
+	// ContainerOptions are extra `podman run` flags, passed on unchanged
+	// once CheckContainerOptions has accepted them.
+	ContainerOptions []string
 	// SELinux is already resolved (see ResolveSELinux): "disable", "z",
 	// "Z" or "none"/"".
 	SELinux string
@@ -306,6 +309,10 @@ func Build(in Inputs) (*Plan, error) {
 	if command == "" {
 		command = "ansible-playbook"
 	}
+	if err := CheckContainerOptions(in.ContainerOptions); err != nil {
+		return nil, err
+	}
+	argv = append(argv, in.ContainerOptions...)
 	argv = append(argv, in.Image, command)
 	if playbook != "" {
 		argv = append(argv, playbook)

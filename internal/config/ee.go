@@ -20,6 +20,9 @@ type EESettings struct {
 	// host-key checking works without exposing private keys.
 	SSHKnownHosts bool
 	ExtraMounts   []string
+	// ContainerOptions are extra flags for `podman run`, passed on
+	// unchanged except for the ones tangsible owns (ee.CheckContainerOptions).
+	ContainerOptions []string
 	// PullPolicy is one of EEPullPolicies ("missing" by default);
 	// PullArguments are extra arguments for the engine's pull.
 	PullPolicy    string
@@ -57,6 +60,9 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 		if len(m.ExtraMounts) == 0 {
 			m.ExtraMounts = e.ExtraMounts
 		}
+		if len(m.ContainerOptions) == 0 {
+			m.ContainerOptions = e.ContainerOptions
+		}
 		// pass_env adds up across the tiers (a user-wide AWS_PROFILE and a
 		// project's KUBECONFIG are both wanted); set_env merges per name, the
 		// more specific tier winning - unlike the list keys above, where the
@@ -88,18 +94,19 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 func EEFromSettings(cfg SettingsConfig) EESettings {
 	e := cfg.ExecutionEnvironment
 	s := EESettings{
-		Image:         strings.TrimSpace(e.Image),
-		Engine:        "podman",
-		Network:       e.Network,
-		ReadOnly:      e.ReadOnly != nil && *e.ReadOnly,
-		SSHAgent:      e.SSHAgent == nil || *e.SSHAgent,
-		SSHDir:        e.SSHDir != nil && *e.SSHDir,
-		SSHKnownHosts: e.SSHKnownHosts == nil || *e.SSHKnownHosts,
-		ExtraMounts:   e.ExtraMounts,
-		PullPolicy:    "missing",
-		PullArguments: e.PullArguments,
-		PassEnv:       e.PassEnv,
-		SetEnv:        e.SetEnv,
+		Image:            strings.TrimSpace(e.Image),
+		Engine:           "podman",
+		Network:          e.Network,
+		ReadOnly:         e.ReadOnly != nil && *e.ReadOnly,
+		SSHAgent:         e.SSHAgent == nil || *e.SSHAgent,
+		SSHDir:           e.SSHDir != nil && *e.SSHDir,
+		SSHKnownHosts:    e.SSHKnownHosts == nil || *e.SSHKnownHosts,
+		ExtraMounts:      e.ExtraMounts,
+		ContainerOptions: e.ContainerOptions,
+		PullPolicy:       "missing",
+		PullArguments:    e.PullArguments,
+		PassEnv:          e.PassEnv,
+		SetEnv:           e.SetEnv,
 	}
 	if pol := strings.ToLower(strings.TrimSpace(e.PullPolicy)); containsString(EEPullPolicies, pol) {
 		s.PullPolicy = pol

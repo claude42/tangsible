@@ -132,6 +132,8 @@ Execution-environment command builder (`design-docs/ExecutionEnvironments.md`)
   ansible-playbook flags so they get mounted (at their own path; the
   arguments themselves are unchanged).
 - **env.go** - `forwardEnv`: which host variables enter the container.
+- **options.go** - `CheckContainerOptions`: refuses `container_options`
+  flags the builder owns, naming the setting to use instead.
 - **state.go** - `StatePaths`: the fact cache directory and log file that
   ansible's effective configuration puts outside the project.
 - **smoke_test.go** - real-podman test, opt in via `TANGSIBLE_EE_IMAGE`.

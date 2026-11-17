@@ -84,6 +84,9 @@ func ValidateExecutionEnvironment() (warnings []string, err error) {
 	if err := ee.CheckExtraMounts(s.ExtraMounts, cwd, home, os.Environ(), nil); err != nil {
 		return nil, err
 	}
+	if err := ee.CheckContainerOptions(containerOptions(s.ContainerOptions)); err != nil {
+		return nil, err
+	}
 	return ee.CheckEnv(s.PassEnv, s.SetEnv, os.Environ())
 }
 
@@ -135,6 +138,9 @@ func imagePresent(engine, image string) (bool, error) {
 	}
 	return false, fmt.Errorf("couldn't check whether the image %s is available: %s", image, detail)
 }
+
+// containerOptions expands ~ and $VAR in container_options the same way.
+func containerOptions(opts []string) []string { return pullArguments(opts) }
 
 // pullArguments expands $VAR (and ~, also after "--flag=") in the configured
 // pull arguments from the host, so e.g. "--authfile=~/auth.json" works.
@@ -369,12 +375,13 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 	}
 	in := ee.Inputs{
 		Config: ee.Config{
-			Image:       s.Image,
-			Engine:      s.Engine,
-			Network:     s.Network,
-			ExtraMounts: s.ExtraMounts,
-			SELinux:     ee.ResolveSELinux(s.SELinux, enforcing),
-			ReadOnly:    s.ReadOnly,
+			Image:            s.Image,
+			Engine:           s.Engine,
+			Network:          s.Network,
+			ExtraMounts:      s.ExtraMounts,
+			ContainerOptions: containerOptions(s.ContainerOptions),
+			SELinux:          ee.ResolveSELinux(s.SELinux, enforcing),
+			ReadOnly:         s.ReadOnly,
 		},
 		Cwd:       cwd,
 		HostEnv:   os.Environ(),

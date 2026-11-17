@@ -554,6 +554,65 @@ func TestE2E_EE_PassEnvAndSetEnvReachTheContainer(t *testing.T) {
 	waitNoContainers(t, 10*time.Second)
 }
 
+// container_options reach `podman run`: a --hostname is visible to the playbook.
+func TestE2E_EE_ContainerOptionsReachTheEngine(t *testing.T) {
+	image := requireEE(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf("[execution_environment]\nimage = %q\ncontainer_options = [\"--hostname=e2e-box\"]\n", image)
+	if err := os.WriteFile(filepath.Join(work, ".tangsible", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	play := "- hosts: localhost\n  gather_facts: false\n  connection: local\n  tasks:\n" +
+		"    - ansible.builtin.copy:\n" +
+		"        content: \"{{ lookup('env', 'HOSTNAME') }}\\n\"\n" +
+		"        dest: \"{{ playbook_dir }}/out.txt\"\n"
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte(play), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s %s run p.yml -i localhost,", shellQuote(work), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
+	s.waitFor("Completed", 60*time.Second)
+	got, err := os.ReadFile(filepath.Join(work, "out.txt"))
+	if err != nil || strings.TrimSpace(string(got)) != "e2e-box" {
+		t.Errorf("the container's hostname = %q (err %v), want e2e-box", got, err)
+	}
+	s.send("q")
+	waitNoContainers(t, 10*time.Second)
+}
+
+// A container_options entry that fights tangsible's own flags stops it at startup.
+func TestE2E_EE_ForbiddenContainerOptionStopsAtStartup(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte("- hosts: localhost\n  gather_facts: false\n  tasks: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "[execution_environment]\nimage = \"example.invalid/none:1\"\ncontainer_options = [\"-v\", \"/a:/b\"]\n"
+	if err := os.WriteFile(filepath.Join(work, ".tangsible", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "run", "p.yml", "-i", "localhost,")
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 {
+		t.Errorf("exit = %v, want 2\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "container_options: -v is not allowed: use extra_mounts") {
+		t.Errorf("the refusal should say what to use instead:\n%s", out)
+	}
+	if strings.Contains(string(out), "pulling") {
+		t.Errorf("it got as far as pulling:\n%s", out)
+	}
+}
+
 // Bad pass_env/set_env entries stop tangsible at startup, naming each one.
 func TestE2E_EE_BadEnvSettingsStopAtStartup(t *testing.T) {
 	requireE2ETools(t)

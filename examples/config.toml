@@ -47,6 +47,7 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # pass_env = ["AWS_*", "KUBECONFIG"]   # host variables to pass in (names or PREFIX_*); a path-valued one also needs an extra_mounts entry
 # set_env = { LANG = "C.UTF-8" }       # variables to set in the container
 # pull_policy = "missing"     # "missing" | "always" | "never" | "tag" - when to pull the image
+# container_options = []      # extra `podman run` flags, e.g. ["--cap-add=NET_RAW", "--memory=2g"]; -v, -e, --userns, --network ... are refused (see the docs)
 # pull_arguments = []         # extra arguments for the pull, e.g. ["--tls-verify=false"]
 # extra_mounts = []           # ["SOURCE:DESTINATION[:ro,z,...]", e.g. "~/.aws:/runner/home/.aws:ro"]
 

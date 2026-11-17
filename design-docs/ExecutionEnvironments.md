@@ -921,3 +921,23 @@ in mind if both are picked up around the same time.
   `ANSIBLE_REMOTE_TEMP` and `ANSIBLE_FACT_PATH` name paths on the managed host
   and are forwarded now. Automatic mounting is deferred, with its design, in
   `EE-NavigatorComparison.md`.
+- **`container_options` (comparison item 9):** a flat list of extra `podman run`
+  flags, placed after tangsible's own and right before the image, for what no
+  dedicated key covers (capabilities, devices, memory limits, `--env-file`,
+  `--hostname`, ...). Navigator passes its equivalent unvalidated; here
+  `ee.CheckContainerOptions` (pure, called by `Build` and at startup) refuses
+  the flags the builder owns, because a clash is either a confusing podman
+  error (`duplicate mount destination`) or silently breaks tangsible: the user
+  mapping (`--userns`, `--user`, `--passwd-entry`: keep-id and the home
+  directory depend on them), mounts (`-v`, `--mount`: `extra_mounts` validates
+  and de-duplicates), environment (`-e`: values would sit on the command line;
+  `pass_env`/`set_env` keep them off, `--env-file` is allowed), `--network`,
+  `--security-opt label=...` (the `selinux` key), `-w`, `--name` (the fallback
+  kill needs it), `--entrypoint`, the stdio flags `-i -t -d -a`, and `--tmpfs`
+  over the home. Each refusal names the setting to use instead. Everything else
+  is trusted: `--security-opt seccomp=...`, other `--tmpfs`, `-p` and so on work.
+  Not covered: a flag whose value is in a separate token that itself looks like
+  a flag, and combined short flags other than switches such as `-it`. `~`/`$VAR`
+  expand as in `pull_arguments`. Verified: unit tests for the guard,
+  `TestE2E_EE_ContainerOptionsReachTheEngine` (a `--hostname` is seen by the
+  playbook) and `TestE2E_EE_ForbiddenContainerOptionStopsAtStartup`.

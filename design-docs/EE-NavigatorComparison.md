@@ -112,7 +112,7 @@ SELinux auto-detection.
    for a `localhost/...` image that is absent we would try to pull from nowhere.
    Runner also supports registry credentials (`--authfile`, docker `--config`,
    an insecure-registry `registries.conf`).
-9. **A raw engine-options escape hatch**: `--container-options` /
+9. **(Fixed: `container_options`, guarded by `ee.CheckContainerOptions`, see `ExecutionEnvironments.md`.) A raw engine-options escape hatch**: `--container-options` /
    `execution-environment.container-options`, a flat list appended unvalidated
    (`--co`). Discussed separately: needs guarding against flags the builder
    owns (`--userns`, `--security-opt`, `-v`/`--mount` over our mounts, `-w`,
