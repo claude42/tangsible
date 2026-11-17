@@ -611,6 +611,29 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   stays with comparison item 3. Verified in a real container: a prefix and a
   name arrive, an unlisted variable and an unset one don't, a `set_env` value
   does.
+- **Observability (comparison item 10):** a new image's first start with
+  `--userns=keep-id` took 34 s on the user's workstation and looked like a
+  hang: nothing is on screen until the first event (the pre-flight gate), the
+  engine's own stderr is only shown after it exits, and the command could only
+  be seen with `ps`. Now (`runner/startwatch.go`): (1) **a waiting notice** -
+  after 2 s, then every 15 s, with the elapsed time - printed to stderr in the
+  pre-flight gate (before any TUI, so the "never print while the TUI runs" rule
+  holds) and into the raw-output view for a re-run (signalled by the first
+  event, `generation.go`); (2) **what the engine said so far**: the last three
+  lines of its stderr since the start, read back from the output log it already
+  tees into (the same log carries podman's pull and error text); (3) **the
+  command**: the exact engine command, shell-quoted and without environment
+  values, is the first line of the raw-output view (`tangsible: running: ...`)
+  and so of the saved run's `.stdout`, and is printed once with the first
+  notice - for reference only, since it names tangsible's own temporary event
+  directory and container, so (4) the notice also gives **a bare command to
+  time the image on its own** (`podman run --rm --userns=keep-id IMAGE true`),
+  the check that located the 34 s. Not copied from navigator: its `--log-level
+  debug` log file and its pre-pull overview (image, tag, policy, "pull needed");
+  we print "pulling X (reason)" when pulling. Verified with a stand-in `podman`
+  that delays only `run` by 5 s: notice, command and hint appear on screen
+  before the TUI, the run then completes, `o` opens with the command; without
+  the change the pane stays silent.
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

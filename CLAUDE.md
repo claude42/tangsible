@@ -339,7 +339,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   owns the active setting, the image pull (before any TUI) and the
   per-generation event FIFO (opened non-blocking plus a held write end
   that closes when the engine's stderr ends - never rely on the fd
-  transport, it can't cross the container boundary). **Identity mounts:**
+  transport, it can't cross the container boundary). A container slow to
+  start is not silent (`runner/startwatch.go`: a notice to stderr in the
+  pre-flight gate - the TUI doesn't exist yet - and into the `o` view for a
+  re-run; the exact engine command is the `o` view's first line). **Identity mounts:**
   the project and every path an argument names (for an inventory file
   outside the project also its `group_vars`/`host_vars` siblings, nothing
   else of its directory) are mounted at their own

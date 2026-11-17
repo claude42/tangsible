@@ -196,6 +196,12 @@ func SpawnGeneration(playbook string, args []string, procH *ProcHandle, outLog *
 		eventR.Close()
 		eventW.Close()
 	}
+	if eeR != nil {
+		// The exact engine command, first line of the raw-output view (and so
+		// of the saved run's .stdout): what to run by hand when a start
+		// misbehaves. Values of the environment are not in it.
+		fmt.Fprintf(outLog.Stderr(), "tangsible: running: %s\n", CommandLine(cmd))
+	}
 	if extraStdout != nil {
 		cmd.Stdout = io.MultiWriter(outLog.Stdout(), extraStdout)
 	} else {
@@ -302,7 +308,15 @@ func StartFirstGeneration(playbook string, rest []string, procH *ProcHandle, his
 	// visible. "rerun" has no equivalent of this: its own TUI is already
 	// visible by the time anything is ever spawned, so a pre-flight
 	// failure has nowhere to hide from and nothing to skip.
+	// Nothing is on screen until the first event: a container that takes long
+	// to start must not look like a hang (startwatch.go).
+	startDone := make(chan struct{})
+	if ExecutionEnvironment() != nil {
+		s := ExecutionEnvironment()
+		go watchStart(os.Stderr, CommandLine(cmd), tryLine(s.Engine, s.Image), outLog, outLog.Len(), startDone)
+	}
 	first, ok := <-stdoutCh
+	close(startDone)
 	if !ok {
 		// Nothing ever arrived: safe to call cmd.Wait() here because
 		// ScanEvents's goroutine only closes its channel after its scan

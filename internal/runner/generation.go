@@ -31,6 +31,7 @@ package runner
 import (
 	"fmt"
 	"os/exec"
+	"sync"
 	"sync/atomic"
 
 	"code.aw.net/claude/tangsible/internal/config"
@@ -306,7 +307,20 @@ func NewRequestRerun(playbook, roleDisplayName string, originalRest []string, st
 				fail(err)
 				return
 			}
-			RunOneGeneration(cmd, stdoutCh, stderrLines, outLog, runID, playbook, roleDisplayName, apply, exitCode, processDone, lastStderr, recordOutcome)
+			// A slow start of the container is reported in the raw-output
+			// view (the tree is empty until the first event).
+			started := make(chan struct{})
+			var firstEvent sync.Once
+			if ExecutionEnvironment() != nil {
+				s := ExecutionEnvironment()
+				go watchStart(outLog.Stderr(), "", tryLine(s.Engine, s.Image), outLog, outLog.Len(), started)
+			}
+			signalStarted := func() { firstEvent.Do(func() { close(started) }) }
+			defer signalStarted()
+			RunOneGeneration(cmd, stdoutCh, stderrLines, outLog, runID, playbook, roleDisplayName, func(item StreamItem) {
+				signalStarted()
+				apply(item)
+			}, exitCode, processDone, lastStderr, recordOutcome)
 			if cleanupTemp != nil {
 				cleanupTemp()
 			}

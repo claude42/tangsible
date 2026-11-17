@@ -117,7 +117,10 @@ SELinux auto-detection.
    (`--co`). Discussed separately: needs guarding against flags the builder
    owns (`--userns`, `--security-opt`, `-v`/`--mount` over our mounts, `-w`,
    `--name`, our tmpfs home).
-10. **Observability**: `--log-level debug` writes the exact container command
+10. **(Fixed in part: waiting notice, the engine's words, the command in the
+    `o` view and run log, a bare command to time the image; not done: a
+    separate debug log, a pre-pull overview. See `ExecutionEnvironments.md`.)
+    Observability**: `--log-level debug` writes the exact container command
     and engine messages to navigator's log; it prints an overview of image,
     tag, pull policy and "pull needed" before pulling. We had to read `ps` to
     see our own command when a new image stalled for 34 s (the first
