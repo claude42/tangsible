@@ -504,6 +504,24 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   `Port` or `IdentityFile` live there; `ssh_dir = true` brings the user's
   one into the container). A host-key difference like this is invisible in
   the error text, which only says the key could not be verified.
+- **Inventory companions (found by comparing with ansible-navigator and
+  ansible-runner, `EE-NavigatorComparison.md`):** Ansible reads
+  `group_vars/` and `host_vars/` from the *inventory file's* directory. For
+  an inventory file outside the project only the file was mounted, so
+  variables defined beside it were silently `UNDEFINED` in the container
+  (reproduced: host run printed the group var, EE run `UNDEFINED`, no error).
+  Runner mounts the whole parent directory of such files (its #1304);
+  tangsible mounts the file plus its sibling `group_vars` and `host_vars`
+  directories, read-only, at their own paths and nothing else - the parent
+  can be a home directory (a sibling `secrets/` directory was checked to stay
+  invisible in the container). `mapper.translateInventory`; applies to every
+  entry of `-i`/`--inventory`/`--inventory-file` that is an existing file
+  not already covered by the project mount; an inventory *directory* is
+  mounted whole as before; host lists and `~` paths are untouched. Not
+  handled: a *symlinked* inventory file (Ansible looks beside the link's
+  target, the container beside the link), an inventory named only by
+  `ANSIBLE_INVENTORY` or `ansible.cfg` outside the project (that variable is
+  still dropped, see the comparison document's item 3).
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

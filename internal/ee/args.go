@@ -101,7 +101,7 @@ func rewriteValue(kind argKind, v string, m *mapper) string {
 	case kindPath:
 		return m.translate(v)
 	case kindInventory:
-		return mapList(v, ",", m)
+		return mapListWith(v, ",", m.translateInventory)
 	case kindPathList:
 		return mapList(v, ":", m)
 	case kindAtFile:
@@ -123,9 +123,13 @@ func rewriteValue(kind argKind, v string, m *mapper) string {
 }
 
 func mapList(v, sep string, m *mapper) string {
+	return mapListWith(v, sep, m.translateExisting)
+}
+
+func mapListWith(v, sep string, translate func(string) string) string {
 	parts := strings.Split(v, sep)
 	for i, p := range parts {
-		parts[i] = m.translateExisting(p)
+		parts[i] = translate(p)
 	}
 	return strings.Join(parts, sep)
 }

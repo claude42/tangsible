@@ -543,3 +543,101 @@ func TestSystemKnownHostsSkippedUnderRelabelModes(t *testing.T) {
 		}
 	}
 }
+
+func dirsIn(paths ...string) func(string) bool { return existsIn(paths...) }
+
+func mountHosts(p *Plan) []string {
+	var hosts []string
+	for _, mt := range p.Mounts[1:] { // [0] is the project root
+		hosts = append(hosts, mt.Host)
+	}
+	return hosts
+}
+
+// Ansible reads group_vars/host_vars from the inventory file's directory, so
+// an inventory file outside the project brings those two directories along -
+// and nothing else from its directory.
+func TestInventoryFileMountsItsGroupAndHostVars(t *testing.T) {
+	in := base()
+	in.Exists = existsIn("/srv/inv/hosts.ini", "/srv/inv/group_vars", "/srv/inv/host_vars", "/srv/inv/secrets")
+	in.IsDir = dirsIn("/srv/inv/group_vars", "/srv/inv/host_vars", "/srv/inv/secrets")
+	in.Args = []string{"-i", "/srv/inv/hosts.ini"}
+	p := build(t, in)
+	want := []string{"/srv/inv/hosts.ini", "/srv/inv/group_vars", "/srv/inv/host_vars"}
+	if got := mountHosts(p); !reflect.DeepEqual(got, want) {
+		t.Errorf("mounts = %q, want %q", got, want)
+	}
+	for _, mt := range p.Mounts[1:] {
+		if !mt.ReadOnly || mt.Host != mt.Container {
+			t.Errorf("%+v: want read-only at its own path", mt)
+		}
+	}
+	for _, flag := range []string{"--inventory", "--inventory-file"} {
+		in.Args = []string{flag, "/srv/inv/hosts.ini"}
+		if got := mountHosts(build(t, in)); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: mounts = %q", flag, got)
+		}
+	}
+	in.Args = []string{"--inventory=/srv/inv/hosts.ini"}
+	if got := mountHosts(build(t, in)); !reflect.DeepEqual(got, want) {
+		t.Errorf("--inventory=: mounts = %q", got)
+	}
+}
+
+func TestInventoryCompanionsOnlyWhenTheyExist(t *testing.T) {
+	in := base()
+	in.Exists = existsIn("/srv/inv/hosts.ini", "/srv/inv/host_vars")
+	in.IsDir = dirsIn("/srv/inv/host_vars")
+	in.Args = []string{"-i", "/srv/inv/hosts.ini"}
+	if got, want := mountHosts(build(t, in)), []string{"/srv/inv/hosts.ini", "/srv/inv/host_vars"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("mounts = %q, want %q", got, want)
+	}
+	// A file named group_vars is not the directory Ansible reads.
+	in.Exists = existsIn("/srv/inv/hosts.ini", "/srv/inv/group_vars")
+	in.IsDir = dirsIn()
+	if got, want := mountHosts(build(t, in)), []string{"/srv/inv/hosts.ini"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("group_vars as a file: mounts = %q, want %q", got, want)
+	}
+}
+
+// An inventory directory is mounted whole (companions included); one inside
+// the project is already covered; a host list is not a path.
+func TestInventoryCompanionsNotAddedWhereTheyAreAlreadyThere(t *testing.T) {
+	in := base()
+	in.Exists = existsIn("/srv/inv", "/srv/inv/group_vars", "/home/u/proj/inv/hosts", "/home/u/proj/inv/group_vars")
+	in.IsDir = dirsIn("/srv/inv", "/srv/inv/group_vars", "/home/u/proj/inv/group_vars")
+	in.Args = []string{"-i", "/srv/inv"}
+	if got, want := mountHosts(build(t, in)), []string{"/srv/inv"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("inventory directory: mounts = %q, want %q", got, want)
+	}
+	in.Args = []string{"-i", "inv/hosts"}
+	if got := mountHosts(build(t, in)); len(got) != 0 {
+		t.Errorf("inventory inside the project: extra mounts %q", got)
+	}
+	in.Args = []string{"-i", "web1,web2,"}
+	if got := mountHosts(build(t, in)); len(got) != 0 {
+		t.Errorf("host list: extra mounts %q", got)
+	}
+}
+
+func TestInventoryCompanionsListAndDedupe(t *testing.T) {
+	in := base()
+	in.Exists = existsIn("/srv/inv/a.ini", "/srv/inv/b.ini", "/srv/inv/group_vars", "/other/c.ini", "/other/host_vars")
+	in.IsDir = dirsIn("/srv/inv/group_vars", "/other/host_vars")
+	// One value with several entries, and a second -i: two files in the same
+	// directory share their companions.
+	in.Args = []string{"-i", "/srv/inv/a.ini,localhost,/other/c.ini", "-i", "/srv/inv/b.ini"}
+	want := []string{"/srv/inv/a.ini", "/srv/inv/group_vars", "/other/c.ini", "/other/host_vars", "/srv/inv/b.ini"}
+	if got := mountHosts(build(t, in)); !reflect.DeepEqual(got, want) {
+		t.Errorf("mounts = %q, want %q", got, want)
+	}
+}
+
+func TestInventoryTildeIsNotGuessed(t *testing.T) {
+	in := base()
+	in.Args = []string{"-i", "~/inv/hosts.ini"}
+	p := build(t, in)
+	if got := mountHosts(p); len(got) != 0 {
+		t.Errorf("a ~ path produced mounts: %q", got)
+	}
+}

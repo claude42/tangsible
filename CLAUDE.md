@@ -340,7 +340,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   per-generation event FIFO (opened non-blocking plus a held write end
   that closes when the engine's stderr ends - never rely on the fd
   transport, it can't cross the container boundary). **Identity mounts:**
-  the project and every path an argument names are mounted at their own
+  the project and every path an argument names (for an inventory file
+  outside the project also its `group_vars`/`host_vars` siblings, nothing
+  else of its directory) are mounted at their own
   host path, never translated, because event `task.path`, saved logs and
   the source index must agree with the host. **Every** spawn of an ansible
   tool for display purposes (probe, `ansible-doc`, stubs, `python3`) goes

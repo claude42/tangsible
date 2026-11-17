@@ -83,8 +83,10 @@ type Inputs struct {
 	DNSSearch []string
 	ExtraEnv  []string // NAME=value set in the container (colors, json indent)
 	Name      string   // container name, for a fallback kill
-	// Exists reports whether a host path exists; nil means os.Stat.
+	// Exists reports whether a host path exists, IsDir whether it is a
+	// directory; nil means os.Stat.
 	Exists func(string) bool
+	IsDir  func(string) bool
 }
 
 // Mount is one bind mount.
@@ -133,6 +135,10 @@ func Build(in Inputs) (*Plan, error) {
 	if exists == nil {
 		exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
 	}
+	isDir := in.IsDir
+	if isDir == nil {
+		isDir = func(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
+	}
 
 	// The root is where cwd and the playbook meet - unless the playbook is
 	// a stub inside a scratch directory, which is mounted by itself and
@@ -158,7 +164,7 @@ func Build(in Inputs) (*Plan, error) {
 	}
 
 	p := &Plan{Engine: engine}
-	m := &mapper{cwd: in.Cwd, root: root, exists: exists, plan: p}
+	m := &mapper{cwd: in.Cwd, root: root, exists: exists, isDir: isDir, plan: p}
 	p.Mounts = append(p.Mounts, Mount{Host: root, Container: root, ReadOnly: in.ReadOnly})
 	p.Workdir = filepath.Clean(in.Cwd)
 	for _, d := range in.Scratch {
@@ -429,6 +435,7 @@ type mapper struct {
 	cwd, root string
 	scratch   []string
 	exists    func(string) bool
+	isDir     func(string) bool
 	plan      *Plan
 	mounted   map[string]bool
 }
@@ -474,4 +481,39 @@ func (m *mapper) translateExisting(p string) string {
 		return p
 	}
 	return m.translate(p)
+}
+
+// inventoryCompanions are the directories Ansible loads inventory variables
+// from, next to the inventory file.
+var inventoryCompanions = []string{"group_vars", "host_vars"}
+
+// translateInventory is translateExisting for one entry of -i: a path (or a
+// host pattern, which is left alone). For an inventory *file* outside the
+// mounted directories it also mounts the group_vars and host_vars
+// directories beside it, read-only: Ansible reads them from the inventory
+// file's own directory, and without them a container run silently sees
+// undefined variables where a host run does not. Only those two directories,
+// not the whole parent - it may be a home directory. An inventory directory
+// is mounted whole by translateExisting already.
+func (m *mapper) translateInventory(p string) string {
+	out := m.translateExisting(p)
+	if p == "" || strings.HasPrefix(p, "~") {
+		return out
+	}
+	abs := absPath(m.cwd, p)
+	if !m.exists(abs) || m.isDir(abs) {
+		return out
+	}
+	for _, name := range inventoryCompanions {
+		dir := filepath.Join(filepath.Dir(abs), name)
+		if m.covered(dir) || m.mounted[dir] || !m.exists(dir) || !m.isDir(dir) {
+			continue
+		}
+		if m.mounted == nil {
+			m.mounted = map[string]bool{}
+		}
+		m.mounted[dir] = true
+		m.plan.Mounts = append(m.plan.Mounts, Mount{Host: dir, Container: dir, ReadOnly: true})
+	}
+	return out
 }

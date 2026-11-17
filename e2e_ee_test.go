@@ -258,6 +258,47 @@ func TestE2E_EE_CtrlCStopsPlaybookAndRemovesContainer(t *testing.T) {
 	s.send("q")
 }
 
+// An inventory file outside the project: Ansible reads group_vars/host_vars
+// from the inventory file's own directory, so the container must get them
+// too. (Silently undefined before they were mounted - a host run had them.)
+func TestE2E_EE_InventoryOutsideProjectKeepsItsGroupVars(t *testing.T) {
+	image := requireEE(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	inv := t.TempDir()
+	for path, content := range map[string]string{
+		filepath.Join(work, "p.yml"): "- hosts: all\n  gather_facts: false\n  tasks:\n" +
+			"    - name: record what the inventory's neighbours provide\n" +
+			"      ansible.builtin.copy:\n" +
+			"        content: \"group={{ marker | default('UNDEFINED') }} host={{ hostmarker | default('UNDEFINED') }}\\n\"\n" +
+			"        dest: \"{{ playbook_dir }}/out.txt\"\n",
+		filepath.Join(inv, "inventory.ini"):              "[all]\nlocalhost ansible_connection=local\n",
+		filepath.Join(inv, "group_vars", "all.yml"):      "marker: from-group-vars\n",
+		filepath.Join(inv, "host_vars", "localhost.yml"): "hostmarker: from-host-vars\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s %s run p.yml -i %s --ee %s",
+		shellQuote(work), e2eCallbackEnv(t), shellQuote(bin), shellQuote(filepath.Join(inv, "inventory.ini")), shellQuote(image)), "Enter")
+	s.waitFor("Playbook completed successfully", 60*time.Second)
+	got, err := os.ReadFile(filepath.Join(work, "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "group=from-group-vars host=from-host-vars\n"; string(got) != want {
+		t.Errorf("the container saw %q, want %q", got, want)
+	}
+	s.send("q")
+	waitNoContainers(t, 10*time.Second)
+}
+
 // SIGTERM must take the container down with it and leave no scratch
 // directory behind (tangsible's TMPDIR is a directory of the test's own).
 func TestE2E_EE_SIGTERMRemovesContainerAndScratch(t *testing.T) {
