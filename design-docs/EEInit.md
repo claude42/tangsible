@@ -24,8 +24,9 @@ terse `# TODO`. The promise is "draft with annotated uncertainty", not a
 working definition. The user reviews and extends it.
 
 Non-goals (v1): building the image or running `ansible-builder` (not needed,
-not a dependency); `--verify` (a later idea: build + `--syntax-check` inside
-the image); filters, lookups and tests (modules only); merging into or
+not a dependency of `ee init`; a separate `ee verify` that does build, see
+"Verifying a definition"); filters and tests (v1 was modules only, lookups came
+later); merging into or
 updating an existing file; docker (podman only, like the rest of EE support);
 Galaxy auth, private automation hub, `ansible.cfg` server settings; an
 implied-dependency rules table (see "Later").
@@ -571,6 +572,119 @@ golden `Draft` for the two stanzas and the shared `system:` block. The
 - Free-form documented requirements are shown, not interpreted.
 - Which entries the table should hold beyond the three above.
 
+## Verifying a definition (`ee verify`, follow-up)
+
+**Spec only, not implemented.** The draft is built from what can be seen
+statically; only a build shows what is still missing. `tangsible ee verify`
+builds an `execution-environment.yml` into an image, runs checks inside it, and
+reports what is wrong. It is a separate subcommand (not `ee init --verify`)
+because the draft is meant to be edited first - stanzas uncommented, TODOs
+resolved - and verifying the untouched draft would mostly repeat its own TODOs.
+
+```
+tangsible ee verify [playbook.yml] [-f file] [--keep] [ansible-playbook args ...]
+```
+
+- `-f file`: the definition, default `./execution-environment.yml` (missing:
+  error, hinting at `ee init`).
+- `playbook.yml`: resolved like `run`'s; the other arguments are passed to
+  `ansible-playbook` for the syntax check (inventory, `-e`, ...), as for `run`.
+  The credential prompts (`--ask-pass`, `--ask-become-pass`,
+  `--ask-vault-pass`) are rejected in v1 with a usage error: a syntax check
+  needs none, so pass a vault password *file* instead.
+- `--keep`: don't remove the built image; print its name.
+- Needs **podman** and **ansible-builder** on `PATH` (`tangsible version`
+  reports ansible-builder); a missing one is an error naming it, with the
+  usual not-found message. These are the only subcommand's requirements - the
+  rest of tangsible never needs ansible-builder.
+
+### Steps
+
+1. **Build.** `ansible-builder build -f <file> -c <private temp context> -t
+   <throw-away tag> --container-runtime podman [--prune-images]
+   [--extra-build-cli-args=--network=<network>]`. The throw-away tag
+   (`localhost/tangsible-ee-verify:<random>`) overrides the file's own `tags`
+   (the command line wins in ansible-builder), so a name the user chose is
+   never created or overwritten. `--network` is `[execution_environment]
+   network` when set (`host` fixes DNS trouble in a build, as it does for a
+   run). `--prune-images` removes the dangling intermediate images of the
+   multi-stage build. The output is written to `.tangsible/ee-verify.log`
+   (0600); on failure its last lines are shown, with the path. A first build
+   takes minutes and downloads packages: a progress line says so.
+2. **Syntax check.** `ansible-playbook --syntax-check <playbook> <args>` in the
+   built image, through tangsible's own execution-environment machinery
+   (`runner.NewToolCommand` with the image active, `pull_policy = never`: the
+   image is local), so mounts, environment and user are the ones a real `run`
+   would have. Its exit status and output are reported. It stops at the first
+   error, so step 3 does the exhaustive part.
+3. **Plugin and binary check**, in one more container run of the image:
+   - every module the scan found, and every lookup, asked of the image's
+     `ansible-doc` (the same candidates as `ee init`: the `collections:` search
+     list, then the bare name) - **all** that don't resolve are listed, not
+     just the first;
+   - every controller-side binary the scan found (the "Controller-side
+     binaries" feature), checked with the probe's `command -v` /`-x` in the
+     built image.
+4. **Clean up.** The throw-away image is removed (`podman rmi`) unless
+   `--keep`; the build context goes with the temp directory. Ctrl-C (and
+   SIGTERM/SIGHUP) interrupts the build, then cleans up the same way, as the
+   `template` verb does for its scratch directory.
+
+### Report
+
+On stdout, one line per check, then a short list for each failure:
+
+```
+Build:           ok (4m12s)
+Syntax check:    FAILED
+  ERROR! couldn't resolve module/action 'community.docker.docker_container' ...
+Modules:         11 of 12 found in the image
+  not found: community.docker.docker_container (site.yml:5)
+    -> add the collection that provides it to the definition
+Lookups:         2 of 2 found
+Binaries:        1 of 2 found
+  missing: jq (site.yml:40)
+    -> add it under dependencies.system (see ee init --resolve-packages)
+```
+
+Exit code: 0 when every check passed, 1 when the build or any check failed,
+2 for usage errors. A failed build skips the checks that need the image.
+
+### What it can't tell
+
+Python libraries a plugin imports only at runtime, a task that fails when it
+really runs, and everything a syntax check doesn't execute. It narrows the gaps
+(missing collections, a broken build, missing ansible-core/ansible-runner - the
+build's own `check_ansible` fails on that - missing binaries); it doesn't
+promise a working EE.
+
+### Code plan
+
+- New package `internal/eeverify` (the subcommand), importing `internal/eeinit`.
+  `eeinit` exports the project scan that `run.go` does inline today
+  (`ScanProject`: modules, lookups, controller-side commands, templated
+  counts), so both subcommands see the same things.
+- Pure parts, unit-tested: `ParseArgs`, building the `ansible-builder` argv, the
+  check script and its output parser, the report text and exit code.
+- Impure edges: running `ansible-builder`, `podman rmi`, the temp context and
+  log, the two container runs, signal handling.
+- `session.Main` routes `ee init` and `ee verify`; the help-table synopsis
+  becomes `tangsible ee <init|verify> ...` with each subcommand described in the
+  man page; completions, `README.md`, `man/`, `Changelog.md`, `Codemap.md`.
+- Tests: an e2e test (tmux is not needed; it runs the binary) behind an opt-in
+  environment variable, since it needs podman, ansible-builder, network and
+  minutes - like the other podman e2e tests.
+
+### Open points
+
+- Credentials for the syntax check (`--ask-*-pass`) are rejected in v1;
+  `credfile` could answer them once, as for `run`.
+- Implied-dependency rules (`synchronize` -> `rsync`) could be checked too, by
+  `command -v` for the system entries; Python packages would need import names
+  the table doesn't have.
+- Build output is only logged, not streamed; streaming would need a progress
+  view.
+
 ## Later (explicitly deferred)
 
 - **Implied-dependency rules table**: specified above for lookups and
@@ -584,7 +698,7 @@ golden `Draft` for the two stanzas and the shared `system:` block. The
   binaries").
 - Smarter handling of an existing file (diff, second file, merge).
 - Resolving collections not installed on the host (Galaxy lookup).
-- `--verify`: build and run `--syntax-check` inside the image.
+- `--verify`: now specified above as `ee verify`.
 - An interactive review step.
 
 ## Implementation notes

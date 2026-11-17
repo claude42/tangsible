@@ -112,6 +112,11 @@ func printAnsibleEnv() {
 	}
 
 	fmt.Println()
+	for _, line := range toolLines() {
+		fmt.Println(line)
+	}
+
+	fmt.Println()
 	if dir, err := runner.ResolveCallbackPluginDir(); err == nil {
 		if os.Getenv("TANGSIBLE_CALLBACK_DIR") != "" {
 			fmt.Printf("tangsible callback plugin: %s (from $TANGSIBLE_CALLBACK_DIR)\n", dir)
@@ -121,6 +126,45 @@ func printAnsibleEnv() {
 	} else {
 		fmt.Printf("tangsible callback plugin: %v\n", err)
 	}
+}
+
+// optionalTools are the programs only some commands need, reported by
+// tangsible version: a missing one is a note, not a problem.
+var optionalTools = []struct{ name, needed string }{
+	{"podman", "only needed to run in execution environments"},
+	{"ansible-builder", "only needed to build execution environment images"},
+}
+
+// toolLines reports each of optionalTools on PATH with its version.
+func toolLines() []string {
+	var lines []string
+	for _, t := range optionalTools {
+		path, err := exec.LookPath(t.name)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s: not found on PATH (optional: %s)", t.name, t.needed))
+			continue
+		}
+		out, err := exec.Command(path, "--version").Output()
+		lines = append(lines, formatTool(t.name, path, string(out), err))
+	}
+	return lines
+}
+
+// formatTool is toolLines' pure part: the line for the tool called name at
+// path, whose --version printed out (or failed with err). Only the first
+// line of the output counts ("podman version 5.4.2", "3.2.0").
+func formatTool(name, path, out string, err error) string {
+	if err != nil {
+		return fmt.Sprintf("%s (%s): could not run --version: %v", name, path, err)
+	}
+	version := strings.TrimSpace(out)
+	if i := strings.IndexByte(version, '\n'); i >= 0 {
+		version = version[:i]
+	}
+	if version == "" {
+		version = "version unknown"
+	}
+	return fmt.Sprintf("%s (%s): %s", name, path, version)
 }
 
 // osDescription is a one-line human OS label: distro PRETTY_NAME on Linux,
