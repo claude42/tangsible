@@ -9,13 +9,22 @@
 .PP
 .SH NAME
 .PP
-tangsible-ee - draft an execution-environment.\&yml for ansible-builder from a playbook
+tangsible-ee - draft an execution-environment.\&yml from a playbook, or build one and check it
 .PP
 .SH SYNOPSIS
 .PP
+\fBtangsible ee\fR <init | verify> [\fIplaybook.\&yml\fR] [\fIoptions\fR .\&.\&.\&]
+.PP
 \fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages]
+.br
+\fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
+.PP
+\fBee init\fR drafts an execution-environment.\&yml; \fBee verify\fR builds one and checks
+it (see \fBVERIFY\fR below).\&
+.PP
+.SS INIT
 .PP
 \fBee init\fR writes a draft \fBexecution-environment.\&yml\fR (ansible-builder schema
 version 3) to the current directory.\& The stock execution environment images
@@ -109,18 +118,69 @@ done (no network, no \fBdnf\fR), the binaries are only listed.\& The
 If \fBexecution-environment.\&yml\fR already exists, \fBee init\fR fails and writes
 nothing.\&
 .PP
+.SH VERIFY
+.PP
+\fBee verify\fR builds an \fBexecution-environment.\&yml\fR (\fIfile\fR, default
+\fB.\&/execution-environment.\&yml\fR, normally the draft after you have edited it) into
+a throw-away image and checks that image against what the playbook uses.\& It
+needs \fBpodman\fR and \fBansible-builder\fR (\fBtangsible version\fR shows both).\& If
+\fIplaybook.\&yml\fR is omitted it is resolved like \fBtangsible-run\fR(1); other
+arguments, such as \fB-i\fR or \fB-e\fR, are passed to \fBansible-playbook\fR for the
+syntax check.\& \fB--ask-pass\fR, \fB--ask-become-pass\fR and \fB--ask-vault-pass\fR are not
+supported: a syntax check needs no secrets, use a vault password file.\&
+.PP
+.PD 0
+.IP \(bu 4
+It builds the image with \fBansible-builder build\fR under a private tag
+(\fBlocalhost/tangsible-ee-verify:.\&.\&.\&\fR), which overrides the \fBtags\fR of the
+definition, so an image you named is never created or overwritten.\& The
+\fBnetwork\fR key under \fB[execution_environment]\fR is used for the build too
+(\fBhost\fR fixes DNS trouble).\& A build takes minutes; its output goes to
+\fB.\&tangsible/ee-verify.\&log\fR, and a failed build shows the end of it.\&
+.IP \(bu 4
+In the built image it runs \fBansible-playbook --syntax-check\fR, the way a
+real \fBtangsible run\fR would run it (the same mounts and environment).\&
+.IP \(bu 4
+In one more run it asks the image'\&s \fBansible-doc\fR about \fBevery\fR module and
+lookup the playbook uses (so all missing ones are listed, not only the first
+one the syntax check stops at) and checks that the binaries used by
+\fBcommand\fR/\fBshell\fR tasks that run on the controller exist.\&
+.IP \(bu 4
+It removes the image and the build context, unless \fB--keep\fR is given, which
+leaves the image and prints its name.\& A build that fails, or is interrupted
+with Ctrl-C, can leave working containers and a temporary image behind; those
+are removed too (only what the build created: nothing that was there before is
+touched, so do not run another podman build at the same time).\&
+.PD
+.PP
+This catches missing collections, a broken build, missing ansible-core or
+ansible-runner and missing binaries.\& It does not catch Python libraries that a
+plugin imports only when it runs, or anything a syntax check does not execute.\&
+.PP
+\fB-f\fR \fIfile\fR, \fB--file\fR \fIfile\fR
+.RS 4
+The definition to build, instead of \fBexecution-environment.\&yml\fR.\&
+.PP
+.RE
+\fB--keep\fR
+.RS 4
+Keep the built image and print its name.\&
+.PP
+.RE
 .SH EXIT STATUS
 .PP
 \fB0\fR
 .RS 4
-The draft was written.\&
+\fBee init\fR: the draft was written.\& \fBee verify\fR: the build and every check
+passed.\&
 .PP
 .RE
 \fB1\fR
 .RS 4
-No draft was written: the file already exists, \fBpodman\fR is missing, the
-base image couldn'\&t be pulled or inspected, or the playbook couldn'\&t be
-read.\&
+\fBee init\fR: no draft was written (the file already exists, \fBpodman\fR is
+missing, the base image couldn'\&t be pulled or inspected, or the playbook
+couldn'\&t be read).\& \fBee verify\fR: the build or a check failed, or it
+couldn'\&t start (a missing tool or file).\&
 .PP
 .RE
 \fB2\fR
@@ -128,6 +188,11 @@ read.\&
 Usage error.\&
 .PP
 .RE
+\fB130\fR
+.RS 4
+\fBee verify\fR was interrupted.\&
+.PP
+.RE
 .SH SEE ALSO
 .PP
-\fBtangsible\fR(1), \fBtangsible-run\fR(1), \fBansible-builder\fR(1)
+\fBtangsible\fR(1), \fBtangsible-run\fR(1), \fBansible-builder\fR(1), \fBpodman\fR(1)

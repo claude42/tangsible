@@ -202,3 +202,7 @@ func displayPath(path, cwd string) string {
 	}
 	return path
 }
+
+// ParseDocs reads `ansible-doc -j` output (one JSON object): name -> what
+// the documentation says, as LookupPlugins returns it.
+func ParseDocs(raw []byte) map[string]PluginDoc { return parseDocs(raw) }

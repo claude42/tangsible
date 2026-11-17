@@ -475,6 +475,25 @@ for each (downloads repository metadata, can take a minute or two) and offers a
 image; `image` is never used for that, as it is what you run, usually the
 result of that build.
 
+### Verifying a definition
+
+Once you have edited the draft, `tangsible ee verify` builds it and checks the
+result against your playbook:
+
+```
+tangsible ee verify site.yml [-f execution-environment.yml] [--keep] [ansible-playbook args]
+```
+
+It builds the definition with `ansible-builder` into a throw-away image (a build
+takes minutes; the output goes to `.tangsible/ee-verify.log`), runs
+`ansible-playbook --syntax-check` in it, asks the image's `ansible-doc` about
+*every* module and lookup the playbook uses (so you get all the missing ones, not
+just the first) and checks the binaries that tasks running on the controller
+need. It needs `podman` and `ansible-builder` (`tangsible version` shows both),
+removes the image and what the build left behind afterwards (`--keep` keeps the
+image), and exits 1 if anything is missing. It can't catch what only fails when
+a task really runs.
+
 ## Configuration
 
 When no playbook is given on the command line, Tangsible resolves one

@@ -153,6 +153,24 @@ execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
 `internal/source.ReachableYAML` supplies the files (project plus referenced
 roles, shared with the task index's role walk).
 
+## internal/eeverify
+
+`tangsible ee verify` (`design-docs/EEInit.md`, "Verifying a definition"):
+builds a definition into a throw-away image and checks it. Imports
+`internal/eeinit` for the project scan.
+
+- **args.go** - `ParseArgs`, `Usage`.
+- **builder.go** - `NewTag`, `BuildArgs` (the `ansible-builder build` line).
+- **script.go** - `CheckScript`/`ParseCheck`: the script run in the built
+  image (`ansible-doc` for modules and lookups, `command -v` for binaries) and
+  its output parser.
+- **report.go** - `ModuleCheck`/`LookupCheck`/`BinaryCheck`, `Result`,
+  `Render` (the report and exit code).
+- **podman.go** - `Snapshot`/`Cleanup`: podman's containers and images before
+  the build; after a failed or killed build only what is new is removed.
+- **run.go** - `Run`: build, syntax check, plugin/binary check, cleanup,
+  signals.
+
 ## internal/ee
 
 Execution-environment command builder (`design-docs/ExecutionEnvironments.md`)

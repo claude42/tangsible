@@ -1,7 +1,10 @@
 package eeinit
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -90,5 +93,48 @@ func TestScanTemplate(t *testing.T) {
 	}
 	if tmpl != 1 {
 		t.Errorf("templated = %d", tmpl)
+	}
+}
+
+func TestScanProject(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("site.yml", "- hosts: localhost\n  vars:\n    a: \"{{ lookup('env', 'A') }}\"\n  tasks:\n    - community.general.ufw: {rule: allow}\n    - command: jq .\n")
+	write("group_vars/all.yml", "b: \"{{ lookup('dig', 'x') }}\"\n")
+	write("templates/t.j2", "{{ lookup('file', 'f') }}\n")
+	write("requirements.yml", "collections: [x.y]\n")
+	write(OutputFile, "version: 3\n")
+	proj, err := ScanProject(filepath.Join(dir, "site.yml"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mods, looks []string
+	for _, u := range proj.Uses {
+		mods = append(mods, u.Module)
+	}
+	for _, l := range proj.Lookups {
+		looks = append(looks, l.Name)
+	}
+	sort.Strings(looks)
+	if !reflect.DeepEqual(mods, []string{"community.general.ufw", "command"}) {
+		t.Errorf("modules = %v", mods)
+	}
+	if !reflect.DeepEqual(looks, []string{"dig", "env", "file"}) {
+		t.Errorf("lookups = %v (vars, group_vars and the template)", looks)
+	}
+	if len(proj.Commands) != 1 || proj.Commands[0].Text != "jq ." {
+		t.Errorf("commands = %+v", proj.Commands)
+	}
+	if proj.Abs != filepath.Join(dir, "site.yml") {
+		t.Errorf("Abs = %q", proj.Abs)
 	}
 }

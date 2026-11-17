@@ -574,7 +574,7 @@ golden `Draft` for the two stanzas and the shared `system:` block. The
 
 ## Verifying a definition (`ee verify`, follow-up)
 
-**Spec only, not implemented.** The draft is built from what can be seen
+**Implemented** (see the notes at the end of this section). The draft is built from what can be seen
 statically; only a build shows what is still missing. `tangsible ee verify`
 builds an `execution-environment.yml` into an image, runs checks inside it, and
 reports what is wrong. It is a separate subcommand (not `ee init --verify`)
@@ -601,14 +601,17 @@ tangsible ee verify [playbook.yml] [-f file] [--keep] [ansible-playbook args ...
 ### Steps
 
 1. **Build.** `ansible-builder build -f <file> -c <private temp context> -t
-   <throw-away tag> --container-runtime podman [--prune-images]
-   [--extra-build-cli-args=--network=<network>]`. The throw-away tag
+   <throw-away tag> --container-runtime podman
+   --extra-build-cli-args="--layers=false [--network=<network>]"`. The throw-away tag
    (`localhost/tangsible-ee-verify:<random>`) overrides the file's own `tags`
    (the command line wins in ansible-builder), so a name the user chose is
    never created or overwritten. `--network` is `[execution_environment]
    network` when set (`host` fixes DNS trouble in a build, as it does for a
-   run). `--prune-images` removes the dangling intermediate images of the
-   multi-stage build. The output is written to `.tangsible/ee-verify.log`
+   run). `--layers=false` makes podman keep no intermediate images, so a
+   successful build leaves exactly one new image, the tag (measured: the default
+   leaves 20 new images, of which removing the tag removes 19 and one stage image
+   stays behind). Not `--prune-images`: that runs `podman image prune --force`
+   over *every* dangling image the user has. The output is written to `.tangsible/ee-verify.log`
    (0600); on failure its last lines are shown, with the path. A first build
    takes minutes and downloads packages: a progress line says so.
 2. **Syntax check.** `ansible-playbook --syntax-check <playbook> <args>` in the
@@ -628,7 +631,16 @@ tangsible ee verify [playbook.yml] [-f file] [--keep] [ansible-playbook args ...
 4. **Clean up.** The throw-away image is removed (`podman rmi`) unless
    `--keep`; the build context goes with the temp directory. Ctrl-C (and
    SIGTERM/SIGHUP) interrupts the build, then cleans up the same way, as the
-   `template` verb does for its scratch directory.
+   `template` verb does for its scratch directory. A successful build needs
+   nothing more than removing the tag. One that fails or is killed leaves buildah
+   "working containers" and a `-tmp` image behind (podman does not clean up after
+   SIGINT or SIGTERM, to the process group or to `podman build` alone - measured),
+   and the containers pin the images, so the next build can fail. Their names are
+   not ours to know, so podman's containers (including the external ones) and
+   images are listed before the build and, if it did not succeed, **only what is
+   new since then** is removed: the containers, then the untagged and `-tmp`
+   images (a new image with a real repository name is the base the build had to
+   pull, and stays). Nothing that was already there is touched.
 
 ### Report
 
@@ -677,6 +689,33 @@ promise a working EE.
 
 ### Open points
 
+### Implementation notes
+
+- The scan is `eeinit.ScanProject`, shared with `ee init`: it covers every YAML
+  file under the **playbook's directory** (and referenced roles), not only the
+  playbook, so a second playbook next to it counts too.
+- `-f` is the definition here, though it is `--forks` for ansible-playbook; a
+  syntax check has no use for forks.
+- Podman must not run other builds at the same time: after a failed or
+  interrupted build the cleanup removes whatever *appeared* since its snapshot,
+  which would include a concurrent build's containers. `--prune-images` was
+  dropped after an interrupted run left working containers that made it fail
+  later ("image is in use by a container"), and because it would prune the
+  user's own dangling images; `--layers=false` replaced the image-diff cleanup
+  for the successful case.
+- The syntax check's own output is shown (last 15 lines), including ansible's
+  warnings about having no inventory; pass `-i` to silence them.
+- Checked by hand on community-ee-base: a build of a minimal definition takes
+  ~30 s; a missing module/binary is reported (3 of 4 modules, 1 of 2 binaries
+  found); a failed build (unknown base image) shows its log tail and exits 1;
+  Ctrl-C mid-build exits 130, and so do a build that fails inside a `RUN` step
+  (exit 1) and a successful one: in all three podman's containers and images are
+  exactly as they were before. The e2e test (`e2e_ee_verify_test.go`,
+  `TANGSIBLE_EE_VERIFY=1 TANGSIBLE_EE_IMAGE=... go test -tags e2e -run EEVerify`)
+  covers the passing and the failing case.
+
+### Open points
+
 - Credentials for the syntax check (`--ask-*-pass`) are rejected in v1;
   `credfile` could answer them once, as for `run`.
 - Implied-dependency rules (`synchronize` -> `rsync`) could be checked too, by
@@ -684,6 +723,9 @@ promise a working EE.
   the table doesn't have.
 - Build output is only logged, not streamed; streaming would need a progress
   view.
+- The syntax check could default to `-i localhost,` when the user gave no
+  inventory, to drop the no-inventory warnings; it would also hide an
+  `ansible.cfg` inventory.
 
 ## Later (explicitly deferred)
 

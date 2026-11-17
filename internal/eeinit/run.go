@@ -12,7 +12,6 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/runner"
-	"code.aw.net/claude/tangsible/internal/source"
 )
 
 // OutputFile is where the draft goes, in the working directory.
@@ -32,7 +31,7 @@ type Options struct {
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	if len(args) == 0 || args[0] != "init" {
-		return o, errors.New("expected the subcommand init")
+		return o, errors.New("expected the subcommand init or verify")
 	}
 	args = args[1:]
 	for i := 0; i < len(args); i++ {
@@ -71,11 +70,15 @@ func containsBaseFlag(args []string) bool {
 	return false
 }
 
-// RunEEVerb is `tangsible ee ...`; it returns the exit code.
+// Usage is the synopsis printed with a usage error.
+const Usage = "usage: tangsible ee init [playbook.yml] [--base image] [--resolve-packages]"
+
+// RunEEVerb is `tangsible ee init ...`; it returns the exit code. (ee verify
+// is internal/eeverify's.)
 func RunEEVerb(args []string) int {
 	opts, err := ParseArgs(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: %v\n%s\n", err, config.UsageLine(config.VerbEE))
+		fmt.Fprintf(os.Stderr, "tangsible: %v\n%s\n", err, Usage)
 		return 2
 	}
 	if err := runInit(opts, os.Stdout, os.Stderr); err != nil {
@@ -127,49 +130,13 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 	}
 
 	// What the playbook uses.
-	abs, err := filepath.Abs(playbook)
+	proj, err := ScanProject(playbook, cwd)
 	if err != nil {
 		return err
 	}
-	var uses []ModuleUse
-	var todos []Todo
-	var commands []Command
-	var lookups []LookupUse
-	templatedLookups := 0
-	var roles []RoleUse
-	seenRole := map[RoleUse]bool{}
-	for _, f := range source.ReachableYAML(abs) {
-		name := filepath.Base(f.Path)
-		if name == "requirements.yml" || name == "requirements.yaml" || name == OutputFile {
-			continue
-		}
-		data, err := os.ReadFile(f.Path)
-		if err != nil {
-			continue
-		}
-		var own []string
-		if f.Collection != "" {
-			own = []string{f.Collection}
-			if r := (RoleUse{f.Role, f.Collection}); !seenRole[r] {
-				seenRole[r] = true
-				roles = append(roles, r)
-			}
-		}
-		scan := ScanYAML(displayPath(f.Path, cwd), data, own)
-		uses = append(uses, scan.Uses...)
-		todos = append(todos, scan.Todos...)
-		commands = append(commands, scan.Commands...)
-		lu, lt := ScanLookups(displayPath(f.Path, cwd), data, own)
-		lookups = append(lookups, lu...)
-		templatedLookups += lt
-	}
-	for _, path := range TemplateFiles(filepath.Dir(abs)) {
-		if data, err := os.ReadFile(path); err == nil {
-			lu, lt := ScanTemplate(displayPath(path, cwd), string(data))
-			lookups = append(lookups, lu...)
-			templatedLookups += lt
-		}
-	}
+	abs := proj.Abs
+	uses, todos, commands, lookups, roles := proj.Uses, proj.Todos, proj.Commands, proj.Lookups, proj.Roles
+	templatedLookups := proj.TemplatedLookups
 
 	// The base image, asked about the binaries controller-side tasks run.
 	binaries, templatedCommands := ScanBinaries(commands, filepath.Dir(abs))

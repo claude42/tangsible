@@ -285,3 +285,21 @@ func MergeNeeded(a, b []Needed) []Needed {
 	}
 	return out
 }
+
+// CheckNames are the names to ask an image's ansible-doc about to see
+// whether a module use resolves there: the use itself if it is fully
+// qualified, otherwise Candidates.
+func CheckNames(u ModuleUse) []string {
+	if _, ok := fqcnCollection(u.Module); ok {
+		return []string{u.Module}
+	}
+	return Candidates(u)
+}
+
+// LookupCheckNames is CheckNames for a lookup.
+func LookupCheckNames(u LookupUse) []string {
+	if _, ok := fqcnCollection(u.Name); ok {
+		return []string{u.Name}
+	}
+	return searchOrder(u.Name, u.Collections)
+}

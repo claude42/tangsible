@@ -68,8 +68,10 @@ _tangsible_rerun_only_flags="--only-failed --only-unreachable --resume-where-fai
 # spawns it in the first place.
 _tangsible_vault_flags="--vault-password-file --ask-vault-pass"
 
-# ee init's own flag (design-docs/EEInit.md); ee never spawns ansible-playbook.
+# ee's own flags (design-docs/EEInit.md): init's, and verify's (which also
+# passes ansible-playbook's own flags on to its syntax check).
 _tangsible_ee_init_flags="--base --resolve-packages"
+_tangsible_ee_verify_flags="-f --file --keep"
 
 # _tangsible_flags_for_verb echoes the complete flag set a given verb
 # actually understands - the union of ansible-playbook's own flags (for
@@ -99,7 +101,11 @@ _tangsible_flags_for_verb()
 		echo "$_tangsible_vault_flags"
 		;;
 	ee)
-		echo "$_tangsible_ee_init_flags"
+		if [ "${COMP_WORDS[2]}" = verify ]; then
+			echo "$_tangsible_ee_verify_flags $_tangsible_ap_flags"
+		else
+			echo "$_tangsible_ee_init_flags"
+		fi
 		;;
 	version | help)
 		echo ""
@@ -168,6 +174,13 @@ _tangsible()
 		COMPREPLY=($(compgen -W "local smart ssh paramiko docker" -- "$cur"))
 		return
 		;;
+	-f | --file)
+		# ee verify's definition; for any other verb -f is not ours
+		if [ "$verb" = ee ]; then
+			_tangsible_ymlfiles "$cur"
+			return
+		fi
+		;;
 	--base)
 		# An image name: nothing to complete without asking the engine.
 		return
@@ -215,7 +228,7 @@ _tangsible()
 		fi
 		case "$w" in
 		-*)
-			case " $_tangsible_ap_file_flags --become-method -c --connection --start-at-play --base " in
+			case " $_tangsible_ap_file_flags --become-method -c --connection --start-at-play --base -f --file " in
 			*" $w "*) skip=1 ;;
 			esac
 			;;
@@ -281,9 +294,10 @@ _tangsible()
 		fi
 		;;
 	ee)
-		# tangsible ee init [<playbook>] [--base <image>]
+		# tangsible ee init [<playbook>] [--base <image>] [--resolve-packages]
+		# tangsible ee verify [<playbook>] [-f <file>] [--keep] [ansible-playbook args...]
 		if [ "$pos" -eq 0 ]; then
-			COMPREPLY=($(compgen -W "init" -- "$cur"))
+			COMPREPLY=($(compgen -W "init verify" -- "$cur"))
 		elif [ "$pos" -eq 1 ]; then
 			_tangsible_ymlfiles "$cur"
 		fi

@@ -37,6 +37,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/diff"
 	"code.aw.net/claude/tangsible/internal/eeinit"
+	"code.aw.net/claude/tangsible/internal/eeverify"
 	"code.aw.net/claude/tangsible/internal/host"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	pb "code.aw.net/claude/tangsible/internal/playbook"
@@ -180,10 +181,15 @@ func Main(build BuildInfo) {
 	// "debug" (design-docs/DebugMode.md) used to be a fifth standalone
 	// program, with its own separate, smaller TUI - it's a liveSession
 	// now, same as run/role, so it's handled in the switch below instead.
-	// "ee" (design-docs/EEInit.md) is one too, but a batch one: no TUI, so
-	// no colors to resolve either.
+	// "ee" (design-docs/EEInit.md: init, verify) is one too, but a batch one:
+	// no TUI, so no colors to resolve either.
 	if v == config.VerbEE {
-		code := eeinit.RunEEVerb(args)
+		var code int
+		if len(args) > 0 && args[0] == "verify" {
+			code = eeverify.Run(args[1:])
+		} else {
+			code = eeinit.RunEEVerb(args)
+		}
 		printStartupWarnings()
 		os.Exit(code)
 	}
