@@ -104,7 +104,7 @@ func TestMountRoot(t *testing.T) {
 		p := build(t, in)
 		// The root is mounted at its own path, and the working directory
 		// and the playbook argument stay exactly as given.
-		if want := (Mount{Host: c.root, Container: c.root}); p.Mounts[0] != want {
+		if want := (Mount{Host: c.root, Container: c.root}); !reflect.DeepEqual(p.Mounts[0], want) {
 			t.Errorf("%s: root mount = %+v, want %+v", c.name, p.Mounts[0], want)
 		}
 		if p.Workdir != c.cwd {
@@ -198,9 +198,9 @@ func TestArgMounting(t *testing.T) {
 		ext = append(ext, mt)
 	}
 	wantExt := []Mount{
-		{"/etc/ans/outside.ini", "/etc/ans/outside.ini", true},
-		{"/home/u/vault.txt", "/home/u/vault.txt", true},
-		{"/home/u/key", "/home/u/key", true},
+		{Host: "/etc/ans/outside.ini", Container: "/etc/ans/outside.ini", ReadOnly: true},
+		{Host: "/home/u/vault.txt", Container: "/home/u/vault.txt", ReadOnly: true},
+		{Host: "/home/u/key", Container: "/home/u/key", ReadOnly: true},
 	}
 	if !reflect.DeepEqual(ext, wantExt) {
 		t.Errorf("ext mounts = %v, want %v", ext, wantExt)
@@ -325,10 +325,159 @@ func TestNetworkAndSELinux(t *testing.T) {
 
 func TestExtraMounts(t *testing.T) {
 	in := base()
+	in.Exists = existsIn("/data", "/cfg")
 	in.ExtraMounts = []string{"/data:/data", "/cfg:/etc/cfg:ro"}
 	p := build(t, in)
 	if !hasPair(p.Argv, "-v", "/data:/data") || !hasPair(p.Argv, "-v", "/cfg:/etc/cfg:ro") {
 		t.Errorf("argv = %q", p.Argv)
+	}
+}
+
+func extraMountCase(t *testing.T, specs ...string) (*Plan, error) {
+	t.Helper()
+	in := base() // cwd /home/u/proj
+	in.HomeDir = "/home/u"
+	in.HostEnv = []string{"HOME=/home/u", "DATA=/srv/data"}
+	in.Exists = existsIn("/data", "/cfg", "/srv/data", "/home/u/.aws", "/home/u/proj/local", "/etc/ssl/certs")
+	in.ExtraMounts = specs
+	return Build(in)
+}
+
+func TestExtraMountOptionsAndForms(t *testing.T) {
+	cases := []struct {
+		spec string
+		want string // the -v value
+	}{
+		{"/data:/data", "/data:/data"},
+		{"/data:/data:ro", "/data:/data:ro"},
+		{"/data:/data:rw", "/data:/data"},
+		{"/data:/data:ro,z", "/data:/data:ro,z"},
+		{"/data:/data:z,ro", "/data:/data:ro,z"},
+		{"/data:/data:Z", "/data:/data:Z"},
+		{"/data:/data:O", "/data:/data:O"},
+		{"/data:/data:ro,ro", "/data:/data:ro"},
+		{" /data : /data : ro ", "/data:/data:ro"},
+		{"/data:/data/", "/data:/data"},
+		{"~/.aws:/runner/home/.aws:ro", "/home/u/.aws:/runner/home/.aws:ro"},
+		{"$DATA:/data2", "/srv/data:/data2"},
+		{"${DATA}:$DATA", "/srv/data:/srv/data"},
+		{"local:/work", "/home/u/proj/local:/work"}, // relative source: from the working directory, not a named volume
+		{"/data:~/mnt", "/data:/home/u/mnt"},
+	}
+	for _, c := range cases {
+		p, err := extraMountCase(t, c.spec)
+		if err != nil {
+			t.Errorf("%q: %v", c.spec, err)
+			continue
+		}
+		if !hasPair(p.Argv, "-v", c.want) {
+			t.Errorf("%q: want -v %s in %q", c.spec, c.want, p.Argv)
+		}
+	}
+}
+
+func TestExtraMountErrors(t *testing.T) {
+	cases := []struct {
+		spec, want string
+	}{
+		{"/data", "want SOURCE:DESTINATION"},
+		{"/data:/a:ro:extra", "want SOURCE:DESTINATION"},
+		{":/a", "no source"},
+		{"/data:", "no destination"},
+		{"/missing:/a", "source /missing does not exist"},
+		{"relative-missing:/a", "does not exist"},
+		{"/data:relative", "must be an absolute path"},
+		{"/data:/a:bogus", `unrecognized option "bogus" (allowed: O, Z, ro, rw, z)`},
+		{"/data:/a:ro,rw", "ro and rw contradict"},
+		{"/data:/a:z,Z", "z and Z contradict"},
+		{"~other/x:/a", "cannot expand"},
+		{"$UNDEFINED/x:/a", "does not exist"}, // left as written, so it is not a path that exists
+	}
+	for _, c := range cases {
+		_, err := extraMountCase(t, c.spec)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%q: err = %v, want it to contain %q", c.spec, err, c.want)
+		} else if !strings.Contains(err.Error(), "extra_mounts entry") {
+			t.Errorf("%q: the error should name the entry: %v", c.spec, err)
+		}
+	}
+}
+
+func TestExtraMountDestinations(t *testing.T) {
+	// Two entries onto one destination: different sources are an error, the
+	// same mount twice is just one.
+	if _, err := extraMountCase(t, "/data:/x", "/cfg:/x"); err == nil || !strings.Contains(err.Error(), "already mounted at /x") {
+		t.Errorf("same destination, different sources: %v", err)
+	}
+	p, err := extraMountCase(t, "/data:/x", "/data:/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, mt := range p.Mounts {
+		if mt.Container == "/x" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("a repeated entry produced %d mounts", n)
+	}
+
+	// Onto a destination tangsible itself uses: refused with a clear message...
+	in := base()
+	in.Exists = existsIn("/data")
+	in.PluginDir = "/cache/plugin"
+	in.ExtraMounts = []string{"/data:/runner/plugin"}
+	if _, err := Build(in); err == nil || !strings.Contains(err.Error(), "/runner/plugin, which tangsible already uses for /cache/plugin") {
+		t.Errorf("collision with the plugin mount: %v", err)
+	}
+	in.ExtraMounts = []string{"/data:/home/u/proj"} // the project root's own path
+	if _, err := Build(in); err == nil || !strings.Contains(err.Error(), "already uses") {
+		t.Errorf("collision with the project mount: %v", err)
+	}
+	// ...but the very same mount as an automatic one (known_hosts, which is
+	// automatic now and was once configured by hand) is quietly one mount.
+	in = base()
+	in.SSHKnownHosts = "/home/u/.ssh/known_hosts"
+	in.Exists = existsIn("/home/u/.ssh/known_hosts")
+	in.ExtraMounts = []string{"/home/u/.ssh/known_hosts:/runner/home/.ssh/known_hosts"}
+	p = build(t, in)
+	n = 0
+	for _, mt := range p.Mounts {
+		if mt.Container == "/runner/home/.ssh/known_hosts" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("duplicate of an automatic mount: %d mounts", n)
+	}
+}
+
+// An entry's own z/Z beats the engine-wide relabel mode.
+func TestExtraMountRelabelOptionVersusSELinuxMode(t *testing.T) {
+	in := base()
+	in.Exists = existsIn("/data", "/cfg")
+	in.SELinux = "Z"
+	in.ExtraMounts = []string{"/data:/d", "/cfg:/c:ro,z"}
+	p := build(t, in)
+	if !hasPair(p.Argv, "-v", "/data:/d:Z") {
+		t.Errorf("a plain entry gets the mode: %q", p.Argv)
+	}
+	if !hasPair(p.Argv, "-v", "/cfg:/c:ro,z") {
+		t.Errorf("an entry with its own z keeps it, without a second label: %q", p.Argv)
+	}
+}
+
+func TestCheckExtraMounts(t *testing.T) {
+	dir := t.TempDir()
+	if err := CheckExtraMounts([]string{dir + ":/x:ro"}, "/", "/home/u", nil, nil); err != nil {
+		t.Errorf("an existing source (real os.Stat): %v", err)
+	}
+	if err := CheckExtraMounts([]string{dir + "/nope:/x"}, "/", "/home/u", nil, nil); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("a missing source: %v", err)
+	}
+	if err := CheckExtraMounts(nil, "/", "", nil, nil); err != nil {
+		t.Errorf("nothing configured: %v", err)
 	}
 }
 

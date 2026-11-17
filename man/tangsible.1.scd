@@ -116,7 +116,7 @@ use the host's own network stack, for DNS or routing problems), *selinux* (*"aut
 (forward *$SSH_AUTH_SOCK*, default true; mount the public host key files
 *~/.ssh/known_hosts* and */etc/ssh/ssh_known_hosts* read-only, default true;
 and mount all of *~/.ssh* read-only, default false
-because it exposes private keys to the image) and *extra_mounts* (a list of *host:container[:ro]*). *--ee* and
+because it exposes private keys to the image) and *extra_mounts* (a list of *SOURCE:DESTINATION[:OPTIONS]*, OPTIONS a comma-separated list of *ro*, *rw*, *z*, *Z*, *O*; *~* and *$VAR* are expanded, the source must exist, and mistakes are reported at startup). *--ee* and
 *--no-ee* override the image per invocation. See *tangsible-run*(1).
 
 # FILES

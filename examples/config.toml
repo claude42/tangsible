@@ -44,7 +44,7 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # ssh_agent = true            # forward $SSH_AUTH_SOCK
 # ssh_known_hosts = true      # mount ~/.ssh/known_hosts and /etc/ssh/ssh_known_hosts (public host keys)
 # ssh_dir = false             # mount ~/.ssh read-only (known_hosts, config - but also your keys)
-# extra_mounts = []           # ["/host/path:/container/path:ro"]
+# extra_mounts = []           # ["SOURCE:DESTINATION[:ro,z,...]", e.g. "~/.aws:/runner/home/.aws:ro"]
 
 [colors]
 # The whole TUI's own base background (every unstyled cell) - unlike

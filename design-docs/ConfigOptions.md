@@ -137,7 +137,7 @@ means no EE and nothing below applies. `--ee <image>` / `--no-ee` override
 | `ssh_agent` | bool | `true` | mount `$SSH_AUTH_SOCK` into the container |
 | `ssh_known_hosts` | bool | `true` | mount the host's public host key files read-only, so host-key checking behaves as on the host: `~/.ssh/known_hosts` (skipped when `ssh_dir` is true, which carries it) and the system-wide `/etc/ssh/ssh_known_hosts` (ssh reads both; hosts recorded only in the system file otherwise fail with "Host key verification failed"). Under `selinux = "z"`/`"Z"` the `/etc` file is left out with a warning, since the engine would relabel it |
 | `ssh_dir` | bool | `false` | mount `~/.ssh` read-only (known_hosts, config). Off by default because it also exposes private keys to the image |
-| `extra_mounts` | array of strings | `[]` | `"/host/path:/container/path[:ro]"`; the first tier that sets a non-empty list wins |
+| `extra_mounts` | array of strings | `[]` | `"SOURCE:DESTINATION[:OPTIONS]"`, checked at startup, before anything is pulled: `~` and `$VAR` are expanded from the host, a relative source is taken from the working directory, the source must exist, the destination must be absolute, OPTIONS is a comma-separated list of `ro`, `rw`, `z`, `Z`, `O` (`ro` with `rw`, or `z` with `Z`, is refused; an entry's own `z`/`Z` replaces the `selinux` mode's label), and a destination tangsible already uses is refused. The same mount listed twice, or once more than an automatic one such as `known_hosts`, counts once. The first tier that sets a non-empty list wins |
 
 Name resolution follows the host as far as the engine allows: podman builds
 the container's `resolv.conf` from the host's but drops a `domain` line (it

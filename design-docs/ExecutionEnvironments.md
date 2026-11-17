@@ -541,6 +541,28 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   Verified on the user's workstation: `-e @~/…` read a vars file in the home
   directory in a host run, failed in the container before the change and
   matched the host after it.
+- **Mount validation (navigator/runner comparison, items 6 and 8):** the
+  old `extra_mounts` parser took only absolute paths with one `ro`/`rw`
+  option and checked nothing against the host, so a typo, a bad option or a
+  clashing destination surfaced as the engine's bare error after the run had
+  failed - and a *relative* source would have been read by podman as a named
+  volume. Now (`parseExtraMount`, same rules as navigator's `VolumeMount`
+  plus a collision check): `~`/`$VAR` expanded from the host, a relative
+  source taken from the working directory, destination absolute, source must
+  exist, options a comma-separated subset of `O Z ro rw z` (contradictions
+  refused), a destination used by one of tangsible's own mounts refused with
+  the clashing mount named, the same mount twice - including once more than
+  an automatic one, as a hand-written `known_hosts` entry from before
+  `ssh_known_hosts` existed - counted once. `Build` applies it at every spawn;
+  `CheckExtraMounts` runs it at startup (`session.activateExecutionEnvironment`,
+  before the pull and before any TUI) with a one-line hint. The engine-wide
+  `selinux = "z"|"Z"` label is not added to an entry that has its own `z`/`Z`.
+  Runner took the opposite view of a missing source (#1408: pass it through
+  and let the engine decide); with a podman-only target the early message is
+  worth more. Verified live: typo, unknown option and a clashing destination
+  each stop with a clear message; a valid entry with `$VAR` and `ro,z` is
+  visible in the container and read-only there (a write failed, nothing was
+  created on the host).
 - **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the

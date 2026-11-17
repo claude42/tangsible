@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -96,6 +97,9 @@ type Inputs struct {
 type Mount struct {
 	Host, Container string
 	ReadOnly        bool
+	// Opts are further -v options a user asked for in extra_mounts (z, Z,
+	// O); "ro" is ReadOnly.
+	Opts []string
 }
 
 // Plan is the result of Build.
@@ -221,13 +225,28 @@ func Build(in Inputs) (*Plan, error) {
 	}
 	args := rewriteArgs(in.Args, m)
 
-	// Extra mounts come last so user-supplied ones can't shadow ours by
-	// ordering alone (a duplicate container path is rejected by the engine).
-	extra, err := parseExtraMounts(in.ExtraMounts)
+	// Extra mounts come last, and may not reuse a destination of ours: the
+	// engine would refuse the run with a bare "duplicate mount destination".
+	extra, err := parseExtraMounts(in.ExtraMounts, extraMountEnv{cwd: in.Cwd, home: in.HomeDir, env: hostEnv, exists: exists})
 	if err != nil {
 		return nil, err
 	}
-	p.Mounts = append(p.Mounts, extra...)
+	for _, x := range extra {
+		dup := false
+		for _, have := range p.Mounts {
+			if have.Container != x.Container {
+				continue
+			}
+			if have.Host == x.Host {
+				dup = true // the same mount twice (say known_hosts, which is also automatic): once is enough
+				break
+			}
+			return nil, fmt.Errorf("extra_mounts: %s is mounted at %s, which tangsible already uses for %s", x.Host, x.Container, have.Host)
+		}
+		if !dup {
+			p.Mounts = append(p.Mounts, x)
+		}
+	}
 
 	fixed := []string{"HOME=" + ContainerHome}
 	if in.PluginDir != "" {
@@ -288,12 +307,117 @@ func Build(in Inputs) (*Plan, error) {
 	return p, nil
 }
 
+// extraMountOptions are the -v options accepted in extra_mounts, the set
+// both podman and docker document for a bind mount: read-only/read-write,
+// SELinux relabel (shared z / private Z) and overlay.
+var extraMountOptions = []string{"O", "Z", "ro", "rw", "z"}
+
+// extraMountEnv is what resolving an extra_mounts entry needs from the host.
+type extraMountEnv struct {
+	cwd, home string
+	env       map[string]string
+	exists    func(string) bool
+}
+
+// parseExtraMount resolves one "SOURCE:DESTINATION[:OPTIONS]" entry: ~ and
+// $VAR are expanded from the host (as for path options), a relative source is
+// taken from the working directory - an engine would otherwise read it as a
+// named volume - the destination must be absolute, the source must exist,
+// OPTIONS is a comma-separated list of extraMountOptions, and contradictions
+// (ro with rw, z with Z) are refused.
+func parseExtraMount(spec string, e extraMountEnv) (Mount, error) {
+	fail := func(format string, args ...any) (Mount, error) {
+		return Mount{}, fmt.Errorf("extra_mounts entry %q: %s", spec, fmt.Sprintf(format, args...))
+	}
+	f := strings.Split(spec, ":")
+	if len(f) < 2 || len(f) > 3 {
+		return fail("want SOURCE:DESTINATION[:OPTIONS]")
+	}
+	src := expandPath(strings.TrimSpace(f[0]), e.home, e.env)
+	dst := expandPath(strings.TrimSpace(f[1]), e.home, e.env)
+	if src == "" {
+		return fail("no source given")
+	}
+	if dst == "" {
+		return fail("no destination given")
+	}
+	if strings.HasPrefix(src, "~") {
+		return fail("cannot expand %q (only the current user's ~ is known)", src)
+	}
+	src = absPath(e.cwd, src)
+	if !filepath.IsAbs(dst) {
+		return fail("the destination %q must be an absolute path in the container", dst)
+	}
+	if !e.exists(src) {
+		return fail("the source %s does not exist", src)
+	}
+	mt := Mount{Host: src, Container: filepath.Clean(dst)}
+	if len(f) == 3 && strings.TrimSpace(f[2]) != "" {
+		seen := map[string]bool{}
+		for _, o := range strings.Split(f[2], ",") {
+			o = strings.TrimSpace(o)
+			if !slices.Contains(extraMountOptions, o) {
+				return fail("unrecognized option %q (allowed: %s)", o, strings.Join(extraMountOptions, ", "))
+			}
+			if seen[o] {
+				continue
+			}
+			seen[o] = true
+			if o == "ro" {
+				mt.ReadOnly = true
+			} else if o != "rw" {
+				mt.Opts = append(mt.Opts, o)
+			}
+		}
+		if seen["ro"] && seen["rw"] {
+			return fail("ro and rw contradict each other")
+		}
+		if seen["z"] && seen["Z"] {
+			return fail("z and Z contradict each other")
+		}
+	}
+	return mt, nil
+}
+
+func parseExtraMounts(specs []string, e extraMountEnv) ([]Mount, error) {
+	var out []Mount
+	byDest := map[string]string{}
+	for _, spec := range specs {
+		mt, err := parseExtraMount(spec, e)
+		if err != nil {
+			return nil, err
+		}
+		if prev, ok := byDest[mt.Container]; ok {
+			if prev == mt.Host {
+				continue // listed twice
+			}
+			return nil, fmt.Errorf("extra_mounts entry %q: %s is already mounted at %s from %s", spec, mt.Container, mt.Container, prev)
+		}
+		byDest[mt.Container] = mt.Host
+		out = append(out, mt)
+	}
+	return out, nil
+}
+
+// CheckExtraMounts validates the extra_mounts of a configuration against the
+// host, as Build will when it runs: for a startup check that reports a typo
+// before an image is pulled or a TUI exists. exists nil means os.Stat.
+func CheckExtraMounts(specs []string, cwd, home string, hostEnv []string, exists func(string) bool) error {
+	if exists == nil {
+		exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
+	}
+	_, err := parseExtraMounts(specs, extraMountEnv{cwd: cwd, home: home, env: envMap(hostEnv), exists: exists})
+	return err
+}
+
 func (mt Mount) spec(selinux string) string {
-	var opts []string
+	opts := []string{}
 	if mt.ReadOnly {
 		opts = append(opts, "ro")
 	}
-	if selinux == "z" || selinux == "Z" {
+	opts = append(opts, mt.Opts...)
+	// The engine-wide relabel mode, unless the entry chose its own.
+	if (selinux == "z" || selinux == "Z") && !slices.Contains(mt.Opts, "z") && !slices.Contains(mt.Opts, "Z") {
 		opts = append(opts, selinux)
 	}
 	s := mt.Host + ":" + mt.Container
@@ -301,28 +425,6 @@ func (mt Mount) spec(selinux string) string {
 		s += ":" + strings.Join(opts, ",")
 	}
 	return s
-}
-
-func parseExtraMounts(specs []string) ([]Mount, error) {
-	var out []Mount
-	for _, spec := range specs {
-		f := strings.Split(spec, ":")
-		if len(f) < 2 || len(f) > 3 || !strings.HasPrefix(f[0], "/") || !strings.HasPrefix(f[1], "/") {
-			return nil, fmt.Errorf("extra mount %q: want /host/path:/container/path[:ro]", spec)
-		}
-		mt := Mount{Host: f[0], Container: f[1]}
-		if len(f) == 3 {
-			switch f[2] {
-			case "ro":
-				mt.ReadOnly = true
-			case "rw", "":
-			default:
-				return nil, fmt.Errorf("extra mount %q: unsupported option %q (want ro or rw)", spec, f[2])
-			}
-		}
-		out = append(out, mt)
-	}
-	return out, nil
 }
 
 // ShortImageName shortens an image reference for display: the registry and

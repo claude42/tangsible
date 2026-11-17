@@ -56,6 +56,8 @@
 
 ### Fixed
 
+- Execution environments: `extra_mounts` entries are checked at startup, before the image is pulled: a source that doesn't exist, an unknown option, a relative destination, or a destination tangsible already uses is reported with the entry and a hint instead of surfacing as an engine error after the run failed; `~`/`$VAR` are expanded, a relative source is taken from the working directory (an engine would read it as a named volume), and `ro,z`-style option lists are accepted
+
 - Execution environments: `~` and `$VAR` in path options (`-e @~/vars.yml`, `--vault-password-file=$DIR/pw`, `--private-key ~/k`, ...) are expanded from the host's home and environment, as Ansible does on the host, and the file is mounted; before, the container looked for them in its own home and failed
 
 - Execution environments: an inventory file outside the project brings its `group_vars/` and `host_vars/` directories into the container (read-only); before, their variables were silently undefined there while a host run had them

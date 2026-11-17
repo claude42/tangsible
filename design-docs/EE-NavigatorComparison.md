@@ -91,7 +91,8 @@ SELinux auto-detection.
    expands `~` and `$VAR` (`expand_path`) before mounting; we warn and pass it
    unchanged, so inside the container `~` is the container's home and the file
    isn't found.
-6. **Mount validation**: navigator's `VolumeMount` rejects an empty or
+6. **(Fixed with item 8's cousin: `parseExtraMount`, see `ExecutionEnvironments.md`.)
+   Mount validation**: navigator's `VolumeMount` rejects an empty or
    non-string source/destination, a source that does not exist, and unknown
    options *before* starting, and expands `~`. Our `extra_mounts` check only
    the shape; a typo surfaces as podman's own error after exit.

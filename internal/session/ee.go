@@ -38,6 +38,11 @@ func extractEEFlags(v config.Verb, args []string) (config.EEOverride, []string) 
 func activateExecutionEnvironment(o config.EEOverride, recorded string) {
 	s := config.ResolveEEWithHistory(config.MergedSettingsConfig(), o, recorded)
 	runner.SetExecutionEnvironment(s)
+	if err := runner.ValidateExecutionEnvironment(); err != nil {
+		fmt.Fprintln(os.Stderr, "tangsible:", err)
+		fmt.Fprintln(os.Stderr, "tangsible: hint: [execution_environment] extra_mounts entries read SOURCE:DESTINATION[:OPTIONS], OPTIONS a comma-separated list of ro, rw, z, Z, O; ~ and $VAR are expanded")
+		os.Exit(2)
+	}
 	if err := runner.EnsureImage(os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "tangsible:", err)
 		os.Exit(1)

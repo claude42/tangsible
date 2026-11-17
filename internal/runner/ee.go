@@ -58,6 +58,25 @@ func hostDNSSearch() []string {
 	return ee.DomainOnlySearch(string(b))
 }
 
+// ValidateExecutionEnvironment checks the active setting against the host
+// before anything is pulled or started - today the extra_mounts entries (a
+// source that doesn't exist, an unknown option, a clashing destination): the
+// same rules Build applies at every spawn, reported here once, early, as a
+// usage error instead of a failed first run. A no-op without an active
+// execution environment.
+func ValidateExecutionEnvironment() error {
+	s := ExecutionEnvironment()
+	if s == nil {
+		return nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	home, _ := os.UserHomeDir()
+	return ee.CheckExtraMounts(s.ExtraMounts, cwd, home, os.Environ(), nil)
+}
+
 // EnsureImage makes sure the active image is present locally, pulling it
 // (with the engine's own progress output going to w) when it isn't. It runs
 // before any TUI exists - a pull can take minutes and has nowhere to show

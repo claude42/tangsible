@@ -336,6 +336,89 @@ func TestE2E_EE_VariableInPathOptionIsExpandedOnTheHost(t *testing.T) {
 	waitNoContainers(t, 10*time.Second)
 }
 
+// A mistake in extra_mounts stops tangsible at startup - before an image is
+// pulled (the image here does not exist anywhere) or a TUI is built - with a
+// message naming the entry.
+func TestE2E_EE_BadExtraMountStopsBeforeAnythingRuns(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte("- hosts: localhost\n  gather_facts: false\n  tasks: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ entry, want string }{
+		{work + "/no-such-dir:/x:ro", "does not exist"},
+		{work + ":/x:readonly", `unrecognized option "readonly"`},
+		{work + ":relative", "must be an absolute path"},
+		{work + ":/a:ro,rw", "contradict"},
+	}
+	for _, c := range cases {
+		cfg := fmt.Sprintf("[execution_environment]\nimage = \"example.invalid/none:1\"\nextra_mounts = [%q]\n", c.entry)
+		if err := os.WriteFile(filepath.Join(work, ".tangsible", "config.toml"), []byte(cfg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(bin, "run", "p.yml", "-i", "localhost,")
+		cmd.Dir = work
+		out, err := cmd.CombinedOutput()
+		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 {
+			t.Errorf("%s: exit = %v, want 2\n%s", c.entry, err, out)
+		}
+		if !strings.Contains(string(out), "extra_mounts entry") || !strings.Contains(string(out), c.want) {
+			t.Errorf("%s: output %q lacks the entry and %q", c.entry, out, c.want)
+		}
+		if strings.Contains(string(out), "pulling") {
+			t.Errorf("%s: it got as far as pulling: %s", c.entry, out)
+		}
+	}
+}
+
+// A valid entry - with a variable in the source and an option list - is
+// visible in the container, and read-only there.
+func TestE2E_EE_ExtraMountIsVisibleAndReadOnly(t *testing.T) {
+	image := requireEE(t)
+	bin := buildE2EBinary(t)
+	work := t.TempDir()
+	probe := t.TempDir()
+	if err := os.WriteFile(filepath.Join(probe, "hello.txt"), []byte("visible-in-the-container\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf("[execution_environment]\nimage = %q\nextra_mounts = [\"$PROBE_DIR:/probe:ro,z\"]\n", image)
+	if err := os.WriteFile(filepath.Join(work, ".tangsible", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	play := "- hosts: localhost\n  gather_facts: false\n  connection: local\n  tasks:\n" +
+		"    - ansible.builtin.slurp:\n        src: /probe/hello.txt\n      register: r\n" +
+		"    - ansible.builtin.file:\n        path: /probe/new-file\n        state: touch\n      ignore_errors: true\n      register: w\n" +
+		"    - ansible.builtin.copy:\n" +
+		"        content: \"{{ r.content | b64decode | trim }} write_failed={{ w is failed }}\\n\"\n" +
+		"        dest: \"{{ playbook_dir }}/out.txt\"\n"
+	if err := os.WriteFile(filepath.Join(work, "p.yml"), []byte(play), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && PROBE_DIR=%s %s %s run p.yml -i localhost,", shellQuote(work), shellQuote(probe), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
+	s.waitFor("Completed", 60*time.Second)
+	got, err := os.ReadFile(filepath.Join(work, "out.txt"))
+	if err != nil {
+		t.Fatalf("the playbook did not run (no out.txt); pane:\n%s", s.capture())
+	}
+	if want := "visible-in-the-container write_failed=True\n"; string(got) != want {
+		t.Errorf("the container saw %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(probe, "new-file")); err == nil {
+		t.Error("the read-only mount let the container create a file on the host")
+	}
+	s.send("q")
+	waitNoContainers(t, 10*time.Second)
+}
+
 // SIGTERM must take the container down with it and leave no scratch
 // directory behind (tangsible's TMPDIR is a directory of the test's own).
 func TestE2E_EE_SIGTERMRemovesContainerAndScratch(t *testing.T) {
