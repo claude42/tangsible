@@ -159,6 +159,83 @@ filesystem as the project and is then mounted as the project root;
 symlinks pointing outside the mount root break. The stdout-jsonl
 fallback would rule `debug` out (no return channel).
 
+### The container user: `run_as_root` and a hint for `become` (spec, not built)
+
+**Problem.** The container runs as the host user (`--userns=keep-id`, a
+passwd entry with no password). A task that runs on the controller
+(`hosts: localhost`, `delegate_to: localhost`, `connection: local`) with
+`become: true` goes through the image's `sudo`, which asks that user for a
+password nobody has: ansible sends the become password, sudo says "Sorry,
+try again", and the task fails with "Duplicate become password prompt
+encountered waiting for become success". The community images' sudoers has
+only `root` and `%wheel` rules (checked on community-ee-base 2.21.6-1 and a
+derived image). ansible-navigator avoids it by running the container as
+root (`EE-NavigatorComparison.md` item 13): in rootless podman that is the
+host user for every file in a mount, and root needs no sudo password. AWX/AAP
+on execution nodes behave the same way (from memory, not checked).
+
+**The setting.** `[execution_environment] run_as_root`, a boolean, default
+`false` (today's behavior: the host user, keep-id); cascades like every other
+key, no command-line flag and no re-run dialog field (it describes the image
+and the host, not one run). A non-boolean is an invalid value: warn after exit
+and use the default. (A boolean on purpose: no other user is planned; a
+specific uid or the image's own `USER` would be a separate key if ever
+needed.) With `run_as_root = true` the container is started with `--user=root` instead of
+`--userns=keep-id` and `--passwd-entry`. Still ours, in both modes: the tmpfs
+home at `/runner/home` and `HOME` pointing at it (so `~/.ssh` mounts, the
+mounts' own paths and ansible's `~/.ansible/tmp` behave the same), the
+identity mounts, the event FIFO. Rootless podman only, as before: with a
+rootful engine `root` would be real root and own the files it creates in the
+project.
+
+What changes for the user, to be documented next to the setting (and in
+`ConfigOptions.md`, `examples/config.toml`):
+- `become: true` on the controller works without any password: root to root.
+- Ansible's default remote user is the *local* user name, taken from the
+  passwd entry. With `run_as_root` it is `root`: an inventory without `ansible_user`
+  or `remote_user` now logs in as root, which is almost never what a host-side
+  run did. This is the main reason it is not the default.
+- `whoami`, `$USER` and `ansible_user_id` for controller-side tasks are `root`.
+- Files created in mounts are still owned by the host user (rootless mapping).
+- Mounted agent socket and `~/.ssh` entries stay reachable (root maps to the
+  same uid on the host); to be confirmed on podman 5.4 and 5.8.
+
+`container_options` keeps refusing `--user`/`--userns`; its message now names
+`run_as_root = true` as the setting to use. (The first start of a new image is also
+faster without keep-id's re-owning of the layers; a side effect, not the aim.)
+
+**Measure before building** (podman 5.4 and the newer one): home and `HOME`
+with `--user=root` plus the tmpfs, without `--passwd-entry`; `sudo -n true`
+and `become` on localhost; ssh to a host with and without `ansible_user`;
+the agent socket and a `~/.ssh` mount; owner of a file written into the
+project; the slow first start.
+
+**The hint.** When a run in an EE without `run_as_root` has produced one of
+ansible's own become-failure messages - "Duplicate become password prompt",
+"Incorrect sudo password", "Missing sudo password" (exact wording to be
+confirmed by reproducing each) - in its output, one message is queued for
+after the TUI exits (like the "not passed into the container" one), once per
+session however many tasks failed:
+
+    tangsible: a task failed at `sudo`. In a container the user has no sudo
+    password (the community images grant sudo only to root and %wheel), so
+    `become: true` on the controller cannot work. Options: drop `become` for
+    tasks that run on localhost, run as root with `run_as_root = true` under
+    [execution_environment] (note: the default ssh user becomes root), or add a
+    NOPASSWD sudoers rule to the image.
+
+Not sent with `run_as_root = true` (sudo is not involved) nor without an EE. The
+match is a pure function over the generation's merged output (`OutputLog`),
+tested with the three messages and with unrelated sudo text. It cannot tell
+whether the failed task ran on the controller or on a managed host whose
+password was genuinely wrong, so the text says "if the task runs on the
+controller" rather than asserting it.
+
+**Not doing.** Passwordless sudo for the container user by tangsible (a
+`--security-opt`/entrypoint trick would modify the user's image behavior);
+detecting `become` statically in the draft (`ee init` could note
+`become: true` on controller-side tasks - later, with the lookup rules).
+
 ### Phasing (all phases done)
 
 0. Spike by hand: `podman run` against

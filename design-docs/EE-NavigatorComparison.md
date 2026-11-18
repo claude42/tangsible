@@ -149,7 +149,8 @@ SELinux auto-detection.
     `USER root`, the container runs as the host uid and created files are
     owned by it** (not re-checked on 5.7/5.8). `--user=root` would also avoid
     the slow first start of a new image, at the price of `whoami` being root,
-    unlike a host run; we keep keep-id for parity.
+    unlike a host run; we keep keep-id for parity. A `run_as_root` setting and a hint for the `become` failure it
+    causes are specified in `ExecutionEnvironments.md` ("The container user").
 14. **`/dev/mqueue` pre-flight check** (navigator #610): exists only because
     runner passes `--ipc=host`; we don't, so nothing to do.
 15. **Engines and platforms**: docker (`--user=<uid>`, `--config` for auth),
