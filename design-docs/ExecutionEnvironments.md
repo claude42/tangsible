@@ -22,7 +22,7 @@ happens to be on the developer's host.
 ## How it works
 
 - **Selecting it:** `[execution_environment]` in `config.toml` (`image`,
-  `engine`, `network`, `selinux`, `read_only`, `ssh_agent`,
+  `engine`, `network`, `selinux`, `read_only`, `run_as_root`, `ssh_agent`,
   `ssh_known_hosts`, `ssh_dir`, `extra_mounts`; `ConfigOptions.md`),
   `--ee <image>` / `--no-ee` per invocation, the re-run dialog's
   "Execution environment" field per re-run. What a run used is recorded in
@@ -159,7 +159,7 @@ filesystem as the project and is then mounted as the project root;
 symlinks pointing outside the mount root break. The stdout-jsonl
 fallback would rule `debug` out (no return channel).
 
-### The container user: `run_as_root` and a hint for `become` (spec, not built)
+### The container user: `run_as_root` and a hint for `become`
 
 **Problem.** The container runs as the host user (`--userns=keep-id`, a
 passwd entry with no password). A task that runs on the controller
@@ -177,16 +177,17 @@ on execution nodes behave the same way (from memory, not checked).
 **The setting.** `[execution_environment] run_as_root`, a boolean, default
 `false` (today's behavior: the host user, keep-id); cascades like every other
 key, no command-line flag and no re-run dialog field (it describes the image
-and the host, not one run). A non-boolean is an invalid value: warn after exit
-and use the default. (A boolean on purpose: no other user is planned; a
+and the host, not one run). A non-boolean is the same config parse warning as for
+the other boolean keys. (A boolean on purpose: no other user is planned; a
 specific uid or the image's own `USER` would be a separate key if ever
-needed.) With `run_as_root = true` the container is started with `--user=root` instead of
-`--userns=keep-id` and `--passwd-entry`. Still ours, in both modes: the tmpfs
-home at `/runner/home` and `HOME` pointing at it (so `~/.ssh` mounts, the
-mounts' own paths and ansible's `~/.ansible/tmp` behave the same), the
-identity mounts, the event FIFO. Rootless podman only, as before: with a
-rootful engine `root` would be real root and own the files it creates in the
-project.
+needed.) With `run_as_root = true` the container is started with `--user=root`
+instead of `--userns=keep-id`, `--passwd-entry` and the tmpfs home: podman
+ignores both `--passwd-entry` and `-e HOME` for root (measured on 5.4: `HOME`
+stays `/root`) and root's `/root` is writable, so that is the home in this mode
+(`Config.Home()`): `HOME=/root`, and the `~/.ssh` mounts go to `/root/.ssh`.
+Unchanged: the identity mounts and the event FIFO. Rootless podman only, as
+before: with a rootful engine `root` would be real root and own the files it
+creates in the project.
 
 What changes for the user, to be documented next to the setting (and in
 `ConfigOptions.md`, `examples/config.toml`):
@@ -198,35 +199,39 @@ What changes for the user, to be documented next to the setting (and in
 - `whoami`, `$USER` and `ansible_user_id` for controller-side tasks are `root`.
 - Files created in mounts are still owned by the host user (rootless mapping).
 - Mounted agent socket and `~/.ssh` entries stay reachable (root maps to the
-  same uid on the host); to be confirmed on podman 5.4 and 5.8.
+  same uid on the host; measured on podman 5.4, not yet on 5.8).
 
 `container_options` keeps refusing `--user`/`--userns`; its message now names
 `run_as_root = true` as the setting to use. (The first start of a new image is also
 faster without keep-id's re-owning of the layers; a side effect, not the aim.)
 
-**Measure before building** (podman 5.4 and the newer one): home and `HOME`
-with `--user=root` plus the tmpfs, without `--passwd-entry`; `sudo -n true`
-and `become` on localhost; ssh to a host with and without `ansible_user`;
-the agent socket and a `~/.ssh` mount; owner of a file written into the
-project; the slow first start.
+**Measured** (podman 5.4.2, community-ee-base 2.21.6-1): `become` on localhost
+works and reports `root`; `sudo -n true` succeeds; a file created in the
+project is owned by the host user; the agent socket answers `ssh-add -l`;
+`ssh -G` shows the default user `root`. Not measured: podman 5.8, the first
+start's speed.
 
-**The hint.** When a run in an EE without `run_as_root` has produced one of
-ansible's own become-failure messages - "Duplicate become password prompt",
-"Incorrect sudo password", "Missing sudo password" (exact wording to be
-confirmed by reproducing each) - in its output, one message is queued for
-after the TUI exits (like the "not passed into the container" one), once per
-session however many tasks failed:
+**The hint.** When a run in an EE without `run_as_root` has produced ansible's
+become failure for a password sudo could not get - reproduced on
+ansible-core 2.21: "Duplicate become password prompt" when a password was
+sent and refused, "Premature end of stream waiting for become success" with
+sudo's "a password is required" when none was (the older "Incorrect sudo
+password"/"Missing sudo password" wordings did not appear, so they are not
+matched) - in its output, one message is queued for after the TUI exits (like
+the "not passed into the container" one), once per session however many tasks
+failed:
 
-    tangsible: a task failed at `sudo`. In a container the user has no sudo
+    tangsible: execution environment: a task failed at sudo. If it runs on the
+    controller (localhost), note that in the container your user has no sudo
     password (the community images grant sudo only to root and %wheel), so
-    `become: true` on the controller cannot work. Options: drop `become` for
-    tasks that run on localhost, run as root with `run_as_root = true` under
-    [execution_environment] (note: the default ssh user becomes root), or add a
-    NOPASSWD sudoers rule to the image.
+    become: true cannot work there. Options: drop become for tasks that run on
+    localhost; set run_as_root = true under [execution_environment] (become
+    then works without a password, but the default ssh user becomes root); or
+    add a NOPASSWD sudoers rule to the image
 
 Not sent with `run_as_root = true` (sudo is not involved) nor without an EE. The
 match is a pure function over the generation's merged output (`OutputLog`),
-tested with the three messages and with unrelated sudo text. It cannot tell
+tested with both messages and with unrelated sudo text. It cannot tell
 whether the failed task ran on the controller or on a managed host whose
 password was genuinely wrong, so the text says "if the task runs on the
 controller" rather than asserting it.

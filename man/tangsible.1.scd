@@ -115,7 +115,7 @@ will use. It needs *podman* (Linux only for now). Keys: *image* (without
 one, nothing changes), *base_image* (the image *tangsible ee init* builds its draft on; see *tangsible-ee*(1)), *engine* (only *"podman"*), *network* (*"host"* to
 use the host's own network stack, for DNS or routing problems), *selinux* (*"auto"*, *"disable"*, *"z"*, *"Z"*,
 *"none"*; auto disables label separation only when SELinux is enforcing; *"z"* and *"Z"* relabel the project and cannot forward the SSH agent),
-*read_only* (mount the project read-only), *ssh_agent*, *ssh_known_hosts* and *ssh_dir*
+*read_only* (mount the project read-only), *run_as_root* (run the container as root instead of as your user, so *become* on the controller needs no sudo password; the default ssh user is then root), *ssh_agent*, *ssh_known_hosts* and *ssh_dir*
 (forward *$SSH_AUTH_SOCK*, default true; mount the public host key files
 *~/.ssh/known_hosts* and */etc/ssh/ssh_known_hosts* read-only, default true;
 and mount all of *~/.ssh* read-only, default false

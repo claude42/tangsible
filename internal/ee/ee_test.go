@@ -1084,3 +1084,50 @@ func TestHomeAsProjectWarns(t *testing.T) {
 		t.Errorf("running from $HOME should warn once: %v", w)
 	}
 }
+
+func TestRunAsRoot(t *testing.T) {
+	in := base()
+	in.Playbook = "site.yml"
+	in.Name = "tgs-1"
+	in.RunAsRoot = true
+	in.SSHDir = "/home/u/.ssh"
+	p := build(t, in)
+	want := []string{"run", "--rm", "-i", "--name", "tgs-1", "--user=root",
+		"-w", "/home/u/proj", "-v", "/home/u/proj:/home/u/proj",
+		"-v", "/home/u/.ssh:/root/.ssh:ro",
+		"-e", "HOME=/root", "img:1", "ansible-playbook", "site.yml"}
+	if !reflect.DeepEqual(p.Argv, want) {
+		t.Errorf("argv = %q\nwant   %q", p.Argv, want)
+	}
+	for _, a := range p.Argv {
+		if strings.Contains(a, "keep-id") || strings.Contains(a, "passwd-entry") || strings.Contains(a, "/runner/home") {
+			t.Errorf("host-user flag %q in a root run", a)
+		}
+	}
+}
+
+func TestRunAsRootKnownHosts(t *testing.T) {
+	in := base()
+	in.RunAsRoot = true
+	in.SSHKnownHosts = "/home/u/.ssh/known_hosts"
+	p := build(t, in)
+	if !hasPair(p.Argv, "-v", "/home/u/.ssh/known_hosts:/root/.ssh/known_hosts:ro") {
+		t.Errorf("argv = %q", p.Argv)
+	}
+}
+
+func TestBecomeFailure(t *testing.T) {
+	for _, s := range []string{
+		"fatal: [localhost]: FAILED! => {\"msg\": \"Task failed: Duplicate become password prompt encountered waiting for become success.\"}",
+		`"msg": "Task failed: Premature end of stream waiting for become success.\n>>> Standard Error\nsudo: a password is required"`,
+	} {
+		if !BecomeFailure(s) {
+			t.Errorf("not recognized: %q", s)
+		}
+	}
+	for _, s := range []string{"", "sudo: a password is required", "Premature end of stream waiting for become success", "TASK [Install sudo]"} {
+		if BecomeFailure(s) {
+			t.Errorf("false positive: %q", s)
+		}
+	}
+}

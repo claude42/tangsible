@@ -18,6 +18,10 @@ type EESettings struct {
 	Network   string
 	SELinux   string // "", "disable", "z", "Z" or "none"; "" is auto
 	ReadOnly  bool
+	// RunAsRoot runs the container as root (rootless podman maps that to
+	// the host user) instead of as the host user (keep-id): sudo/become on
+	// the controller then needs no password, but the default ssh user is root.
+	RunAsRoot bool
 	SSHAgent  bool
 	SSHDir    bool
 	// SSHKnownHosts mounts just ~/.ssh/known_hosts (public host keys) so
@@ -59,6 +63,7 @@ func mergeEE(merged *SettingsConfig, tiers ...SettingsConfig) {
 		m.Network = firstNonEmpty(m.Network, e.Network)
 		m.SELinux = firstNonEmpty(m.SELinux, e.SELinux)
 		m.ReadOnly = firstNonNil(m.ReadOnly, e.ReadOnly)
+		m.RunAsRoot = firstNonNil(m.RunAsRoot, e.RunAsRoot)
 		m.SSHAgent = firstNonNil(m.SSHAgent, e.SSHAgent)
 		m.SSHDir = firstNonNil(m.SSHDir, e.SSHDir)
 		m.SSHKnownHosts = firstNonNil(m.SSHKnownHosts, e.SSHKnownHosts)
@@ -104,6 +109,7 @@ func EEFromSettings(cfg SettingsConfig) EESettings {
 		Engine:           "podman",
 		Network:          e.Network,
 		ReadOnly:         e.ReadOnly != nil && *e.ReadOnly,
+		RunAsRoot:        e.RunAsRoot != nil && *e.RunAsRoot,
 		SSHAgent:         e.SSHAgent == nil || *e.SSHAgent,
 		SSHDir:           e.SSHDir != nil && *e.SSHDir,
 		SSHKnownHosts:    e.SSHKnownHosts == nil || *e.SSHKnownHosts,

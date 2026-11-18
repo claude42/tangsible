@@ -9,8 +9,8 @@ import (
 // would break how tangsible talks to the container (its stdin/stdout,
 // the event FIFO, the mapped user). Each maps to what to use instead.
 var ownedFlags = map[string]string{
-	"--userns":       "tangsible runs the container as your user (keep-id)",
-	"--user":         "tangsible runs the container as your user (keep-id)",
+	"--userns":       "tangsible runs the container as your user (keep-id), or as root with run_as_root = true",
+	"--user":         "tangsible runs the container as your user (keep-id), or as root with run_as_root = true",
 	"--passwd-entry": "tangsible sets the passwd entry and the home directory",
 	"--volume":       "use extra_mounts",
 	"--mount":        "use extra_mounts",

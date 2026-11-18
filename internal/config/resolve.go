@@ -160,6 +160,7 @@ type SettingsConfig struct {
 		Network          string            `toml:"network"`
 		SELinux          string            `toml:"selinux"`
 		ReadOnly         *bool             `toml:"read_only"`
+		RunAsRoot        *bool             `toml:"run_as_root"`
 		SSHAgent         *bool             `toml:"ssh_agent"`
 		SSHDir           *bool             `toml:"ssh_dir"`
 		SSHKnownHosts    *bool             `toml:"ssh_known_hosts"`

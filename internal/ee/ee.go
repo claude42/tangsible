@@ -26,7 +26,10 @@ const (
 	ContainerPlugin = "/runner/plugin"
 	ContainerEvents = "/runner/events"
 	ContainerHome   = "/runner/home"
-	ContainerSock   = "/runner/ssh-agent.sock"
+	// ContainerRootHome is the home of root, which podman fixes whatever
+	// --passwd-entry and HOME say (measured on 5.4).
+	ContainerRootHome = "/root"
+	ContainerSock     = "/runner/ssh-agent.sock"
 	// ContainerSystemKnownHosts is where ssh looks for the system-wide list
 	// of host keys, next to the user's own.
 	ContainerSystemKnownHosts = "/etc/ssh/ssh_known_hosts"
@@ -49,6 +52,18 @@ type Config struct {
 	SELinux string
 	// ReadOnly mounts the project read-only.
 	ReadOnly bool
+	// RunAsRoot runs the container as root instead of the host user
+	// (keep-id); the home is then root's own.
+	RunAsRoot bool
+}
+
+// Home is the container user's home directory: tangsible's own tmpfs for
+// the host user, root's for root.
+func (c Config) Home() string {
+	if c.RunAsRoot {
+		return ContainerRootHome
+	}
+	return ContainerHome
 }
 
 // Inputs is everything Build needs; the caller resolves policy (is there an
@@ -199,10 +214,10 @@ func Build(in Inputs) (*Plan, error) {
 		p.Mounts = append(p.Mounts, Mount{Host: in.EventDir, Container: ContainerEvents})
 	}
 	if in.SSHDir != "" {
-		p.Mounts = append(p.Mounts, Mount{Host: in.SSHDir, Container: ContainerHome + "/.ssh", ReadOnly: true})
+		p.Mounts = append(p.Mounts, Mount{Host: in.SSHDir, Container: in.Home() + "/.ssh", ReadOnly: true})
 	}
 	if in.SSHKnownHosts != "" && in.SSHDir == "" {
-		p.Mounts = append(p.Mounts, Mount{Host: in.SSHKnownHosts, Container: ContainerHome + "/.ssh/known_hosts", ReadOnly: true})
+		p.Mounts = append(p.Mounts, Mount{Host: in.SSHKnownHosts, Container: in.Home() + "/.ssh/known_hosts", ReadOnly: true})
 	}
 	// A relabel mode would have :z/:Z rewrite the label of a system file
 	// under /etc, which can upset the services that own it; the file is
@@ -258,7 +273,7 @@ func Build(in Inputs) (*Plan, error) {
 		}
 	}
 
-	fixed := []string{"HOME=" + ContainerHome}
+	fixed := []string{"HOME=" + in.Home()}
 	if in.PluginDir != "" {
 		fixed = append(fixed, "ANSIBLE_CALLBACK_PLUGINS="+ContainerPlugin)
 	}
@@ -283,9 +298,17 @@ func Build(in Inputs) (*Plan, error) {
 	// world-writable tmpfs of our own as the home (the same on every
 	// version and image), named in both the passwd entry and $HOME, and
 	// where ~/.ssh entries are mounted.
-	argv = append(argv, "--userns=keep-id",
-		"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:"+ContainerHome+":/bin/sh",
-		"--tmpfs", ContainerHome+":rw,mode=1777")
+	//
+	// As root (run_as_root) none of that applies: podman gives root its own
+	// /root, writable, whatever is passed, and root in rootless podman is the
+	// host user for every file in a mount.
+	if in.RunAsRoot {
+		argv = append(argv, "--user=root")
+	} else {
+		argv = append(argv, "--userns=keep-id",
+			"--passwd-entry=$USERNAME:*:$UID:$GID:tangsible:"+ContainerHome+":/bin/sh",
+			"--tmpfs", ContainerHome+":rw,mode=1777")
+	}
 	if in.Network != "" {
 		argv = append(argv, "--network="+in.Network)
 	}

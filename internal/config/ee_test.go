@@ -310,3 +310,23 @@ ANSIBLE_FORKS = "20"
 		t.Errorf("inline table: %+v, warnings %q", cfg.ExecutionEnvironment.SetEnv, pendingWarnings)
 	}
 }
+
+func TestEERunAsRoot(t *testing.T) {
+	tr, fl := true, false
+	if EEFromSettings(SettingsConfig{}).RunAsRoot {
+		t.Error("run_as_root must default to false")
+	}
+	var project, global, merged SettingsConfig
+	global.ExecutionEnvironment.RunAsRoot = &tr
+	mergeEE(&merged, project, global)
+	if got := EEFromSettings(merged); !got.RunAsRoot {
+		t.Errorf("global tier: %+v", got)
+	}
+	// The more specific tier wins, also when it says false.
+	project.ExecutionEnvironment.RunAsRoot = &fl
+	merged = SettingsConfig{}
+	mergeEE(&merged, project, global)
+	if got := EEFromSettings(merged); got.RunAsRoot {
+		t.Errorf("project false must win: %+v", got)
+	}
+}

@@ -318,3 +318,19 @@ func TestValidateExecutionEnvironment(t *testing.T) {
 		t.Errorf("mount error must still be reported first: %v", err)
 	}
 }
+
+func TestWantsBecomeHint(t *testing.T) {
+	out := "Task failed: Duplicate become password prompt encountered waiting for become success."
+	if !wantsBecomeHint(&config.EESettings{}, out) {
+		t.Error("an EE run as the host user, with the failure, must get the hint")
+	}
+	if wantsBecomeHint(&config.EESettings{RunAsRoot: true}, out) {
+		t.Error("no hint with run_as_root: sudo is not involved")
+	}
+	if wantsBecomeHint(nil, out) {
+		t.Error("no hint without an execution environment")
+	}
+	if wantsBecomeHint(&config.EESettings{}, "everything is fine") {
+		t.Error("no hint without the failure")
+	}
+}

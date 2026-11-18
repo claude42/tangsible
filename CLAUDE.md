@@ -359,7 +359,12 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   `ansible-config dump` (it wants host paths) and `ansible-inventory
   --list` for the re-run dialog's group autocomplete (best effort; a host
   vs EE difference only costs suggestions, the run's own hosts come from
-  its events). The container user's home is a world-writable tmpfs of ours
+  its events). `run_as_root = true` runs the container as root instead
+  (`--user=root`; rootless root is the host user, so `become` on localhost needs
+  no sudo password, but ansible's default ssh user becomes root; podman fixes
+  root's home to `/root`, so no tmpfs/passwd entry there); in the default mode a
+  sudo-password `become` failure queues a one-time hint (`ee.BecomeHint`,
+  `runner.noteBecomeFailure`). The container user's home is a world-writable tmpfs of ours
   (`/runner/home`, in the passwd entry and `$HOME`): podman's `keep-id`
   alone picks the project dir (5.4) or `/tmp` (5.8) as home, and the image's
   own `/runner` is writable only via group root, which `keep-id` grants on

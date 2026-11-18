@@ -382,6 +382,7 @@ func baseEEInputs(s *config.EESettings) (ee.Inputs, error) {
 			ContainerOptions: containerOptions(s.ContainerOptions),
 			SELinux:          ee.ResolveSELinux(s.SELinux, enforcing),
 			ReadOnly:         s.ReadOnly,
+			RunAsRoot:        s.RunAsRoot,
 		},
 		Cwd:       cwd,
 		HostEnv:   os.Environ(),
@@ -504,4 +505,25 @@ func KillActiveContainer() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = exec.CommandContext(ctx, s.Engine, "kill", *name).Run()
+}
+
+// becomeHintOnce keeps the become hint to one message per session, however
+// many tasks or generations hit it.
+var becomeHintOnce sync.Once
+
+// wantsBecomeHint reports whether a run's output calls for ee.BecomeHint: an
+// execution environment that runs as the host user (with run_as_root sudo is
+// not involved) and ansible's own become failure among its output.
+func wantsBecomeHint(s *config.EESettings, output string) bool {
+	return s != nil && !s.RunAsRoot && ee.BecomeFailure(output)
+}
+
+// noteBecomeFailure queues the hint, printed after the TUI exits.
+func noteBecomeFailure(s *config.EESettings, log *OutputLog) {
+	if s == nil || s.RunAsRoot {
+		return
+	}
+	if wantsBecomeHint(s, strings.Join(log.LinesFrom(0), "\n")) {
+		becomeHintOnce.Do(func() { config.QueueWarning("tangsible: execution environment: " + ee.BecomeHint) })
+	}
 }

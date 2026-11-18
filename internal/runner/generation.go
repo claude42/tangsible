@@ -68,6 +68,7 @@ func RunOneGeneration(cmd *exec.Cmd, stdoutCh <-chan StreamItem, stderrLines <-c
 	childStderr := <-stderrLines // wait for stderr to fully drain before Wait()
 	waitErr := cmd.Wait()        // also waits for exec's own stdout copy into outLog
 	outLog.Finish()
+	noteBecomeFailure(ExecutionEnvironment(), outLog)
 	code := ExitCodeOf(waitErr)
 	exitCode.Store(int32(code)) // before processDone below - tui.go's
 	// rebuild() only ever reads exitCode once it observes processDone

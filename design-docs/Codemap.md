@@ -180,6 +180,8 @@ Execution-environment command builder (`design-docs/ExecutionEnvironments.md`)
   plugin/event dirs, ssh agent/dir, host env) to a `Plan` (podman argv,
   extra env, mounts, warnings); mount-root choice, path mapper,
   `ResolveSELinux`.
+- **hint.go** - `BecomeFailure`/`BecomeHint`: ansible's sudo-password
+  failure in a container run as the host user, and the message for it.
 - **args.go** - `rewriteArgs`: finds the host paths in known
   ansible-playbook flags so they get mounted (at their own path; the
   arguments themselves are unchanged).

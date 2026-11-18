@@ -42,6 +42,7 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # network = "host"            # share the host's network stack - for DNS/routing problems
 # selinux = "auto"            # "auto" | "disable" | "z" | "Z" | "none"
 # read_only = false           # mount the project read-only
+# run_as_root = false         # run as root, not as you: become on localhost needs no sudo password, but the default ssh user becomes root
 # ssh_agent = true            # forward $SSH_AUTH_SOCK
 # ssh_known_hosts = true      # mount ~/.ssh/known_hosts and /etc/ssh/ssh_known_hosts (public host keys)
 # ssh_dir = false             # mount ~/.ssh read-only (known_hosts, config - but also your keys)
