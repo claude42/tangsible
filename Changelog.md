@@ -37,7 +37,6 @@
 - `debug`: the top bar no longer shows the elapsed-time clock
 - `debug`: variables are captured for every task (the Resolved tab works for any task); the `--all-vars`/`-a` option is gone, and the capture is ~8x faster
 - `host`/`hosts`/`inventory`: the Summary tab's Mounts show the total size first, then the free space, e.g. `/  18.7 GB (4.7 GB available)`
-- `host`/`hosts`/`inventory`: the Facts tab no longer shows inventory variables when the facts come from the fact cache
 - Faster startup: `run`/`role`/`debug`/`rerun` ~300 ms (host groups load in the background), `run`/`role` ~250 ms (no `ansible-config` call before spawning), `role`/`template` ~250 ms (shared, early `ansible-config` call)
 
 ### Fixed
@@ -51,6 +50,7 @@
 - `debug`: a variable set in the watch explorer now reaches the redone task's arguments (F12), not only its conditions
 - `debug`: `strategy: free` plays now run as linear (marked in the top bar) instead of refusing to start or misattributing tasks
 - `--ask-become-pass`/`--ask-vault-pass`/`--ask-pass` no longer hang a re-run (`run`/`rerun`/`role`) or `debug`'s F5: the password is asked once at startup and handed to Ansible as a private temporary file
+- `host`/`hosts`/`inventory`: the Facts tab no longer shows inventory variables when the facts come from the fact cache
 
 ## [0.3.0] - 2026-10-24
 
