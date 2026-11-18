@@ -76,7 +76,7 @@ jobs:
             || gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes-file dist/CHANGELOG.md
 
           gh release upload "$TAG" --repo "$REPO" --clobber \
-            dist/*.tar.gz dist/*_checksums.txt
+            dist/*.tar.gz dist/*.deb dist/*.rpm dist/*_checksums.txt
         env:
           GH_TOKEN: ${{ secrets.GH_MIRROR_TOKEN }}
           GH_HOST: github.com

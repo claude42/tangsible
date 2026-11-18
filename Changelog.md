@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Release pipeline: the `.deb` and `.rpm` packages are attached to the GitHub mirror release too
+
 ## [0.4.1] - 2026-11-18
 
 ### Fixed
