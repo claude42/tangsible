@@ -34,16 +34,16 @@ implied-dependency rules table (see "Later").
 ## Usage
 
 ```
-tangsible ee init [playbook] [--base <image>]
+tangsible ee init [playbook] [--base <image>] [--resolve-packages] [--no-backup]
 ```
 
 - Playbook resolved like `run`'s (`ResolvePlaybook`: argument ->
   `$TANGSIBLE_PLAYBOOK` -> `default_playbook` -> `./site.yml`).
 - Batch: runs, writes the file, prints a short summary (what was found, how
   many `TODO`s), exits. No TUI.
-- Output is `./execution-environment.yml`. **If it exists, fail with an
-  error and write nothing** (exit non-zero; message names the file). No
-  overwrite, no merge, no second file.
+- Output is `./execution-environment.yml`. **If it exists it is replaced**,
+  the old one kept as a numbered backup when the content changed (see
+  "Replacing an existing draft" below; v1 refused to overwrite). No merge.
 - Fails with a clear message if `podman` is unavailable.
 - Builder schema **v3 only** (`version: 3`).
 
@@ -225,7 +225,8 @@ notes").
 - Unit: the pure core (golden YAML for: all-FQCN, short names with
   `collections:`, requirements.yml present/absent/partial, unresolvable
   items, unpinned), the `os-release` parser, the base-image lookup order,
-  the refuse-to-overwrite check.
+  the refuse-to-overwrite check (v1; replaced by the tests of "Replacing an
+  existing draft").
 - Fixture playbooks under `testdata/` (own comments, as the others).
 - Smoke with real podman gated on `TANGSIBLE_EE_IMAGE`, like
   `internal/ee`'s smoke test; optionally feed the result to
@@ -997,6 +998,108 @@ lines, which the status line already shows). Colour in the status line.
   which "can take a minute") deserve the same treatment; they print one line
   today.
 
+## Replacing an existing draft (`ee init`, follow-up)
+
+**Spec, not built.** v1 refused to write when `execution-environment.yml`
+existed, so every re-run (a module added to the playbook) started with removing
+the file by hand. Now the file is replaced and the old content is kept:
+
+```
+tangsible ee init [playbook] [--base <image>] [--resolve-packages] [--no-backup]
+```
+
+- **Unchanged:** if the new draft's bytes equal the existing file's, nothing
+  is written and no backup made; the summary says the file is unchanged. (The
+  draft is deterministic - no timestamps - so this happens when `ee init` is run
+  twice in a row; an edited file nearly always differs.)
+- **Changed:** the existing file is kept as `execution-environment.yml.<N>`,
+  `N` = the highest existing number + 1 (1 when there is none), then replaced.
+  Only names that are exactly the file name, a dot and a decimal number without
+  a leading zero count; nothing else is ever touched or counted (a `.bak` you
+  made, `.0`, `.01`).
+- **At most 5 backups.** After the new file is in place, the lowest-numbered
+  backups beyond five are removed. Numbers keep growing (`.7`, `.8`, ...);
+  only five exist.
+- **`--no-backup`:** replace without keeping the old content (still atomically,
+  below). Existing backups are left alone: no new one, nothing pruned.
+- **No merge.** The new draft is generated from scratch; the user's edits
+  (uncommented stanzas, resolved TODOs) are in the backup, not carried over. The
+  summary names the backup and suggests `diff <backup> execution-environment.yml`.
+- **Not replaced:** a symlink or anything that is not a regular file at the
+  output path is an error (writing through a symlink would change its target;
+  replacing it would break it), before any work.
+
+### Crash safety
+
+The old file is never renamed away first: that leaves a moment with no
+`execution-environment.yml` at all. The order is:
+
+1. All the slow work (probe, scan, lookups) happens first; the file operations
+   below are the very end, so an interrupt before them touches nothing.
+2. Write the new draft to a temporary file in the same directory
+   (`.execution-environment.yml.tmp-<random>`, `O_EXCL`, the existing file's
+   permissions or 0644, fsync).
+3. Unless `--no-backup`: make the backup as a **hard link** from the existing
+   file to `execution-environment.yml.<N>`. `link` fails when the name exists,
+   which claims the number atomically; if it does (another run took it),
+   recompute `N` and try again. Where the filesystem has no hard links, copy the
+   file with the same exclusive create.
+4. **Rename** the temporary file over the output path (atomic): at every
+   instant the output path holds the complete old file or the complete new one.
+   With no existing file, `link` the temporary file to the output path instead
+   and remove it: that fails if a file appeared meanwhile, which is then treated
+   as an existing one (start again at 3), so a file is never silently clobbered.
+5. Prune the backups beyond five (a failure is a warning, not an error), and
+   remove the temporary file if any step left it.
+
+A crash or kill leaves at worst an extra backup or a hidden
+`.execution-environment.yml.tmp-*` file; never a missing or partial output
+file, and never a backup without the old content. The next run removes
+temporary files of that name older than an hour. Two `ee init` runs at the same
+time in one directory are not supported, but the link and the rename keep them
+from corrupting anything (the later rename wins; its backup is of whichever file
+it saw).
+
+### Code plan
+
+`internal/eeinit/write.go`: `WriteDraft(path string, content []byte, backup bool)
+(WriteResult, error)` (result: unchanged / replaced with backup name / created /
+pruned names) built from small steps; pure helpers `nextBackupNumber(names)` and
+`backupsToPrune(names, keep)`. `run.go` drops its early existence refusal (it
+keeps a non-regular-file check there, before any work) and calls `WriteDraft`
+where it opened the file. `MaxBackups = 5` is a constant.
+
+### Tests
+
+Pure: `nextBackupNumber` (none, `.1`, gaps `.2 .5`, non-matching names `.bak`
+`.0` `.01` `.1x`), `backupsToPrune` (7 backups keep the 5 highest numbers; only
+matching names). In a temp directory: a new file; a changed file (the backup
+holds the old content, the output the new, same permissions); unchanged (no
+write, no backup, modification time untouched); eight replacements leave
+exactly five backups, the newest; `--no-backup` leaves existing backups alone
+and makes none; a symlink and a directory are refused with nothing written; a
+stale temporary file is removed; a crash simulated by running steps 2 and 3
+only: the old file intact, the backup present, a second full run recovers; a
+file that appears between the check and the link is treated as existing.
+
+### Changes elsewhere
+
+`man/tangsible-ee.1.scd` (INIT: "fails if it already exists" -> replaced, the
+backups, `--no-backup`), `README.md`, `CLAUDE.md` ("never overwriting"),
+`Changelog.md`, completions (`--no-backup` after `init`), `Codemap.md`, the
+usage line of `ee init`.
+
+### Not doing
+
+A merge or a diff of the user's edits into the new draft. A configurable number
+of backups (a constant until someone asks). Editing `.gitignore` (the backups
+show up in `git status`; ignoring them is the user's call). A command to restore
+a backup (it is a copy: `mv`).
+
+### Open points
+
+- Whether the summary should print the `diff` itself, not only the command.
+
 ## Later (explicitly deferred)
 
 - **Implied-dependency rules table**: specified above for lookups and
@@ -1008,7 +1111,8 @@ lines, which the status line already shows). Colour in the status line.
 - `requires_ansible` check against the pinned ansible-core.
 - Binaries used by `command`/`shell` (now specified above, as "Controller-side
   binaries").
-- Smarter handling of an existing file (diff, second file, merge).
+- Smarter handling of an existing file: replacing it with a backup is specified
+  below; a diff or a merge of the user's edits into the new draft is later.
 - Resolving collections not installed on the host (Galaxy lookup).
 - `--verify`: now specified above as `ee verify`; building the real image is
   `ee build`, also above.
@@ -1023,7 +1127,8 @@ Where the code decided something the spec left open:
   terminal background query. `internal/eeinit` holds everything;
   `internal/source.ReachableYAML` (extracted from the task index's role walk,
   which now shares `walkRoles` with it) supplies the files.
-- **Order of refusals:** existing output file first (before any work), then
+- **Order of refusals** (v1; the existing-file refusal is gone, see "Replacing an
+  existing draft"): existing output file first (before any work), then
   playbook, then podman. The file is created with `O_EXCL`, so one that appears
   meanwhile is not overwritten either.
 - **Image pull:** the base is pulled with `runner.EnsureImage` under the user's
