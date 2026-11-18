@@ -854,7 +854,7 @@ context to inspect is `ansible-builder create`'s job.
 
 ## Progress while building (`ee verify`, `ee build`, follow-up)
 
-**Spec, not built.** A build takes minutes and today the terminal shows one
+**Implemented** (`internal/eebuild/progress.go`; the facts found while building it are in the notes at the end of this section). A build takes minutes and, before this,  the terminal shows one
 line ("building ... this can take several minutes") and then nothing: the build's
 output goes only to `.tangsible/ee-verify.log` / `ee-build.log`. Two additions
 to the build step the two verbs share (`internal/eebuild`):
@@ -961,6 +961,23 @@ completions (bash, fish), `README.md`, `Changelog.md`, `Codemap.md`,
 A percentage or a bar (not derivable, see above). A TUI for the build. Pulling
 the base image with its own progress before the build (podman prints its blob
 lines, which the status line already shows). Colour in the status line.
+
+### Implementation notes
+
+- **`ansible-builder` prints nothing of the build at its default verbosity**, not
+  even on success: podman's output is captured and only its tail shown on
+  failure (`Running command: podman build ...`, `Complete!`). At `-v 3` it
+  streams podman's complete output, so `BuildArgs` always passes `-v 3`; the log
+  then holds the whole build, and a failed build's tail is the real error.
+- Stages do not run in order (a real build printed `[1/4]`, then `[3/4]` and
+  `[4/4]`, then `[2/4]`), so the marker is shown as the latest seen, not as a
+  position.
+- The output has `set -x` lines (`+ PYCMD=...`) and bare layer ids
+  (`--> 166933a0c7a6`); a layer id never replaces the latest line.
+- Measured in tmux: the line shows the marker and the instruction being run
+  (`building  8s  [2/4] STEP 13/13  RUN ANSIBLE_GALAXY_...`), truncated with an
+  ellipsis; it is erased when the build ends, successful or not; piped, nothing
+  is drawn; `--show-output` piped streams the output.
 
 ### Open points
 

@@ -17,9 +17,9 @@ tangsible-ee - draft an execution-environment.\&yml from a playbook, check it, o
 .PP
 \fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages]
 .br
-\fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [--no-cache] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [--no-cache] [--show-output] [\fIansible-playbook args\fR .\&.\&.\&]
 .br
-\fBtangsible ee build\fR [-f \fIfile\fR] [-t \fItag\fR .\&.\&.\&] [--no-cache]
+\fBtangsible ee build\fR [-f \fIfile\fR] [-t \fItag\fR .\&.\&.\&] [--no-cache] [--show-output]
 .PP
 .SH DESCRIPTION
 .PP
@@ -171,6 +171,18 @@ The definition to build, instead of \fBexecution-environment.\&yml\fR.\&
 Keep the built image and print its name.\&
 .PP
 .RE
+\fB--show-output\fR
+.RS 4
+Stream the build'\&s complete output to the terminal (stderr) instead of
+the status line.\& The status line, shown while the build runs when stderr is
+a terminal, has the elapsed time, podman'\&s latest \fB[stage/stages] STEP
+step/steps\fR marker and the latest line of output; it is erased when the
+build ends.\& There is no percentage: podman does not tell how many steps a
+stage has until it gets there.\& The full output always goes to the log.\&
+(\fB-v\fR and \fB--verbose\fR are not used for this: \fBee verify\fR passes them to
+\fBansible-playbook\fR.\&)
+.PP
+.RE
 \fB--no-cache\fR
 .RS 4
 Build without podman'\&s build cache.\& By default the cache is used and kept
@@ -208,6 +220,12 @@ The definition to build, instead of \fBexecution-environment.\&yml\fR.\&
 .RS 4
 The image name; repeatable (one build, several names).\& Replaces the
 definition'\&s \fBoptions.\&tags\fR.\&
+.PP
+.RE
+\fB--show-output\fR
+.RS 4
+Stream the build'\&s complete output instead of the status line, as for
+\fBee verify\fR.\&
 .PP
 .RE
 \fB--no-cache\fR

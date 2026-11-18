@@ -9,8 +9,8 @@ tangsible-ee - draft an execution-environment.yml from a playbook, check it, or 
 *tangsible ee* <init | verify | build> [_playbook.yml_] [_options_ ...]
 
 *tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages]++
-*tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [_ansible-playbook args_ ...]++
-*tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache]
+*tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [--show-output] [_ansible-playbook args_ ...]++
+*tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache] [--show-output]
 
 # DESCRIPTION
 
@@ -139,6 +139,16 @@ plugin imports only when it runs, or anything a syntax check does not execute.
 *--keep*
 	Keep the built image and print its name.
 
+*--show-output*
+	Stream the build's complete output to the terminal (stderr) instead of
+	the status line. The status line, shown while the build runs when stderr is
+	a terminal, has the elapsed time, podman's latest *[stage/stages] STEP
+	step/steps* marker and the latest line of output; it is erased when the
+	build ends. There is no percentage: podman does not tell how many steps a
+	stage has until it gets there. The full output always goes to the log.
+	(*-v* and *--verbose* are not used for this: *ee verify* passes them to
+	*ansible-playbook*.)
+
 *--no-cache*
 	Build without podman's build cache. By default the cache is used and kept
 	(untagged stage images, which make a second build faster but take disk
@@ -171,6 +181,10 @@ nothing behind except podman's build cache; an existing tag is untouched.
 *-t* _tag_, *--tag* _tag_
 	The image name; repeatable (one build, several names). Replaces the
 	definition's *options.tags*.
+
+*--show-output*
+	Stream the build's complete output instead of the status line, as for
+	*ee verify*.
 
 *--no-cache*
 	Build without podman's build cache, as for *ee verify*.

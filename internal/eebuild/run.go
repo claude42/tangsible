@@ -79,7 +79,9 @@ func build(opts Options, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "tangsible: building %s (this can take several minutes; output in %s) ...\n", opts.File, logPath)
 	res := Result{LogPath: logPath}
 	var buildErr error
-	res.Duration, buildErr = Execute(ctx, Spec{File: opts.File, Tags: opts.Tags, Network: settings.Network, NoCache: opts.NoCache}, logf)
+	output, stopOutput := Output(logf, stderr, opts.ShowOutput)
+	res.Duration, buildErr = Execute(ctx, Spec{File: opts.File, Tags: opts.Tags, Network: settings.Network, NoCache: opts.NoCache}, output)
+	stopOutput()
 	switch {
 	case ctx.Err() != nil:
 		res.Interrupted = true

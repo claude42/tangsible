@@ -165,6 +165,9 @@ the build step `ee verify` shares with it.
 - **podman.go** - `Snapshot`/`Cleanup`: podman's containers and images before
   the build; after a failed or killed build only what is new is removed
   (containers, `-tmp` images; never the build cache). `ImageOf`.
+- **progress.go** - the status line: `ParseStep`, `Tracker`/`Format` (pure),
+  `Progress` (the redrawing `io.Writer`), `Output` (status line, `--show-output`
+  or nothing).
 - **args.go**, **definition.go** (`Tags`: the definition's `options.tags`),
   **report.go** (`Render`), **run.go** (`Run`: the verb).
 

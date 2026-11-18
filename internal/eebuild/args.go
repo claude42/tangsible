@@ -7,7 +7,7 @@ import (
 )
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee build [-f file] [-t tag ...] [--no-cache]"
+const Usage = "usage: tangsible ee build [-f file] [-t tag ...] [--no-cache] [--show-output]"
 
 // DefaultFile is the definition built when -f is not given.
 const DefaultFile = "execution-environment.yml"
@@ -18,10 +18,12 @@ type Options struct {
 	// Tags are the image names; they replace the definition's options.tags.
 	Tags    []string
 	NoCache bool
+	// ShowOutput streams the build's output instead of the status line.
+	ShowOutput bool
 }
 
 // ParseArgs reads the arguments after "build": -f/--file, -t/--tag
-// (repeatable) and --no-cache.
+// (repeatable), --no-cache and --show-output.
 func ParseArgs(args []string) (Options, error) {
 	o := Options{File: DefaultFile}
 	value := func(i *int, name string) (string, error) {
@@ -58,6 +60,8 @@ func ParseArgs(args []string) (Options, error) {
 			o.Tags = append(o.Tags, v)
 		case a == "--no-cache":
 			o.NoCache = true
+		case a == "--show-output":
+			o.ShowOutput = true
 		case strings.HasPrefix(a, "-"):
 			return o, fmt.Errorf("unknown option %s", a)
 		default:

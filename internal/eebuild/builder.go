@@ -10,6 +10,7 @@ import "strings"
 // one the build uses.
 //
 // ansible-builder takes several names after one -t (-t TAG [TAG ...]).
+// ShowOutput and the status line (progress.go) read what -v 3 makes it print.
 //
 // By default podman's build cache is used and kept: the stage images that
 // outlive the tag (untagged, hundreds of MB each) make a second build of the
@@ -30,7 +31,9 @@ func BuildArgs(file, context string, tags []string, network string, noCache bool
 		args = append(args, "-t")
 		args = append(args, tags...)
 	}
-	args = append(args, "--container-runtime", "podman")
+	// -v 3: at its default verbosity ansible-builder prints nothing of the
+	// build, not even on success; at 3 it streams podman's output.
+	args = append(args, "--container-runtime", "podman", "-v", "3")
 	if len(extra) > 0 {
 		args = append(args, "--extra-build-cli-args="+strings.Join(extra, " "))
 	}

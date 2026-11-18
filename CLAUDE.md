@@ -391,7 +391,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   keeps it. The build step (`internal/eebuild`: `Execute`, `Snapshot`/`Cleanup`)
   is shared with `ee verify`, whose throw-away tag it takes as `Tags`; a failed
   build removes only new containers and `-tmp` images. Never writes
-  `config.toml`.
+  `config.toml`. ansible-builder is run with `-v 3` (at its default it prints
+  nothing of the build); a status line (`eebuild.Progress`, stderr, only on a
+  terminal) or `--show-output` shows it - not `-v`/`--verbose`, which `ee verify`
+  passes to ansible-playbook.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

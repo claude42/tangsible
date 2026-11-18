@@ -92,7 +92,9 @@ func verify(opts Options, stdout, stderr io.Writer) int {
 	// 1. Build.
 	fmt.Fprintf(stderr, "tangsible: building %s into a throw-away image (this can take several minutes; output in %s) ...\n", opts.File, logPath)
 	var buildErr error
-	res.BuildDuration, buildErr = eebuild.Execute(ctx, eebuild.Spec{File: opts.File, Tags: []string{tag}, Network: settings.Network, NoCache: opts.NoCache}, logf)
+	output, stopOutput := eebuild.Output(logf, stderr, opts.ShowOutput)
+	res.BuildDuration, buildErr = eebuild.Execute(ctx, eebuild.Spec{File: opts.File, Tags: []string{tag}, Network: settings.Network, NoCache: opts.NoCache}, output)
+	stopOutput()
 	if ctx.Err() != nil {
 		res.Interrupted = true
 		return finish()

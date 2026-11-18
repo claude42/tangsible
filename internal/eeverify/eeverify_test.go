@@ -20,6 +20,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"-f", "my.yml", "site.yml", "-i", "hosts"}, Options{File: "my.yml", Playbook: "site.yml", Args: []string{"-i", "hosts"}}, ""},
 		{[]string{"--file=my.yml", "--keep"}, Options{File: "my.yml", Keep: true}, ""},
 		{[]string{"--no-cache"}, Options{File: DefaultFile, NoCache: true}, ""},
+		{[]string{"site.yml", "--show-output", "-v"}, Options{File: DefaultFile, Playbook: "site.yml", ShowOutput: true, Args: []string{"-v"}}, ""},
 		{[]string{"site.yml", "--keep", "-e", "x=1", "--limit", "a"}, Options{File: DefaultFile, Playbook: "site.yml", Keep: true, Args: []string{"-e", "x=1", "--limit", "a"}}, ""},
 		{[]string{"-i", "hosts"}, Options{File: DefaultFile, Args: []string{"-i", "hosts"}}, ""},
 		{[]string{"-f"}, Options{}, "-f needs a file"},

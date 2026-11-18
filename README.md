@@ -481,7 +481,7 @@ Once you have edited the draft, `tangsible ee verify` builds it and checks the
 result against your playbook:
 
 ```
-tangsible ee verify site.yml [-f execution-environment.yml] [--keep] [--no-cache] [ansible-playbook args]
+tangsible ee verify site.yml [-f execution-environment.yml] [--keep] [--no-cache] [--show-output] [ansible-playbook args]
 ```
 
 It builds the definition with `ansible-builder` into a throw-away image (a build
@@ -501,7 +501,7 @@ When the definition is right, `tangsible ee build` builds it into the image it
 names and keeps it:
 
 ```
-tangsible ee build [-f execution-environment.yml] [-t name:tag ...] [--no-cache]
+tangsible ee build [-f execution-environment.yml] [-t name:tag ...] [--no-cache] [--show-output]
 ```
 
 The name is `-t` (repeatable: one build, several names), else the definition's
@@ -511,6 +511,12 @@ each tag with its image id and size, and the `image = "..."` line to put under
 `[execution_environment]` (it never writes your `config.toml`). The build
 output goes to `.tangsible/ee-build.log`. A verify first, then a build, costs
 little more than the build, as podman's build cache is kept.
+
+Both commands show what the build is doing on a terminal: one status line with
+the elapsed time, podman's current `[stage] STEP n/m` and the latest line of
+output (there is no percentage: podman does not say how many steps a stage has
+until it gets there). `--show-output` streams the complete build output
+instead; it is always in the log.
 
 ## Configuration
 

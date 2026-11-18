@@ -9,7 +9,7 @@ import (
 
 func TestBuildArgs(t *testing.T) {
 	got := BuildArgs("ee.yml", "/tmp/ctx", []string{"localhost/x:1"}, "", false)
-	want := []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "-t", "localhost/x:1", "--container-runtime", "podman"}
+	want := []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "-t", "localhost/x:1", "--container-runtime", "podman", "-v", "3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v", got)
 	}
@@ -23,12 +23,12 @@ func TestBuildArgs(t *testing.T) {
 	}
 	// Several names follow one -t; none leaves the definition's own.
 	got = BuildArgs("ee.yml", "/tmp/ctx", []string{"a:1", "a:latest"}, "", false)
-	want = []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "-t", "a:1", "a:latest", "--container-runtime", "podman"}
+	want = []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "-t", "a:1", "a:latest", "--container-runtime", "podman", "-v", "3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("two tags: %v", got)
 	}
 	got = BuildArgs("ee.yml", "/tmp/ctx", nil, "", false)
-	want = []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "--container-runtime", "podman"}
+	want = []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "--container-runtime", "podman", "-v", "3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("no tags: %v", got)
 	}
@@ -78,6 +78,7 @@ func TestParseArgs(t *testing.T) {
 		{nil, Options{File: DefaultFile}, ""},
 		{[]string{"-f", "my.yml"}, Options{File: "my.yml"}, ""},
 		{[]string{"--file=my.yml", "--no-cache"}, Options{File: "my.yml", NoCache: true}, ""},
+		{[]string{"--show-output"}, Options{File: DefaultFile, ShowOutput: true}, ""},
 		{[]string{"-t", "a:1", "-t", "a:latest"}, Options{File: DefaultFile, Tags: []string{"a:1", "a:latest"}}, ""},
 		{[]string{"--tag", "a:1", "--tag=b:2"}, Options{File: DefaultFile, Tags: []string{"a:1", "b:2"}}, ""},
 		{[]string{"-t"}, Options{}, "-t needs a value"},

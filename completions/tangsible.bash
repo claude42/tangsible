@@ -71,8 +71,8 @@ _tangsible_vault_flags="--vault-password-file --ask-vault-pass"
 # ee's own flags (design-docs/EEInit.md): init's, and verify's (which also
 # passes ansible-playbook's own flags on to its syntax check).
 _tangsible_ee_init_flags="--base --resolve-packages"
-_tangsible_ee_verify_flags="-f --file --keep --no-cache"
-_tangsible_ee_build_flags="-f --file -t --tag --no-cache"
+_tangsible_ee_verify_flags="-f --file --keep --no-cache --show-output"
+_tangsible_ee_build_flags="-f --file -t --tag --no-cache --show-output"
 
 # _tangsible_flags_for_verb echoes the complete flag set a given verb
 # actually understands - the union of ansible-playbook's own flags (for
@@ -296,8 +296,8 @@ _tangsible()
 		;;
 	ee)
 		# tangsible ee init [<playbook>] [--base <image>] [--resolve-packages]
-		# tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [ansible-playbook args...]
-		# tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache]
+		# tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [--show-output] [ansible-playbook args...]
+		# tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache] [--show-output]
 		if [ "$pos" -eq 0 ]; then
 			COMPREPLY=($(compgen -W "init verify build" -- "$cur"))
 		elif [ "$pos" -eq 1 ] && [ "${COMP_WORDS[2]}" != build ]; then
