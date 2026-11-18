@@ -57,7 +57,7 @@ jobs:
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
           # write:package token for the Debian registry (uploads: in
           # .goreleaser.yaml).
-          FORGEJO_PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
       - name: Mirror artifacts to the GitHub release
         run: |

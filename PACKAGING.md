@@ -47,7 +47,7 @@ The release workflow uploads each `.deb` to Forgejo's Debian package registry
 metadata itself, with a key it creates for the owner; the user-facing setup
 is in `README.md` ("On Debian/Ubuntu").
 
-Needs the Forgejo Actions secret `FORGEJO_PACKAGES_TOKEN`: an access token of
+Needs the Forgejo Actions secret `PACKAGES_TOKEN`: an access token of
 the `claude` account with only `package: Read and Write`. It is separate from
 `GITEA_TOKEN` (releases). Uploading a version that already exists is
 rejected, so re-running a finished release job fails at the upload step;

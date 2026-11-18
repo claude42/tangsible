@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-18
+
+### Fixed
+
+- Release pipeline: the Debian package upload didn't get its token. v0.4.0 was tagged but never published; v0.4.1 has its changes
+
 ## [0.4.0] - 2026-11-18
 
 ### Added
@@ -208,7 +214,8 @@
 Initial release. A `tview` TUI wrapper for `ansible-playbook` aimed at
 interactive development use.
 
-[Unreleased]: https://code.aw.net/claude/tangsible/compare/v0.4.0...HEAD
+[Unreleased]: https://code.aw.net/claude/tangsible/compare/v0.4.1...HEAD
+[0.4.1]: https://code.aw.net/claude/tangsible/compare/v0.4.0...v0.4.1
 [0.4.0]: https://code.aw.net/claude/tangsible/compare/v0.3.0...v0.4.0
 [0.3.0]: https://code.aw.net/claude/tangsible/compare/v0.2.0...v0.3.0
 [0.2.0]: https://code.aw.net/claude/tangsible/compare/v0.1.3...v0.2.0
