@@ -852,6 +852,124 @@ context to inspect is `ansible-builder create`'s job.
 - Whether `-t` should also be accepted by `verify` (no: its tag is
   deliberately its own).
 
+## Progress while building (`ee verify`, `ee build`, follow-up)
+
+**Spec, not built.** A build takes minutes and today the terminal shows one
+line ("building ... this can take several minutes") and then nothing: the build's
+output goes only to `.tangsible/ee-verify.log` / `ee-build.log`. Two additions
+to the build step the two verbs share (`internal/eebuild`):
+
+1. **A live status line** (the default, on a terminal).
+2. **`--show-output`**: stream the build's complete output.
+
+### What the build prints
+
+`ansible-builder` prints its own lines and then podman's build log. podman's
+markers are what a progress indication can use (seen in a real log):
+
+```
+[2/4] STEP 11/13: RUN mkdir -p /usr/share/ansible
+```
+
+- `[n/m]` is the stage (the generated Containerfile has base, galaxy, builder
+  and final: four), `STEP i/j` the step in that stage. A stage's step count is
+  printed only when the stage starts, so there is **no overall percentage**:
+  the total is not known up front, and one `pip install` or `dnf install` step
+  can run for a minute without any marker. The line shows stage and step, not
+  a bar.
+- Cache hits print `--> Using cache ...`; pulls of a base image print
+  `Copying blob ...` lines, rewritten in place with `\r`; pip and dnf print
+  what they install. All of that is a better "is it alive" signal than the
+  markers, so the status line also carries the latest line.
+
+### The status line
+
+On stderr, redrawn in place once a second (and on each new marker), only when
+**stderr is a terminal** (`term.IsTerminal`); on a pipe or in CI nothing is
+added (the existing "building ..." line stays the only one). Format:
+
+    building  1m12s  [2/4] STEP 11/13  Collecting jmespath
+
+- Elapsed time first, so a long step visibly ticks.
+- The latest marker, as `[n/m] STEP i/j`; before the first one (the pull of the
+  base image, ansible-builder's own start) it is left out.
+- The latest non-empty output line (ANSI escapes stripped, split on `\n` and
+  `\r`, so a progress bar updating itself is its latest state), truncated with
+  an ellipsis to the terminal width (`term.GetSize`, else `$COLUMNS`, else 80;
+  never wrapped, since a wrapped line cannot be redrawn).
+- Drawn with `\r` and "erase to end of line"; cleared (the line erased) when
+  the build ends, before the report is printed, and when interrupted; the
+  existing "building ..." line above it stays.
+- It is the build's concern only: the checks of `ee verify` that follow
+  ("checking the image ...") keep their own plain lines.
+
+The full output still goes to the log, and a failed build still shows the last
+lines of it in the report.
+
+### `--show-output`
+
+Instead of the status line, the build's complete output is written to stderr as
+it arrives (and to the log as before), terminal or not - for "show me
+everything", and the way to see it in CI. Named so because `-v`/`--verbose` are
+taken: `ee verify` passes `ansible-playbook`'s own arguments through, where
+`-v` and `--verbose` mean its verbosity. Both verbs get it:
+
+```
+tangsible ee verify [playbook.yml] [-f file] [--keep] [--no-cache] [--show-output] [ansible-playbook args ...]
+tangsible ee build [-f file] [-t tag ...] [--no-cache] [--show-output]
+```
+
+`ee verify` consumes `--show-output` as its own (like `--keep`), so it never
+reaches `ansible-playbook`.
+
+### Code plan
+
+`internal/eebuild/progress.go`:
+- **Pure:** `ParseStep(line) (stage, stages, step, steps int, ok bool)` (the
+  marker, tolerant of a leading ANSI colour and of `STEP` lines without a
+  stage, which older podman prints as `STEP 3/13: ...`); `Tracker`, fed lines
+  (`Feed(line)`), holding the latest marker and latest line;
+  `Tracker.Format(elapsed time.Duration, width int) string`, the status line
+  (truncation by display width, not bytes: runes, and the elapsed time and
+  marker are never cut off before the text is).
+- **Impure:** `Progress`, an `io.Writer` that splits what it is given into
+  lines on `\n` and `\r` (keeping a partial line until its end), feeds the
+  Tracker, and redraws from a ticker goroutine; `Close()` stops the ticker and
+  erases the line. A mutex guards the Tracker (the writer runs on exec's copy
+  goroutine, the ticker on its own). With `--show-output` the writer is a plain
+  tee to stderr instead.
+- `Execute` is unchanged: its `log` argument becomes
+  `io.MultiWriter(logFile, progress)` in both verbs' `run.go`.
+
+### Tests
+
+Pure: `ParseStep` (the real marker, a coloured one, a step without a stage,
+lines that merely contain "STEP", `[0/0]`), `Tracker` over a recorded build log
+excerpt (latest marker and line; `\r` progress lines; ANSI), `Format` (width
+80 and 20, a very long line, no marker yet, elapsed over an hour, a multi-byte
+character at the cut). The writer's line splitting with chunks that cut a line
+in two. No test draws to a real terminal.
+
+### Changes elsewhere
+
+`--show-output` in both verbs' `ParseArgs`/`Usage`, `man/tangsible-ee.1.scd`,
+completions (bash, fish), `README.md`, `Changelog.md`, `Codemap.md`,
+`CLAUDE.md`.
+
+### Not doing
+
+A percentage or a bar (not derivable, see above). A TUI for the build. Pulling
+the base image with its own progress before the build (podman prints its blob
+lines, which the status line already shows). Colour in the status line.
+
+### Open points
+
+- Whether the status line should also redraw when the terminal is resized
+  (the next tick redraws at the new width anyway).
+- Whether `ee init`'s own slow steps (the base image pull, `--resolve-packages`,
+  which "can take a minute") deserve the same treatment; they print one line
+  today.
+
 ## Later (explicitly deferred)
 
 - **Implied-dependency rules table**: specified above for lookups and
