@@ -735,6 +735,107 @@ promise a working EE.
   inventory, to drop the no-inventory warnings; it would also hide an
   `ansible.cfg` inventory.
 
+## Building a definition (`ee build`, follow-up)
+
+**Spec, not built.** `tangsible ee verify` builds into a throw-away tag, checks
+the result and removes it. `tangsible ee build` is the other half: build the
+definition into the image the definition names and keep it. It is a separate
+verb, not `ee verify` with a switch, because the two have opposite side
+effects (verify creates no name of yours and leaves nothing; build exists to
+create one), different arguments (verify takes a playbook and
+`ansible-playbook` arguments, build takes neither) and different exit
+conditions (verify fails on a missing module or binary, build only on a failed
+build). `ee build --verify` was considered and dropped: with the build cache
+kept (see `ee verify`, step 1) a verify followed by a build costs little more
+than the build alone.
+
+```
+tangsible ee build [-f file] [-t tag ...] [--no-cache]
+```
+
+- `-f file`: the definition, default `./execution-environment.yml` (missing:
+  error, hinting at `ee init`), as for `verify`.
+- `-t tag`: the image name; repeatable. Given, it replaces the definition's
+  `options.tags` (the command line wins in `ansible-builder`, as it does for
+  `verify`'s own tag).
+- `--no-cache`: build without podman's build cache (`--layers=false`); the
+  default uses and keeps it, as for `verify`.
+- Needs **podman** and **ansible-builder**; the same not-found messages.
+
+### What it does
+
+1. **Name.** The tags come from `-t`, else the definition's `options.tags`.
+   With neither it stops before building, naming both ways (and the commented
+   `tags` stanza `ee init` writes): `ansible-builder` would otherwise create
+   `ansible-execution-env:latest`, a name nobody chose. The definition is read
+   with yaml.v3; a tag that is not a string is left for `ansible-builder` to
+   reject.
+2. **Build.** The same `ansible-builder build` as `verify` (private temporary
+   context, removed afterwards, so nothing like `context/` appears in the
+   project; `--network` from `[execution_environment] network`; output to
+   `.tangsible/ee-build.log`, 0600; a progress line says a first build takes
+   minutes), but with the real tags. Interrupted (Ctrl-C, SIGTERM, SIGHUP): the
+   build is stopped through its process group, the cleanup below runs, exit
+   130.
+3. **Cleanup.** The throw-away machinery of `verify` applies unchanged: after a
+   failed or interrupted build the containers and `-tmp` images that appeared
+   since the snapshot are removed; the build cache (untagged stage images) and
+   a pulled base image stay. A successful build removes nothing - the image is
+   the point. A failed build never touches an existing tag (podman moves a tag
+   only when a build succeeds).
+4. **Report.** On success: each tag with the image id and size, and whether a
+   tag moved (a rebuild of an existing name leaves the previous image untagged:
+   said, with `podman image prune` to remove it). Then the line to use it:
+   `image = "<first tag>"` under `[execution_environment]`, printed, never
+   written (`config.toml` is the user's). On failure: the last lines of the log
+   and its path, exit 1, as for `verify`.
+
+Exit codes: 0 built, 1 build failed or a precondition failed (no tag, missing
+file or tool), 2 usage, 130 interrupted - the same set as `verify`.
+
+### Code plan
+
+The build step moves out of `internal/eeverify` into a new package
+`internal/eebuild`, which both verbs use: `BuildArgs` (tags instead of one tag;
+`verify` passes its throw-away one), `Snapshot`/`TakeSnapshot`/`Cleanup`
+(`Cleanup` gains no new case: its `tag` and `keepTag` arguments already cover
+"remove the tag" and "keep it"), the process-group start and cancel, the temp
+context and the log-tail helper. `internal/eebuild/run.go` is the verb
+(`Run(args)`), `args.go` its parser, `definition.go` the pure tag extraction
+(`Tags(yaml []byte) ([]string, error)`). `session/main.go` routes
+`ee build` next to `ee verify`.
+
+### Tests
+
+Pure: argument parsing (repeated `-t`, `--no-cache`, `-f`, unknown options, a
+missing value), `Tags` (a list, none, `options` absent, a null `options`, a
+non-string entry), `BuildArgs` with several tags. `verify`'s existing tests move
+with the code they cover. e2e (`TANGSIBLE_EE_VERIFY=1`, as for `verify`): build
+a minimal definition with `-t localhost/tangsible-ee-build-test:1`, check the
+image exists and no `context/` appeared in the project, then remove that image;
+a definition with no tag fails before any podman call.
+
+### Changes elsewhere
+
+`config/help.go` (`tangsible ee <init | verify | build> ...`, summary), the
+help/man consistency test, `man/tangsible-ee.1.scd`, `man/tangsible.1.scd`,
+completions (bash, fish: `-f`, `-t`, `--no-cache` after `build`), `README.md`,
+`Changelog.md`, `Codemap.md`, `CLAUDE.md`. `tangsible version` already reports
+both tools.
+
+### Not doing
+
+`ee build --verify` (see above). Pushing to a registry. Writing the tag into
+`config.toml`. Several definitions in one call. A `--keep-context` option: a
+context to inspect is `ansible-builder create`'s job.
+
+### Open points
+
+- Whether a name that already exists should need a confirmation (it is
+  replaced silently, as `podman build -t` does, and reported afterwards).
+- Whether `-t` should also be accepted by `verify` (no: its tag is
+  deliberately its own).
+
 ## Later (explicitly deferred)
 
 - **Implied-dependency rules table**: specified above for lookups and
@@ -748,7 +849,8 @@ promise a working EE.
   binaries").
 - Smarter handling of an existing file (diff, second file, merge).
 - Resolving collections not installed on the host (Galaxy lookup).
-- `--verify`: now specified above as `ee verify`.
+- `--verify`: now specified above as `ee verify`; building the real image is
+  `ee build`, also above.
 - An interactive review step.
 
 ## Implementation notes
