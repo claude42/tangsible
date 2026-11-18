@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-18
+
 ### Changed
 
 - Release pipeline: the `.deb` and `.rpm` packages are attached to the GitHub mirror release too
@@ -218,7 +220,8 @@
 Initial release. A `tview` TUI wrapper for `ansible-playbook` aimed at
 interactive development use.
 
-[Unreleased]: https://code.aw.net/claude/tangsible/compare/v0.4.1...HEAD
+[Unreleased]: https://code.aw.net/claude/tangsible/compare/v0.4.2...HEAD
+[0.4.2]: https://code.aw.net/claude/tangsible/compare/v0.4.1...v0.4.2
 [0.4.1]: https://code.aw.net/claude/tangsible/compare/v0.4.0...v0.4.1
 [0.4.0]: https://code.aw.net/claude/tangsible/compare/v0.3.0...v0.4.0
 [0.3.0]: https://code.aw.net/claude/tangsible/compare/v0.2.0...v0.3.0
