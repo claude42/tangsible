@@ -2,19 +2,21 @@ tangsible-ee(1) "Tangsible" "Tangsible Manual"
 
 # NAME
 
-tangsible-ee - draft an execution-environment.yml from a playbook, or build one and check it
+tangsible-ee - draft an execution-environment.yml from a playbook, check it, or build it
 
 # SYNOPSIS
 
-*tangsible ee* <init | verify> [_playbook.yml_] [_options_ ...]
+*tangsible ee* <init | verify | build> [_playbook.yml_] [_options_ ...]
 
 *tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages]++
-*tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [_ansible-playbook args_ ...]
+*tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [_ansible-playbook args_ ...]++
+*tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache]
 
 # DESCRIPTION
 
-*ee init* drafts an execution-environment.yml; *ee verify* builds one and checks
-it (see *VERIFY* below).
+*ee init* drafts an execution-environment.yml; *ee verify* builds one into a
+throw-away image and checks it (see *VERIFY* below); *ee build* builds it into
+the image it names and keeps it (see *BUILD* below).
 
 ## INIT
 
@@ -144,23 +146,54 @@ plugin imports only when it runs, or anything a syntax check does not execute.
 	unpinned packages is not re-run. Use this to confirm the definition builds
 	from scratch; nothing is left behind.
 
+# BUILD
+
+*ee build* builds an *execution-environment.yml* (_file_, default
+*./execution-environment.yml*) with *ansible-builder build* and keeps the image.
+It needs *podman* and *ansible-builder*, takes no playbook and runs no checks
+(*ee verify* does). The image name is *-t* _tag_, else the definition's
+*options.tags*; with neither it stops before building (*ansible-builder*
+would otherwise create *ansible-execution-env:latest*; *ee init*'s draft has a
+commented *tags* stanza). The build uses a private temporary context, so no
+*context/* directory appears in the project; the *network* key under
+*[execution_environment]* is used for it (*host* fixes DNS trouble); its output
+goes to *.tangsible/ee-build.log*, and a failed build shows the end of it.
+
+On success it prints each tag with the image id and size, notes a tag that
+moved off an older image (*podman image prune* removes the untagged one) and
+prints the *image = "..."* line to use it, which is never written to
+*config.toml*. A build that fails or is interrupted with Ctrl-C leaves
+nothing behind except podman's build cache; an existing tag is untouched.
+
+*-f* _file_, *--file* _file_
+	The definition to build, instead of *execution-environment.yml*.
+
+*-t* _tag_, *--tag* _tag_
+	The image name; repeatable (one build, several names). Replaces the
+	definition's *options.tags*.
+
+*--no-cache*
+	Build without podman's build cache, as for *ee verify*.
+
 # EXIT STATUS
 
 *0*
 	*ee init*: the draft was written. *ee verify*: the build and every check
-	passed.
+	passed. *ee build*: the image was built.
 
 *1*
 	*ee init*: no draft was written (the file already exists, *podman* is
 	missing, the base image couldn't be pulled or inspected, or the playbook
 	couldn't be read). *ee verify*: the build or a check failed, or it
 	couldn't start (a missing tool or file).
+	*ee build*: the build failed, or it couldn't start (a missing tool or file, or
+	no image name).
 
 *2*
 	Usage error.
 
 *130*
-	*ee verify* was interrupted.
+	*ee verify* or *ee build* was interrupted.
 
 # SEE ALSO
 

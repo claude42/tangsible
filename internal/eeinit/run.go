@@ -31,7 +31,7 @@ type Options struct {
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	if len(args) == 0 || args[0] != "init" {
-		return o, errors.New("expected the subcommand init or verify")
+		return o, errors.New("expected the subcommand init, verify or build")
 	}
 	args = args[1:]
 	for i := 0; i < len(args); i++ {

@@ -737,7 +737,7 @@ promise a working EE.
 
 ## Building a definition (`ee build`, follow-up)
 
-**Spec, not built.** `tangsible ee verify` builds into a throw-away tag, checks
+**Implemented** (`internal/eebuild`; the build step moved out of `internal/eeverify`). `tangsible ee verify` builds into a throw-away tag, checks
 the result and removes it. `tangsible ee build` is the other half: build the
 definition into the image the definition names and keep it. It is a separate
 verb, not `ee verify` with a switch, because the two have opposite side
@@ -822,6 +822,22 @@ help/man consistency test, `man/tangsible-ee.1.scd`, `man/tangsible.1.scd`,
 completions (bash, fish: `-f`, `-t`, `--no-cache` after `build`), `README.md`,
 `Changelog.md`, `Codemap.md`, `CLAUDE.md`. `tangsible version` already reports
 both tools.
+
+### Implementation notes
+
+- `ansible-builder build -t` is `-t TAG [TAG ...]` (one flag, several values),
+  not repeatable: several names are passed after a single `-t`.
+- A malformed `options.tags` (a scalar, a number in the list) is an error from
+  `Tags`, naming the problem, rather than left to ansible-builder: the "no name
+  given" message would otherwise mislead.
+- The build step's temporary context is made and removed inside
+  `eebuild.Execute`, so `ee verify` no longer manages one.
+- `Cleanup("", built, true)` is `ee build`'s: it removes the new containers and
+  `-tmp` images after a failure and never a tag.
+- Measured: a minimal definition with one collection built in 31 s cold and in
+  7 s after a definition change in the last stage (the cache); an interrupted
+  build exits 130 and leaves no container, no `-tmp` image and no tag; a rebuilt
+  name is reported as replaced.
 
 ### Not doing
 

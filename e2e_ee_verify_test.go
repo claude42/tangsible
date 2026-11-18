@@ -14,13 +14,14 @@
 
 //go:build e2e
 
-// End-to-end test for `tangsible ee verify` (design-docs/EEInit.md,
-// "Verifying a definition"). It really builds an image, so it needs podman,
+// End-to-end tests for `tangsible ee verify` and `tangsible ee build`
+// (design-docs/EEInit.md, "Verifying a definition" and "Building a
+// definition"). It really builds an image, so it needs podman,
 // ansible-builder, ansible-doc on the host, network access for the build and
 // a minute or two; it is opt in on top of the usual e2e tag:
 //
 //	TANGSIBLE_EE_VERIFY=1 TANGSIBLE_EE_IMAGE=ghcr.io/ansible-community/community-ee-base:latest \
-//	    go test -tags e2e -run EEVerify ./...
+//	    go test -tags e2e -run "EEVerify|EEBuild" ./...
 //
 // The image named by TANGSIBLE_EE_IMAGE (already pulled) is the base of the
 // definition `ee init` drafts for it.
@@ -161,5 +162,62 @@ func TestEEVerify(t *testing.T) {
 	}
 	if left := verifyImages(t); len(left) != before {
 		t.Errorf("throw-away images left behind: %v", left)
+	}
+}
+
+func TestEEBuild(t *testing.T) {
+	image := requireEEVerify(t)
+	bin := buildE2EBinary(t)
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".tangsible"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// the build may need DNS from the container
+	if err := os.WriteFile(filepath.Join(dir, ".tangsible", "config.toml"), []byte("[execution_environment]\nnetwork = \"host\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	def := "---\nversion: 3\nimages:\n  base_image:\n    name: " + image + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "execution-environment.yml"), []byte(def), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if err != nil {
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatalf("%v", err)
+			}
+			code = ee.ExitCode()
+		}
+		return string(out), code
+	}
+
+	// No name anywhere: refused before any build.
+	if out, code := run("ee", "build"); code != 1 || !strings.Contains(out, "names no image") {
+		t.Fatalf("no tag: exit %d\n%s", code, out)
+	}
+
+	tag := "localhost/tangsible-ee-build-test:e2e"
+	t.Cleanup(func() { _ = exec.Command("podman", "rmi", "-f", tag).Run() })
+	out, code := run("ee", "build", "-t", tag)
+	if code != 0 {
+		t.Fatalf("ee build: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, tag) || !strings.Contains(out, "image = ") {
+		t.Errorf("report lacks the tag or the config line:\n%s", out)
+	}
+	if err := exec.Command("podman", "image", "exists", tag).Run(); err != nil {
+		t.Errorf("image %s was not kept", tag)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "context")); err == nil {
+		t.Errorf("a context/ directory was left in the project")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tangsible", "ee-build.log")); err != nil {
+		t.Errorf("no build log: %v", err)
 	}
 }

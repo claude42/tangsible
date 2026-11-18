@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"code.aw.net/claude/tangsible/internal/eebuild"
 	"code.aw.net/claude/tangsible/internal/eeinit"
 )
 
@@ -172,7 +173,7 @@ func Render(r Result) (string, int) {
 	if r.BuildErr != "" {
 		failed = true
 		line("Build", "FAILED ("+r.BuildErr+")")
-		for _, l := range lastLines(r.BuildTail, maxOutputLines) {
+		for _, l := range eebuild.LastLines(r.BuildTail, maxOutputLines) {
 			fmt.Fprintf(&b, "  %s\n", l)
 		}
 		if r.LogPath != "" {
@@ -194,7 +195,7 @@ func Render(r Result) (string, int) {
 	default:
 		failed = true
 		line("Syntax check", "FAILED")
-		for _, l := range lastLines(strings.Split(strings.TrimRight(r.SyntaxOutput, "\n"), "\n"), maxOutputLines) {
+		for _, l := range eebuild.LastLines(strings.Split(strings.TrimRight(r.SyntaxOutput, "\n"), "\n"), maxOutputLines) {
 			fmt.Fprintf(&b, "  %s\n", l)
 		}
 	}
@@ -256,11 +257,4 @@ func locsText(locs []string) string {
 		out += fmt.Sprintf(", +%d more", extra)
 	}
 	return out
-}
-
-func lastLines(lines []string, n int) []string {
-	if len(lines) > n {
-		return lines[len(lines)-n:]
-	}
-	return lines
 }

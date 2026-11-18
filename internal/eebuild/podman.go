@@ -1,8 +1,9 @@
-package eeverify
+package eebuild
 
 import (
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -88,4 +89,22 @@ func (before Snapshot) Cleanup(tag string, buildOK, keepTag bool) {
 			_ = exec.Command("podman", append([]string{"rmi", "-f"}, ids...)...).Run()
 		}
 	}
+}
+
+// ImageOf is the id (12 characters) and size in bytes of the image tag names,
+// ok false when there is none.
+func ImageOf(tag string) (id string, size int64, ok bool) {
+	out, err := exec.Command("podman", "image", "inspect", "--format", "{{.Id}} {{.Size}}", tag).Output()
+	if err != nil {
+		return "", 0, false
+	}
+	f := strings.Fields(string(out))
+	if len(f) != 2 {
+		return "", 0, false
+	}
+	n, err := strconv.ParseInt(f[1], 10, 64)
+	if err != nil || len(f[0]) < 12 {
+		return "", 0, false
+	}
+	return f[0][:12], n, true
 }

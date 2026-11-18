@@ -6,25 +6,20 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	"code.aw.net/claude/tangsible/internal/eebuild"
 	"code.aw.net/claude/tangsible/internal/eeinit"
-	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/runner"
 )
 
 // LogFile is where the build's output goes, under the project's .tangsible
 // directory.
 const LogFile = "ee-verify.log"
-
-// buildTailLines is how much of a failed build's output is shown.
-const buildTailLines = 40
 
 // Run is `tangsible ee verify` (args are what follows "verify"); it returns the
 // exit code.
@@ -48,19 +43,11 @@ func verify(opts Options, stdout, stderr io.Writer) int {
 	}
 
 	// The cheap refusals come before any work.
-	if _, err := os.Stat(opts.File); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fail("%s not found (tangsible ee init drafts one)", opts.File)
-		}
-		return fail("%s: %v", opts.File, errors.Unwrap(err))
+	if err := eebuild.CheckFile(opts.File); err != nil {
+		return fail("%v", err)
 	}
-	for _, tool := range []string{"podman", "ansible-builder"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			if msg := execerr.NotFoundMessage(tool, err); msg != "" {
-				return fail("%s", msg)
-			}
-			return fail("%v", err)
-		}
+	if err := eebuild.CheckTools(); err != nil {
+		return fail("%v", err)
 	}
 	playbook := opts.Playbook
 	if playbook == "" {
@@ -79,20 +66,9 @@ func verify(opts Options, stdout, stderr io.Writer) int {
 	}
 	settings := config.EEFromSettings(config.MergedSettingsConfig())
 
-	// A private build context and a log; both, and the image, are removed or
-	// kept below, whatever happens.
-	ctxDir, err := os.MkdirTemp("", "tangsible-ee-verify-")
+	// The build's log; the image is removed or kept below, whatever happens.
+	logPath, logf, err := eebuild.OpenLog(LogFile)
 	if err != nil {
-		return fail("%v", err)
-	}
-	if err := os.MkdirAll(config.TangsibleDir, 0o755); err != nil {
-		os.RemoveAll(ctxDir)
-		return fail("%v", err)
-	}
-	logPath := filepath.Join(config.TangsibleDir, LogFile)
-	logf, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		os.RemoveAll(ctxDir)
 		return fail("%v", err)
 	}
 	defer logf.Close()
@@ -102,10 +78,9 @@ func verify(opts Options, stdout, stderr io.Writer) int {
 
 	tag := NewTag()
 	res := Result{File: opts.File, LogPath: logPath, Tag: tag}
-	before := TakeSnapshot()
+	before := eebuild.TakeSnapshot()
 	built, keep := false, false
 	defer func() {
-		os.RemoveAll(ctxDir)
 		before.Cleanup(tag, built, keep)
 	}()
 	finish := func() int {
@@ -116,23 +91,15 @@ func verify(opts Options, stdout, stderr io.Writer) int {
 
 	// 1. Build.
 	fmt.Fprintf(stderr, "tangsible: building %s into a throw-away image (this can take several minutes; output in %s) ...\n", opts.File, logPath)
-	start := time.Now()
-	build := exec.CommandContext(ctx, "ansible-builder", BuildArgs(opts.File, ctxDir, tag, settings.Network, opts.NoCache)...)
-	build.Stdout, build.Stderr = logf, logf
-	// Its own process group, so an interrupt reaches the podman build it
-	// started too.
-	build.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	build.Cancel = func() error { return syscall.Kill(-build.Process.Pid, syscall.SIGINT) }
-	build.WaitDelay = 20 * time.Second
-	buildErr := build.Run()
-	res.BuildDuration = time.Since(start)
+	var buildErr error
+	res.BuildDuration, buildErr = eebuild.Execute(ctx, eebuild.Spec{File: opts.File, Tags: []string{tag}, Network: settings.Network, NoCache: opts.NoCache}, logf)
 	if ctx.Err() != nil {
 		res.Interrupted = true
 		return finish()
 	}
 	if buildErr != nil {
 		res.BuildErr = buildErr.Error()
-		res.BuildTail = tailOfFile(logPath, buildTailLines)
+		res.BuildTail = eebuild.TailOfFile(logPath, eebuild.TailLines)
 		return finish()
 	}
 	built = true
@@ -207,19 +174,4 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
-}
-
-// tailOfFile is the last n non-empty lines of the file at path.
-func tailOfFile(path string, n int) []string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var lines []string
-	for _, l := range strings.Split(string(b), "\n") {
-		if strings.TrimSpace(l) != "" {
-			lines = append(lines, l)
-		}
-	}
-	return lastLines(lines, n)
 }

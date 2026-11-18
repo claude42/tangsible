@@ -153,21 +153,34 @@ execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
 `internal/source.ReachableYAML` supplies the files (project plus referenced
 roles, shared with the task index's role walk).
 
+## internal/eebuild
+
+`tangsible ee build` (`design-docs/EEInit.md`, "Building a definition") and
+the build step `ee verify` shares with it.
+
+- **shared.go** - `CheckFile`/`CheckTools`, `OpenLog`, `Execute` (the
+  build in a private temp context, in its own process group), `TailOfFile`.
+- **builder.go** - `BuildArgs` (the `ansible-builder build` line; several tags
+  after one `-t`; `--layers=false` for `--no-cache`).
+- **podman.go** - `Snapshot`/`Cleanup`: podman's containers and images before
+  the build; after a failed or killed build only what is new is removed
+  (containers, `-tmp` images; never the build cache). `ImageOf`.
+- **args.go**, **definition.go** (`Tags`: the definition's `options.tags`),
+  **report.go** (`Render`), **run.go** (`Run`: the verb).
+
 ## internal/eeverify
 
 `tangsible ee verify` (`design-docs/EEInit.md`, "Verifying a definition"):
 builds a definition into a throw-away image and checks it. Imports
-`internal/eeinit` for the project scan.
+`internal/eeinit` for the project scan and `internal/eebuild` for the build.
 
 - **args.go** - `ParseArgs`, `Usage`.
-- **builder.go** - `NewTag`, `BuildArgs` (the `ansible-builder build` line).
+- **builder.go** - `NewTag` (the throw-away tag).
 - **script.go** - `CheckScript`/`ParseCheck`: the script run in the built
   image (`ansible-doc` for modules and lookups, `command -v` for binaries) and
   its output parser.
 - **report.go** - `ModuleCheck`/`LookupCheck`/`BinaryCheck`, `Result`,
   `Render` (the report and exit code).
-- **podman.go** - `Snapshot`/`Cleanup`: podman's containers and images before
-  the build; after a failed or killed build only what is new is removed.
 - **run.go** - `Run`: build, syntax check, plugin/binary check, cleanup,
   signals.
 

@@ -9,20 +9,23 @@
 .PP
 .SH NAME
 .PP
-tangsible-ee - draft an execution-environment.\&yml from a playbook, or build one and check it
+tangsible-ee - draft an execution-environment.\&yml from a playbook, check it, or build it
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible ee\fR <init | verify> [\fIplaybook.\&yml\fR] [\fIoptions\fR .\&.\&.\&]
+\fBtangsible ee\fR <init | verify | build> [\fIplaybook.\&yml\fR] [\fIoptions\fR .\&.\&.\&]
 .PP
 \fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages]
 .br
 \fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [--no-cache] [\fIansible-playbook args\fR .\&.\&.\&]
+.br
+\fBtangsible ee build\fR [-f \fIfile\fR] [-t \fItag\fR .\&.\&.\&] [--no-cache]
 .PP
 .SH DESCRIPTION
 .PP
-\fBee init\fR drafts an execution-environment.\&yml; \fBee verify\fR builds one and checks
-it (see \fBVERIFY\fR below).\&
+\fBee init\fR drafts an execution-environment.\&yml; \fBee verify\fR builds one into a
+throw-away image and checks it (see \fBVERIFY\fR below); \fBee build\fR builds it into
+the image it names and keeps it (see \fBBUILD\fR below).\&
 .PP
 .SS INIT
 .PP
@@ -177,12 +180,47 @@ unpinned packages is not re-run.\& Use this to confirm the definition builds
 from scratch; nothing is left behind.\&
 .PP
 .RE
+.SH BUILD
+.PP
+\fBee build\fR builds an \fBexecution-environment.\&yml\fR (\fIfile\fR, default
+\fB.\&/execution-environment.\&yml\fR) with \fBansible-builder build\fR and keeps the image.\&
+It needs \fBpodman\fR and \fBansible-builder\fR, takes no playbook and runs no checks
+(\fBee verify\fR does).\& The image name is \fB-t\fR \fItag\fR, else the definition'\&s
+\fBoptions.\&tags\fR; with neither it stops before building (\fBansible-builder\fR
+would otherwise create \fBansible-execution-env:latest\fR; \fBee init\fR'\&s draft has a
+commented \fBtags\fR stanza).\& The build uses a private temporary context, so no
+\fBcontext/\fR directory appears in the project; the \fBnetwork\fR key under
+\fB[execution_environment]\fR is used for it (\fBhost\fR fixes DNS trouble); its output
+goes to \fB.\&tangsible/ee-build.\&log\fR, and a failed build shows the end of it.\&
+.PP
+On success it prints each tag with the image id and size, notes a tag that
+moved off an older image (\fBpodman image prune\fR removes the untagged one) and
+prints the \fBimage = ".\&.\&.\&"\fR line to use it, which is never written to
+\fBconfig.\&toml\fR.\& A build that fails or is interrupted with Ctrl-C leaves
+nothing behind except podman'\&s build cache; an existing tag is untouched.\&
+.PP
+\fB-f\fR \fIfile\fR, \fB--file\fR \fIfile\fR
+.RS 4
+The definition to build, instead of \fBexecution-environment.\&yml\fR.\&
+.PP
+.RE
+\fB-t\fR \fItag\fR, \fB--tag\fR \fItag\fR
+.RS 4
+The image name; repeatable (one build, several names).\& Replaces the
+definition'\&s \fBoptions.\&tags\fR.\&
+.PP
+.RE
+\fB--no-cache\fR
+.RS 4
+Build without podman'\&s build cache, as for \fBee verify\fR.\&
+.PP
+.RE
 .SH EXIT STATUS
 .PP
 \fB0\fR
 .RS 4
 \fBee init\fR: the draft was written.\& \fBee verify\fR: the build and every check
-passed.\&
+passed.\& \fBee build\fR: the image was built.\&
 .PP
 .RE
 \fB1\fR
@@ -191,6 +229,8 @@ passed.\&
 missing, the base image couldn'\&t be pulled or inspected, or the playbook
 couldn'\&t be read).\& \fBee verify\fR: the build or a check failed, or it
 couldn'\&t start (a missing tool or file).\&
+\fBee build\fR: the build failed, or it couldn'\&t start (a missing tool or file, or
+no image name).\&
 .PP
 .RE
 \fB2\fR
@@ -200,7 +240,7 @@ Usage error.\&
 .RE
 \fB130\fR
 .RS 4
-\fBee verify\fR was interrupted.\&
+\fBee verify\fR or \fBee build\fR was interrupted.\&
 .PP
 .RE
 .SH SEE ALSO

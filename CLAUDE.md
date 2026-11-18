@@ -17,7 +17,7 @@ One Go binary, twelve verbs (`internal/config/resolve.go`'s `ParseVerb`):
 `run`, `rerun`, `role`, `revisit`, `debug` share the live tree/TUI
 machinery (`internal/session`) - `debug` (`design-docs/DebugMode.md`)
 adds breakpoint/pause state on top, not a second TUI of its own;
-`template`, `host`/`hosts`/`inventory`, `vault`, `ee init`, `version` are standalone
+`template`, `host`/`hosts`/`inventory`, `vault`, `ee init`/`ee verify`/`ee build`, `version` are standalone
 programs that never build the live tree. Requires `ansible-playbook` and
 a real TTY. Root `main.go` just calls `session.Main`.
 
@@ -385,6 +385,13 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   `--prune-images` (it prunes *all* of the user's dangling images); after a
   failed or killed build, cleanup removes only the containers and `-tmp`
   images that `Snapshot` saw appear (never untagged stage images) (`eeverify/podman.go`).
+- **EE build** (`EEInit.md`, "Building a definition"): `tangsible ee build`
+  builds a definition into the image it names (`-t`, else `options.tags`; none
+  is an error - never ansible-builder's own `ansible-execution-env:latest`) and
+  keeps it. The build step (`internal/eebuild`: `Execute`, `Snapshot`/`Cleanup`)
+  is shared with `ee verify`, whose throw-away tag it takes as `Tags`; a failed
+  build removes only new containers and `-tmp` images. Never writes
+  `config.toml`.
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

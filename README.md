@@ -495,6 +495,23 @@ so the next verify is faster (`--no-cache` builds from scratch and leaves
 nothing; `podman image prune` frees the cache), and exits 1 if anything is missing. It can't catch what only fails when
 a task really runs.
 
+### Building the image
+
+When the definition is right, `tangsible ee build` builds it into the image it
+names and keeps it:
+
+```
+tangsible ee build [-f execution-environment.yml] [-t name:tag ...] [--no-cache]
+```
+
+The name is `-t` (repeatable: one build, several names), else the definition's
+`options.tags`; with neither it stops before building (the draft has a
+commented `tags` stanza). It takes no playbook and runs no checks. It prints
+each tag with its image id and size, and the `image = "..."` line to put under
+`[execution_environment]` (it never writes your `config.toml`). The build
+output goes to `.tangsible/ee-build.log`. A verify first, then a build, costs
+little more than the build, as podman's build cache is kept.
+
 ## Configuration
 
 When no playbook is given on the command line, Tangsible resolves one

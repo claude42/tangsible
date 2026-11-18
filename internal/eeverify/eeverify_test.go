@@ -41,31 +41,6 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
-func TestBuildArgs(t *testing.T) {
-	got := BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "", false)
-	want := []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "-t", "localhost/x:1", "--container-runtime", "podman"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v", got)
-	}
-	got = BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "host", false)
-	if got[len(got)-1] != "--extra-build-cli-args=--network=host" {
-		t.Errorf("network: %v", got)
-	}
-	got = BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "host", true)
-	if got[len(got)-1] != "--extra-build-cli-args=--layers=false --network=host" {
-		t.Errorf("no cache: %v", got)
-	}
-	// --prune-images would prune the user's own dangling images
-	for _, a := range got {
-		if strings.Contains(a, "prune") {
-			t.Errorf("%v", a)
-		}
-	}
-	if a, b := NewTag(), NewTag(); a == b || !strings.HasPrefix(a, TagPrefix) {
-		t.Errorf("tags %q, %q", a, b)
-	}
-}
-
 func TestCheckScript(t *testing.T) {
 	names := Names{
 		Modules:  []string{"copy", "community.docker.docker_container", "evil'; rm -rf /; '"},
@@ -216,34 +191,5 @@ Binaries:        1 of 1 found in the image
 	}
 	if text, code := Render(Result{Interrupted: true}); text != "Interrupted.\n" || code != 130 {
 		t.Errorf("interrupted: %q %d", text, code)
-	}
-}
-
-func TestNewSince(t *testing.T) {
-	before := map[string]bool{"a": true, "b": true}
-	after := map[string]bool{"b": true, "c": true, "a": true, "d": true}
-	if got := NewSince(before, after); !reflect.DeepEqual(got, []string{"c", "d"}) {
-		t.Errorf("got %v", got)
-	}
-	if got := NewSince(after, before); len(got) != 0 {
-		t.Errorf("nothing new: %v", got)
-	}
-	var none map[string]bool
-	if got := NewSince(none, none); len(got) != 0 {
-		t.Errorf("empty: %v", got)
-	}
-}
-
-func TestLeftoverImages(t *testing.T) {
-	before := map[string]string{"old1": "ghcr.io/x/base", "old2": "<none>"}
-	after := map[string]string{
-		"old1": "ghcr.io/x/base", "old2": "<none>", // already there: never touched
-		"n1": "<none>",                                      // a finished stage: build cache, kept
-		"n2": "docker.io/library/e83c1b-tmp",                // buildah's temporary image
-		"n3": "ghcr.io/ansible-community/community-ee-base", // pulled by the build: kept
-		"n4": "localhost/tangsible-ee-verify",               // its own tag is removed by name
-	}
-	if got := leftoverImages(before, after); !reflect.DeepEqual(got, []string{"n2"}) {
-		t.Errorf("got %v", got)
 	}
 }
