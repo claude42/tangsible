@@ -48,8 +48,6 @@ immediately implemented.
   * configurable keyboard shortcuts
   * a few more in DebugMode.md
 
-* Show ZFS mounts
-
 * tangsible template seems to be run from /tmp/ - shows in some variables
 
 
