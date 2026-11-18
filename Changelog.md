@@ -4,25 +4,19 @@
 
 ### Added
 
-- `host`/`hosts`/`inventory`: the Summary tab's Mounts also lists ZFS and other mounts Ansible's own mount facts skip (via `mount_facts`, ansible-core 2.18+)
-- `host`/`hosts`/`inventory`/`template`: tabs still loading or rendering show a busy spinner next to their placeholder text
-- Task definition tab: roles inside collections (`namespace.collection.role`), and roles used via a play's `collections:` list, are found too
+- `s` opens a statistics screen once the run has ended;
+- `host`: the Summary tab's Mounts also lists ZFS and other mounts Ansible's own mount facts skip (via `mount_facts`, ansible-core 2.18+)
+- `host`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
+- `host`: new Facts tab with every gathered fact as YAML
+- `host`: the Plays tab shows when each play last ran on the host
+- `host`: More information in the Summary tab
+- `host`/`template`: tabs still loading or rendering show a busy spinner next to their placeholder text
 - `role`: accepts a fully qualified collection role name (`namespace.collection.role`)
-- Task definition tab: roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are found too, also outside the project tree
-- `host`/`hosts`/`inventory`: the "Everything known" tab is removed and the "host_vars" tab hidden; the Variables and Facts tabs replace them
+- Roles outside the projec t (`~/.ansible/roles`, `/etc/ansible/roles`, `role_path`, inside collections (`namespace.collection.role`), roles used via a play's `collections:`, roles pulled in as `meta/main.yml` dependencies or by `include_role`/`import_role` are now found too
 - YAML tabs show comments (a `# ...` line or a trailing `# ...`) in the annotation colour instead of the value colour
-- `s` opens a statistics screen once the run has ended; tabs: Slowest hosts (the run's elapsed time and the time each host spent on tasks) and Slowest plays (how long each play took), as bars with the name drawn inside, slowest first, failed ones red
-- Statistics: a Play timeline tab shows the plays in the order they ran, each bar starting when the play began
-- Statistics: a Task timeline tab shows one play's tasks on a timeline (bar start = when the task began, length = its wall time), with a play picker (`p`)
-- Statistics: the Play timeline and Task timeline tabs start with a full-width `elapsed` bar for the total
-- Statistics: a Slowest tasks tab ranks every task of the run by wall time, longest first, colored by outcome
-- The drill-down's Task tab shows the host's `Duration:` for the task
-- `host`/`hosts`/`inventory`: new Variables tab with the host's inventory-level variables as YAML, each with where it is defined; vaulted values show as `<vaulted>`
-- `host`/`hosts`/`inventory`: new Facts tab with every gathered fact as YAML
-- Clicking a key in the Task definition tab shows what it is: a module option (type, default, choices, description), the module, or a task keyword like `when`
-- `debug`: clicking a variable in the Task definition tab opens a pop-up with its value and origin and a Watch button (vaulted values show as `<vaulted>`)
-- `debug`: a watch row with a long origin no longer wraps and hides the rows below it; the origin is shortened to fit
-- `debug`: the variable watch shows where a variable comes from after its value, e.g. `db_host = "x"  (group_vars/all.yml:3)`; also `fact`, `built-in`, `registered`, `-e`, `set in debugger`
+- Task definition tab: Click on a task keyword keyword or module option will show only help
+- Task definition tab (debug only): clicking on a variable shows it's value and origin
+- `debug`: the variable watch shows now also shows its origin
 - `debug`: vaulted values show as `<vaulted>` in the Resolved tab and the variable watch's autocomplete (the watch itself still shows them)
 - `debug`: the Resolved tab shows a task's registered value inline, as `register: name = value`
 - Two-pane layouts (`run` and friends, `hosts`, `inventory`): drag the divider with the mouse to resize the panes
@@ -32,10 +26,6 @@
 - `revisit`: `P` pins a run to the top of the list (marked `*`, exempt from the history cap)
 - `revisit`: Delete / Backspace removes a previous run and its saved files (after a confirmation)
 - `revisit`: `E` exports a run to one human-readable text file; `tangsible revisit file.txt` opens it
-- `host`: the Plays tab shows when each play last ran on the host
-- `host`: the host_vars tab now also shows the host's own variables from the inventory
-- `host`: More information in the Summary tab
-- Roles outside the project (`~/.ansible/roles`, `/etc/ansible/roles`, `roles_path`, ...) are now found by `role`, shown in the Task definition tab and recognized as roles by Details/Resolved/`template`; completions follow `$ANSIBLE_ROLES_PATH`
 - New verb: `tangsible help [verb]` lists every verb in one line, or one verb's synopsis
 - Releases include `.deb` and `.rpm` packages (amd64, arm64)
 
@@ -56,8 +46,8 @@
 - `debug`: a run whose only problem was unreachable hosts ends "completed - one or more hosts were unreachable", as in `run`, instead of "Playbook failed (exit code 4)"
 - Two-pane drill-down: the tree pane keeps its hostnames and host-row alignment, rendering like the single-pane tree at the pane's width
 - `tangsible vault` no longer deletes the blank lines between entries when saving
-- The host_vars tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)
-- The host_vars tab also finds files next to an inventory set via `ANSIBLE_INVENTORY` or `ansible.cfg` (not only `-i`)
+- The Variables tab finds the same files Ansible does: subdirectories, `.json` and extensionless files (not only `.yml`/`.yaml` directly in `host_vars/<host>/`)
+- The Variables tab also finds files next to an inventory set via `ANSIBLE_INVENTORY` or `ansible.cfg` (not only `-i`)
 - `debug`: a variable set in the watch explorer now reaches the redone task's arguments (F12), not only its conditions
 - `debug`: `strategy: free` plays now run as linear (marked in the top bar) instead of refusing to start or misattributing tasks
 - `--ask-become-pass`/`--ask-vault-pass`/`--ask-pass` no longer hang a re-run (`run`/`rerun`/`role`) or `debug`'s F5: the password is asked once at startup and handed to Ansible as a private temporary file
