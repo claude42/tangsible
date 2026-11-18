@@ -92,7 +92,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_t
 	-a '(__fish_complete_suffix .yml .yaml)' -d 'Vars file'
 
 # ee: tangsible ee init [<playbook>] [--base <image>] [--resolve-packages]
-#     tangsible ee verify [<playbook>] [-f <file>] [--keep] [ansible-playbook args...]
+#     tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [ansible-playbook args...]
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 2' -a init -d 'Draft an execution-environment.yml'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 2' -a verify -d 'Build an execution-environment.yml and check it'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 3' \
@@ -101,6 +101,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcom
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l resolve-packages -d 'Look up the packages for binaries the base image lacks'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -s f -l file -r -a '(__fish_complete_suffix .yml .yaml)' -d 'Definition to build'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -l keep -d 'Keep the built image'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -l no-cache -d 'Build without the podman build cache'
 
 # --- ansible-playbook's own flags, forwarded verbatim by every verb ---
 # Shown once a verb is already chosen (any verb: tangsible passes these

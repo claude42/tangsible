@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-ee" "1" "2026-11-17" "Tangsible" "Tangsible Manual"
+.TH "tangsible-ee" "1" "2026-11-18" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -17,7 +17,7 @@ tangsible-ee - draft an execution-environment.\&yml from a playbook, or build on
 .PP
 \fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages]
 .br
-\fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [--no-cache] [\fIansible-playbook args\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -147,7 +147,8 @@ one the syntax check stops at) and checks that the binaries used by
 \fBcommand\fR/\fBshell\fR tasks that run on the controller exist.\&
 .IP \(bu 4
 It removes the image and the build context, unless \fB--keep\fR is given, which
-leaves the image and prints its name.\& A build that fails, or is interrupted
+leaves the image and prints its name.\& podman'\&s build cache stays (see
+\fB--no-cache\fR).\& A build that fails, or is interrupted
 with Ctrl-C, can leave working containers and a temporary image behind; those
 are removed too (only what the build created: nothing that was there before is
 touched, so do not run another podman build at the same time).\&
@@ -165,6 +166,15 @@ The definition to build, instead of \fBexecution-environment.\&yml\fR.\&
 \fB--keep\fR
 .RS 4
 Keep the built image and print its name.\&
+.PP
+.RE
+\fB--no-cache\fR
+.RS 4
+Build without podman'\&s build cache.\& By default the cache is used and kept
+(untagged stage images, which make a second build faster but take disk
+space; \fBpodman image prune\fR removes them), so a layer that installs
+unpinned packages is not re-run.\& Use this to confirm the definition builds
+from scratch; nothing is left behind.\&
 .PP
 .RE
 .SH EXIT STATUS

@@ -117,7 +117,7 @@ func verify(opts Options, stdout, stderr io.Writer) int {
 	// 1. Build.
 	fmt.Fprintf(stderr, "tangsible: building %s into a throw-away image (this can take several minutes; output in %s) ...\n", opts.File, logPath)
 	start := time.Now()
-	build := exec.CommandContext(ctx, "ansible-builder", BuildArgs(opts.File, ctxDir, tag, settings.Network)...)
+	build := exec.CommandContext(ctx, "ansible-builder", BuildArgs(opts.File, ctxDir, tag, settings.Network, opts.NoCache)...)
 	build.Stdout, build.Stderr = logf, logf
 	// Its own process group, so an interrupt reaches the podman build it
 	// started too.

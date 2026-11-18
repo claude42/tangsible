@@ -9,9 +9,9 @@ import (
 // Snapshot is what podman held before a build: its containers (including the
 // "external" ones buildah makes while building) and its images with their
 // repository names. A successful build needs no more cleanup than removing
-// its tag (it is built with --layers=false, so it leaves no intermediate
-// images). One that fails or is killed leaves working containers and a buildah
-// "-tmp" image behind (podman does not clean up after SIGINT or SIGTERM
+// its tag; the untagged stage images stay as podman's build cache on purpose
+// (BuildArgs). One that fails or is killed leaves working containers and a
+// buildah "-tmp" image behind (podman does not clean up after SIGINT or SIGTERM
 // either), and the containers pin the images; their names are not ours to
 // know, so Cleanup removes exactly what appeared since the snapshot - never
 // anything that was already there.
@@ -56,13 +56,13 @@ func NewSince[V any](before, after map[string]V) []string {
 }
 
 // leftoverImages are the images a failed build left: those new since before
-// that are untagged or buildah's "-tmp" images. An image with a real
-// repository name that is new is one the build had to pull (its base), which
-// the user may want to keep.
+// that are buildah's "-tmp" images. Untagged ones are finished stages, the
+// build cache, and an image with a real repository name is one the build had
+// to pull (its base); the user may want to keep both.
 func leftoverImages(before, after map[string]string) []string {
 	var out []string
 	for _, id := range NewSince(before, after) {
-		if repo := after[id]; repo == "<none>" || strings.HasSuffix(repo, "-tmp") {
+		if repo := after[id]; strings.HasSuffix(repo, "-tmp") {
 			out = append(out, id)
 		}
 	}

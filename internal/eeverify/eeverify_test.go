@@ -19,6 +19,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"site.yml"}, Options{File: DefaultFile, Playbook: "site.yml"}, ""},
 		{[]string{"-f", "my.yml", "site.yml", "-i", "hosts"}, Options{File: "my.yml", Playbook: "site.yml", Args: []string{"-i", "hosts"}}, ""},
 		{[]string{"--file=my.yml", "--keep"}, Options{File: "my.yml", Keep: true}, ""},
+		{[]string{"--no-cache"}, Options{File: DefaultFile, NoCache: true}, ""},
 		{[]string{"site.yml", "--keep", "-e", "x=1", "--limit", "a"}, Options{File: DefaultFile, Playbook: "site.yml", Keep: true, Args: []string{"-e", "x=1", "--limit", "a"}}, ""},
 		{[]string{"-i", "hosts"}, Options{File: DefaultFile, Args: []string{"-i", "hosts"}}, ""},
 		{[]string{"-f"}, Options{}, "-f needs a file"},
@@ -41,14 +42,18 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestBuildArgs(t *testing.T) {
-	got := BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "")
-	want := []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "-t", "localhost/x:1", "--container-runtime", "podman", "--extra-build-cli-args=--layers=false"}
+	got := BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "", false)
+	want := []string{"build", "-f", "ee.yml", "-c", "/tmp/ctx", "-t", "localhost/x:1", "--container-runtime", "podman"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v", got)
 	}
-	got = BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "host")
-	if got[len(got)-1] != "--extra-build-cli-args=--layers=false --network=host" {
+	got = BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "host", false)
+	if got[len(got)-1] != "--extra-build-cli-args=--network=host" {
 		t.Errorf("network: %v", got)
+	}
+	got = BuildArgs("ee.yml", "/tmp/ctx", "localhost/x:1", "host", true)
+	if got[len(got)-1] != "--extra-build-cli-args=--layers=false --network=host" {
+		t.Errorf("no cache: %v", got)
 	}
 	// --prune-images would prune the user's own dangling images
 	for _, a := range got {
@@ -233,12 +238,12 @@ func TestLeftoverImages(t *testing.T) {
 	before := map[string]string{"old1": "ghcr.io/x/base", "old2": "<none>"}
 	after := map[string]string{
 		"old1": "ghcr.io/x/base", "old2": "<none>", // already there: never touched
-		"n1": "<none>",                                      // an untagged leftover
+		"n1": "<none>",                                      // a finished stage: build cache, kept
 		"n2": "docker.io/library/e83c1b-tmp",                // buildah's temporary image
 		"n3": "ghcr.io/ansible-community/community-ee-base", // pulled by the build: kept
 		"n4": "localhost/tangsible-ee-verify",               // its own tag is removed by name
 	}
-	if got := leftoverImages(before, after); !reflect.DeepEqual(got, []string{"n1", "n2"}) {
+	if got := leftoverImages(before, after); !reflect.DeepEqual(got, []string{"n2"}) {
 		t.Errorf("got %v", got)
 	}
 }

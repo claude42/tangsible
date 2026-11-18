@@ -593,6 +593,7 @@ tangsible ee verify [playbook.yml] [-f file] [--keep] [ansible-playbook args ...
   `--ask-vault-pass`) are rejected in v1 with a usage error: a syntax check
   needs none, so pass a vault password *file* instead.
 - `--keep`: don't remove the built image; print its name.
+- `--no-cache`: build without podman's build cache (see step 1).
 - Needs **podman** and **ansible-builder** on `PATH` (`tangsible version`
   reports ansible-builder); a missing one is an error naming it, with the
   usual not-found message. These are the only subcommand's requirements - the
@@ -602,15 +603,21 @@ tangsible ee verify [playbook.yml] [-f file] [--keep] [ansible-playbook args ...
 
 1. **Build.** `ansible-builder build -f <file> -c <private temp context> -t
    <throw-away tag> --container-runtime podman
-   --extra-build-cli-args="--layers=false [--network=<network>]"`. The throw-away tag
+   --extra-build-cli-args="[--layers=false] [--network=<network>]"`. The throw-away tag
    (`localhost/tangsible-ee-verify:<random>`) overrides the file's own `tags`
    (the command line wins in ansible-builder), so a name the user chose is
    never created or overwritten. `--network` is `[execution_environment]
    network` when set (`host` fixes DNS trouble in a build, as it does for a
-   run). `--layers=false` makes podman keep no intermediate images, so a
-   successful build leaves exactly one new image, the tag (measured: the default
-   leaves 20 new images, of which removing the tag removes 19 and one stage image
-   stays behind). Not `--prune-images`: that runs `podman image prune --force`
+   run). By default podman's build cache is used and kept: the untagged stage
+   images outlive the removed tag, and a second build of the same or a slightly
+   changed definition takes about half as long (measured with one collection:
+   37 s cold, 18 s again, 18 s with only the last stage changed; more with heavy
+   dependencies). `--no-cache` passes `--layers=false`: podman keeps no
+   intermediate images and so uses no cache, a fresh build that leaves nothing
+   behind - the way to confirm a definition builds from scratch, since a cached
+   `pip`/`dnf` layer can hide that unpinned packages would now resolve
+   differently. Cached stage images accumulate (hundreds of MB each);
+   `podman image prune` removes the unused ones. Not `--prune-images`: that runs `podman image prune --force`
    over *every* dangling image the user has. The output is written to `.tangsible/ee-verify.log`
    (0600); on failure its last lines are shown, with the path. A first build
    takes minutes and downloads packages: a progress line says so.
@@ -701,8 +708,9 @@ promise a working EE.
   which would include a concurrent build's containers. `--prune-images` was
   dropped after an interrupted run left working containers that made it fail
   later ("image is in use by a container"), and because it would prune the
-  user's own dangling images; `--layers=false` replaced the image-diff cleanup
-  for the successful case.
+  user's own dangling images. After a failed or interrupted build the cleanup
+  removes the new containers and `-tmp` images, never untagged stage images
+  (finished stages are the build cache).
 - The syntax check's own output is shown (last 15 lines), including ansible's
   warnings about having no inventory; pass `-i` to silence them.
 - Checked by hand on community-ee-base: a build of a minimal definition takes

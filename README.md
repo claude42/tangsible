@@ -481,7 +481,7 @@ Once you have edited the draft, `tangsible ee verify` builds it and checks the
 result against your playbook:
 
 ```
-tangsible ee verify site.yml [-f execution-environment.yml] [--keep] [ansible-playbook args]
+tangsible ee verify site.yml [-f execution-environment.yml] [--keep] [--no-cache] [ansible-playbook args]
 ```
 
 It builds the definition with `ansible-builder` into a throw-away image (a build
@@ -490,8 +490,9 @@ takes minutes; the output goes to `.tangsible/ee-verify.log`), runs
 *every* module and lookup the playbook uses (so you get all the missing ones, not
 just the first) and checks the binaries that tasks running on the controller
 need. It needs `podman` and `ansible-builder` (`tangsible version` shows both),
-removes the image and what the build left behind afterwards (`--keep` keeps the
-image), and exits 1 if anything is missing. It can't catch what only fails when
+removes the image afterwards (`--keep` keeps it) but keeps podman's build cache,
+so the next verify is faster (`--no-cache` builds from scratch and leaves
+nothing; `podman image prune` frees the cache), and exits 1 if anything is missing. It can't catch what only fails when
 a task really runs.
 
 ## Configuration

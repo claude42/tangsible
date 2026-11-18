@@ -376,10 +376,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - **EE verify** (`EEInit.md`, "Verifying a definition"): `tangsible ee verify`
   builds a definition with `ansible-builder` into a throw-away tag and checks it
   (syntax check, `ansible-doc` for every module/lookup, controller-side
-  binaries). Built with `--layers=false` (no intermediate images). Never pass
+  binaries). Uses and keeps podman's build cache (stage images stay; `--no-cache` = `--layers=false`). Never pass
   `--prune-images` (it prunes *all* of the user's dangling images); after a
-  failed or killed build, cleanup removes only the containers and `-tmp`/untagged
-  images that `Snapshot` saw appear (`eeverify/podman.go`).
+  failed or killed build, cleanup removes only the containers and `-tmp`
+  images that `Snapshot` saw appear (never untagged stage images) (`eeverify/podman.go`).
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

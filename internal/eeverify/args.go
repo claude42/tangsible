@@ -29,7 +29,7 @@ import (
 )
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee verify [playbook.yml] [-f file] [--keep] [ansible-playbook args ...]"
+const Usage = "usage: tangsible ee verify [playbook.yml] [-f file] [--keep] [--no-cache] [ansible-playbook args ...]"
 
 // DefaultFile is the definition verified when -f is not given.
 const DefaultFile = "execution-environment.yml"
@@ -42,11 +42,13 @@ type Options struct {
 	File string
 	// Keep leaves the built image in place.
 	Keep bool
+	// NoCache builds without podman's build cache (and leaves none).
+	NoCache bool
 	// Args are passed to ansible-playbook for the syntax check.
 	Args []string
 }
 
-// ParseArgs reads the arguments after "verify". -f/--file and --keep are
+// ParseArgs reads the arguments after "verify". -f/--file, --keep and --no-cache are
 // tangsible's own; the rest is the playbook and ansible-playbook arguments,
 // split like run's. The password prompts are refused: a syntax check needs no
 // secrets, and a prompt would have nowhere to go.
@@ -68,6 +70,8 @@ func ParseArgs(args []string) (Options, error) {
 			}
 		case a == "--keep":
 			o.Keep = true
+		case a == "--no-cache":
+			o.NoCache = true
 		default:
 			rest = append(rest, a)
 		}

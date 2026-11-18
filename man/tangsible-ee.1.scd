@@ -9,7 +9,7 @@ tangsible-ee - draft an execution-environment.yml from a playbook, or build one 
 *tangsible ee* <init | verify> [_playbook.yml_] [_options_ ...]
 
 *tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages]++
-*tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [_ansible-playbook args_ ...]
+*tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [_ansible-playbook args_ ...]
 
 # DESCRIPTION
 
@@ -121,7 +121,8 @@ supported: a syntax check needs no secrets, use a vault password file.
   one the syntax check stops at) and checks that the binaries used by
   *command*/*shell* tasks that run on the controller exist.
 - It removes the image and the build context, unless *--keep* is given, which
-  leaves the image and prints its name. A build that fails, or is interrupted
+  leaves the image and prints its name. podman's build cache stays (see
+  *--no-cache*). A build that fails, or is interrupted
   with Ctrl-C, can leave working containers and a temporary image behind; those
   are removed too (only what the build created: nothing that was there before is
   touched, so do not run another podman build at the same time).
@@ -135,6 +136,13 @@ plugin imports only when it runs, or anything a syntax check does not execute.
 
 *--keep*
 	Keep the built image and print its name.
+
+*--no-cache*
+	Build without podman's build cache. By default the cache is used and kept
+	(untagged stage images, which make a second build faster but take disk
+	space; *podman image prune* removes them), so a layer that installs
+	unpinned packages is not re-run. Use this to confirm the definition builds
+	from scratch; nothing is left behind.
 
 # EXIT STATUS
 
