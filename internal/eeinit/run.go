@@ -24,10 +24,12 @@ type Options struct {
 	// ResolvePackages looks up the packages for controller-side binaries
 	// the base image lacks (it downloads repository metadata).
 	ResolvePackages bool
+	// NoBackup replaces an existing file without keeping its old content.
+	NoBackup bool
 }
 
 // ParseArgs reads the arguments after "ee": the subcommand init, an
-// optional playbook, --base <image> and --resolve-packages.
+// optional playbook, --base <image>, --resolve-packages and --no-backup.
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	if len(args) == 0 || args[0] != "init" {
@@ -47,6 +49,8 @@ func ParseArgs(args []string) (Options, error) {
 			o.Base = strings.TrimPrefix(a, "--base=")
 		case a == "--resolve-packages":
 			o.ResolvePackages = true
+		case a == "--no-backup":
+			o.NoBackup = true
 		case strings.HasPrefix(a, "-"):
 			return o, fmt.Errorf("unknown option %s", a)
 		case o.Playbook != "":
@@ -71,7 +75,7 @@ func containsBaseFlag(args []string) bool {
 }
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee init [playbook.yml] [--base image] [--resolve-packages]"
+const Usage = "usage: tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backup]"
 
 // RunEEVerb is `tangsible ee init ...`; it returns the exit code. (ee verify
 // is internal/eeverify's.)
@@ -93,10 +97,11 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// The cheap refusals come before any work.
+	// The cheap refusals come before any work. An existing file is replaced
+	// (WriteDraft), unless it is not a regular file.
 	out := filepath.Join(cwd, OutputFile)
-	if _, err := os.Lstat(out); err == nil {
-		return fmt.Errorf("%s already exists; not overwriting it", OutputFile)
+	if err := CheckOutputPath(out); err != nil {
+		return err
 	}
 	playbook := opts.Playbook
 	if playbook == "" {
@@ -219,31 +224,63 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		Implied:          ImpliedPackages(plugins),
 		TemplatedLookups: templatedLookups,
 	})
-	// O_EXCL: a file that appeared meanwhile is not overwritten either.
-	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	// The file operations come last, after all the slow work: an interrupt
+	// before this point touches nothing.
+	res, err := WriteDraft(out, []byte(text), !opts.NoBackup)
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("%s already exists; not overwriting it", OutputFile)
-		}
 		return err
 	}
-	if _, err := io.WriteString(f, text); err != nil {
-		f.Close()
-		return err
+	for _, w := range res.Warnings {
+		fmt.Fprintf(stderr, "tangsible: %s\n", w)
 	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Wrote %s: %d collection(s) (%d pinned from this host), %d TODO(s).\n", OutputFile, rep.Collections, rep.Pinned, rep.Todos)
-	if rep.Implied > 0 {
-		fmt.Fprintf(stdout, "%d package(s) implied by lookups or modules; see the comment in the draft.\n", rep.Implied)
-	}
-	if rep.Binaries > 0 {
-		if rep.Binaries == 1 {
-			fmt.Fprintln(stdout, "1 binary used on the controller is missing from the base image; see the comment in the draft.")
-		} else {
-			fmt.Fprintf(stdout, "%d binaries used on the controller are missing from the base image; see the comment in the draft.\n", rep.Binaries)
-		}
-	}
+	// An empty line on stderr, so the summary is set off from the progress
+	// lines above it on a terminal (and stdout stays just the summary).
+	fmt.Fprintln(stderr)
+	fmt.Fprint(stdout, Summary(res, rep, opts.NoBackup))
 	return nil
+}
+
+// Summary is what `ee init` prints at the end, in blocks separated by an empty
+// line: what happened to the file; what the draft holds and needs (collections,
+// implied packages, missing binaries); and how many TODOs are left in it. A
+// block with nothing to say is left out.
+func Summary(res WriteResult, rep Report, noBackup bool) string {
+	var file strings.Builder
+	switch {
+	case res.Unchanged:
+		fmt.Fprintf(&file, "%s is unchanged.", OutputFile)
+	default:
+		fmt.Fprintf(&file, "Created %s.", OutputFile)
+		switch {
+		case res.Backup != "":
+			fmt.Fprintf(&file, " The previous file is saved as %s.", res.Backup)
+		case res.Replaced && noBackup:
+			file.WriteString(" The previous file was replaced without a backup (--no-backup).")
+		}
+		if len(res.Pruned) > 0 {
+			fmt.Fprintf(&file, "\nRemoved the oldest backup(s): %s.", strings.Join(res.Pruned, ", "))
+		}
+	}
+	blocks := []string{file.String()}
+
+	var needs []string
+	if rep.Collections > 0 {
+		needs = append(needs, fmt.Sprintf("%d collection(s) (%d pinned from this host).", rep.Collections, rep.Pinned))
+	}
+	if rep.Implied > 0 {
+		needs = append(needs, fmt.Sprintf("%d package(s) implied by lookups or modules; see the comment in the draft.", rep.Implied))
+	}
+	switch {
+	case rep.Binaries == 1:
+		needs = append(needs, "1 binary used on the controller is missing from the base image; see the comment in the draft.")
+	case rep.Binaries > 1:
+		needs = append(needs, fmt.Sprintf("%d binaries used on the controller are missing from the base image; see the comment in the draft.", rep.Binaries))
+	}
+	if len(needs) > 0 {
+		blocks = append(blocks, strings.Join(needs, "\n"))
+	}
+	if rep.Todos > 0 {
+		blocks = append(blocks, fmt.Sprintf("%d TODO(s) to resolve in this file.", rep.Todos))
+	}
+	return strings.Join(blocks, "\n\n") + "\n"
 }

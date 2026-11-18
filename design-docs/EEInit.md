@@ -1000,7 +1000,7 @@ lines, which the status line already shows). Colour in the status line.
 
 ## Replacing an existing draft (`ee init`, follow-up)
 
-**Spec, not built.** v1 refused to write when `execution-environment.yml`
+**Implemented** (`internal/eeinit/write.go`; notes at the end of this section). v1 refused to write when `execution-environment.yml`
 existed, so every re-run (a module added to the playbook) started with removing
 the file by hand. Now the file is replaced and the old content is kept:
 
@@ -1024,7 +1024,7 @@ tangsible ee init [playbook] [--base <image>] [--resolve-packages] [--no-backup]
   below). Existing backups are left alone: no new one, nothing pruned.
 - **No merge.** The new draft is generated from scratch; the user's edits
   (uncommented stanzas, resolved TODOs) are in the backup, not carried over. The
-  summary names the backup and suggests `diff <backup> execution-environment.yml`.
+  summary names the backup (no `diff` hint: it was dropped on request).
 - **Not replaced:** a symlink or anything that is not a regular file at the
   output path is an error (writing through a symlink would change its target;
   replacing it would break it), before any work.
@@ -1095,6 +1095,46 @@ A merge or a diff of the user's edits into the new draft. A configurable number
 of backups (a constant until someone asks). Editing `.gitignore` (the backups
 show up in `git status`; ignoring them is the user's call). A command to restore
 a backup (it is a copy: `mv`).
+
+### The summary
+
+What `ee init` prints at the end is in blocks separated by an empty line, each
+left out when it has nothing to say (`eeinit.Summary`, pure):
+
+```
+Created execution-environment.yml. The previous file is saved as execution-environment.yml.1.
+
+3 collection(s) (3 pinned from this host).
+1 package(s) implied by lookups or modules; see the comment in the draft.
+3 binaries used on the controller are missing from the base image; see the comment in the draft.
+
+3 TODO(s) to resolve in this file.
+```
+
+The second block is what the draft holds (the collections, how many of them
+pinned from this host) and still needs (the implied packages, the binaries).
+The first block is what happened to the file ("Created", also when it replaced
+one; "... is unchanged." when nothing was written; a note when `--no-backup`
+replaced it without a backup, and one line for backups removed to stay within
+five). The `TODO(s)` count is the number of `# TODO` comments in the file, not
+the number of binaries: a binary is a TODO only when `--resolve-packages` found
+no package, or several, for it.
+
+### Implementation notes
+
+- The steps are separate functions (`stageTemp`, `makeBackup`, the rename in
+  `writeOnce`) so a test can stop after any of them; the crash tests run steps 2
+  and 3 only and check that the old file is whole and the backup present, then
+  that a full run recovers.
+- A leftover temporary file is not removed by the next run until it is an hour
+  old: a recent one may belong to a run still going.
+- `ee init`'s early refusal is only `CheckOutputPath` (a symlink or directory);
+  the unchanged check needs the generated draft, so it comes at the end, with
+  the write.
+- Measured on a real project: create, an immediate re-run ("is unchanged"),
+  edit and re-run (backup `.1` holds the edit), `--no-backup` (no backup, `.1`
+  untouched), seven more replacements (five backups left, the oldest removed),
+  a symlink (refused, exit 1).
 
 ### Open points
 

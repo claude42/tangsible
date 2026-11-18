@@ -70,7 +70,7 @@ _tangsible_vault_flags="--vault-password-file --ask-vault-pass"
 
 # ee's own flags (design-docs/EEInit.md): init's, and verify's (which also
 # passes ansible-playbook's own flags on to its syntax check).
-_tangsible_ee_init_flags="--base --resolve-packages"
+_tangsible_ee_init_flags="--base --resolve-packages --no-backup"
 _tangsible_ee_verify_flags="-f --file --keep --no-cache --show-output"
 _tangsible_ee_build_flags="-f --file -t --tag --no-cache --show-output"
 
@@ -295,7 +295,7 @@ _tangsible()
 		fi
 		;;
 	ee)
-		# tangsible ee init [<playbook>] [--base <image>] [--resolve-packages]
+		# tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup]
 		# tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [--show-output] [ansible-playbook args...]
 		# tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache] [--show-output]
 		if [ "$pos" -eq 0 ]; then

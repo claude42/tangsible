@@ -372,7 +372,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   picks when enforcing) lets the container reach the agent socket; `z`/`Z`
   skip it with a warning rather than relabel the user's live socket.
 - **EE draft** (`EEInit.md`): `tangsible ee init` writes `./execution-environment.yml`
-  (builder schema v3), never overwriting. Modules only; the host's `ansible-doc`
+  (builder schema v3); an existing file is replaced via `eeinit.WriteDraft` (temp
+  file + hard-link backup `.N` + atomic rename, five kept, nothing written when
+  identical, `--no-backup`), never merged. Modules only; the host's `ansible-doc`
   is the source of truth for short names, so an uninstalled collection is a
   `# TODO`, not a guess. The base image is `--base` > `base_image` > a pinned
   built-in default - **never `[execution_environment] image`** (it is usually

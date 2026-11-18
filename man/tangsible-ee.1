@@ -15,7 +15,7 @@ tangsible-ee - draft an execution-environment.\&yml from a playbook, check it, o
 .PP
 \fBtangsible ee\fR <init | verify | build> [\fIplaybook.\&yml\fR] [\fIoptions\fR .\&.\&.\&]
 .PP
-\fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages]
+\fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages] [--no-backup]
 .br
 \fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [--no-cache] [--show-output] [\fIansible-playbook args\fR .\&.\&.\&]
 .br
@@ -118,9 +118,22 @@ done (no network, no \fBdnf\fR), the binaries are only listed.\& The
 (\fBhost\fR fixes DNS trouble).\& Nothing is ever added without you uncommenting it.\&
 .PP
 .RE
-If \fBexecution-environment.\&yml\fR already exists, \fBee init\fR fails and writes
-nothing.\&
+If \fBexecution-environment.\&yml\fR already exists it is replaced.\& When the new draft
+differs, the old file is first kept as \fBexecution-environment.\&yml.\&\fR\fIN\fR, where \fIN\fR
+is the highest existing number plus one (1 for the first); only the five
+highest-numbered backups are kept, the lowest are removed.\& When the content is
+identical nothing is written and no backup is made.\& The new draft is generated
+from scratch: your edits are in the backup, not merged.\& The file is replaced
+atomically (a temporary file is written, the backup is a hard link, then a
+rename), so an interrupted run never leaves a missing or half-written file.\& A
+symlink or a directory at that name is an error.\&
 .PP
+\fB--no-backup\fR
+.RS 4
+Replace an existing file without keeping its old content; existing
+backups are left alone and no backup is made or removed.\&
+.PP
+.RE
 .SH VERIFY
 .PP
 \fBee verify\fR builds an \fBexecution-environment.\&yml\fR (\fIfile\fR, default
@@ -247,7 +260,7 @@ passed.\& \fBee build\fR: the image was built.\&
 .RE
 \fB1\fR
 .RS 4
-\fBee init\fR: no draft was written (the file already exists, \fBpodman\fR is
+\fBee init\fR: no draft was written (the file is a symlink or a directory, \fBpodman\fR is
 missing, the base image couldn'\&t be pulled or inspected, or the playbook
 couldn'\&t be read).\& \fBee verify\fR: the build or a check failed, or it
 couldn'\&t start (a missing tool or file).\&

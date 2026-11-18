@@ -462,8 +462,8 @@ It collects the modules used by the playbook and its roles, asks your host's
 Ansible which collections provide them, and inspects the base image with
 `podman`. Collections are pinned to the versions of a `requirements.yml` if
 you have one, otherwise to the ones installed on the host. The result is a
-draft in `./execution-environment.yml` (it never overwrites an existing file)
-in which everything that can't be determined statically is a `# TODO`
+draft in `./execution-environment.yml` (an existing file is replaced, the old
+one kept as `execution-environment.yml.1`, `.2`, ...: see below) in which everything that can't be determined statically is a `# TODO`
 comment. Lookups (`lookup()`, `query()`, `with_*`) are found too: their collections are
 added, and packages they need that nothing declares (`dnspython` for `dig`,
 `hvac` for `hashi_vault`, `rsync` for `synchronize`) are offered as a commented
@@ -474,6 +474,14 @@ for each (downloads repository metadata, can take a minute or two) and offers a
 `system:` block to uncomment. Set `base_image` in `[execution_environment]` to choose the base
 image; `image` is never used for that, as it is what you run, usually the
 result of that build.
+
+An existing `execution-environment.yml` is replaced, not refused: when the new
+draft differs, the old file is first kept as `execution-environment.yml.<N>`
+(the highest number plus one; the five newest are kept), and nothing at all is
+written when the content is identical. The new draft is generated from scratch,
+not merged with your edits; they are in the backup (`diff` it). `--no-backup`
+replaces the file without keeping the old one. The backups are ordinary files in
+your project: add them to `.gitignore` if you don't want them in `git status`.
 
 ### Verifying a definition
 

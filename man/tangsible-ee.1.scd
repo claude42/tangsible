@@ -8,7 +8,7 @@ tangsible-ee - draft an execution-environment.yml from a playbook, check it, or 
 
 *tangsible ee* <init | verify | build> [_playbook.yml_] [_options_ ...]
 
-*tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages]++
+*tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages] [--no-backup]++
 *tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [--show-output] [_ansible-playbook args_ ...]++
 *tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache] [--show-output]
 
@@ -96,8 +96,19 @@ draft.
 	*network* key under *[execution_environment]* is used for the container
 	(*host* fixes DNS trouble). Nothing is ever added without you uncommenting it.
 
-If *execution-environment.yml* already exists, *ee init* fails and writes
-nothing.
+If *execution-environment.yml* already exists it is replaced. When the new draft
+differs, the old file is first kept as *execution-environment.yml.*_N_, where _N_
+is the highest existing number plus one (1 for the first); only the five
+highest-numbered backups are kept, the lowest are removed. When the content is
+identical nothing is written and no backup is made. The new draft is generated
+from scratch: your edits are in the backup, not merged. The file is replaced
+atomically (a temporary file is written, the backup is a hard link, then a
+rename), so an interrupted run never leaves a missing or half-written file. A
+symlink or a directory at that name is an error.
+
+*--no-backup*
+	Replace an existing file without keeping its old content; existing
+	backups are left alone and no backup is made or removed.
 
 # VERIFY
 
@@ -199,7 +210,7 @@ nothing behind except podman's build cache; an existing tag is untouched.
 	passed. *ee build*: the image was built.
 
 *1*
-	*ee init*: no draft was written (the file already exists, *podman* is
+	*ee init*: no draft was written (the file is a symlink or a directory, *podman* is
 	missing, the base image couldn't be pulled or inspected, or the playbook
 	couldn't be read). *ee verify*: the build or a check failed, or it
 	couldn't start (a missing tool or file).
