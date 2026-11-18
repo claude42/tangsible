@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -163,6 +164,8 @@ func verify(opts Options, stdout, stderr io.Writer) int {
 		}
 	default:
 		res.Checked = true
+		res.ImageCore = checked.AnsibleCore
+		res.HostCore = hostCore()
 		res.Modules = ModuleCheck(proj.Uses, checked.Modules)
 		res.Lookups = LookupCheck(proj.Lookups, checked.Lookups)
 		res.Binaries = BinaryCheck(binaries, checked.MissingBinaries)
@@ -176,4 +179,14 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// hostCore is the host's ansible-core version ("" when ansible-playbook says
+// nothing usable); it runs on the host, not in the image.
+func hostCore() string {
+	out, err := exec.Command("ansible-playbook", "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return ParseCore(string(out))
 }

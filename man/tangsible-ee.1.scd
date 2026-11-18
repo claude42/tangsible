@@ -118,6 +118,9 @@ supported: a syntax check needs no secrets, use a vault password file.
   *.tangsible/ee-verify.log*, and a failed build shows the end of it.
 - In the built image it runs *ansible-playbook --syntax-check*, the way a
   real *tangsible run* would run it (the same mounts and environment).
+- It reports the image's ansible-core version next to the host's, as
+  information only (a run that behaves differently in the container often
+  differs in the version).
 - In one more run it asks the image's *ansible-doc* about *every* module and
   lookup the playbook uses (so all missing ones are listed, not only the first
   one the syntax check stops at) and checks that the binaries used by

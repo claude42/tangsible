@@ -149,6 +149,10 @@ type Result struct {
 	Lookups  Check
 	Binaries Check
 
+	// ImageCore and HostCore are the ansible-core versions of the image and of
+	// the host ("" when unknown). Information only: they never fail a run.
+	ImageCore, HostCore string
+
 	// Tag is the image's name, Kept says it was left in place.
 	Tag  string
 	Kept bool
@@ -186,6 +190,13 @@ func Render(r Result) (string, int) {
 		return b.String(), 1
 	}
 	line("Build", "ok ("+r.BuildDuration.Round(time.Second).String()+")")
+	if r.ImageCore != "" {
+		text := r.ImageCore + " in the image"
+		if r.HostCore != "" {
+			text += " (host: " + r.HostCore + ")"
+		}
+		line("ansible-core", text)
+	}
 
 	switch {
 	case !r.SyntaxRan:

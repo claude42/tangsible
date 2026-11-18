@@ -655,6 +655,7 @@ On stdout, one line per check, then a short list for each failure:
 
 ```
 Build:           ok (4m12s)
+ansible-core:    2.21.6 in the image (host: 2.19.11)
 Syntax check:    FAILED
   ERROR! couldn't resolve module/action 'community.docker.docker_container' ...
 Modules:         11 of 12 found in the image
@@ -665,6 +666,15 @@ Binaries:        1 of 2 found
   missing: jq (site.yml:40)
     -> add it under dependencies.system (see ee init --resolve-packages)
 ```
+
+The `ansible-core:` line is information only: the image's version (asked of
+the image in the same run as the plugin check) next to the host's
+(`ansible-playbook --version`, on the host; left out when the host has none),
+so a behavior difference between a host run and a container run has an obvious
+first suspect. It is never a warning and never changes the exit code - an image
+that runs another version on purpose is not a defect - and it is left out when
+the image's version can't be read. (Considered and not done: a warning on a
+mismatch; a hint on failure.)
 
 Exit code: 0 when every check passed, 1 when the build or any check failed,
 2 for usage errors. A failed build skips the checks that need the image.

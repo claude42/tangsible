@@ -23,14 +23,30 @@ var safeName = regexp.MustCompile(`^(/|[A-Za-z0-9])[A-Za-z0-9_.+/-]*$`)
 // docChunk bounds how many names one ansible-doc call is asked about.
 const docChunk = 60
 
-// CheckScript is the sh script to run in the built image. It prints one
-// section per kind of check - @@modules and @@lookups with ansible-doc's JSON
+// coreVersion matches the version in the first line of `ansible --version`:
+// "ansible [core 2.21.6]".
+var coreVersion = regexp.MustCompile(`\[core ([^\]\s]+)\]`)
+
+// ParseCore returns the ansible-core version in the first line of
+// `ansible --version` or `ansible-playbook --version`, "" if there is none.
+func ParseCore(versionOutput string) string {
+	first, _, _ := strings.Cut(versionOutput, "\n")
+	if m := coreVersion.FindStringSubmatch(first); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// CheckScript is the sh script to run in the built image. It prints
+// @@core with the first line of `ansible --version` (the report shows the
+// image's ansible-core next to the host's), then one section per kind of check - @@modules and @@lookups with ansible-doc's JSON
 // (one object per call), @@binaries with a missing=<name> line for each binary
 // the image lacks - or @@noansibledoc when the image has no ansible-doc to
 // ask. The names are written into the script (validated, quoted), not passed
 // as arguments, so one container run does everything.
 func CheckScript(n Names) string {
 	var b strings.Builder
+	b.WriteString("echo @@core\nansible --version 2>/dev/null | head -n 1\n")
 	b.WriteString("command -v ansible-doc >/dev/null 2>&1 || { echo @@noansibledoc; exit 0; }\n")
 	for _, k := range []struct {
 		marker, kind string
@@ -85,11 +101,16 @@ type Checked struct {
 	Modules, Lookups map[string]eeinit.PluginDoc
 	// MissingBinaries are the binaries the image lacks.
 	MissingBinaries []string
+	// AnsibleCore is the image's ansible-core version, "" if it didn't say.
+	AnsibleCore string
 }
 
 // ParseCheck reads CheckScript's output.
 func ParseCheck(out string) (Checked, error) {
 	c := Checked{Modules: map[string]eeinit.PluginDoc{}, Lookups: map[string]eeinit.PluginDoc{}}
+	if i := strings.Index(out, "@@core\n"); i >= 0 {
+		c.AnsibleCore = ParseCore(out[i+len("@@core\n"):])
+	}
 	if strings.Contains(out, "@@noansibledoc") {
 		return c, errors.New("the image has no ansible-doc to ask about modules and lookups")
 	}

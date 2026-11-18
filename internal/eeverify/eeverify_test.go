@@ -194,3 +194,59 @@ Binaries:        1 of 1 found in the image
 		t.Errorf("interrupted: %q %d", text, code)
 	}
 }
+
+func TestParseCore(t *testing.T) {
+	for in, want := range map[string]string{
+		"ansible [core 2.21.6]\n  config file = None\n":            "2.21.6",
+		"ansible-playbook [core 2.19.11]\n  python version = 3.13": "2.19.11",
+		"ansible [core 2.20.0rc1]":                                 "2.20.0rc1",
+		"ansible [core 2.18.1] (devel abc)":                        "2.18.1",
+		"":                                                         "",
+		"bash: ansible: command not found\n":                       "",
+		"config file = None\nansible [core 2.2.0]\n":               "", // only the first line counts
+	} {
+		if got := ParseCore(in); got != want {
+			t.Errorf("ParseCore(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCoreInCheck(t *testing.T) {
+	if s := CheckScript(Names{}); !strings.HasPrefix(s, "echo @@core\nansible --version") {
+		t.Errorf("the script must ask for the version first:\n%s", s)
+	}
+	got, err := ParseCheck("@@core\nansible [core 2.21.6]\n@@modules\n@@lookups\n@@binaries\n")
+	if err != nil || got.AnsibleCore != "2.21.6" {
+		t.Errorf("core: %+v, %v", got, err)
+	}
+	// no ansible in the image: no version, the checks still parse
+	if got, err = ParseCheck("@@core\n@@modules\n@@lookups\n@@binaries\n"); err != nil || got.AnsibleCore != "" {
+		t.Errorf("no core: %+v, %v", got, err)
+	}
+	// the version is read even when ansible-doc is missing
+	if got, err = ParseCheck("@@core\nansible [core 2.21.6]\n@@noansibledoc\n"); err == nil || got.AnsibleCore != "2.21.6" {
+		t.Errorf("no ansible-doc: %+v, %v", got, err)
+	}
+}
+
+func TestRenderCore(t *testing.T) {
+	base := Result{BuildDuration: time.Second, SyntaxRan: true, SyntaxOK: true, Checked: true}
+	for _, c := range []struct {
+		image, host, want string
+	}{
+		{"2.21.6", "2.19.11", "ansible-core:    2.21.6 in the image (host: 2.19.11)\n"},
+		{"2.21.6", "", "ansible-core:    2.21.6 in the image\n"},
+		{"2.21.6", "2.21.6", "ansible-core:    2.21.6 in the image (host: 2.21.6)\n"},
+	} {
+		r := base
+		r.ImageCore, r.HostCore = c.image, c.host
+		out, code := Render(r)
+		if !strings.Contains(out, c.want) || code != 0 {
+			t.Errorf("image %q host %q (exit %d):\n%s", c.image, c.host, code, out)
+		}
+	}
+	// unknown in the image: no line; never a reason to fail
+	if out, code := Render(base); strings.Contains(out, "ansible-core") || code != 0 {
+		t.Errorf("no version known (exit %d):\n%s", code, out)
+	}
+}
