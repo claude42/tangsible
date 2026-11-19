@@ -852,7 +852,7 @@ both tools.
 
 ### Not doing
 
-`ee build --verify` (see above). Pushing to a registry. Writing the tag into
+`ee build --verify` (see above). Pushing to a registry (`ee push`, below). Writing the tag into
 `config.toml`. Several definitions in one call. A `--keep-context` option: a
 context to inspect is `ansible-builder create`'s job.
 
@@ -1140,8 +1140,148 @@ no package, or several, for it.
 
 - Whether the summary should print the `diff` itself, not only the command.
 
+## Pushing an image (`ee push`, follow-up)
+
+**Spec** (not implemented). `tangsible ee push` uploads the image(s) a
+definition names to the registry in their names. It is a separate verb, not
+`ee build --push`, because it is the one step that publishes something: build
+only changes local podman storage and can be repeated freely, push is done
+deliberately, often later and elsewhere than the build (after `ee verify` and a
+trial run with `--ee`, or from CI), and its failures (login, registry name,
+network) have nothing in common with a build's. `ee build --push` can be added
+later as a thin wrapper over the same code if the one-liner is missed.
+
+```
+tangsible ee push [-f file] [-y | --yes]
+```
+
+- `-f file`: the definition, default `./execution-environment.yml` (missing:
+  error, hinting at `ee init`), as for `verify` and `build`.
+- `-y`, `--yes`: do not ask for confirmation (see step 2).
+- Needs **podman** only (no `ansible-builder`).
+
+### Names
+
+An image is pushed by *name*: `registry.example.com/team/my-ee:1.0` is the
+registry (the part before the first `/`, when it has a `.` or a `:` or is
+`localhost`), the repository and the version tag. One image can carry several
+names (`options.tags` may list `:1.0` and `:latest`), and `podman push` takes
+exactly one, so each name is one `podman push`; the registry stores each name as
+its own entry. The layers are uploaded once: the second push finds them already
+there and only adds the name.
+
+The names come from the definition's `options.tags` (read with
+`eebuild.Tags`), the same ones `ee build` applied. There is no argument for a
+single name in this version (see "Later").
+
+### What it does
+
+1. **Check, before pushing anything.** For every name: it must have a registry
+   (podman stores a bare `my-ee:1.0` as `localhost/my-ee:1.0`, which nothing can
+   be pushed to) and the image must exist locally (`podman image exists`). With
+   no tag in the definition, a name with no registry or a missing image, it
+   stops before the first push, listing all the problems at once and saying what
+   to do: put the registry into `options.tags`, or run `ee build`. Nothing is
+   pushed when any name is wrong.
+2. **Confirm.** Pushing publishes something, so before the first push it
+   prints what it will do and asks:
+
+   ```
+   Push 2 names to registry.example.com?
+     registry.example.com/team/my-ee:1.0     image 3f2a9c1e0b7d, 612 MB
+     registry.example.com/team/my-ee:latest  (same image)
+   Proceed? [y/N]
+   ```
+
+   Names with different registries are grouped under each registry. Only `y`
+   or `yes` proceeds; Enter, anything else and end of input mean no (default
+   No). Declined: nothing is pushed, exit 1 with "not pushed". `--yes` skips
+   the question (the summary is still printed). When stdin is not a terminal
+   there is no one to ask: without `--yes` it stops with an error naming
+   `--yes`, instead of guessing, so a CI job must say so explicitly. The prompt
+   and the summary go to stderr, like the other progress lines.
+3. **Push.** Per name, in the order of the definition, `podman push <name>`
+   with `--digestfile` (a private temporary file, removed afterwards). Podman's
+   own progress goes to the terminal as it is; a pipe gets it plain. The
+   last lines are also kept, for the hint below. It stops at the first failure
+   (the names after it are not tried) and says which names were already pushed.
+   Interrupted (Ctrl-C, SIGTERM, SIGHUP): the push is stopped through its
+   process group, exit 130; nothing is left locally.
+4. **Report.** On success: `Pushed <name> (<digest>)` per name, one line each.
+   On failure: the last lines of podman's output, exit 1.
+
+### Credentials
+
+Tangsible never sees a credential. The user runs `podman login <registry>`
+once; `podman push` finds the stored login itself (`$REGISTRY_AUTH_FILE`,
+`$XDG_RUNTIME_DIR/containers/auth.json`, `~/.config/containers/auth.json`, the
+Docker config, credential helpers), and the environment is passed on as it is,
+so a CI job can use `REGISTRY_AUTH_FILE` or `podman login --password-stdin`
+without any tangsible feature. Nothing goes into `config.toml` (it is committed
+with projects, and tangsible never writes it).
+
+When the push fails with an authentication error, the report adds one line:
+`not logged in? run: podman login <registry>`, with the registry of the failing
+name. This is the same kind of hint as `ee.BecomeHint`: matched on podman's
+output, printed, nothing more. By default `podman login` stores its token under
+`$XDG_RUNTIME_DIR` (a tmpfs, gone after a reboot); a login that should last uses
+`podman login --authfile ~/.config/containers/auth.json`, which podman reads
+without help. The man page says so.
+
+Exit codes: 0 all pushed, 1 a check or a push failed or the user declined
+(also no tag, missing file or tool, no terminal without `--yes`), 2 usage, 130 interrupted - the same set as `build`.
+
+### Code plan
+
+New package `internal/eepush`: `args.go` (`Options{File, Yes}`, `ParseArgs`,
+`Usage`), `names.go` (pure: `Registry(name) string`, `Problems(names) []string`
+for the registry check, `Summary(names, images) string`, `Accepts(answer string)
+bool`), `hint.go` (pure: `AuthFailure(output) bool`),
+`run.go` (`Run(args) int`: read the tags with `eebuild.Tags`, check, push, report).
+`eebuild.CheckTools` demands `ansible-builder`; `run.go` needs only podman, so
+the podman half is split out of it (`CheckPodman`) and `CheckTools` calls it.
+`session/main.go` routes `ee push` next to `ee build`.
+
+### Tests
+
+Pure: argument parsing (`-f`, `-y`/`--yes`, unknown options, a missing value, a stray
+argument), `Registry` (`registry.example.com/t/x:1`, `localhost:5000/x:1`,
+`localhost/x:1`, `x:1`, `team/x:1`, a digest, a port without a path), `Problems`
+(all problems listed, none for good names), `Summary` (one registry, several,
+same image under two names), `Accepts` (`y`, `Y`, `yes`, empty, `n`, junk), `AuthFailure` against the real
+messages (collected from a registry during implementation, not guessed). e2e
+needs a registry: a throw-away `registry:2` container on `localhost:5000`
+(podman, `--tls-verify=false` through `registries.conf` or `[[registry]]
+insecure`), build a minimal image tagged `localhost:5000/...`, push, check the
+digest in the registry, remove container and image. No test touches a real
+registry.
+
+### Changes elsewhere
+
+`config/help.go` (`tangsible ee <init | verify | build | push> ...`, summary),
+the help/man consistency test, `man/tangsible-ee.1.scd`,
+`man/tangsible.1.scd`, completions (bash, fish: `-f`, `-y`, `--yes` after `push`),
+`README.md`, `Changelog.md`, `Codemap.md`, `CLAUDE.md` (verb list: `ee
+init`/`verify`/`build`/`push`).
+
+### Not doing
+
+A single-name argument (`-t`), `--authfile` or `--creds` (the environment and
+`podman login` cover them), `--tls-verify` (that is `registries.conf`), a login
+command of our own, image signing, building when the image is missing (the
+check says so), `config.toml` entries for a registry or credentials, docker.
+
+### Open points
+
+- The exact wording of podman's authentication errors differs between
+  registries; the hint's matcher takes what real registries print (to be
+  collected), and no output at all gets no hint rather than a wrong one.
+- Whether `ee build` should print `tangsible ee push` as its next step when the
+  names it built have a registry.
+
 ## Later (explicitly deferred)
 
+- `ee push -t <name>` for one name of several, and `ee build --push`.
 - **Implied-dependency rules table**: specified above for lookups and
   controller-side modules. Later: filters (`json_query` -> `jmespath`,
   `password_hash` -> `passlib`), `sshpass` for password SSH, and whether the
