@@ -51,7 +51,7 @@ Every _verb_ below is documented in its own manual page. This page covers what a
 	Step through a playbook, set breakpoints, watch variables.
 
 *tangsible-ee*(1)
-	Draft an execution-environment.yml for *ansible-builder*(1) from a playbook (*ee init*): the collections it uses, the base image's facts, and a *# TODO* for everything that can't be determined. *ee verify* builds a definition into a throw-away image and checks it against the playbook; *ee build* builds it into the image it names.
+	Draft an execution-environment.yml for *ansible-builder*(1) from a playbook (*ee init*): the collections it uses, the base image's facts, and a *# TODO* for everything that can't be determined. *ee verify* builds a definition into a throw-away image and checks it against the playbook; *ee build* builds it into the image it names; *ee push* uploads that image to its registry.
 
 *tangsible version*
 	Print version information about tangsible and all components it's using.

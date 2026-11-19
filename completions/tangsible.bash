@@ -73,6 +73,7 @@ _tangsible_vault_flags="--vault-password-file --ask-vault-pass"
 _tangsible_ee_init_flags="--base --resolve-packages --no-backup"
 _tangsible_ee_verify_flags="-f --file --keep --no-cache --show-output"
 _tangsible_ee_build_flags="-f --file -t --tag --no-cache --show-output"
+_tangsible_ee_push_flags="-f --file -y --yes"
 
 # _tangsible_flags_for_verb echoes the complete flag set a given verb
 # actually understands - the union of ansible-playbook's own flags (for
@@ -105,6 +106,7 @@ _tangsible_flags_for_verb()
 		case "${COMP_WORDS[2]}" in
 		verify) echo "$_tangsible_ee_verify_flags $_tangsible_ap_flags" ;;
 		build) echo "$_tangsible_ee_build_flags" ;;
+		push) echo "$_tangsible_ee_push_flags" ;;
 		*) echo "$_tangsible_ee_init_flags" ;;
 		esac
 		;;
@@ -298,9 +300,10 @@ _tangsible()
 		# tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup]
 		# tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [--show-output] [ansible-playbook args...]
 		# tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache] [--show-output]
+		# tangsible ee push [-f <file>] [-y | --yes]
 		if [ "$pos" -eq 0 ]; then
-			COMPREPLY=($(compgen -W "init verify build" -- "$cur"))
-		elif [ "$pos" -eq 1 ] && [ "${COMP_WORDS[2]}" != build ]; then
+			COMPREPLY=($(compgen -W "init verify build push" -- "$cur"))
+		elif [ "$pos" -eq 1 ] && [ "${COMP_WORDS[2]}" != build ] && [ "${COMP_WORDS[2]}" != push ]; then
 			_tangsible_ymlfiles "$cur"
 		fi
 		;;

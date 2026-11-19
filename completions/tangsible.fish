@@ -94,10 +94,12 @@ complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_t
 # ee: tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup]
 #     tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [--show-output] [ansible-playbook args...]
 #     tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache] [--show-output]
+#     tangsible ee push [-f <file>] [-y | --yes]
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 2' -a init -d 'Draft an execution-environment.yml'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 2' -a verify -d 'Build an execution-environment.yml and check it'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 2' -a build -d 'Build an execution-environment.yml into its image'
-complete -c tangsible -n '__fish_seen_subcommand_from ee; and not __fish_seen_subcommand_from build; and __fish_is_nth_token 3' \
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_is_nth_token 2' -a push -d 'Push the images an execution-environment.yml names'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and not __fish_seen_subcommand_from build push; and __fish_is_nth_token 3' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l base -x -d 'Base image for the draft'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l resolve-packages -d 'Look up the packages for binaries the base image lacks'
@@ -110,6 +112,8 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcom
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from build' -s t -l tag -x -d 'Image name (repeatable)'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from build' -l no-cache -d 'Build without the podman build cache'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from build' -l show-output -d 'Stream the build output'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from push' -s f -l file -r -a '(__fish_complete_suffix .yml .yaml)' -d 'Definition whose names are pushed'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from push' -s y -l yes -d 'Do not ask for confirmation'
 
 # --- ansible-playbook's own flags, forwarded verbatim by every verb ---
 # Shown once a verb is already chosen (any verb: tangsible passes these

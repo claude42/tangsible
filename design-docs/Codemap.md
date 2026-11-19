@@ -173,6 +173,15 @@ the build step `ee verify` shares with it.
 - **args.go**, **definition.go** (`Tags`: the definition's `options.tags`),
   **report.go** (`Render`), **run.go** (`Run`: the verb).
 
+## internal/eepush
+
+`tangsible ee push` (`design-docs/EEInit.md`, "Pushing an image").
+
+- **names.go** - `Registry`, `Problem`, `Summary`, `Accepts` (pure).
+- **hint.go** - `AuthFailure`, `LoginHint` (pure).
+- **args.go** - `ParseArgs`, `Usage`. **run.go** - `Run`: the verb (check,
+  confirm, `podman push` per name in its own process group).
+
 ## internal/eeverify
 
 `tangsible ee verify` (`design-docs/EEInit.md`, "Verifying a definition"):

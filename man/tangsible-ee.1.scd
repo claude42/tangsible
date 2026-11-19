@@ -2,21 +2,23 @@ tangsible-ee(1) "Tangsible" "Tangsible Manual"
 
 # NAME
 
-tangsible-ee - draft an execution-environment.yml from a playbook, check it, or build it
+tangsible-ee - draft an execution-environment.yml from a playbook, check it, build it, or push it
 
 # SYNOPSIS
 
-*tangsible ee* <init | verify | build> [_playbook.yml_] [_options_ ...]
+*tangsible ee* <init | verify | build | push> [_playbook.yml_] [_options_ ...]
 
 *tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages] [--no-backup]++
 *tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [--show-output] [_ansible-playbook args_ ...]++
-*tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache] [--show-output]
+*tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache] [--show-output]++
+*tangsible ee push* [-f _file_] [-y | --yes]
 
 # DESCRIPTION
 
 *ee init* drafts an execution-environment.yml; *ee verify* builds one into a
 throw-away image and checks it (see *VERIFY* below); *ee build* builds it into
-the image it names and keeps it (see *BUILD* below).
+the image it names and keeps it (see *BUILD* below); *ee push* uploads the
+image names a definition lists to their registry (see *PUSH* below).
 
 ## INIT
 
@@ -203,11 +205,46 @@ nothing behind except podman's build cache; an existing tag is untouched.
 *--no-cache*
 	Build without podman's build cache, as for *ee verify*.
 
+# PUSH
+
+*ee push* uploads the image names listed in the definition's *options.tags*
+(_file_, default *./execution-environment.yml*) with *podman push*: one push per
+name, in order. It needs *podman* only. An image is pushed by name, and the
+registry is in the name (*registry.example.com/team/my-ee:1.0*); one image can
+carry several names (*:1.0*, *:latest*), the layers go up once. A name with no
+registry (*std-ee:latest*) is local-only: podman keeps it as *localhost/...*,
+which cannot be pushed, so *ee push* leaves it out and lists it as not pushed.
+It is an error when no name has a registry.
+
+Before pushing anything it checks the other names (not *localhost/*, the image
+present here) and lists all problems at once. It then prints what it will push,
+grouped by registry with each image's id and size, and the local-only names it
+leaves out, and asks *Proceed? [y/N]*;
+only *y* or *yes* goes on. Without a terminal it stops unless *--yes* is given.
+It stops at the first failed push and says which names were already pushed.
+
+Credentials are podman's: log in once with *podman login* _registry_ and
+*podman push* finds the login (*REGISTRY_AUTH_FILE*, *auth.json*, credential
+helpers); nothing is read or stored by *tangsible*, and nothing goes into
+*config.toml*. A CI job can set *REGISTRY_AUTH_FILE* or pipe the secret into
+*podman login --password-stdin*. By default *podman login* keeps its token
+under *$XDG_RUNTIME_DIR*, which is cleared at reboot; giving it *--authfile*
+and a file such as *~/.config/containers/auth.json* keeps it. When a push fails
+for lack of a login, *tangsible* adds the line
+*not logged in? run: podman login* _registry_.
+
+*-f* _file_, *--file* _file_
+	The definition whose names are pushed, instead of
+	*execution-environment.yml*.
+
+*-y*, *--yes*
+	Do not ask for confirmation.
+
 # EXIT STATUS
 
 *0*
 	*ee init*: the draft was written. *ee verify*: the build and every check
-	passed. *ee build*: the image was built.
+	passed. *ee build*: the image was built. *ee push*: every name was pushed.
 
 *1*
 	*ee init*: no draft was written (the file is a symlink or a directory, *podman* is
@@ -215,14 +252,15 @@ nothing behind except podman's build cache; an existing tag is untouched.
 	couldn't be read). *ee verify*: the build or a check failed, or it
 	couldn't start (a missing tool or file).
 	*ee build*: the build failed, or it couldn't start (a missing tool or file, or
-	no image name).
+	no image name). *ee push*: a name or image is unfit to push, the answer was no,
+	there was no terminal to ask on and no *--yes*, or a push failed.
 
 *2*
 	Usage error.
 
 *130*
-	*ee verify* or *ee build* was interrupted.
+	*ee verify*, *ee build* or *ee push* was interrupted.
 
 # SEE ALSO
 
-*tangsible*(1), *tangsible-run*(1), *ansible-builder*(1), *podman*(1)
+*tangsible*(1), *tangsible-run*(1), *ansible-builder*(1), *podman*(1), *podman-push*(1), *podman-login*(1)

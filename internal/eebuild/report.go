@@ -48,7 +48,7 @@ func Render(r Result) (string, int) {
 	fmt.Fprintf(&b, "Built in %s:\n", r.Duration.Round(time.Second))
 	replaced := false
 	for _, im := range r.Images {
-		fmt.Fprintf(&b, "  %s  %s  %s", im.Tag, im.ID, humanSize(im.Size))
+		fmt.Fprintf(&b, "  %s  %s  %s", im.Tag, im.ID, HumanSize(im.Size))
 		if im.Replaced != "" {
 			replaced = true
 			fmt.Fprintf(&b, "  (replaced %s)", im.Replaced)
@@ -64,7 +64,8 @@ func Render(r Result) (string, int) {
 	return b.String(), 0
 }
 
-func humanSize(n int64) string {
+// HumanSize is n bytes as KB, MB or GB.
+func HumanSize(n int64) string {
 	switch {
 	case n >= 1<<30:
 		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))

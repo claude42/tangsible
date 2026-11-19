@@ -526,6 +526,26 @@ output (there is no percentage: podman does not say how many steps a stage has
 until it gets there). `--show-output` streams the complete build output
 instead; it is always in the log.
 
+### Pushing the image
+
+`tangsible ee push` uploads the image names the definition lists in
+`options.tags` to their registry:
+
+```
+tangsible ee push [-f execution-environment.yml] [-y | --yes]
+```
+
+The registry is part of the name (`registry.example.com/team/my-ee:1.0`); a name
+without one (`std-ee:latest`) is a local-only name: podman keeps it as
+`localhost/...`, nothing can be pushed to that, so it is left out and listed as
+not pushed, which lets one definition carry short names to run with next to the
+registry's. It is an error only when no name has a registry. The names that are
+pushed are checked first, then tangsible shows what it will push and asks `Proceed?`
+(`--yes` skips the question; without a terminal it is required). It uses your
+podman login: run `podman login registry.example.com` once (`--authfile
+~/.config/containers/auth.json` keeps it across reboots), or set
+`REGISTRY_AUTH_FILE` in CI. Tangsible never reads or stores a credential.
+
 ## Configuration
 
 When no playbook is given on the command line, Tangsible resolves one

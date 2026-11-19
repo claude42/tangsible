@@ -35,16 +35,26 @@ func CheckFile(file string) error {
 	return nil
 }
 
+// CheckPodman fails when podman is not on PATH.
+func CheckPodman() error { return checkTool("podman") }
+
 // CheckTools fails naming the first of podman and ansible-builder that is not
 // on PATH.
 func CheckTools() error {
 	for _, tool := range []string{"podman", "ansible-builder"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			if msg := execerr.NotFoundMessage(tool, err); msg != "" {
-				return errors.New(msg)
-			}
+		if err := checkTool(tool); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func checkTool(tool string) error {
+	if _, err := exec.LookPath(tool); err != nil {
+		if msg := execerr.NotFoundMessage(tool, err); msg != "" {
+			return errors.New(msg)
+		}
+		return err
 	}
 	return nil
 }

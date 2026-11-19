@@ -17,7 +17,7 @@ One Go binary, twelve verbs (`internal/config/resolve.go`'s `ParseVerb`):
 `run`, `rerun`, `role`, `revisit`, `debug` share the live tree/TUI
 machinery (`internal/session`) - `debug` (`design-docs/DebugMode.md`)
 adds breakpoint/pause state on top, not a second TUI of its own;
-`template`, `host`/`hosts`/`inventory`, `vault`, `ee init`/`ee verify`/`ee build`, `version` are standalone
+`template`, `host`/`hosts`/`inventory`, `vault`, `ee init`/`ee verify`/`ee build`/`ee push`, `version` are standalone
 programs that never build the live tree. Requires `ansible-playbook` and
 a real TTY. Root `main.go` just calls `session.Main`.
 
@@ -397,6 +397,15 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   nothing of the build); a status line (`eebuild.Progress`, stderr, only on a
   terminal) or `--show-output` shows it - not `-v`/`--verbose`, which `ee verify`
   passes to ansible-playbook.
+- **EE push** (`EEInit.md`, "Pushing an image"): `tangsible ee push` pushes the
+  names in the definition's `options.tags`, one `podman push` each, after
+  checking them (names with no registry are local-only and left out, reported;
+  none left is an error; an explicit `localhost/` name is one too; the image
+  present) and a confirmation (`--yes`; no terminal without it is an
+  error). **Credentials are podman's** (`podman login`, `REGISTRY_AUTH_FILE`):
+  tangsible never reads, stores or passes one, and nothing goes into
+  `config.toml`; the login hint matches only wording seen from a real registry
+  (`eepush.AuthFailure`).
 - **Notifications** (`Notifications.md`): OSC 9/777/99 or BEL; never for
   something the user just did; ignored failures don't notify.
 - **In-tab search** (`Search.md`) and **copy** (`CopyToClipboard.md`):

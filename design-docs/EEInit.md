@@ -1142,7 +1142,7 @@ no package, or several, for it.
 
 ## Pushing an image (`ee push`, follow-up)
 
-**Spec** (not implemented). `tangsible ee push` uploads the image(s) a
+**Implemented** (`internal/eepush`; the facts found while building it are in the notes below). `tangsible ee push` uploads the image(s) a
 definition names to the registry in their names. It is a separate verb, not
 `ee build --push`, because it is the one step that publishes something: build
 only changes local podman storage and can be repeated freely, push is done
@@ -1170,19 +1170,28 @@ exactly one, so each name is one `podman push`; the registry stores each name as
 its own entry. The layers are uploaded once: the second push finds them already
 there and only adds the name.
 
+A definition may also list **local-only names**, those with no registry
+(`std-ee:latest` next to `registry.example.com/team/std-ee:latest`): short names
+to run with on this machine. Podman keeps them as `localhost/std-ee:latest`;
+nothing can be pushed to that, and it is not a mistake, so `ee push` leaves
+them out and says so (see step 1 and the summary). It is an error only when no
+name has a registry.
+
 The names come from the definition's `options.tags` (read with
 `eebuild.Tags`), the same ones `ee build` applied. There is no argument for a
 single name in this version (see "Later").
 
 ### What it does
 
-1. **Check, before pushing anything.** For every name: it must have a registry
-   (podman stores a bare `my-ee:1.0` as `localhost/my-ee:1.0`, which nothing can
-   be pushed to) and the image must exist locally (`podman image exists`). With
-   no tag in the definition, a name with no registry or a missing image, it
-   stops before the first push, listing all the problems at once and saying what
-   to do: put the registry into `options.tags`, or run `ee build`. Nothing is
-   pushed when any name is wrong.
+1. **Check, before pushing anything.** Names with no registry are set aside as
+   local-only (not an error). Every other name must not spell out `localhost/`
+   (the local storage itself, which cannot be pushed to; `localhost:5000/...` is
+   a real registry) and its image must exist locally. With no tag in the
+   definition, with no name that has a registry (all local-only: most likely a
+   registry was forgotten, so it says to put one into `options.tags`), with a
+   `localhost/` name or a missing image, it stops before the first push, listing
+   all the problems at once and saying what to do: fix `options.tags`, or run
+   `ee build`. Nothing is pushed when any name is wrong.
 2. **Confirm.** Pushing publishes something, so before the first push it
    prints what it will do and asks:
 
@@ -1193,7 +1202,10 @@ single name in this version (see "Later").
    Proceed? [y/N]
    ```
 
-   Names with different registries are grouped under each registry. Only `y`
+   Names with different registries are grouped under each registry. A last line
+   names the local-only names left out: `Not pushed (no registry, local only):
+   std-ee:latest, std-ee:0.1`, so a registry forgotten in one name shows before
+   the question. Only `y`
    or `yes` proceeds; Enter, anything else and end of input mean no (default
    No). Declined: nothing is pushed, exit 1 with "not pushed". `--yes` skips
    the question (the summary is still printed). When stdin is not a terminal
@@ -1234,9 +1246,9 @@ Exit codes: 0 all pushed, 1 a check or a push failed or the user declined
 ### Code plan
 
 New package `internal/eepush`: `args.go` (`Options{File, Yes}`, `ParseArgs`,
-`Usage`), `names.go` (pure: `Registry(name) string`, `Problems(names) []string`
-for the registry check, `Summary(names, images) string`, `Accepts(answer string)
-bool`), `hint.go` (pure: `AuthFailure(output) bool`),
+`Usage`), `names.go` (pure: `Registry(name) string`, `Problem(name) string`
+for the one unpushable shape, `Local(name) bool`, `Summary(images, skipped) string`,
+`Accepts(answer string) bool`), `hint.go` (pure: `AuthFailure(output) bool`),
 `run.go` (`Run(args) int`: read the tags with `eebuild.Tags`, check, push, report).
 `eebuild.CheckTools` demands `ansible-builder`; `run.go` needs only podman, so
 the podman half is split out of it (`CheckPodman`) and `CheckTools` calls it.
@@ -1246,9 +1258,9 @@ the podman half is split out of it (`CheckPodman`) and `CheckTools` calls it.
 
 Pure: argument parsing (`-f`, `-y`/`--yes`, unknown options, a missing value, a stray
 argument), `Registry` (`registry.example.com/t/x:1`, `localhost:5000/x:1`,
-`localhost/x:1`, `x:1`, `team/x:1`, a digest, a port without a path), `Problems`
-(all problems listed, none for good names), `Summary` (one registry, several,
-same image under two names), `Accepts` (`y`, `Y`, `yes`, empty, `n`, junk), `AuthFailure` against the real
+`localhost/x:1`, `x:1`, `team/x:1`, a digest, a port without a path), `Local`,
+`Problem` (`localhost/` only), `Summary` (one registry, several, same image under
+two names, the skipped line), `Accepts` (`y`, `Y`, `yes`, empty, `n`, junk), `AuthFailure` against the real
 messages (collected from a registry during implementation, not guessed). e2e
 needs a registry: a throw-away `registry:2` container on `localhost:5000`
 (podman, `--tls-verify=false` through `registries.conf` or `[[registry]]
@@ -1263,6 +1275,32 @@ the help/man consistency test, `man/tangsible-ee.1.scd`,
 `man/tangsible.1.scd`, completions (bash, fish: `-f`, `-y`, `--yes` after `push`),
 `README.md`, `Changelog.md`, `Codemap.md`, `CLAUDE.md` (verb list: `ee
 init`/`verify`/`build`/`push`).
+
+### Implementation notes
+
+- **Wording collected from a real registry** (registry:2 with htpasswd, on a
+  local port): with no login and with a wrong password alike, `podman push`
+  ends with `... exists in localhost:5055/test/img: authentication required`
+  (exit 125); `podman login` with a wrong password says `invalid
+  username/password`. Only `authentication required` is matched
+  (`eepush.AuthFailure`); other registries' wording is not known, so they get
+  no hint.
+- Podman's output is passed through a tee, so podman sees a pipe and prints
+  plain `Copying blob ...` lines, not progress bars; the last lines are kept for
+  the hint (the failure itself is already on screen, so the report adds only the
+  `pushing <name> failed` line, the hint and what was already pushed).
+- The image check is `eebuild.ImageOf` (`podman image inspect`), which also
+  gives the id and size for the summary, instead of `podman image exists`.
+- `--digestfile` writes the digest without a newline; `Pushed <name> (sha256:...)`
+  is the same for every name of one image.
+- `localhost:5000`-style registries are real registries (only the bare
+  `localhost/` is local storage), but podman talks HTTPS to them unless
+  `registries.conf` lists them as `insecure` - the e2e test points
+  `CONTAINERS_REGISTRIES_CONF` at such a file; tangsible adds no `--tls-verify`.
+- `eebuild.CheckPodman` was split out of `CheckTools`, and `HumanSize` exported.
+- e2e: `TestEEPush` (`TANGSIBLE_EE_PUSH=1`, an already pulled image and an
+  already pulled `registry:2`) pushes two names to a throw-away registry and
+  reads the tag list back. Not tested: Ctrl-C during a push.
 
 ### Not doing
 
