@@ -136,7 +136,8 @@ Inspection failures degrade to `TODO` comments, never to guessed values.
    list are **added** (marked as detected). Role entries in it are carried
    over as-is.
 5. **Versions**: a `requirements.yml` version wins; otherwise the host's
-   installed version (`ansible-galaxy collection list`); otherwise unpinned
+   installed version (`ansible-galaxy collection list`); otherwise the newest
+   compatible version on Galaxy (see "Pinning from Galaxy"); otherwise unpinned
    with a comment. A header comment says pins come from the host and are for
    the user to keep or drop.
 
@@ -1331,10 +1332,13 @@ check says so), `config.toml` entries for a registry or credentials, docker.
   binaries").
 - Smarter handling of an existing file: replacing it with a backup is specified
   below; a diff or a merge of the user's edits into the new draft is later.
-- Resolving collections not installed on the host (Galaxy lookup).
+- Resolving collections not installed on the host: versions from Galaxy are
+  specified below ("Pinning from Galaxy"); a *short* module name whose
+  collection the host does not know still cannot be resolved.
 - `--verify`: now specified above as `ee verify`; building the real image is
   `ee build`, also above.
-- An interactive review step.
+- An interactive review step: now the TUI of "Interactive mode" at the end of
+  this document (`ee init --interactive`).
 
 ## Implementation notes
 
@@ -1394,3 +1398,346 @@ Where the code decided something the spec left open:
 - **Not covered by automated tests:** the podman/ansible edges
   (`ProbeBase`, `LookupCollections`, `InstalledCollections`) beyond their
   output parsers; checked by hand against `community-ee-base`.
+
+## Pinning from Galaxy (`ee init`, follow-up)
+
+**Spec** (not implemented). Today a collection the draft needs but the host does
+not have is listed unpinned (`unpinned: not installed on this host`): the image
+build then installs whatever is newest that day. `ee init` now asks Galaxy for a
+version in that case, and a switch does the same for every collection.
+
+```
+tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backup]
+                  [--no-galaxy] [--latest]
+```
+
+- `--no-galaxy`: no Galaxy query; the behaviour before this section. (The name
+  follows `--no-ee`, `--no-backup` and `--no-cache`; it says what is skipped,
+  not "offline", since the image pull and `--resolve-packages` still use the
+  network.) Only Galaxy: the image pull follows `pull_policy` as ever, and `--resolve-packages` (which
+  downloads repository metadata) contradicts it, which is an error naming both.
+- `--latest`: Galaxy is asked for every collection, and its answer replaces the
+  host's installed version. A `requirements.yml` version still wins. It
+  contradicts `--no-galaxy` (an error). The host's version is usually the one the
+  playbook was tested with and newer is not always safer, so this is opt-in.
+
+### Which version
+
+Per collection the draft needs, in this order (the first that applies):
+
+1. `requirements.yml` lists it with a version: as written, no query.
+2. The host has it installed (`ansible-galaxy collection list`): that version,
+   unless `--latest`.
+3. Galaxy: the **newest version that is not a pre-release and whose
+   `requires_ansible` admits the image's ansible-core** (`BaseFacts.AnsibleCore`,
+   not the host's: the image is what runs it). With `--no-galaxy`, this step is
+   skipped.
+4. Otherwise unpinned, with a comment saying why.
+
+This covers every collection the draft needs that the host lacks: a fully
+qualified module or lookup name (the collection is its first two parts), a
+collection role, a `requirements.yml` entry without a version. It does *not*
+help a **short** module name whose collection the host does not know: that
+collection is unknown, stays a `# TODO`, and Galaxy cannot search from a module
+name to its collection.
+
+`requires_ansible` is a specifier string as Galaxy returns it. The shapes seen
+are `>=N.N`, `>=N.N.N`, each with an optional `,<N.N` or `,<N.N.N`, and `null`
+(no constraint). They are evaluated against the core's numeric version
+(`2.21.6`; `2.21.0rc1` counts as `2.21.0`); `null`, and a string of a shape not
+listed, admit the version (a failure to parse our side must not hide versions).
+When the image's core is unknown, nothing is filtered and the comment says so.
+
+### The query
+
+- `GET https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index/<namespace>/<name>/versions/?limit=100&ordering=-version`,
+  following `links.next`, stopping at the first admissible version. No
+  authentication; the proxy variables of the environment apply.
+- `GET .../collections/index/<namespace>/<name>/` (one request per collection
+  queried) gives the collection's `deprecated` flag: a deprecated collection is
+  marked in the draft (below). This is asked wherever Galaxy is asked about a
+  collection, so not for one pinned from the host (no network there, as before)
+  unless `--latest`. A failure of this request loses only the mark.
+- **Configured Galaxy servers.** When `ansible-config dump` shows a non-default
+  `GALAXY_SERVER_LIST`, the user's collections may live on a server we cannot
+  query (a token, a private hub): nothing is asked, every collection that would
+  have been asked is unpinned with `unpinned: Galaxy servers are configured, not
+  queried`, and one warning says so. Using the configured servers is later.
+- Requests run in parallel (a few at a time), each with a short timeout, behind
+  one progress line on stderr (`looking up N collections on Galaxy ...`), as the
+  other slow steps have.
+- **It never fails the command.** Unreachable, slow or an unexpected response:
+  the collection is unpinned with `unpinned: Galaxy unreachable` (or the HTTP
+  status), and one warning names how many and the first error. Not found (the
+  versions list is empty with `meta.count` 0): `unpinned: not found on Galaxy`.
+  Found, but no version admitted: `unpinned: no version on Galaxy admits
+  ansible-core 2.21.6`, which is the useful sentence for a collection that has
+  outgrown the image.
+
+### In the file and the summary
+
+A collection that Galaxy flags deprecated gets `# deprecated on Galaxy` on its
+entry, and the summary a line after the collections one: `1 collection(s)
+deprecated on Galaxy; see the comment in the draft.` (left out at 0). A pin from
+Galaxy is marked where it stands, so a version the user did not have is never
+unexplained: `# from Galaxy: newest compatible with ansible-core
+2.21.6`. (Host pins stay unmarked, as the header comment says pins come from the
+host; the header now says "from this host, or marked, from Galaxy".) The
+summary line splits the count and leaves out a part that is zero:
+`3 collection(s) (2 pinned from this host, 1 from Galaxy).`
+
+### Code plan
+
+`internal/eeinit/galaxy.go`: `Admits(requiresAnsible, core string) bool` (pure),
+`Newest(versions []GalaxyVersion, core string) (version string, why string)`
+(pure; pre-releases skipped), `FetchVersions(ctx, client, base, ns, name)` and
+`FetchDeprecated(...)` (the HTTP part; the base URL and client are arguments so tests use `httptest`), and
+`GalaxyServersConfigured()` (one `ansible-config dump` call, host side). A pure
+`ChoosePins(...)` applies the order above and returns, per collection, the
+version and its note; `run.go` calls it before `Draft`, which stays pure and
+receives the result in `Inputs` (it replaces `pin`'s use of `Installed` alone).
+`Report` gains `FromGalaxy` and `Deprecated`. `Options` gains `Offline`, `Latest`.
+
+### Tests
+
+Pure: `Admits` (the shapes above; core `2.21.6`, `2.9.10`, `2.21.0rc1`; an
+unparseable string; empty core), `Newest` on a fixture of a real response
+(community.general, newest first, with `6.0.0-a1`-style pre-releases among
+older ones; a core that excludes the top versions picks an older one; none
+admitted), the pin order (requirements version, installed, `--latest`, Galaxy,
+unpinned), argument parsing (`--no-galaxy`, `--latest`, their contradictions with
+each other and with `--resolve-packages`), the summary. With `httptest`: a
+paginated list, an empty list, a 500, a timeout, a deprecated flag - `ee init` still
+ends with a draft. e2e: not against galaxy.ansible.com.
+
+### Changes elsewhere
+
+`config/help.go` (usage), the man page, completions (`--no-galaxy`, `--latest`),
+`README.md`, `Changelog.md`, `Codemap.md`, `CLAUDE.md` (the EE draft line: a
+network call that never fails the command). The interactive collections screen
+uses the same functions: its default for a collection the host lacks is this
+answer.
+
+### Facts found while probing
+
+- The versions endpoint returned the same shape for community.general,
+  ansible.posix, amazon.aws, community.docker, kubernetes.core, community.crypto
+  and cisco.ios: `meta.count`, `links.next`, `data[]` with `version`,
+  `requires_ansible`, `marks` (always `[]` in what was seen) and timestamps.
+- Pre-releases are ordinary entries with a `-` in the version
+  (`6.0.0-a1`, `1.2.1-dev4`, `0.3.0-experimental.meta.redirects`); 334 of them
+  across those seven collections.
+- `requires_ansible` shapes across about 1000 versions: `>=2.9.10`, `>=2.11.0`,
+  `>=2.9,<2.11`, `>=2.9.10,<2.11`, `>=2.15.0`, ... and `null` for 83 of them.
+- A collection that does not exist answers the versions URL with **200** and
+  `"meta": {"count": 0}, "data": []`; its detail URL answers 404.
+- The collection detail (`.../index/<namespace>/<name>/`) has a `deprecated`
+  flag (all `false` for the seven probed, so what a deprecated one looks like is
+  not seen yet) and `highest_version`.
+- With no server configured, `ansible-config dump` shows
+  `GALAXY_SERVER_LIST(default) = None`.
+
+### Not doing
+
+Authenticated or configured servers (above); a version range instead of the exact
+`version: 1.2.3` the host pins use; resolving a short module name to a
+collection; querying anything but versions; a config key for the switches.
+
+### Open points
+
+- Whether the per-entry `from Galaxy` comment is too noisy for a long list:
+  judged after it has been used.
+- A deprecated collection's response has not been seen (none of the probed ones
+  is); find one and check the flag before implementing.
+- Whether a collection pinned from the host should also be checked for
+  deprecation (it would cost the network call the default avoids).
+
+## Interactive mode (`ee init --interactive`, follow-up)
+
+**Spec** (not implemented; the first draft of this section was the author's own
+list of screens, kept below in order). The batch `ee init` turns everything it
+cannot decide into a `# TODO` comment: which base image tag, which package
+provides a binary, which version of a collection. `tangsible ee init
+--interactive` is a TUI that asks for those decisions instead, so the file that
+is written has fewer of them left to hand-edit. It is an opt-in flag; plain
+`ee init` stays exactly as it is (scripts, CI). Whether the flag should one day
+become the default on a terminal, with `--batch` for today's behaviour, is
+decided after the TUI has proved itself.
+
+```
+tangsible ee init --interactive [playbook.yml] [--base image] [--no-backup]
+```
+
+`--resolve-packages` is implied (the package screen is the point). Without a
+terminal it is an error naming the plain command.
+
+### Principles
+
+- **Decisions with defaults.** The analysis (playbook scan, base image probe,
+  lookups) produces the draft's inputs plus a list of *decisions*: a kind
+  (image, tag, package, collection version, name), the candidates and a default.
+  The batch run takes every default; the TUI lets the user change them; both
+  call the same pure `Draft`. So accepting everything in the TUI gives the batch
+  result.
+- **A list per category, not one question per item.** A playbook can use twenty
+  collections; one screen holds all of them with their defaults filled in, Enter
+  moves on, and only the exceptions are edited. A category with nothing to
+  decide gets no screen.
+- **Nothing is written until the end**, and then by `WriteDraft` as today
+  (backup, atomic). Esc out of the TUI writes nothing. The wizard never writes
+  `config.toml`.
+- **Every lookup has a typed fallback.** Registry, Galaxy and package metadata
+  are network calls: each runs in the background with a spinner, can fail
+  (offline, private, a login needed) and then leaves the field to be typed. The
+  user must never be worse off than with the batch command.
+- **Filtering everywhere a list can be long** (tags above all): the shared
+  `uikit` search, so that the search the user would otherwise do in a browser
+  happens in the TUI.
+
+### Screens
+
+1. **Image.** The candidates are `--base`, `[execution_environment]
+   base_image` (project, then global, then system config) and the built-in
+   default; a new key `base_images` (a list, cascaded the same way: the union,
+   project first) adds more. `--base` is preselected, else `base_image`, else the
+   default. The user picks one or types an address. Never `image` (see "Base
+   image"). A name that already carries a tag or digest skips screen 2.
+2. **Tag.** The registry's tags for the chosen image, filterable, newest
+   first (version-sorted, `latest` on top). The selection is then pulled under
+   the user's `pull_policy` (a progress spinner) and analysed as the batch run
+   does: the base probe, the playbook scan, the lookups. If the listing fails the
+   tag is typed. A private registry that needs a login says `podman login
+   <registry>`, the same hint as for `ee push`.
+3. **Image facts.** Informational, no choices: the image's Python and
+   ansible-core versions and the host's ansible-core. Both are shown without a
+   verdict (a deliberate difference from the host is normal; the `ee verify`
+   report has the same line). Enter to continue. Python cannot be chosen here: it comes
+   with the image, and another one means another image or tag.
+4. **Packages.** One row per missing controller-side binary, with where it is
+   used, and one per package implied by a lookup or module rule (with the
+   reason). Each row shows the candidate packages from the base image's package
+   manager (the `--resolve-packages` lookup, which runs in the background and
+   fills the rows in as it finishes). One candidate: the default. Several: pick
+   one. None, or the lookup failed: type one, or leave it empty (it stays a
+   `# TODO`). An implied package can be dropped.
+5. **Collections.** One row per collection the playbook needs, with what needs
+   it (modules, lookups) and a version. The default is what the batch run would pin (the
+   project's `requirements.yml` version, else the host's installed version, else
+   Galaxy's newest compatible one: "Pinning from Galaxy"), else none. Opening a row lists
+   the versions Galaxy has, newest first, each with its `requires_ansible`, so
+   those the image's ansible-core excludes are marked; a version can also be
+   typed. A collection's versions are fetched when its row is opened, not for all
+   rows up front. Where the collection comes from depends on how the playbook
+   names the module:
+
+   | The playbook uses | The collection | Versions offered |
+   |---|---|---|
+   | `community.general.cargo` (a fully qualified name) | known from the name itself, no lookup (as in the batch run) | Galaxy's, whether or not the host has it installed |
+   | `cargo` (a short name) and the collection is installed on the host | found by the host's `ansible-doc` | Galaxy's, the host's installed version as the default |
+   | `cargo` (a short name) and the collection is not installed on the host | **unknown**: nothing on the host can say, and Galaxy cannot search from a module name to its collection | the user types the collection (`namespace.name`); Galaxy confirms it exists and lists its versions |
+
+   Only the last row needs typing. It is the case the batch run reports as
+   `module "cargo": no collection found on this host`; playbooks that use fully
+   qualified names, as `ansible-lint` asks, rarely have it.
+6. **Image names.** A list of names, each editable, added or removed; the first
+   is `SuggestTag` (the project directory name). A name with a registry
+   (`registry.example.com/team/x:1`) is what `ee push` uploads, one without is a
+   local-only name; the screen says which is which.
+7. **Review.** What will be written: the summary the batch run prints and, when a
+   file exists, its diff against the new one; and a list of what in the existing
+   file is **not carried over** (see below). Write, or go back.
+
+Keys follow the other TUIs' (`design-docs/Keyboard-shortcuts.md`, F1 help, `/`
+filter, Esc back, Enter on). The exact bindings and the bottom bars are
+specified with the code, in `helptables.go` as everywhere.
+
+### Pre-filling from an existing file
+
+When `execution-environment.yml` exists, its values are the defaults, ahead of
+the analysis: the base image and tag, the collections with their versions and
+the image names. Re-running the wizard after the playbook grew is then the update
+path: what is new has no pre-filled answer and is what needs a decision. This is
+also the answer to "init overwrites my edits" for what the wizard models.
+
+What it does not model is regenerated, so it would be lost: custom
+`additional_build_steps`, `additional_build_files`, `python_interpreter`,
+`ansible_core`, other `options`, and comments. The review screen lists these
+keys by name before writing, and the backup still holds the file. (Carrying such
+keys over verbatim is an open point.)
+
+### Code plan
+
+- `internal/eeinit`: the analysis moves out of `runInit` into a function that
+  returns the draft's inputs plus the decisions (`Analyze`); `Draft` is
+  unchanged. New pure/client pieces: `tags.go` (run `podman search --list-tags
+  --limit N`, parse, version-sort, filter), `galaxy.go` (versions of a collection
+  from the Galaxy v3 API, with pagination; parse `requires_ansible`), `existing.go`
+  (read an existing definition for the pre-fill and the not-carried-over list;
+  yaml.v3, as `eebuild.Tags` does). The batch `runInit` calls `Analyze` and takes
+  the defaults.
+- The TUI is in `internal/session` (`eeinit_*.go`; only `session` and `uikit`
+  touch tview) on `uikit`'s list, filter and spinner pieces; a generic filtered
+  chooser that does not exist there yet goes into `uikit`, with no
+  `ee`-specific code in it. `session/main.go` routes `ee init --interactive`
+  like a TUI verb: the colour setup and terminal background query run, warnings
+  and errors are collected and printed after the TUI ends.
+- `internal/config`: the `base_images` key (`ee.go`, `resolve.go`,
+  `ConfigOptions.md`, `examples/config.toml`).
+
+### Tests
+
+Pure: the tag listing parser and sort (against output captured from real
+registries), the Galaxy versions parser and pagination (a fixture of a real
+response), the pre-fill and the not-carried-over list (a definition with and
+without custom steps), the decision defaults (all defaults equals the batch
+draft, byte for byte), `base_images` merging. tmux e2e as for the other TUIs:
+accept every default and compare with the batch file; filter a long tag list;
+Esc writes nothing; a failed lookup falls back to typing.
+
+### Changes elsewhere
+
+`config/help.go` and the man page (`--interactive`), completions, `README.md`,
+`Changelog.md`, `Codemap.md`, `CLAUDE.md` (the "tview only in session and uikit"
+rule is unchanged), `Keyboard-shortcuts.md` and `Help.md` for the screens.
+
+### Facts found while probing (to build on, not guess)
+
+- `podman search --list-tags <image>` works against ghcr.io without a login. It
+  prints only **25 tags by default**; `--limit 1000` returned all 52 of
+  `community-ee-base`. The order is not sorted (`latest`, then `2.15.4-1`, ...,
+  `2.18.2-1` last), so it is sorted here.
+- Some images have mostly noise tags: `quay.io/ansible/creator-ee` lists commit
+  hashes. The filter matters, and sorting must not assume version-shaped tags.
+- `skopeo` is not installed here, so nothing may depend on it.
+- Galaxy: `GET https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/
+  collections/index/<namespace>/<name>/versions/?limit=<n>&offset=<n>&ordering=-version`
+  returns `{"meta": {"count": ...}, "links": {"next": ...}, "data": [{"version":
+  ..., "requires_ansible": ..., ...}]}` (248 versions for `community.general`,
+  paginated).
+- `ansible-config dump` shows `GALAXY_SERVER_LIST` (none here): users can
+  configure other servers.
+
+### Not doing
+
+A TUI for `ee verify`/`ee build`/`ee push`; choosing a Python version; saving
+choices anywhere but the file (never `config.toml`); a merge of hand edits that
+the wizard does not model; a plain-prompt mode (the goal is the TUI).
+
+### Open points
+
+- Whether `--interactive` should later become the default on a terminal.
+- Whether the Image facts screen offers an ansible-core override
+  (`dependencies.ansible_core`, pip-installing another core over the image's);
+  as specified it is information only.
+- Carrying unmodelled keys of an existing file over verbatim instead of
+  dropping them.
+- Respecting the user's configured Galaxy servers (`ansible.cfg`, tokens), not
+  only galaxy.ansible.com; and what a private server needs for the version list.
+- Whether the names screen should suggest a registry and owner (from config, or
+  the last pushed name).
+- Version pin style in the file: today's exact `version:` as the batch draft
+  writes it, or a range.
+- Python dependencies (`pip`) are not part of the screens; the collections'
+  own requirements are resolved by `ansible-builder`.
+- Terminal resize, mouse support and the key table: specified with the code, as
+  for the other TUIs.
