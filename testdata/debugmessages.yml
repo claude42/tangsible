@@ -1,0 +1,53 @@
+# The debug module's output as a message for the person running the
+# playbook (design-docs/DebugMessages.md): tasks that say something expand
+# by themselves and the recap lists them under "Messages"; skipped, hidden
+# (no_log), verbosity-gated and empty ones must not appear. Run with
+# -i multihost-inventory.ini (host1, host2).
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: Show version
+      debug:
+        msg: "nginx 1.24.0"
+
+    - name: After a debug task
+      command: echo hi
+
+    - name: Show who
+      debug:
+        msg: "I am {{ inventory_hostname }}"
+
+    - name: Show items
+      debug:
+        msg: "item {{ item }}"
+      loop: [x, y, z]
+      when: item != 'y'
+
+    - name: Show long
+      debug:
+        msg: [l1, l2, l3, l4, l5, l6, l7]
+
+    - name: Show var
+      debug:
+        var: some_list
+      vars:
+        some_list: [1, 2]
+
+    - name: Skipped by when
+      debug:
+        msg: "must not show"
+      when: false
+
+    - name: Needs verbosity
+      debug:
+        msg: "must not show either"
+        verbosity: 3
+
+    - name: Hidden
+      debug:
+        msg: "secret"
+      no_log: true
+
+    - name: Empty
+      debug:
+        msg: ""

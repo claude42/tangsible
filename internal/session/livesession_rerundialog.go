@@ -547,6 +547,9 @@ func (s *liveSession) submitRerun() {
 	// time this returns, s.rebuild() below already sees a running, empty
 	// generation.
 	s.expanded = map[*playbook.TaskNode]bool{}
+	s.autoExpanded = map[*playbook.TaskNode]bool{}
+	s.messageTasks = nil
+	s.messagesCollapsed = false
 	s.recapHostExpanded = map[string]bool{}
 	s.recapCategoryExpanded = map[recapCategoryRowID]bool{}
 	s.currentID = nil

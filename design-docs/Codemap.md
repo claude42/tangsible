@@ -54,6 +54,10 @@ subprocesses.
   All/Changed/Failed/search filters.
 - **tui_dialogs.go** - `CenteredModal`/`FilterDialogText`/`InRect`:
   small dialog-overlay helpers.
+- **debugmessages.go** - the debug module's output as a message
+  (design-docs/DebugMessages.md): `DebugMessagesOf` (which results count),
+  `CollectDebugMessages` (grouped by host), the caps of the recap's
+  Messages section.
 - **tui_drilldown.go** - `BuildOutputTabs` and the whole per-tab
   builder family for the output drill-down view (Output/Task/Resolved/
   Docs/Diff/Details).
@@ -544,6 +548,10 @@ thin constructor/wiring shell.
   the module option/module/keyword from `ansible-doc` data prefetched when
   the drill-down opens (`prefetchContextHelp`).
 - **recap.go** - the post-run recap summary section.
+- **debugmessages.go** - the recap's Messages section rows
+  (design-docs/DebugMessages.md); `onHostRecorded` (livesession_events.go)
+  expands a debug task once, `autoExpanded` keeps that out of
+  `InheritedExpandState`.
 - **resolved.go** - the drill-down's "Resolved" tab (re-renders a task
   with variables filled in, via a real `ansible.builtin.template`
   task).

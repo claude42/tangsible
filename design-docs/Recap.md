@@ -1,5 +1,8 @@
 # Recap
 
+Debug-module output is listed in the recap too, as a "Messages" section
+below the host lines: see `DebugMessages.md`.
+
 ## Current status
 
 ansible-playbook prints a recap when a playbook has finished. For each host

@@ -241,6 +241,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// those.
 
 	s.expanded = map[*playbook.TaskNode]bool{}
+	s.autoExpanded = map[*playbook.TaskNode]bool{}
 	// s.recapHostExpanded/s.recapCategoryExpanded back the recap section's own
 	// two-level expand/collapse (design-docs/Recap.md) - kept separate
 	// from s.expanded since neither key type (a hostname, a

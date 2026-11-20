@@ -1,6 +1,6 @@
 # Debug messages
 
-Status: **spec, not implemented.**
+Status: **implemented** (see "Implementation notes" at the end).
 
 Not to be confused with `tangsible debug` (`DebugMode.md`), which drives
 ansible-core's task debugger. This is about the output of the
@@ -63,8 +63,12 @@ Pitfall to keep out: `uikit.InheritedExpandState` makes a new task inherit the
 expand state of the previous one (that is what makes `E` sticky while the run
 is going). A task expanded by this feature must **not** pass that on, or every
 task after a debug task would be expanded. So the expansion is remembered as
-*automatic* (`autoExpanded`), the inheritance reads "expanded and not
-automatic", and any manual toggle of that task, or `E`/`C`, clears the mark.
+*automatic* (`autoExpanded`) and the inheritance reads "expanded and not
+automatic". `E` and `C` hand every automatic expansion over to the user (the
+mark is cleared; the task stays "decided", so a later host's result never
+expands it again). One case stays automatic on purpose: collapsing such a task
+by hand and expanding it again; its successor then does not inherit it, which
+costs nothing.
 
 Hosts whose result is not a message (skipped, unreachable) still show their
 usual host line in the expanded task. Nothing else about the tree changes: the
@@ -79,6 +83,8 @@ is shown for a failed or interrupted run too.
 
 ```
 Messages (3)
+============
+
   play: Configure web servers
     Show version                         all 5 hosts
       nginx 1.24.0
@@ -91,16 +97,22 @@ Messages (3)
       ... (+4 more lines)
 ```
 
-- The section heading is a row; it starts **expanded** (it is the point of the
-  feature). Enter on it collapses it, like the recap's host rows.
-- One row per task that has messages, in run order (play order, then task
-  order within the play; handlers where they ran), prefixed by its play name
-  once per play. The task row names the hosts that report the same message.
+- The heading is underlined with `=` characters and followed by a blank row,
+  like the "Summary" heading above. The section heading is a row; it starts **expanded** (it is the point of the
+  feature). Enter or Left collapses it, Enter or Right expands it, like the
+  recap's host rows; `E`/`C` expand/collapse it with everything else.
+- One group row per group of hosts, in run order (play order, then task
+  order within the play; handlers where they ran), under its play name (shown
+  once per play). The first group's row carries the task name and its hosts
+  ("Show version  all 5 hosts"), further groups only their hosts. The play
+  name, the message lines and the "more groups" row are not interactive: the
+  cursor skips them.
 - **Hosts with the same message are grouped.** The group names all hosts if
   every host that ran the task has it ("all 5 hosts"), otherwise the first
   three by name and "+N hosts". Hosts whose messages differ form separate
-  groups, shown in the order of their first host. At most three groups per
-  task are listed; the rest is "+N more groups (Enter for all)".
+  groups, in alphabetical order of their first host (hosts finish in any order,
+  so arrival order would change the section from run to run). At most three
+  groups per task are listed; the rest is "... (+N more groups)", a plain row.
 - Each message is shown with its lines as they are, at most **5 lines** per
   message, then `... (+N more lines)`. A long line is cut to the width like any
   other row; the full text is in the drill-down.
@@ -162,3 +174,18 @@ Messages (3)
   uncut text, if the recap rows with their caps turn out too small.
 - **`ansible.builtin.fail`/`assert` messages** are not collected (see above);
   they are already in the recap as the failure text.
+
+## Implementation notes
+
+- Real result shapes (checked against the bundled callback plugin): `action`
+  is the short name `debug`; a skipped (`when:`, `verbosity:`) result has
+  `skipped: true`; a `no_log` result is only `{"censored": ...}`; a loop's
+  items carry `_ansible_item_label`, `skipped`, `msg` and have no `action`
+  of their own, so the module is read from the top-level result.
+- The Messages section's rows are `messages*RowID` (`session/debugmessages.go`);
+  the group and heading rows have their own selected styling in `rebuild`
+  (`messagesRowSelectedText`). The pure part is `uikit/debugmessages.go`.
+- `testdata/debugmessages.yml` is the fixture of the e2e test
+  (`e2e_debugmessages_test.go`: the section, the expansion, the heading's
+  Enter, and a failed run).
+- Not done, as specified: no config key, no full-screen page.

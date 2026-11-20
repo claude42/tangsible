@@ -267,6 +267,11 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   trustworthy number.
 - **Recap** (`Recap.md`): per-host counts incl. `warnings`/`ignored`, built
   from `PlaybookState`; `rescued` isn't derivable from the event stream.
+- **Debug messages** (`DebugMessages.md`): a task whose debug result says
+  something (`uikit.DebugMessagesOf`: not skipped/failed/`no_log`/empty) is
+  expanded once by `onHostRecorded`, remembered in `autoExpanded` so
+  `InheritedExpandState` does not pass it on (else every later task expands);
+  the recap's Messages section groups hosts with the same text.
 - **--check** (`CheckMode.md`): detected once from passthrough args; olive
   chrome and a `Check:` top-bar label. Revisit's purple wins over it.
 - **Revisit** (`Revisit.md`): replays a saved `.jsonl` into a frozen

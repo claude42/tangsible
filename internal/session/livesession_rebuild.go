@@ -623,6 +623,12 @@ func (s *liveSession) rebuild() {
 			uikit.Row{Text: "", ID: recapDividerAfterNarrative},
 		)
 		s.currentRows = append(s.currentRows, flattenRecapRows(s.state, s.recapHostExpanded, s.recapCategoryExpanded, s.showOutputFromRecap)...)
+		// The debug messages of the run (design-docs/DebugMessages.md),
+		// below the host summary - also after a failed or interrupted run.
+		s.messageTasks = uikit.CollectDebugMessages(s.state)
+		s.currentRows = append(s.currentRows, flattenMessageRows(s.messageTasks, s.messagesCollapsed, func() { s.messagesCollapsed = !s.messagesCollapsed }, s.showOutputFromRecap)...)
+	} else {
+		s.messageTasks = nil
 	}
 
 	if len(s.currentRows) == 0 {
@@ -735,6 +741,10 @@ func (s *liveSession) rebuild() {
 	case recapTaskRowID:
 		detail := recapTaskDetail(id.task, id.host, id.label)
 		s.currentRows[selectedIndex].Text = recapTaskRowText(id.task, detail, recapCategoryColor(id.label), true)
+	case messagesHeadingRowID, messageGroupRowID:
+		if text, ok := s.messagesRowSelectedText(id); ok {
+			s.currentRows[selectedIndex].Text = text
+		}
 	}
 
 	s.list.Clear()

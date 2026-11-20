@@ -38,7 +38,7 @@ func (s *liveSession) onPlayStarted(name string) { s.progH.Load().AdvanceToPlay(
 // afterward inherits true from whichever task was added most recently,
 // not just the ones already on screen when 'E' was pressed.
 func (s *liveSession) onTaskAdded(play *playbook.PlayNode, task *playbook.TaskNode) {
-	s.expanded[task] = uikit.InheritedExpandState(uikit.AllTasks(s.state), s.expanded, s.startExpanded)
+	s.expanded[task] = uikit.InheritedExpandState(uikit.AllTasks(s.state), s.expanded, s.autoExpanded, s.startExpanded)
 	// A miss here (a handler - see progress.go's own doc comment - or any
 	// task the skeleton couldn't predict) is a silent no-op by design:
 	// runner.ProgressTracker.Advance leaves its own state untouched rather
@@ -72,6 +72,13 @@ func (s *liveSession) onHostRecorded(task *playbook.TaskNode, host string) {
 		} else {
 			s.suppressedTaskFailures++
 		}
+	}
+	// A debug task that says something is expanded once, so its host lines
+	// (which show the start of the message) are on screen without a key
+	// (design-docs/DebugMessages.md). Once: after that the user owns it.
+	if _, decided := s.autoExpanded[task]; !decided && len(uikit.DebugMessagesOf(task.Raw[host])) > 0 {
+		s.autoExpanded[task] = true
+		s.expanded[task] = true
 	}
 	s.rebuild()
 }

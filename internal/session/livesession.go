@@ -129,8 +129,19 @@ type liveSession struct {
 	initialPlay, initialTags, initialSkipTags, initialHosts string
 
 	// --- tree/render state ---
-	list                     *uikit.TreeList
-	expanded                 map[*playbook.TaskNode]bool
+	list     *uikit.TreeList
+	expanded map[*playbook.TaskNode]bool
+	// autoExpanded marks the tasks tangsible expanded itself (a debug task
+	// with a message, onHostRecorded): true while the expansion is still its
+	// own, false once E/C took it over. A key, even with false, means "already
+	// decided" - a later host's result must not expand the task again after
+	// the user collapsed it. InheritedExpandState does not pass an automatic
+	// expansion on. messageTasks/messagesCollapsed are the recap's Messages
+	// section (debugmessages.go, design-docs/DebugMessages.md), computed in
+	// rebuild once the run is frozen.
+	autoExpanded             map[*playbook.TaskNode]bool
+	messageTasks             []uikit.DebugTask
+	messagesCollapsed        bool
 	recapHostExpanded        map[string]bool
 	recapCategoryExpanded    map[recapCategoryRowID]bool
 	currentRows              []uikit.Row

@@ -28,6 +28,8 @@ func (s *liveSession) expandAll() {
 	for _, t := range uikit.AllTasks(s.state) {
 		s.expanded[t] = true
 	}
+	s.releaseAutoExpanded()
+	s.messagesCollapsed = false
 	// Extends to the recap section too (design-docs/Recap.md), for
 	// consistency with E's own "expand everything" meaning everywhere
 	// else in this app.
@@ -48,11 +50,24 @@ func (s *liveSession) collapseAll() {
 		s.currentID = recapHostRowID(id.host)
 	case recapCategoryRowID:
 		s.currentID = recapHostRowID(id.host)
+	case messageGroupRowID:
+		s.currentID = messagesHeadingRowID{}
 	}
 	s.expanded = map[*playbook.TaskNode]bool{}
+	s.releaseAutoExpanded()
+	s.messagesCollapsed = true
 	s.recapHostExpanded = map[string]bool{}
 	s.recapCategoryExpanded = map[recapCategoryRowID]bool{}
 	s.rebuild()
+}
+
+// releaseAutoExpanded hands every automatic expansion to the user (E and C
+// are the user's own statement about the whole tree); the keys stay, so a
+// later host's result does not expand the task again.
+func (s *liveSession) releaseAutoExpanded() {
+	for t := range s.autoExpanded {
+		s.autoExpanded[t] = false
+	}
 }
 
 // handleRight/handleLeft back the main tree's cursor-Right/cursor-Left
@@ -80,6 +95,11 @@ func (s *liveSession) handleRight() {
 	case recapCategoryRowID:
 		if !s.recapCategoryExpanded[id] {
 			s.recapCategoryExpanded[id] = true
+			s.rebuild()
+		}
+	case messagesHeadingRowID:
+		if s.messagesCollapsed {
+			s.messagesCollapsed = false
 			s.rebuild()
 		}
 	}
@@ -124,6 +144,18 @@ func (s *liveSession) handleLeft() {
 		categoryID := recapCategoryRowID{host: id.host, label: id.label}
 		s.recapCategoryExpanded[categoryID] = false
 		s.currentID = categoryID
+		s.following = false
+		s.rebuild()
+	case messagesHeadingRowID:
+		if !s.messagesCollapsed {
+			s.messagesCollapsed = true
+			s.rebuild()
+		}
+	case messageGroupRowID:
+		// Collapsing the section removes this row: the cursor goes to
+		// the heading left behind.
+		s.messagesCollapsed = true
+		s.currentID = messagesHeadingRowID{}
 		s.following = false
 		s.rebuild()
 	}

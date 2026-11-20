@@ -234,12 +234,16 @@ func AllTasks(state *playbook.PlaybookState) []*playbook.TaskNode {
 // current allTasks(state) result, with task itself already the last
 // element (state.OnTaskAdded fires after task has already been appended
 // to its play, and that play to state.Plays) - the second-to-last is "the
-// task added right before it."
-func InheritedExpandState(all []*playbook.TaskNode, expanded map[*playbook.TaskNode]bool, startExpanded bool) bool {
+// task added right before it." auto marks the tasks that were expanded by
+// tangsible itself (a debug task with a message, design-docs/
+// DebugMessages.md) rather than by the user: that expansion is not passed
+// on, or every task after a debug task would come out expanded.
+func InheritedExpandState(all []*playbook.TaskNode, expanded, auto map[*playbook.TaskNode]bool, startExpanded bool) bool {
 	if len(all) < 2 {
 		return startExpanded
 	}
-	return expanded[all[len(all)-2]]
+	prev := all[len(all)-2]
+	return expanded[prev] && !auto[prev]
 }
 
 // TasksForHost returns, in run order (play order, then task order within
