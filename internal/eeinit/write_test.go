@@ -297,8 +297,8 @@ func TestSummary(t *testing.T) {
 	want := "Created execution-environment.yml. The previous file is saved as execution-environment.yml.1.\n" +
 		"\n" +
 		"3 collection(s) (3 pinned from this host).\n" +
-		"1 package(s) implied by lookups or modules; see the comment in the draft.\n" +
-		"3 binaries used on the controller are missing from the base image; see the comment in the draft.\n" +
+		"1 package(s) added for lookups or modules; review them in the draft.\n" +
+		"3 binaries used on the controller are missing from the base image; see the draft.\n" +
 		"\n" +
 		"3 TODO(s) to resolve in this file.\n"
 	if got != want {

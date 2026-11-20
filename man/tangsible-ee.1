@@ -88,8 +88,8 @@ single \fB# TODO\fR.\& Filters are not analyzed.\&
 .IP \(bu 4
 Offers packages that used lookups and modules need and their collections
 don'\&t declare (for example \fBdnspython\fR for the \fBdig\fR lookup, \fBrsync\fR for
-\fBsynchronize\fR), from a small built-in table, as a commented \fBpython:\fR and
-\fBsystem:\fR block to uncomment.\&
+\fBsynchronize\fR), from a small built-in table, and adds them to
+\fBdependencies.\&python\fR and \fBdependencies.\&system\fR; delete one you don'\&t want.\&
 .IP \(bu 4
 Lists the binaries that \fBcommand\fR and \fBshell\fR tasks running on the
 controller (and so inside the execution environment) use and the base image
@@ -113,18 +113,19 @@ draft.\&
 .PP
 \fB--resolve-packages\fR
 .RS 4
-Also look up which package provides each missing binary, and offer them as
-a \fBsystem:\fR block to uncomment (bindep syntax, with \fB[platform:rpm]\fR or
+Also look up which package provides each missing binary.\& A binary with exactly
+one providing package is added to \fBdependencies.\&system\fR (bindep syntax, with \fB[platform:rpm]\fR or
 \fB[platform:dpkg]\fR).\& This starts a throw-away container of the base image
 (the image itself is never changed) with network access, as root, and
 downloads repository metadata, so it can take from half a minute to a
 couple of minutes: \fBdnf\fR is queried on Fedora/RHEL-family images (the image
 needs \fBdnf\fR; \fBmicrodnf\fR can'\&t answer this) and \fBapt-file\fR on
 Debian/Ubuntu-family images.\& A binary with several candidate packages is
-listed with all of them, one with none as a \fB# TODO\fR.\& If the lookup can'\&t be
+left as a \fB# TODO\fR naming them all, one with none as a \fB# TODO\fR too; delete
+an added entry you don'\&t want.\& If the lookup can'\&t be
 done (no network, no \fBdnf\fR), the binaries are only listed.\& The
 \fBnetwork\fR key under \fB[execution_environment]\fR is used for the container
-(\fBhost\fR fixes DNS trouble).\& Nothing is ever added without you uncommenting it.\&
+(\fBhost\fR fixes DNS trouble).\& Nothing else is added without you uncommenting it.\&
 .PP
 .RE
 If \fBexecution-environment.\&yml\fR already exists it is replaced.\& When the new draft

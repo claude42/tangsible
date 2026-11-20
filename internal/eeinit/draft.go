@@ -146,13 +146,15 @@ func Draft(in Inputs) (string, Report) {
 		dw("")
 	}
 	rep.Implied = len(in.Implied.Pip) + len(in.Implied.System)
-	system := mergeEntries(append(binSystem, in.Implied.System...))
+	// What is certain is added for real: a binary with exactly one provider,
+	// and the packages the rules table implies (it names them itself). A
+	// binary with several or no providers stays a TODO inside the system:
+	// list, so there is never a second system: key.
 	python := mergeEntries(in.Implied.Pip)
-	switch {
-	case len(python)+len(system) > 0:
+	system := mergeEntries(append(binSystem, in.Implied.System...))
+	if len(python)+len(system) > 0 {
 		dw("  # Packages that lookups, controller-side modules and binaries used by the playbook need,")
-		dw("  # which their collections or the base image don't provide. To install them, uncomment:")
-		dw("")
+		dw("  # which their collections or the base image don't provide. Delete an entry you don't want:")
 		for _, group := range []struct {
 			key     string
 			entries []StanzaEntry
@@ -160,17 +162,21 @@ func Draft(in Inputs) (string, Report) {
 			if len(group.entries) == 0 {
 				continue
 			}
-			dw("  # %s:", group.key)
+			dw("  %s:", group.key)
 			for _, e := range group.entries {
-				dw("  #   - %s   # %s", e.Package, e.Comment)
+				dw("    - %s   # %s", e.Package, e.Comment)
 			}
+		}
+		indent := "  "
+		if len(system) > 0 {
+			indent = "    "
 		}
 		for _, t := range binTodos {
 			rep.Todos++
-			dw("  #   # TODO: %s", t)
+			dw("%s# TODO: %s", indent, t)
 		}
 		dw("")
-	case len(binTodos) > 0:
+	} else if len(binTodos) > 0 {
 		for _, t := range binTodos {
 			rep.Todos++
 			dw("  # TODO: %s", t)
@@ -495,7 +501,7 @@ func locsText(locs []string) string {
 // returns list, the comment lines that name them (no stanza); with one, the
 // entries for the system: stanza (bindep syntax, with the platform selector
 // of the image's family) and a TODO text for each binary without exactly one
-// provider. Nothing is ever uncommented for the user.
+// provider (Draft writes the single-provider ones as real entries).
 func binaryPlan(in Inputs, rep *Report) (list []string, system []StanzaEntry, todos []string) {
 	if len(in.Binaries) == 0 {
 		return nil, nil, nil

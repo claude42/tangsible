@@ -342,13 +342,13 @@ func Summary(res WriteResult, rep Report, noBackup bool) string {
 		needs = append(needs, fmt.Sprintf("%d collection(s) deprecated on Galaxy; see the comment in the draft.", rep.Deprecated))
 	}
 	if rep.Implied > 0 {
-		needs = append(needs, fmt.Sprintf("%d package(s) implied by lookups or modules; see the comment in the draft.", rep.Implied))
+		needs = append(needs, fmt.Sprintf("%d package(s) added for lookups or modules; review them in the draft.", rep.Implied))
 	}
 	switch {
 	case rep.Binaries == 1:
-		needs = append(needs, "1 binary used on the controller is missing from the base image; see the comment in the draft.")
+		needs = append(needs, "1 binary used on the controller is missing from the base image; see the draft.")
 	case rep.Binaries > 1:
-		needs = append(needs, fmt.Sprintf("%d binaries used on the controller are missing from the base image; see the comment in the draft.", rep.Binaries))
+		needs = append(needs, fmt.Sprintf("%d binaries used on the controller are missing from the base image; see the draft.", rep.Binaries))
 	}
 	if len(needs) > 0 {
 		blocks = append(blocks, strings.Join(needs, "\n"))

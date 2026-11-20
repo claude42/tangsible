@@ -69,8 +69,8 @@ It does the following:
   single *# TODO*. Filters are not analyzed.
 - Offers packages that used lookups and modules need and their collections
   don't declare (for example *dnspython* for the *dig* lookup, *rsync* for
-  *synchronize*), from a small built-in table, as a commented *python:* and
-  *system:* block to uncomment.
+  *synchronize*), from a small built-in table, and adds them to
+  *dependencies.python* and *dependencies.system*; delete one you don't want.
 - Lists the binaries that *command* and *shell* tasks running on the
   controller (and so inside the execution environment) use and the base image
   lacks, as a comment block. Only tasks detected as running on the controller
@@ -91,18 +91,19 @@ used: it is the image tangsible runs, often the result of building this very
 draft.
 
 *--resolve-packages*
-	Also look up which package provides each missing binary, and offer them as
-	a *system:* block to uncomment (bindep syntax, with *[platform:rpm]* or
+	Also look up which package provides each missing binary. A binary with exactly
+	one providing package is added to *dependencies.system* (bindep syntax, with *[platform:rpm]* or
 	*[platform:dpkg]*). This starts a throw-away container of the base image
 	(the image itself is never changed) with network access, as root, and
 	downloads repository metadata, so it can take from half a minute to a
 	couple of minutes: *dnf* is queried on Fedora/RHEL-family images (the image
 	needs *dnf*; *microdnf* can't answer this) and *apt-file* on
 	Debian/Ubuntu-family images. A binary with several candidate packages is
-	listed with all of them, one with none as a *# TODO*. If the lookup can't be
+	left as a *# TODO* naming them all, one with none as a *# TODO* too; delete
+	an added entry you don't want. If the lookup can't be
 	done (no network, no *dnf*), the binaries are only listed. The
 	*network* key under *[execution_environment]* is used for the container
-	(*host* fixes DNS trouble). Nothing is ever added without you uncommenting it.
+	(*host* fixes DNS trouble). Nothing else is added without you uncommenting it.
 
 If *execution-environment.yml* already exists it is replaced. When the new draft
 differs, the old file is first kept as *execution-environment.yml.*_N_, where _N_

@@ -473,12 +473,12 @@ draft in `./execution-environment.yml` (an existing file is replaced, the old
 one kept as `execution-environment.yml.1`, `.2`, ...: see below) in which everything that can't be determined statically is a `# TODO`
 comment. Lookups (`lookup()`, `query()`, `with_*`) are found too: their collections are
 added, and packages they need that nothing declares (`dnspython` for `dig`,
-`hvac` for `hashi_vault`, `rsync` for `synchronize`) are offered as a commented
-`python:`/`system:` block to uncomment. Binaries that `command`/`shell` tasks running on the controller
+`hvac` for `hashi_vault`, `rsync` for `synchronize`) are added to
+`python:`/`system:` (delete one you don't want). Binaries that `command`/`shell` tasks running on the controller
 (`hosts: localhost`, `delegate_to: localhost`, `connection: local`) use, and the
 base image lacks, are listed too; `--resolve-packages` also looks up the package
-for each (downloads repository metadata, can take a minute or two) and offers a
-`system:` block to uncomment. Set `base_image` in `[execution_environment]` to choose the base
+for each (downloads repository metadata, can take a minute or two) and adds it
+to `system:` when exactly one package provides the binary (several candidates, or none, stay a `TODO`). Set `base_image` in `[execution_environment]` to choose the base
 image; `image` is never used for that, as it is what you run, usually the
 result of that build.
 

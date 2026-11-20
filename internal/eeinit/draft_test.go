@@ -333,13 +333,13 @@ func TestDraftBinariesListedWithoutPackages(t *testing.T) {
 
 func TestDraftBinariesResolved(t *testing.T) {
 	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, Binaries: binNeeds, ResolvePackages: true})
+	// jq has exactly one package, so it is a real entry; ip and yq stay TODOs inside the same stanza
 	want := `  # Packages that lookups, controller-side modules and binaries used by the playbook need,
-  # which their collections or the base image don't provide. To install them, uncomment:
-
-  # system:
-  #   - jq [platform:rpm]   # jq: site.yml:40, roles/x/tasks/main.yml:3, +1 more; sshpass: site.yml:52
-  #   # TODO: binary "ip" (site.yml:9): one of iproute, iproute-tc
-  #   # TODO: binary "yq" (site.yml:60): no package found
+  # which their collections or the base image don't provide. Delete an entry you don't want:
+  system:
+    - jq [platform:rpm]   # jq: site.yml:40, roles/x/tasks/main.yml:3, +1 more; sshpass: site.yml:52
+    # TODO: binary "ip" (site.yml:9): one of iproute, iproute-tc
+    # TODO: binary "yq" (site.yml:60): no package found
 
 `
 	if !strings.Contains(got, want) {
@@ -351,33 +351,28 @@ func TestDraftBinariesResolved(t *testing.T) {
 	assertValidYAML(t, got)
 }
 
-func TestDraftBinariesUncommented(t *testing.T) {
+func TestDraftBinariesOnlyTodosStayComments(t *testing.T) {
+	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, ResolvePackages: true,
+		Binaries: []BinaryNeed{{Name: "ip", Locs: []string{"site.yml:9"}, Packages: []string{"a", "b"}}, {Name: "yq", Locs: []string{"s.yml:1"}}}})
+	if strings.Contains(got, "\n  system:") || !strings.Contains(got, "  # TODO: binary \"ip\" (site.yml:9): one of a, b\n") || rep.Todos != 2 {
+		t.Errorf("no single provider, so nothing is added (report %+v):\n%s", rep, got)
+	}
+	assertValidYAML(t, got)
+}
+
+func TestDraftBinariesAddedForReal(t *testing.T) {
 	got, _ := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: BaseFacts{PackageManager: "/usr/bin/apt-get", Python: "/usr/bin/python3", Pip: true}, ResolvePackages: true,
 		Binaries: []BinaryNeed{{Name: "jq", Locs: []string{"s.yml:1"}, Packages: []string{"jq"}}}})
-	var lines []string
-	in := false
-	for _, l := range strings.Split(got, "\n") {
-		switch {
-		case l == "  # system:":
-			in = true
-			l = "  system:"
-		case in && strings.HasPrefix(l, "  #   "):
-			l = "    " + strings.TrimPrefix(l, "  #   ")
-		default:
-			in = false
-		}
-		lines = append(lines, l)
-	}
 	var v struct {
 		Dependencies struct {
 			System []string `yaml:"system"`
 		} `yaml:"dependencies"`
 	}
-	if err := yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &v); err != nil {
-		t.Fatalf("not valid after uncommenting: %v", err)
+	if err := yaml.Unmarshal([]byte(got), &v); err != nil {
+		t.Fatalf("not valid: %v", err)
 	}
-	if len(v.Dependencies.System) != 1 || !strings.HasPrefix(v.Dependencies.System[0], "jq [platform:dpkg]") {
-		// the trailing "# ..." is a YAML comment, so only the bindep entry is left
+	// the trailing "# ..." is a YAML comment, so only the bindep entry is left
+	if len(v.Dependencies.System) != 1 || v.Dependencies.System[0] != "jq [platform:dpkg]" {
 		t.Errorf("system = %q", v.Dependencies.System)
 	}
 }
@@ -418,16 +413,16 @@ func TestDraftLookupHintsAndImpliedStanza(t *testing.T) {
 	})
 	for _, want := range []string{
 		"      # detected: lookup dig (site.yml:12)\n      # documented requirements of dig: dnspython (python library)\n      - name: community.general\n",
-		// one block: python:, then one system: shared by the binaries and the rules
-		"  # python:\n  #   - dnspython   # lookup dig (site.yml:12): the dig lookup needs dnspython\n  # system:\n  #   - jq [platform:rpm]   # jq: site.yml:40\n  #   - rsync   # synchronize (site.yml:30): synchronize runs rsync on the controller\n",
+		// the binary's package and the implied ones are real entries, one system: key
+		"  python:\n    - dnspython   # lookup dig (site.yml:12): the dig lookup needs dnspython\n  system:\n    - jq [platform:rpm]   # jq: site.yml:40\n    - rsync   # synchronize (site.yml:30): synchronize runs rsync on the controller\n",
 		"# TODO: lookup() with a plugin name that can't be determined statically (detected 2 in all)\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	if n := strings.Count(got, "# system:"); n != 1 {
-		t.Errorf("%d system: stanzas, want one (a second would be a duplicate key once uncommented):\n%s", n, got)
+	if n := strings.Count(got, "system:\n"); n != 1 {
+		t.Errorf("%d system: keys, want one (a second would be a duplicate key):\n%s", n, got)
 	}
 	if rep.Implied != 2 || rep.Binaries != 1 || rep.Todos != 1 {
 		t.Errorf("report = %+v", rep)
@@ -435,34 +430,20 @@ func TestDraftLookupHintsAndImpliedStanza(t *testing.T) {
 	assertValidYAML(t, got)
 }
 
-func TestDraftImpliedStanzaUncommented(t *testing.T) {
+func TestDraftImpliedPackagesAddedForReal(t *testing.T) {
 	got, _ := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts,
 		Implied: Implied{
 			Pip:    []StanzaEntry{{"dnspython", "c1"}, {"hvac", "c2"}},
 			System: []StanzaEntry{{"rsync", "c3"}},
 		}})
-	var lines []string
-	in := false
-	for _, l := range strings.Split(got, "\n") {
-		switch {
-		case l == "  # python:" || l == "  # system:":
-			in = true
-			l = strings.Replace(l, "# ", "", 1)
-		case in && strings.HasPrefix(l, "  #   - "):
-			l = "    - " + strings.TrimPrefix(l, "  #   - ")
-		default:
-			in = false
-		}
-		lines = append(lines, l)
-	}
 	var v struct {
 		Dependencies struct {
 			Python []string `yaml:"python"`
 			System []string `yaml:"system"`
 		} `yaml:"dependencies"`
 	}
-	if err := yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &v); err != nil {
-		t.Fatalf("not valid after uncommenting: %v\n%s", err, strings.Join(lines, "\n"))
+	if err := yaml.Unmarshal([]byte(got), &v); err != nil {
+		t.Fatalf("not valid: %v\n%s", err, got)
 	}
 	if !reflect.DeepEqual(v.Dependencies.Python, []string{"dnspython", "hvac"}) || !reflect.DeepEqual(v.Dependencies.System, []string{"rsync"}) {
 		t.Errorf("dependencies = %+v", v.Dependencies)

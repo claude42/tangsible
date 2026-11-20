@@ -240,8 +240,10 @@ notes").
 **controller** - inside the EE - the binary must be in the image, and neither
 the base image nor a collection's own requirements may have it. This feature
 finds such binaries, checks the base image for them, and (opt-in) looks up the
-package that provides each missing one. **It never adds anything on its own:**
-the result is a commented block to review, like the interpreter stanza.
+package that provides each missing one. **A binary with exactly one providing
+package is added for real; anything uncertain stays a comment.** The
+interpreter stanza stays commented. The packages the implied-dependency table
+names (below) are added for real too.
 
 ### Which tasks
 
@@ -327,17 +329,28 @@ image's family (`[platform:rpm]`, `[platform:dpkg]`). Without the flag:
   # Look up their packages with --resolve-packages.
 ```
 
-With it, in the same style as the interpreter stanza, to uncomment (bindep
-syntax):
+With it, a binary with **exactly one** providing package becomes a real entry
+(bindep syntax); one with none, or several, stays a `# TODO` inside the same
+stanza, naming the candidates:
 
 ```yaml
-  # Binaries used by tasks that run on the controller and missing from the base image:
-  # system:
-  #   - jq [platform:rpm]        # jq: site.yml:40
-  #   - sshpass [platform:rpm]   # sshpass: site.yml:52, +1 more
-  #   # TODO: "yq": no package found
-  #   # TODO: "ip": one of iproute, iproute-tc
+  # Packages for the binaries that tasks running on the controller use and the base image
+  # lacks; exactly one package provides each. Delete an entry you don't want:
+  system:
+    - jq [platform:rpm]        # jq: site.yml:40
+    - sshpass [platform:rpm]   # sshpass: site.yml:52, +1 more
+    # TODO: binary "yq" (site.yml:60): no package found
+    # TODO: binary "ip" (site.yml:9): one of iproute, iproute-tc
 ```
+
+Why only a single provider: the scan that finds the binary is heuristic (a
+remote task's binary isn't the EE's; an inventory-set connection is invisible),
+and several candidates mean tangsible would be picking for the user. Where the
+package is certain, adding it is the useful default: a wrong entry is visible
+in the draft and deleted, and `ee verify` reports a binary that is still
+missing. The TODOs of the other binaries stay inside the same `system:` list
+(there is never a second `system:` key); with nothing to add, they are plain
+comments.
 
 Nothing is written when no controller-side binary is missing. The summary
 line gains "N binaries missing from the base image". Binaries are
@@ -499,20 +512,24 @@ becomes redundant.
 
 ### Output
 
-One commented-out block under `dependencies`, separated from its explanation
-by a blank line, with a `python:` and a `system:` stanza. Entries carry their
-evidence and `Why`; the `system:` stanza is **shared** with the one of the
-controller-side binaries (one block, entries from both, so uncommenting never
-gives two `system:` keys).
+The packages are **added for real**: the table names them itself, and its
+rules fire on evidence that doesn't depend on a guess (a lookup always runs on
+the controller; `synchronize`'s action plugin does whatever the task's host
+is). A rule that depends on the controller-side heuristic (`ControllerOnly`)
+would have to stay a comment; the table has none today, so that is not
+implemented. A wrong entry is visible in the draft and is deleted by the user.
+
+One block under `dependencies`, with a `python:` and a `system:` list. Entries
+carry their evidence and `Why`; the `system:` list is **shared** with the
+controller-side binaries (never two `system:` keys, one package once):
 
 ```yaml
-  # Packages implied by what the playbook uses (the collections don't declare them).
-  # To install them, uncomment:
-
-  # python:
-  #   - dnspython   # lookup dig (site.yml:12)
-  # system:
-  #   - rsync       # synchronize on the controller (site.yml:30)
+  # Packages that lookups, controller-side modules and binaries used by the playbook need,
+  # which their collections or the base image don't provide. Delete an entry you don't want:
+  python:
+    - dnspython   # lookup dig (site.yml:12)
+  system:
+    - rsync       # synchronize on the controller (site.yml:30)
 ```
 
 `python:` is a list of pip requirements, `system:` bindep entries (a name
@@ -1106,8 +1123,8 @@ left out when it has nothing to say (`eeinit.Summary`, pure):
 Created execution-environment.yml. The previous file is saved as execution-environment.yml.1.
 
 3 collection(s) (3 pinned from this host).
-1 package(s) implied by lookups or modules; see the comment in the draft.
-3 binaries used on the controller are missing from the base image; see the comment in the draft.
+1 package(s) added for lookups or modules; review them in the draft.
+3 binaries used on the controller are missing from the base image; see the draft.
 
 3 TODO(s) to resolve in this file.
 ```
