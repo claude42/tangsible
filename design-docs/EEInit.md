@@ -1401,7 +1401,7 @@ Where the code decided something the spec left open:
 
 ## Pinning from Galaxy (`ee init`, follow-up)
 
-**Spec** (not implemented). Today a collection the draft needs but the host does
+**Implemented** (`internal/eeinit/galaxy.go`; notes at the end of this section). Before this, a collection the draft needs but the host does
 not have is listed unpinned (`unpinned: not installed on this host`): the image
 build then installs whatever is newest that day. `ee init` now asks Galaxy for a
 version in that case, and a switch does the same for every collection.
@@ -1414,8 +1414,7 @@ tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backu
 - `--no-galaxy`: no Galaxy query; the behaviour before this section. (The name
   follows `--no-ee`, `--no-backup` and `--no-cache`; it says what is skipped,
   not "offline", since the image pull and `--resolve-packages` still use the
-  network.) Only Galaxy: the image pull follows `pull_policy` as ever, and `--resolve-packages` (which
-  downloads repository metadata) contradicts it, which is an error naming both.
+  network. The two do not conflict: `--resolve-packages` is not Galaxy.)
 - `--latest`: Galaxy is asked for every collection, and its answer replaces the
   host's installed version. A `requirements.yml` version still wins. It
   contradicts `--no-galaxy` (an error). The host's version is usually the one the
@@ -1537,6 +1536,32 @@ answer.
 - With no server configured, `ansible-config dump` shows
   `GALAXY_SERVER_LIST(default) = None`.
 
+### Implementation notes
+
+- `ChoosePins` as a separate function did not happen: the order is `pin` in
+  `draft.go` (pure, as before), fed by `Inputs.Galaxy` (what Galaxy said per
+  collection) and `Inputs.Latest`; `PinTargets` says which collections to ask.
+  Galaxy's answer carries its own note (`from Galaxy: ...`, `unpinned: ...`),
+  so `Draft` prints what it is given.
+- With `--latest` and a failed lookup for a collection the host has, the host's
+  version is kept (and the warning says the lookup failed).
+- The "Galaxy servers are configured" case adds the note to each collection that
+  would have been asked, and one warning (naming `--no-galaxy`); tried with
+  `ANSIBLE_GALAXY_SERVER_LIST=hub`.
+- Seen against galaxy.ansible.com: `community.mongodb` and `community.kubernetes`
+  (not installed on this host) got `1.8.1` and `2.0.1` (the newest, both admit
+  core 2.21.6); with `--latest` `ansible.posix` moved from the host's 2.1.0 to
+  2.2.2; `nosuch.collection` was `not found on Galaxy`; with
+  `HTTPS_PROXY=http://127.0.0.1:9` the lookup failed with one warning and the
+  draft was written (exit 0).
+- A deprecated collection, found with the list filter
+  `.../collections/index/?deprecated=true` (102 of them), is `desyncit.oracle`:
+  its detail has `"deprecated": true` and the draft shows `# deprecated on
+  Galaxy` and a summary line. (`community.kubernetes`, which was replaced by
+  `kubernetes.core`, is *not* flagged.)
+- Not covered by automated tests: the real server (the tests use `httptest` with
+  the shapes seen) and `ansible-config dump` itself (only its parser).
+
 ### Not doing
 
 Authenticated or configured servers (above); a version range instead of the exact
@@ -1547,8 +1572,6 @@ collection; querying anything but versions; a config key for the switches.
 
 - Whether the per-entry `from Galaxy` comment is too noisy for a long list:
   judged after it has been used.
-- A deprecated collection's response has not been seen (none of the probed ones
-  is); find one and check the flag before implementing.
 - Whether a collection pinned from the host should also be checked for
   deprecation (it would cost the network call the default avoids).
 

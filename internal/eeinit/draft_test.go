@@ -26,7 +26,8 @@ func TestDraftDetectedCollections(t *testing.T) {
 # The base image is tangsible's built-in default, not your choice: pass --base or
 # set base_image under [execution_environment] to use another.
 # Collection versions come from requirements.yml where it lists them, otherwise
-# from the collections installed on this host; keep or change them.
+# from the collections installed on this host or, where marked, from Galaxy;
+# keep or change them.
 version: 3
 
 images:

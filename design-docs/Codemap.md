@@ -148,6 +148,9 @@ execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
 - **host.go** - `LookupCollections` (`ansible-doc`), `InstalledCollections`
   (`ansible-galaxy`), `FindRequirements`.
 - **probe.go** - `ProbeBase`: `podman run` the probe script (also asked which binaries the image lacks).
+- **galaxy.go** - Galaxy versions for collections the host lacks: `Admits`/
+  `Newest` (pure), `GalaxyClient` (`Lookup`/`LookupAll`, deprecated flag),
+  `GalaxyServersConfigured`; `PinTargets` and `pin` (draft.go) apply the order.
 - **write.go** - `WriteDraft` (temp file, hard-link backup `.N`, atomic rename,
   pruning to five), `CheckOutputPath`, the numbering helpers.
 - **run.go** - `ParseArgs`, `RunEEVerb`: the verb.

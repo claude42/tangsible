@@ -1,6 +1,7 @@
 package eeinit
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,10 +27,15 @@ type Options struct {
 	ResolvePackages bool
 	// NoBackup replaces an existing file without keeping its old content.
 	NoBackup bool
+	// NoGalaxy does not ask Galaxy for collection versions; Latest asks it
+	// for every collection and prefers its answer to the host's version.
+	NoGalaxy bool
+	Latest   bool
 }
 
 // ParseArgs reads the arguments after "ee": the subcommand init, an
-// optional playbook, --base <image>, --resolve-packages and --no-backup.
+// optional playbook, --base <image>, --resolve-packages, --no-backup,
+// --no-galaxy and --latest.
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	if len(args) == 0 || args[0] != "init" {
@@ -51,6 +57,10 @@ func ParseArgs(args []string) (Options, error) {
 			o.ResolvePackages = true
 		case a == "--no-backup":
 			o.NoBackup = true
+		case a == "--no-galaxy":
+			o.NoGalaxy = true
+		case a == "--latest":
+			o.Latest = true
 		case strings.HasPrefix(a, "-"):
 			return o, fmt.Errorf("unknown option %s", a)
 		case o.Playbook != "":
@@ -61,6 +71,9 @@ func ParseArgs(args []string) (Options, error) {
 	}
 	if strings.HasPrefix(o.Base, "-") || (o.Base == "" && containsBaseFlag(args)) {
 		return o, errors.New("--base needs an image")
+	}
+	if o.NoGalaxy && o.Latest {
+		return o, errors.New("--no-galaxy and --latest contradict each other: --latest is what asks Galaxy")
 	}
 	return o, nil
 }
@@ -75,7 +88,7 @@ func containsBaseFlag(args []string) bool {
 }
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backup]"
+const Usage = "usage: tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest]"
 
 // RunEEVerb is `tangsible ee init ...`; it returns the exit code. (ee verify
 // is internal/eeverify's.)
@@ -204,6 +217,8 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		return err
 	}
 
+	galaxy := galaxyPins(opts, Inputs{Needed: needed, Requirements: req, Installed: installed}, facts.AnsibleCore, stderr)
+
 	text, rep := Draft(Inputs{
 		Playbook:         displayPath(abs, cwd),
 		Base:             base,
@@ -214,6 +229,8 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		Requirements:     req,
 		RequirementsPath: reqPath,
 		Installed:        installed,
+		Galaxy:           galaxy,
+		Latest:           opts.Latest,
 		ImageTag:         SuggestTag(cwd),
 
 		Binaries:          missing,
@@ -238,6 +255,49 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 	fmt.Fprintln(stderr)
 	fmt.Fprint(stdout, Summary(res, rep, opts.NoBackup))
 	return nil
+}
+
+// galaxyPins asks Galaxy about the collections the draft will pin itself and
+// the host lacks (all of them with --latest). It never fails the run: whatever
+// it could not do leaves the collection unpinned, with a note in the draft and
+// one warning here.
+func galaxyPins(opts Options, in Inputs, core string, stderr io.Writer) map[string]GalaxyInfo {
+	if opts.NoGalaxy {
+		return nil
+	}
+	targets := PinTargets(in, opts.Latest)
+	if len(targets) == 0 {
+		return nil
+	}
+	if configured, err := GalaxyServersConfigured(); err != nil {
+		fmt.Fprintf(stderr, "tangsible: not asking Galaxy: %v\n", err)
+		return nil
+	} else if configured {
+		fmt.Fprintf(stderr, "tangsible: Galaxy servers are configured (GALAXY_SERVER_LIST); not asking Galaxy for %d collection(s) (--no-galaxy hides this)\n", len(targets))
+		note := map[string]GalaxyInfo{}
+		for _, t := range targets {
+			note[t] = GalaxyInfo{Note: "unpinned: Galaxy servers are configured, not queried"}
+		}
+		return note
+	}
+	fmt.Fprintf(stderr, "tangsible: looking up %d collection(s) on Galaxy ...\n", len(targets))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	infos := NewGalaxyClient().LookupAll(ctx, targets, core)
+	var failed []string
+	var first error
+	for _, t := range targets {
+		if err := infos[t].Err; err != nil {
+			failed = append(failed, t)
+			if first == nil {
+				first = err
+			}
+		}
+	}
+	if len(failed) > 0 {
+		fmt.Fprintf(stderr, "tangsible: Galaxy could not be asked for %d of %d collection(s) (%v); they are unpinned\n", len(failed), len(targets), first)
+	}
+	return infos
 }
 
 // Summary is what `ee init` prints at the end, in blocks separated by an empty
@@ -265,7 +325,21 @@ func Summary(res WriteResult, rep Report, noBackup bool) string {
 
 	var needs []string
 	if rep.Collections > 0 {
-		needs = append(needs, fmt.Sprintf("%d collection(s) (%d pinned from this host).", rep.Collections, rep.Pinned))
+		var from []string
+		if rep.Pinned > 0 {
+			from = append(from, fmt.Sprintf("%d pinned from this host", rep.Pinned))
+		}
+		if rep.FromGalaxy > 0 {
+			from = append(from, fmt.Sprintf("%d from Galaxy", rep.FromGalaxy))
+		}
+		line := fmt.Sprintf("%d collection(s)", rep.Collections)
+		if len(from) > 0 {
+			line += " (" + strings.Join(from, ", ") + ")"
+		}
+		needs = append(needs, line+".")
+	}
+	if rep.Deprecated > 0 {
+		needs = append(needs, fmt.Sprintf("%d collection(s) deprecated on Galaxy; see the comment in the draft.", rep.Deprecated))
 	}
 	if rep.Implied > 0 {
 		needs = append(needs, fmt.Sprintf("%d package(s) implied by lookups or modules; see the comment in the draft.", rep.Implied))

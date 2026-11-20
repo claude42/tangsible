@@ -28,6 +28,11 @@ type Inputs struct {
 	RequirementsPath string
 	// Installed maps a collection to its version on this host.
 	Installed map[string]string
+	// Galaxy is what Galaxy said about the collections that were asked
+	// (PinTargets), by collection; Latest says --latest was given, so its
+	// version wins over the host's.
+	Galaxy map[string]GalaxyInfo
+	Latest bool
 	// ImageTag is the name suggested for the built image in the commented
 	// tags: stanza ("" means "my-ee:latest").
 	ImageTag string
@@ -60,7 +65,9 @@ type BinaryNeed struct {
 // Report summarizes a draft for the end-of-run message.
 type Report struct {
 	Collections int
-	Pinned      int // from the host (the rest came from requirements.yml or are unpinned)
+	Pinned      int // from the host (the rest came from requirements.yml, Galaxy or are unpinned)
+	FromGalaxy  int // pinned to a version Galaxy named
+	Deprecated  int // flagged deprecated on Galaxy
 	Todos       int
 	Binaries    int // controller-side binaries missing from the base image
 	Implied     int // packages the rules ask for
@@ -87,7 +94,8 @@ func Draft(in Inputs) (string, Report) {
 		w("# set base_image under [execution_environment] to use another.")
 	}
 	w("# Collection versions come from requirements.yml where it lists them, otherwise")
-	w("# from the collections installed on this host; keep or change them.")
+	w("# from the collections installed on this host or, where marked, from Galaxy;")
+	w("# keep or change them.")
 	w("version: 3")
 	w("")
 	w("images:")
@@ -186,8 +194,8 @@ func Draft(in Inputs) (string, Report) {
 			for _, h := range c.hints {
 				dw("      # documented requirements of %s", h)
 			}
-			if c.note != "" {
-				dw("      # %s", c.note)
+			for _, n := range c.notes {
+				dw("      # %s", n)
 			}
 			deps.WriteString(entry(c.node, "      "))
 		}
@@ -254,7 +262,7 @@ type mergedCollection struct {
 	node    *yaml.Node
 	comment string   // where it comes from
 	hints   []string // documented requirements of what uses it
-	note    string   // a warning about its version
+	notes   []string // where its version comes from, or why it has none
 }
 
 // mergeCollections combines requirements.yml's entries (in their order,
@@ -276,7 +284,7 @@ func mergeCollections(in Inputs, rep *Report) []mergedCollection {
 				m.hints = n.Hints
 			}
 			if rc.Plain && rc.Version == "" {
-				m.node, m.note = pin(rc.Name, in.Installed, rep)
+				m.node, m.notes = pin(rc.Name, in, rep)
 			}
 			out = append(out, m)
 		}
@@ -285,23 +293,73 @@ func mergeCollections(in Inputs, rep *Report) []mergedCollection {
 		if listed[n.Collection] {
 			continue
 		}
-		node, note := pin(n.Collection, in.Installed, rep)
-		out = append(out, mergedCollection{node: node, comment: "detected: " + describe(n), hints: n.Hints, note: note})
+		node, notes := pin(n.Collection, in, rep)
+		out = append(out, mergedCollection{node: node, comment: "detected: " + describe(n), hints: n.Hints, notes: notes})
 	}
 	rep.Collections = len(out)
 	return out
 }
 
-// pin builds a name/version entry for coll, with the host's installed
-// version if there is one; otherwise it is unpinned and the note says why.
-func pin(coll string, installed map[string]string, rep *Report) (*yaml.Node, string) {
+// pin builds a name/version entry for coll and the notes that say where the
+// version comes from (or why there is none). The order: the host's installed
+// version, unless --latest and Galaxy named one; otherwise Galaxy's; otherwise
+// unpinned. A collection Galaxy flags deprecated says so.
+func pin(coll string, in Inputs, rep *Report) (*yaml.Node, []string) {
 	node := withName(coll, nil)
-	if v := installed[coll]; v != "" {
-		node.Content = append(node.Content, str("version"), str(v))
+	g := in.Galaxy[coll]
+	host := in.Installed[coll]
+	var notes []string
+	switch {
+	case host != "" && !(in.Latest && g.Version != ""):
+		node.Content = append(node.Content, str("version"), str(host))
 		rep.Pinned++
-		return node, ""
+	case g.Version != "":
+		node.Content = append(node.Content, str("version"), str(g.Version))
+		rep.FromGalaxy++
+		notes = append(notes, g.Note)
+	case g.Note != "":
+		notes = append(notes, g.Note)
+	default:
+		notes = append(notes, "unpinned: not installed on this host")
 	}
-	return node, "unpinned: not installed on this host"
+	if g.Deprecated {
+		rep.Deprecated++
+		notes = append(notes, "deprecated on Galaxy")
+	}
+	return node, notes
+}
+
+// PinTargets are the collections Galaxy is to be asked about: those the draft
+// pins itself (a requirements.yml entry without a version, a detected
+// collection it doesn't list) that the host lacks, or all of them with
+// latest. Sorted, without duplicates.
+func PinTargets(in Inputs, latest bool) []string {
+	var names []string
+	listed := map[string]bool{}
+	if in.Requirements != nil {
+		for _, rc := range in.Requirements.Collections {
+			listed[rc.Name] = true
+			if rc.Plain && rc.Version == "" {
+				names = append(names, rc.Name)
+			}
+		}
+	}
+	for _, n := range in.Needed {
+		if !listed[n.Collection] {
+			names = append(names, n.Collection)
+		}
+	}
+	sort.Strings(names)
+	var out []string
+	for i, n := range names {
+		if i > 0 && n == names[i-1] {
+			continue
+		}
+		if latest || in.Installed[n] == "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func withName(coll string, n *yaml.Node) *yaml.Node {

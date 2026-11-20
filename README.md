@@ -455,13 +455,20 @@ your own with `ansible-builder`. `tangsible ee init` drafts the
 `execution-environment.yml` for it from your playbook:
 
 ```
-tangsible ee init site.yml [--base <image>] [--resolve-packages]
+tangsible ee init site.yml [--base <image>] [--resolve-packages] [--no-galaxy] [--latest]
 ```
 
 It collects the modules used by the playbook and its roles, asks your host's
 Ansible which collections provide them, and inspects the base image with
 `podman`. Collections are pinned to the versions of a `requirements.yml` if
-you have one, otherwise to the ones installed on the host. The result is a
+you have one, otherwise to the ones installed on the host; a collection the host
+lacks (a fully qualified module name is enough to know it) gets the newest
+version on Galaxy that is not a pre-release and works with the image's
+ansible-core, marked `from Galaxy` in the draft. `--no-galaxy` skips that
+(the collection stays unpinned), `--latest` asks Galaxy for every collection
+and prefers its answer to the host's version. A collection flagged deprecated on
+Galaxy is marked. Galaxy is not asked when `GALAXY_SERVER_LIST` configures other
+servers, and a failed lookup never stops the command. The result is a
 draft in `./execution-environment.yml` (an existing file is replaced, the old
 one kept as `execution-environment.yml.1`, `.2`, ...: see below) in which everything that can't be determined statically is a `# TODO`
 comment. Lookups (`lookup()`, `query()`, `with_*`) are found too: their collections are

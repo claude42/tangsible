@@ -307,8 +307,17 @@ func TestSummary(t *testing.T) {
 
 	// nothing to report beyond the file: no empty blocks
 	got = Summary(WriteResult{Created: true}, Report{Collections: 1, Pinned: 0}, false)
-	if got != "Created execution-environment.yml.\n\n1 collection(s) (0 pinned from this host).\n" {
+	if got != "Created execution-environment.yml.\n\n1 collection(s).\n" {
 		t.Errorf("plain: %q", got)
+	}
+	// from Galaxy, and deprecated ones
+	got = Summary(WriteResult{Created: true}, Report{Collections: 3, Pinned: 2, FromGalaxy: 1, Deprecated: 1}, false)
+	if got != "Created execution-environment.yml.\n\n3 collection(s) (2 pinned from this host, 1 from Galaxy).\n1 collection(s) deprecated on Galaxy; see the comment in the draft.\n" {
+		t.Errorf("galaxy: %q", got)
+	}
+	got = Summary(WriteResult{Created: true}, Report{Collections: 2, FromGalaxy: 2}, false)
+	if got != "Created execution-environment.yml.\n\n2 collection(s) (2 from Galaxy).\n" {
+		t.Errorf("galaxy only: %q", got)
 	}
 	// TODOs only: one empty line before them
 	got = Summary(WriteResult{Created: true}, Report{Todos: 2}, false)

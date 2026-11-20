@@ -376,7 +376,11 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   file + hard-link backup `.N` + atomic rename, five kept, nothing written when
   identical, `--no-backup`), never merged. Modules only; the host's `ansible-doc`
   is the source of truth for short names, so an uninstalled collection is a
-  `# TODO`, not a guess. The base image is `--base` > `base_image` > a pinned
+  `# TODO`, not a guess. A collection's version: `requirements.yml`, else the
+  host's, else (`eeinit/galaxy.go`) Galaxy's newest non-pre-release whose
+  `requires_ansible` admits the *image's* ansible-core - the one network call
+  of the draft that must never fail the command (`--no-galaxy`, `--latest`;
+  skipped when `GALAXY_SERVER_LIST` is set). The base image is `--base` > `base_image` > a pinned
   built-in default - **never `[execution_environment] image`** (it is usually
   the build's own output). Draft text is built by pure `eeinit.Draft`; keep
   file/ansible/podman access in `host.go`/`probe.go`/`run.go`.

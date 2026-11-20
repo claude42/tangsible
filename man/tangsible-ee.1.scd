@@ -8,7 +8,7 @@ tangsible-ee - draft an execution-environment.yml from a playbook, check it, bui
 
 *tangsible ee* <init | verify | build | push> [_playbook.yml_] [_options_ ...]
 
-*tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages] [--no-backup]++
+*tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest]++
 *tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [--show-output] [_ansible-playbook args_ ...]++
 *tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache] [--show-output]++
 *tangsible ee push* [-f _file_] [-y | --yes]
@@ -49,7 +49,13 @@ It does the following:
   next to the playbook or in the current directory, if there is one, and adds
   the collections the playbook uses that it doesn't list. Its versions win;
   otherwise a collection is pinned to the version installed on the host
-  (*ansible-galaxy collection list*), or left unpinned with a comment.
+  (*ansible-galaxy collection list*); one the host lacks gets the newest
+  version on Galaxy that is not a pre-release and whose *requires_ansible*
+  admits the image's ansible-core, marked *from Galaxy* in the draft, or is left
+  unpinned with a comment saying why (Galaxy unreachable, not found, no version
+  admitted). A collection Galaxy flags deprecated is marked. Galaxy is not asked
+  when the host has *GALAXY_SERVER_LIST* configured, and never fails the
+  command.
 - Pulls the base image if it is missing (using *pull_policy*) and inspects it
   with *podman* for its package manager, Python and ansible-core.
 - Annotates each collection with where it was found.
@@ -111,6 +117,16 @@ symlink or a directory at that name is an error.
 *--no-backup*
 	Replace an existing file without keeping its old content; existing
 	backups are left alone and no backup is made or removed.
+
+*--no-galaxy*
+	Do not ask Galaxy for collection versions: a collection the host lacks is
+	left unpinned, as before. (The image pull and *--resolve-packages* still
+	use the network.)
+
+*--latest*
+	Ask Galaxy for every collection and use its newest compatible version
+	instead of the host's installed one. A *requirements.yml* version still
+	wins. Contradicts *--no-galaxy*.
 
 # VERIFY
 
