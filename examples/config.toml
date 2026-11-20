@@ -2,10 +2,10 @@
 # default - copy what you want into your own .tangsible/config.toml
 # (project-local) or $XDG_CONFIG_HOME/tangsible/config.toml (global);
 # Tangsible never reads this file directly. See design-docs/
-# ConfigOptions.md ([general]) and design-docs/ColorConfig.md ([colors])
-# for the full reference.
+# ConfigOptions.md ([general], [execution_environment]) and
+# design-docs/ColorConfig.md ([colors]) for the full reference.
 #
-# Both tables cascade project (.tangsible/config.toml) -> global
+# All three tables cascade project (.tangsible/config.toml) -> global
 # ($XDG_CONFIG_HOME/tangsible/config.toml) -> system
 # (/etc/tangsible/config.toml) -> the hardcoded default shown here.
 
@@ -39,6 +39,7 @@ color_scheme = "auto"                # "auto" (ask the terminal) | "dark" | "lig
 # [execution_environment]
 # image = "ghcr.io/ansible-community/community-ee-base:latest"
 # base_image = "ghcr.io/ansible-community/community-ee-base:2.21.6-1"   # base for `tangsible ee init` (never `image`)
+# engine = "podman"           # the only engine so far; another value warns and uses podman
 # network = "host"            # share the host's network stack - for DNS/routing problems
 # selinux = "auto"            # "auto" | "disable" | "z" | "Z" | "none"
 # read_only = false           # mount the project read-only
