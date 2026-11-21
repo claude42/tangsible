@@ -618,15 +618,15 @@ thin constructor/wiring shell.
 
 Not Go code. `*.tape` are [vhs](https://github.com/charmbracelet/vhs)
 scripts, one per recorded feature, rendered by `make demos`
-(`render.sh`: fresh binary, canned fact cache restored, a throw-away
-registry for `ee-build`; `render.sh stats` renders one tape) into
+(`render.sh`: fresh binary, canned fact cache restored, a push to
+code.aw.net for the `ee` tape; `render.sh stats` renders one tape) into
 `output/` (gitignored - the GIFs are hosted outside the repo), and
 `posters.sh` writes a poster PNG per GIF (middle frame, or the time
 given by a `# poster: <seconds>` line in the tape) for linking from
 the README.
 `demo-project/` is a small localhost-only Ansible project (three
 "hosts", three roles, one deliberate first-attempt failure on `web02`)
-that all tapes but the `ee-*` ones record against; it only writes below
+that all tapes but `ee` record against; it only writes below
 `/tmp/tangsible-demo`. `demo-ee-project/` is the one for the execution
-environment tapes (`ee-draft`, `ee-build`, `ee-run`): a localhost playbook
+environment tape (`ee`): a localhost playbook
 that needs `community.general`.

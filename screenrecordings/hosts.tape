@@ -64,7 +64,7 @@ Sleep 3s
 Escape
 Sleep 500ms
 Tab
-Sleep 4s
+Sleep 9s
 Tab
 Sleep 3s
 Tab

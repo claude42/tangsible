@@ -34,3 +34,7 @@
     - name: Count the settings
       ansible.builtin.command: wc -l {{ report_dir }}/service.ini
       changed_when: false
+
+    - name: Check the jq version
+      ansible.builtin.command: jq --version
+      changed_when: false

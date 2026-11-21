@@ -47,16 +47,26 @@ Tab
 Sleep 3s
 Tab
 Sleep 2500ms
+
+# ... a click on an Ansible keyword shows its online help
 Escape
+Type@1ms "[<0;45;4M"
+Escape
+Type@1ms "[<0;45;4m"
+Sleep 5s
+Escape
+Sleep 700ms
+Escape
+Sleep 500ms
 Sleep 500ms
 
 # 3. Re-run only the failed host
 Type "r"
-Sleep 800ms
+Sleep 7s
 Tab 5
-Sleep 300ms
+Sleep 1s
 Space
-Sleep 1500ms
+Sleep 3s
 Enter
 # ...no need to watch it to the end
 Wait+Screen /Configure nginx +web02/

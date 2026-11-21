@@ -29,13 +29,19 @@ Type "rm -rf /tmp/tangsible-demo && cd screenrecordings/demo-project && rm -rf .
 Sleep 1s
 Show
 
-# 1. A run, with a failing host
+# 1. A run, with a failing host: only its end is recorded
+Hide
 Type "tangsible run site.yml" Sleep 300ms Enter
 Wait+Screen /Playbook failed/
-Sleep 1500ms
+Show
+Sleep 3s
 
-# 2. Once it has ended, s opens the statistics: first the time each host spent
+# 2. Once it has ended, s opens the statistics: first the per-host overview
 Type "s"
+Sleep 3500ms
+
+# ... then the time each host spent
+Tab
 Sleep 4s
 
 # 3. Slowest plays, bars with the name inside

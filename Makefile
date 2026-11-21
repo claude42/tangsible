@@ -6,7 +6,7 @@ build:
 
 # Render every screenrecordings/*.tape into screenrecordings/output/ (not
 # committed), plus a poster PNG for each. Needs vhs, ttyd and ffmpeg, and for
-# the ee-* tapes podman, ansible-builder and network access (render.sh); uses
+# the ee tape podman, ansible-builder and network access (render.sh); uses
 # the freshly built binary. `screenrecordings/render.sh stats hosts` renders
 # only the tapes named.
 .PHONY: demos

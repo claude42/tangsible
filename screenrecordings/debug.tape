@@ -1,4 +1,5 @@
-# Debug: breakpoints, variable watch, change a variable and redo a task.
+# Debug: breakpoints, a click on a variable to view or watch it, variable
+# watch, change a variable and redo a task.
 #
 # Render from the repository root (needs vhs, ttyd, ffmpeg, tangsible on PATH):
 #
@@ -58,9 +59,30 @@ Type@1ms "[15~"
 Wait+Screen /Status:/
 Sleep 3s
 
-# 4. The task as written, then with all variables resolved
+# 4. The task as written; a click on a variable shows its value and where it
+# is defined (demo_root), and its Watch button (inventory_hostname) adds it
+# to the watched variables
 Tab@600ms 3
-Sleep 5s
+Sleep 2500ms
+Escape
+Type@1ms "[<0;54;6M"
+Escape
+Type@1ms "[<0;54;6m"
+Sleep 4s
+Escape
+Sleep 700ms
+Escape
+Type@1ms "[<0;72;6M"
+Escape
+Type@1ms "[<0;72;6m"
+Sleep 4s
+Escape
+Type@1ms "[<0;77;12M"
+Escape
+Type@1ms "[<0;77;12m"
+Sleep 3s
+
+# ... then with all variables resolved
 Tab
 Sleep 6s
 

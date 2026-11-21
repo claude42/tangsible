@@ -26,7 +26,7 @@ Set Theme "iTerm2 Dark Background"
 # (web02 can't start nginx), the second is a retry against the web servers
 Hide
 Type "export PS1='$ '" Enter
-Type "rm -rf /tmp/tangsible-demo && cd screenrecordings/demo-project && rm -rf .tangsible && clear" Enter
+Type "rm -rf /tmp/tangsible-demo && cd screenrecordings/demo-project && rm -rf .tangsible before_the_fix.txt && clear" Enter
 Type "tangsible run site.yml" Enter
 Wait+Screen /Playbook (completed|failed)/
 Sleep 3s
@@ -48,13 +48,33 @@ Sleep 2s
 Type "q"
 Sleep 500ms
 
-# 2. Reopen it from the list of all runs, newest first
+# 2. The list of all runs, newest first. Name the failed one (R), pin it (P:
+# it moves to the top and is never dropped by the history cap), and export it
+# (E) to a text file that can be shared and opened without tangsible
 Type "tangsible revisit" Sleep 300ms Enter
 Sleep 3s
+Down 2
+Sleep 1s
+Type "R"
+Sleep 1s
+Type "before the fix"
+Sleep 1s
+Enter
+Sleep 2s
+Type "P"
+Sleep 3s
+Type "E"
+Sleep 3s
+Enter
+Sleep 3s
+
+# 3. Reopen the latest run from the list
+Down
+Sleep 1s
 Enter
 Sleep 2s
 
-# 3. Look around: drill into a task's result on one host
+# 4. Look around: drill into a task's result on one host
 Up 30
 Sleep 500ms
 Down 7
@@ -70,7 +90,7 @@ Sleep 2s
 Escape
 Sleep 1s
 
-# 4. Diff against another run: pick the oldest, the failed one
+# 5. Diff against another run: pick the oldest, the failed one
 Type "d"
 Sleep 2s
 Down
@@ -78,7 +98,7 @@ Sleep 800ms
 Enter
 Sleep 3s
 
-# 5. Only what differs is shown; drill into the task that now works
+# 6. Only what differs is shown; drill into the task that now works
 Down 10
 Sleep 1s
 Enter
@@ -96,16 +116,24 @@ Sleep 1s
 Escape
 Sleep 1500ms
 
-# 6. Back in the latest run: re-run it, the dialog is pre-filled from that run
+# 7. Back in the latest run: re-run it, the dialog is pre-filled from that run
 Type "r"
 Sleep 3s
 Enter
 Sleep 4s
 
-# 7. Stop after a few lines (the interrupted run joins the list)
+# 8. Stop after a few lines (the interrupted run joins the list)
 Type "q"
 Sleep 2s
 Type "q"
 Sleep 2s
 Type "q"
+Sleep 500ms
+
+# 9. The exported run is a plain text file
+Type "clear" Enter
+Type "head -n 14 before_the_fix.txt" Enter
+Sleep 6s
+Hide
+Type "rm before_the_fix.txt" Enter
 Sleep 500ms
