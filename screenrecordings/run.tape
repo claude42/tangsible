@@ -2,11 +2,11 @@
 #
 # Render from the repository root (needs vhs, ttyd, ffmpeg, tangsible on PATH):
 #
-#   vhs screenrecordings/demo.tape
+#   vhs screenrecordings/run.tape
 #
 # Everything runs on localhost under /tmp/tangsible-demo; see demo-project/.
 
-Output screenrecordings/output/demo.gif
+Output screenrecordings/output/run.gif
 
 Require tangsible
 

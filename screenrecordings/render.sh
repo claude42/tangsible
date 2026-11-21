@@ -26,7 +26,7 @@ printf '[containers]\nnetns="host"\n' >"$work/containers.conf"
 export CONTAINERS_CONF="$work/containers.conf"
 
 if [ $# -gt 0 ]; then tapes=("$@"); else
-	tapes=(demo stats hosts revisit template vault debug ee)
+	tapes=(run stats hosts revisit template vault debug ee)
 fi
 
 failed=()
