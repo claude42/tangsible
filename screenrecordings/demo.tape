@@ -22,7 +22,7 @@ Set Theme "iTerm2 Dark Background"
 
 # Setup, not part of the recording: clean state, short prompt
 Hide
-Type "export PS1='$ ' TANGSIBLE_CALLBACK_DIR=$PWD/callback" Enter
+Type "export PS1='$ '" Enter
 Type "rm -rf /tmp/tangsible-demo && cd screenrecordings/demo-project && rm -rf .tangsible && clear" Enter
 Sleep 1s
 Show

@@ -57,6 +57,8 @@ callback-tests/__pycache__/
 # State `tangsible run` leaves in the screen-recording demo project
 # (screenrecordings/demo.tape resets it before every render).
 /screenrecordings/demo-project/.tangsible/
+/screenrecordings/demo-ee-project/.tangsible/
+/screenrecordings/demo-ee-project/execution-environment.yml*
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

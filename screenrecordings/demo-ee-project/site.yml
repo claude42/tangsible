@@ -1,0 +1,36 @@
+- name: Report on the service
+  hosts: localhost
+  gather_facts: false
+  vars:
+    report_dir: /tmp/tangsible-ee-demo
+  tasks:
+    - name: Create the report directory
+      ansible.builtin.file:
+        path: "{{ report_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write the service settings
+      community.general.ini_file:
+        path: "{{ report_dir }}/service.ini"
+        section: server
+        option: "{{ item.key }}"
+        value: "{{ item.value }}"
+        mode: "0644"
+      loop:
+        - { key: listen, value: "0.0.0.0:8080" }
+        - { key: workers, value: "4" }
+
+    - name: Read the allowed networks
+      community.general.read_csv:
+        path: "{{ playbook_dir }}/networks.csv"
+        key: name
+      register: networks
+
+    - name: Show the allowed networks
+      ansible.builtin.debug:
+        msg: "{{ networks.dict.keys() | list }}"
+
+    - name: Count the settings
+      ansible.builtin.command: wc -l {{ report_dir }}/service.ini
+      changed_when: false

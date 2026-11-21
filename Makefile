@@ -5,15 +5,15 @@ build:
 	go build -o $(BIN) .
 
 # Render every screenrecordings/*.tape into screenrecordings/output/ (not
-# committed), plus a poster PNG for each. Needs vhs, ttyd and ffmpeg; uses the freshly built binary.
+# committed), plus a poster PNG for each. Needs vhs, ttyd and ffmpeg, and for
+# the ee-* tapes podman, ansible-builder and network access (render.sh); uses
+# the freshly built binary. `screenrecordings/render.sh stats hosts` renders
+# only the tapes named.
 .PHONY: demos
-demos: build
+demos:
 	@command -v vhs >/dev/null || { echo "vhs not found (https://github.com/charmbracelet/vhs)"; exit 1; }
 	@mkdir -p screenrecordings/output
-	@for t in screenrecordings/*.tape; do \
-		echo "==> $$t"; PATH="$(CURDIR):$$PATH" vhs "$$t" || exit 1; \
-	done
-	@screenrecordings/posters.sh
+	@screenrecordings/render.sh
 
 .PHONY: install
 install: build

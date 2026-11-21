@@ -46,14 +46,25 @@ Down
 Enter
 Sleep 3s
 
-# 2. Open a host: summary, groups, plays, variables, everything known
+# 2. Open a host: summary, then every fact, the variables with where each is
+# defined, groups and plays
 Down
 Enter
-Sleep 5s
+Sleep 4s
 Tab
+Sleep 1500ms
+PageDown@600ms 4
+Sleep 1500ms
+Type "/"
+Sleep 500ms
+Type "distribution"
+Sleep 500ms
+Enter
 Sleep 3s
+Escape
+Sleep 500ms
 Tab
-Sleep 3s
+Sleep 4s
 Tab
 Sleep 3s
 Tab
