@@ -88,7 +88,7 @@ func containsBaseFlag(args []string) bool {
 }
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest]"
+const Usage = "usage: tangsible ee init [--base image] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [playbook.yml]"
 
 // RunEEVerb is `tangsible ee init ...`; it returns the exit code. (ee verify
 // is internal/eeverify's.)

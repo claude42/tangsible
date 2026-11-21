@@ -33,17 +33,17 @@ type VerbInfo struct {
 
 // VerbHelpTable lists every verb in the order help prints them.
 var VerbHelpTable = []VerbInfo{
-	{VerbRun, "tangsible run [playbook.yml] [--start-at-play name] [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook args ...]", "run a playbook with a live, navigable tree UI"},
-	{VerbRerun, "tangsible rerun [playbook.yml or role name] [--start-at-play name] [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook args ...]", "repeat the last playbook run"},
-	{VerbRole, "tangsible role role_name [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook args ...]", "run a single role in isolation"},
-	{VerbTemplate, "tangsible template path [hostSpec] [ansible-playbook args ...]", "debug a Jinja2 template against real inventory hosts"},
-	{VerbHost, "tangsible host hostname [playbook.yml] [ansible-playbook args ...]", "everything Tangsible can determine about one host"},
-	{VerbHosts, "tangsible hosts [playbook.yml] [ansible-playbook args ...]", "browse every inventory host"},
-	{VerbInventory, "tangsible inventory [playbook.yml] [ansible-playbook args ...]", "browse the whole inventory as a tree"},
-	{VerbRevisit, "tangsible revisit [playbook.yml or role name] [--tags | -t tags] [--limit | -l hosts]", "browse and reopen previous runs"},
-	{VerbVault, "tangsible vault filename [--vault-password-file path | --ask-vault-pass]", "edit individually vault-encrypted variables in place"},
-	{VerbEE, "tangsible ee <init | verify | build | push> [playbook.yml] [options ...]", "draft an execution-environment.yml from a playbook, check it, build it, or push it"},
-	{VerbDebug, "tangsible debug [playbook.yml] [ansible-playbook args ...]", "step through a playbook, set breakpoints, watch variables"},
+	{VerbRun, "tangsible run [--start-at-play name] [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook options ...] [playbook.yml]", "run a playbook with a live, navigable tree UI"},
+	{VerbRerun, "tangsible rerun [--start-at-play name] [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook options ...] [playbook.yml or role name]", "repeat the last playbook run"},
+	{VerbRole, "tangsible role [--dialog | --no-dialog] [--ee image | --no-ee] [ansible-playbook options ...] role_name", "run a single role in isolation"},
+	{VerbTemplate, "tangsible template [ansible-playbook options ...] path [hostSpec]", "debug a Jinja2 template against real inventory hosts"},
+	{VerbHost, "tangsible host [ansible-playbook options ...] hostname [playbook.yml]", "everything Tangsible can determine about one host"},
+	{VerbHosts, "tangsible hosts [ansible-playbook options ...] [playbook.yml]", "browse every inventory host"},
+	{VerbInventory, "tangsible inventory [ansible-playbook options ...] [playbook.yml]", "browse the whole inventory as a tree"},
+	{VerbRevisit, "tangsible revisit [--tags | -t tags] [--limit | -l hosts] [playbook.yml or role name]", "browse and reopen previous runs"},
+	{VerbVault, "tangsible vault [--vault-password-file path | --ask-vault-pass] filename", "edit individually vault-encrypted variables in place"},
+	{VerbEE, "tangsible ee <init | verify | build | push> [options ...] [playbook.yml]", "draft an execution-environment.yml from a playbook, check it, build it, or push it"},
+	{VerbDebug, "tangsible debug [ansible-playbook options ...] [playbook.yml]", "step through a playbook, set breakpoints, watch variables"},
 	{VerbVersion, "tangsible version", "print version information about tangsible and the components it uses"},
 	{VerbHelp, "tangsible help [verb]", "list all verbs, or show one verb's synopsis"},
 }

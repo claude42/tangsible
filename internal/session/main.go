@@ -62,7 +62,7 @@ func Main(build BuildInfo) {
 	}
 	v, args, ok := config.ParseVerb(os.Args[1:])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: tangsible <%s> [args ...]\nRun 'tangsible help' for each verb's synopsis.\n", config.VerbNames())
+		fmt.Fprintf(os.Stderr, "usage: tangsible <%s> [options ...] [arguments ...]\nRun 'tangsible help' for each verb's synopsis.\n", config.VerbNames())
 		os.Exit(2)
 	}
 	if v == config.VerbHelp {

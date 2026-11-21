@@ -101,7 +101,7 @@ func TestWriteHelp(t *testing.T) {
 	if !WriteHelp(&one, "vault") {
 		t.Fatal("WriteHelp(vault) = false")
 	}
-	if !strings.Contains(one.String(), "tangsible vault filename") || strings.Contains(one.String(), "tangsible run") {
+	if !strings.Contains(one.String(), "ask-vault-pass] filename") || strings.Contains(one.String(), "tangsible run") {
 		t.Errorf("per-verb help = %q", one.String())
 	}
 

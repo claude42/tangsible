@@ -29,7 +29,7 @@ import (
 )
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee verify [playbook.yml] [-f file] [--keep] [--no-cache] [--show-output] [ansible-playbook args ...]"
+const Usage = "usage: tangsible ee verify [-f file] [--keep] [--no-cache] [--show-output] [ansible-playbook options ...] [playbook.yml]"
 
 // DefaultFile is the definition verified when -f is not given.
 const DefaultFile = "execution-environment.yml"
