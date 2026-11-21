@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-ee" "1" "2026-11-20" "Tangsible" "Tangsible Manual"
+.TH "tangsible-ee" "1" "2026-11-21" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,11 +13,11 @@ tangsible-ee - draft an execution-environment.\&yml from a playbook, check it, b
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible ee\fR <init | verify | build | push> [\fIplaybook.\&yml\fR] [\fIoptions\fR .\&.\&.\&]
+\fBtangsible ee\fR <init | verify | build | push> [\fIoptions\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .PP
-\fBtangsible ee init\fR [\fIplaybook.\&yml\fR] [--base \fIimage\fR] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest]
+\fBtangsible ee init\fR [--base \fIimage\fR] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [\fIplaybook.\&yml\fR]
 .br
-\fBtangsible ee verify\fR [\fIplaybook.\&yml\fR] [-f \fIfile\fR] [--keep] [--no-cache] [--show-output] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible ee verify\fR [-f \fIfile\fR] [--keep] [--no-cache] [--show-output] [\fIansible-playbook options\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .br
 \fBtangsible ee build\fR [-f \fIfile\fR] [-t \fItag\fR .\&.\&.\&] [--no-cache] [--show-output]
 .br

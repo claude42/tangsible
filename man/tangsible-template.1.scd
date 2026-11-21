@@ -6,7 +6,7 @@ tangsible-template - debug a Jinja2 template against real inventory hosts
 
 # SYNOPSIS
 
-*tangsible template* _path_ [_hostSpec_] [_ansible-playbook args_ ...]
+*tangsible template* [_ansible-playbook options_ ...] _path_ [_hostSpec_]
 
 # DESCRIPTION
 

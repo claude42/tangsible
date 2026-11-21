@@ -6,7 +6,7 @@ tangsible-rerun - repeat the last playbook run
 
 # SYNOPSIS
 
-*tangsible rerun* [_playbook.yml or role name_] [--start-at-play _name_] [--dialog | --no-dialog] [--ee _image_ | --no-ee] [_ansible-playbook args_ ...]
+*tangsible rerun* [--start-at-play _name_] [--dialog | --no-dialog] [--ee _image_ | --no-ee] [_ansible-playbook options_ ...] [_playbook.yml or role name_]
 
 # DESCRIPTION
 

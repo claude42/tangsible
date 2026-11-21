@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-host" "1" "2026-10-15" "Tangsible" "Tangsible Manual"
+.TH "tangsible-host" "1" "2026-11-21" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-host - everything Tangsible can determine about one host
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible host\fR \fIhostname\fR [\fIplaybook.\&yml\fR] [\fIansible-playbook args\fR .\&.\&.\&]
+\fBtangsible host\fR [\fIansible-playbook options\fR .\&.\&.\&] \fIhostname\fR [\fIplaybook.\&yml\fR]
 .PP
 .SH DESCRIPTION
 .PP
@@ -33,18 +33,6 @@ Live-gathered facts (FQDN, IP addresses, OS, architecture, RAM,
 virtualization, and more), fetched from the host.\&
 .PP
 .RE
-\fBFacts\fR
-.RS 4
-Every gathered fact, as YAML.\&
-.PP
-.RE
-\fBVariables\fR
-.RS 4
-The variables defined for this host in the inventory, as YAML, each with the
-file and line where it is defined.\&
-Vaulted values are shown as \fB<vaulted>\fR.\&
-.PP
-.RE
 \fBGroups\fR
 .RS 4
 Every inventory group this host belongs to, direct or transitive —
@@ -56,6 +44,17 @@ group-centric format of the inventory file.\&
 .RS 4
 Every play in \fIplaybook.\&yml\fR that would actually run against this
 host.\&
+.PP
+.RE
+\fBhost_vars\fR
+.RS 4
+The host'\&s own variables from the inventory, then its \fBhost_vars\fR files, if any are found alongside the
+playbook or inventory.\&
+.PP
+.RE
+\fBEverything known\fR
+.RS 4
+Raw output from \fBansible-inventory --host\fR \fIhostname\fR.\&
 .PP
 .RE
 .SH KEY BINDINGS

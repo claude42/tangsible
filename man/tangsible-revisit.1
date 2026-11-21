@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-revisit" "1" "2026-09-05" "Tangsible" "Tangsible Manual"
+.TH "tangsible-revisit" "1" "2026-11-21" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible-revisit - browse and reopen previous runs
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible revisit\fR [\fIplaybook.\&yml or role name\fR] [--tags | -t \fItags\fR] [--limit | -l \fIhosts\fR]
+\fBtangsible revisit\fR [--tags | -t \fItags\fR] [--limit | -l \fIhosts\fR] [\fIplaybook.\&yml or role name\fR]
 .PP
 .SH DESCRIPTION
 .PP
@@ -30,7 +30,19 @@ runs whose own recorded tags/hosts overlap the given value.\&
 Once a run is open, every normal live-tree key applies (see
 \fBtangsible-run\fR(1)), including \fBr\fR to rerun it (starting a real, live
 invocation from that point) and \fBd\fR to diff it against another recorded
-run.\& 
+run.\&
+.PP
+In the list, \fBR\fR gives the selected run a name (shown before its command
+line; an empty name clears it), \fBDelete\fR or \fBBackspace\fR removes it together
+with its saved files (after a confirmation), and \fBE\fR exports it to one plain
+text file in the current directory.\&
+.PP
+An export holds a header, the ansible output (colors stripped), stderr and,
+last, the saved event stream.\& It can be read in any editor, and
+\fBtangsible revisit\fR \fIexported-run.\&txt\fR opens it as a frozen tree without
+touching the recorded history.\& It contains task results; check it for
+secrets before sharing.\& The source of a task is only shown if the playbook
+is also present locally.\&
 .PP
 .SH EXIT STATUS
 .PP

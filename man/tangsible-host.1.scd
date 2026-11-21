@@ -6,7 +6,7 @@ tangsible-host - everything Tangsible can determine about one host
 
 # SYNOPSIS
 
-*tangsible host* _hostname_ [_playbook.yml_] [_ansible-playbook args_ ...]
+*tangsible host* [_ansible-playbook options_ ...] _hostname_ [_playbook.yml_]
 
 # DESCRIPTION
 

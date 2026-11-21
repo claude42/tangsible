@@ -6,7 +6,7 @@ tangsible - a live terminal UI for ansible-playbook
 
 # SYNOPSIS
 
-*tangsible* _verb_ [_args_ ...]
+*tangsible* _verb_ [_options_ ...] [_arguments_ ...]
 
 # DESCRIPTION
 
@@ -17,6 +17,8 @@ It is a development and troubleshooting interface for *ansible-playbook*, not a 
 In addition, tangsible provides useful utilities to rerun / analyze previous playbook runs, debug Jinja2 template, get host information and easily edit individually encrypted variables.
 
 Every _verb_ below is documented in its own manual page. This page covers what all of them have in common: configuration, environment variables, and files.
+
+Options may come before or after a verb's positional arguments (the playbook, role, hostname or file); the manual pages list them first. *--* ends the options.
 
 # VERBS
 

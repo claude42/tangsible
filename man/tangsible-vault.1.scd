@@ -6,7 +6,7 @@ tangsible-vault - edit individually vault-encrypted variables in place
 
 # SYNOPSIS
 
-*tangsible vault* _filename_ [--vault-password-file _path_ | --ask-vault-pass]
+*tangsible vault* [--vault-password-file _path_ | --ask-vault-pass] _filename_
 
 # DESCRIPTION
 

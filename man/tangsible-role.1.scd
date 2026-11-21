@@ -6,7 +6,7 @@ tangsible-role - run a single role in isolation
 
 # SYNOPSIS
 
-*tangsible role* _role_name_ [--dialog | --no-dialog] [--ee _image_ | --no-ee] [_ansible-playbook args_ ...]
+*tangsible role* [--dialog | --no-dialog] [--ee _image_ | --no-ee] [_ansible-playbook options_ ...] _role_name_
 
 # DESCRIPTION
 

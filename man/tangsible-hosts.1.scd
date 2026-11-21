@@ -6,7 +6,7 @@ tangsible-hosts - browse every inventory host
 
 # SYNOPSIS
 
-*tangsible hosts* [_playbook.yml_] [_ansible-playbook args_ ...]
+*tangsible hosts* [_ansible-playbook options_ ...] [_playbook.yml_]
 
 # DESCRIPTION
 

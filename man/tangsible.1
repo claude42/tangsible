@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible" "1" "2026-11-19" "Tangsible" "Tangsible Manual"
+.TH "tangsible" "1" "2026-11-21" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -13,7 +13,7 @@ tangsible - a live terminal UI for ansible-playbook
 .PP
 .SH SYNOPSIS
 .PP
-\fBtangsible\fR \fIverb\fR [\fIargs\fR .\&.\&.\&]
+\fBtangsible\fR \fIverb\fR [\fIoptions\fR .\&.\&.\&] [\fIarguments\fR .\&.\&.\&]
 .PP
 .SH DESCRIPTION
 .PP
@@ -24,6 +24,8 @@ It is a development and troubleshooting interface for \fBansible-playbook\fR, no
 In addition, tangsible provides useful utilities to rerun / analyze previous playbook runs, debug Jinja2 template, get host information and easily edit individually encrypted variables.\&
 .PP
 Every \fIverb\fR below is documented in its own manual page.\& This page covers what all of them have in common: configuration, environment variables, and files.\&
+.PP
+Options may come before or after a verb'\&s positional arguments (the playbook, role, hostname or file); the manual pages list them first.\& \fB--\fR ends the options.\&
 .PP
 .SH VERBS
 .PP

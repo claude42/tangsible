@@ -6,7 +6,7 @@ tangsible-run - run a playbook with a live, navigable tree UI
 
 # SYNOPSIS
 
-*tangsible run* [_playbook.yml_] [--start-at-play _name_] [--dialog | --no-dialog] [--ee _image_ | --no-ee] [_ansible-playbook args_ ...]
+*tangsible run* [--start-at-play _name_] [--dialog | --no-dialog] [--ee _image_ | --no-ee] [_ansible-playbook options_ ...] [_playbook.yml_]
 
 # DESCRIPTION
 
@@ -14,6 +14,8 @@ tangsible-run - run a playbook with a live, navigable tree UI
 as a live tree of plays → tasks → hosts, updating incrementally as the run
 proceeds. Any trailing arguments are passed straight through to
 *ansible-playbook* unchanged.
+
+Options may also come before the playbook, as in *tangsible run --ee* _image_ *site.yml*: the playbook is the first argument that is neither an option nor an option's value, and *--* ends the options.
 
 # ADDITIONAL OPTIONS
 

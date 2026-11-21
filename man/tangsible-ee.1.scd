@@ -6,10 +6,10 @@ tangsible-ee - draft an execution-environment.yml from a playbook, check it, bui
 
 # SYNOPSIS
 
-*tangsible ee* <init | verify | build | push> [_playbook.yml_] [_options_ ...]
+*tangsible ee* <init | verify | build | push> [_options_ ...] [_playbook.yml_]
 
-*tangsible ee init* [_playbook.yml_] [--base _image_] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest]++
-*tangsible ee verify* [_playbook.yml_] [-f _file_] [--keep] [--no-cache] [--show-output] [_ansible-playbook args_ ...]++
+*tangsible ee init* [--base _image_] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [_playbook.yml_]++
+*tangsible ee verify* [-f _file_] [--keep] [--no-cache] [--show-output] [_ansible-playbook options_ ...] [_playbook.yml_]++
 *tangsible ee build* [-f _file_] [-t _tag_ ...] [--no-cache] [--show-output]++
 *tangsible ee push* [-f _file_] [-y | --yes]
 

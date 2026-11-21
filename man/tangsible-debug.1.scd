@@ -6,7 +6,7 @@ tangsible-debug - step through a playbook, set breakpoints, watch variables.
 
 # SYNOPSIS
 
-*tangsible debug* [_playbook.yml_] [_ansible-playbook args_ ...]
+*tangsible debug* [_ansible-playbook options_ ...] [_playbook.yml_]
 
 # DESCRIPTION
 

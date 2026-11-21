@@ -6,7 +6,7 @@ tangsible-inventory - browse the whole inventory as a tree
 
 # SYNOPSIS
 
-*tangsible inventory* [_playbook.yml_] [_ansible-playbook args_ ...]
+*tangsible inventory* [_ansible-playbook options_ ...] [_playbook.yml_]
 
 # DESCRIPTION
 

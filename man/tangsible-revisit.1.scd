@@ -6,7 +6,7 @@ tangsible-revisit - browse and reopen previous runs
 
 # SYNOPSIS
 
-*tangsible revisit* [_playbook.yml or role name_] [--tags | -t _tags_] [--limit | -l _hosts_]
+*tangsible revisit* [--tags | -t _tags_] [--limit | -l _hosts_] [_playbook.yml or role name_]
 
 # DESCRIPTION
 
