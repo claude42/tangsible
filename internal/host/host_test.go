@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -46,11 +47,14 @@ func TestParseHostArgs(t *testing.T) {
 		{"hostname, playbook, and flags", []string{"web1", "site.yml", "-e", "x=1"}, "web1", "site.yml", []string{"-e", "x=1"}, true},
 		{"no args", nil, "", "", nil, false},
 		{"flag-shaped first arg", []string{"-i", "inv.ini"}, "", "", nil, false},
+		{"options before hostname", []string{"-i", "inv.ini", "web1"}, "web1", "", []string{"-i", "inv.ini"}, true},
+		{"options before hostname and playbook", []string{"-i", "inv.ini", "web1", "site.yml"}, "web1", "site.yml", []string{"-i", "inv.ini"}, true},
+		{"options between hostname and playbook", []string{"web1", "--ee", "img", "site.yml", "-v"}, "web1", "site.yml", []string{"--ee", "img", "-v"}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			host, playbook, rest, ok := ParseHostArgs(c.args)
-			if ok != c.wantOK || host != c.wantHost || playbook != c.wantPlaybook || !reflect.DeepEqual(rest, c.wantRest) {
+			if ok != c.wantOK || host != c.wantHost || playbook != c.wantPlaybook || !slices.Equal(rest, c.wantRest) {
 				t.Errorf("parseHostArgs(%v) = (%q, %q, %v, %v), want (%q, %q, %v, %v)",
 					c.args, host, playbook, rest, ok, c.wantHost, c.wantPlaybook, c.wantRest, c.wantOK)
 			}

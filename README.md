@@ -202,6 +202,8 @@ Ansible arguments can be passed after the playbook as usual:
 ```
 tangsible run site.yml -i inventory.ini --limit webservers --tags deploy
 ```
+Options may also come before the playbook (`tangsible run -i inventory.ini site.yml`); `--` ends the options.
+
 
 Tangsible passes arguments through to ansible-playbook, so your normal
 inventory, tag, limit and verbosity options continue to work.

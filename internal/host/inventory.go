@@ -370,7 +370,7 @@ func flattenInventoryRows(root *invNode, pingKnown, pingOK map[string]bool, sele
 // HostVerb.md), the exact same shape RunHostsVerb already uses for
 // "hosts", via config.SplitPlaybookArgs.
 func RunInventoryVerb(args []string) int {
-	playbookArg, rest, _ := config.SplitPlaybookArgs(args)
+	playbookArg, rest, _ := config.SplitPlaybookArgsAmongOptions(args)
 	playbook := playbookArg
 	if playbook == "" {
 		playbook, _ = config.ResolvePlaybook()

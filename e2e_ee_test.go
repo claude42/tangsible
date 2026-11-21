@@ -143,7 +143,7 @@ func TestE2E_EE_RunShowsIndicatorAndCompletes(t *testing.T) {
 	}
 	// The same four buckets a host run reports for outcomes.yml - events
 	// really did arrive over the FIFO.
-	if line := lineContaining(got, "localhost ("); !strings.Contains(line, "changed=2") || !strings.Contains(line, "failed=1") {
+	if line := lineContaining(got, "ok="); !strings.Contains(line, "changed=2") || !strings.Contains(line, "failed=1") {
 		t.Errorf("summary = %q, want changed=2 and failed=1", line)
 	}
 

@@ -86,8 +86,13 @@ system -> built-in default. Unknown keys and invalid values fall back to the def
 
 The playbook argument is optional for `run`/`rerun`/`host`: `$TANGSIBLE_PLAYBOOK`
 -> `default_playbook` (cascaded) -> `./site.yml` (`ResolvePlaybook`).
-`SplitPlaybookArgs` decides by shape: empty or starting with `-` means "no
-playbook, all passthrough".
+`run`/`rerun`/`role`/`debug`/`host`/`hosts`/`inventory`/`ee verify` find the playbook with
+`SplitPlaybookArgsAmongOptions` (`design-docs/ImplicitRun.md`): the first
+argument that is neither a flag nor a flag's value, so options may come
+first; the value-taking flags are a static table
+(`internal/config/playbookargs.go`, a test compares it with `ansible-playbook
+--help`; update it with new flags). `revisit` still uses
+`SplitPlaybookArgs` (playbook is `args[0]`, a leading `-` means none); `template`, `vault` and `ee init/build/push` have their own parsers.
 
 `.tangsible/state.toml` (history, app-owned, gitignored) is deliberately
 separate from `config.toml` (user-authored, never written by tangsible).

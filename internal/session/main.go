@@ -366,15 +366,14 @@ func Main(build BuildInfo) {
 
 	switch v {
 	case config.VerbRun:
-		// The playbook is normally args[0] (i.e. os.Args[2], after the
-		// Verb), but doesn't have to be - SplitPlaybookArgs treats a
-		// missing or flag-shaped first argument as "none given
-		// positionally" and ResolvePlaybook takes over (see resolve.go for
+		// The playbook is the first argument that is neither a flag nor a
+		// flag's value (SplitPlaybookArgsAmongOptions); none given
+		// positionally means ResolvePlaybook takes over (see resolve.go for
 		// the full TANGSIBLE_PLAYBOOK/.tangsible/config.toml/
 		// $XDG_CONFIG_HOME/site.yml cascade).
 		var rest []string
 		var explicit bool
-		playbook, rest, explicit = config.SplitPlaybookArgs(args)
+		playbook, rest, explicit = config.SplitPlaybookArgsAmongOptions(args)
 		if !explicit {
 			playbook, _ = config.ResolvePlaybook()
 			if playbook == "" {
@@ -497,7 +496,7 @@ func Main(build BuildInfo) {
 		// shape-based rule (a missing or flag-shaped first argument means
 		// nothing was given) applies identically here - a role name can't
 		// start with '-' in practice either.
-		roleName, rest, explicit := config.SplitPlaybookArgs(args)
+		roleName, rest, explicit := config.SplitPlaybookArgsAmongOptions(args)
 		if !explicit {
 			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRole))
 			os.Exit(2)

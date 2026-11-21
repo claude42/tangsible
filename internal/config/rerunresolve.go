@@ -78,7 +78,7 @@ type RerunResolution struct {
 // here, no special-casing needed: historyStringToArgs("") is nil, and
 // parsePassthroughArgs(nil) is the zero parsedPassthroughArgs.
 func ResolveRerun(args []string, cfg StateConfig) (res RerunResolution, ok bool) {
-	playbook, cliRest, explicit := SplitPlaybookArgs(args)
+	playbook, cliRest, explicit := SplitPlaybookArgsAmongOptions(args)
 	cliParsed := ParsePassthroughArgs(cliRest)
 
 	var histParsed ParsedPassthroughArgs

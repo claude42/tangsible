@@ -80,7 +80,7 @@ func ParseArgs(args []string) (Options, error) {
 			rest = append(rest, a)
 		}
 	}
-	playbook, passthrough, _ := config.SplitPlaybookArgs(rest)
+	playbook, passthrough, _ := config.SplitPlaybookArgsAmongOptions(rest)
 	o.Playbook = playbook
 	if len(passthrough) > 0 {
 		o.Args = passthrough

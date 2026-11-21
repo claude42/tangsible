@@ -97,7 +97,7 @@ type SessionPrep struct {
 // caller is expected to wire it the same way a role stub's own cleanup
 // already is (session/main.go's "cleanup, if non-nil" convention).
 func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
-	playbookArg, rest, explicit := config.SplitPlaybookArgs(args)
+	playbookArg, rest, explicit := config.SplitPlaybookArgsAmongOptions(args)
 	if !explicit {
 		playbookArg, _ = config.ResolvePlaybook()
 		if playbookArg == "" {

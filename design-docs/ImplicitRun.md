@@ -1,6 +1,7 @@
 # Implicit `run`
 
-Status: **spec** (not implemented).
+Status: **spec** (not implemented). Includes the flag-before-playbook rule
+("Options before the playbook").
 
 ## Goal
 
@@ -40,10 +41,92 @@ error. Reasons:
   the verb wins. That is the documented, rare case.
 
 The implicit form is exactly `run` with `args` unchanged: the playbook is
-`args[0]` when it is not a flag (`SplitPlaybookArgs`), else it resolves through
+the first positional argument (`SplitPlaybookArgs`, see "Options before the
+playbook"), else it resolves through
 `TANGSIBLE_PLAYBOOK` / `default_playbook` / `./site.yml` (`ResolvePlaybook`);
 `--dialog`/`--no-dialog`, `--ee`/`--no-ee` and `--start-at-play` work as
 for `run`. History, run logs and `rerun` do not tell the forms apart.
+
+## Options before the playbook
+
+Today the playbook has to come first: `SplitPlaybookArgs` treats an `args[0]`
+starting with `-` as "no playbook given", so everything after it, a playbook
+included, is passthrough. `tangsible run --ee img site.yml` therefore resolves
+the default playbook, strips `--ee img` and appends the typed `site.yml` to
+it: ansible-playbook gets `site.yml site.yml` and plays it twice (any flag
+first does the same, `-i inv site.yml` too). With an implicit `run` (rule 2)
+a flag-first invocation becomes ordinary, so this is fixed here, not later.
+
+The rule: **the playbook is the first argument that is neither a flag nor a
+flag's value.** `SplitPlaybookArgs` walks `args` from the left:
+
+- `--` ends the options: the next argument is the playbook, the rest
+  passthrough (the `--` itself is dropped).
+- `--name=value` is one argument, skipped.
+- `--name` (long) or `-x` (short) that *takes a value* is skipped together with
+  the next argument; one that takes none is skipped alone.
+- A short cluster (`-vvv`, `-Kk`, `-ei`): letters are switches until one that
+  takes a value; if it is the last letter, the next argument is its value, if
+  letters follow it they are the value (`-ifile`, as ansible's argparse reads
+  it).
+- Anything else is the playbook. Arguments before it keep their order in
+  `rest`, arguments after it follow them, so ansible-playbook sees every
+  flag once, in the order typed, and the playbook once.
+- No such argument: no playbook given (`explicit` false), `rest` is all of
+  `args`, as today.
+
+`tangsible run site.yml -i hosts` is unchanged (the first argument is the
+playbook), as is every invocation that has no flag before the playbook.
+
+**Knowing which flags take a value.** Tangsible's own flags (`--ee` takes one;
+`--no-ee`, `--dialog`, `--no-dialog` none; `--start-at-play` one) are known in
+code. For `ansible-playbook`'s the table is a static list, one entry per
+flag, taken from `ansible-playbook --help`: every one is a switch or takes
+exactly one value (`--tags`, `-i`, `-e`, `-l`, `-u`, `--vault-id`, ... take
+one, repeating is allowed; `-v`, `--check`, `--diff`, `-K`, `-k` take none).
+Choices made:
+
+- **A flag not in the table is a switch.** That is what the old rule assumed
+  for everything, so an unknown (new) flag with a value before the playbook is
+  the one case that misreads, `--newflag val site.yml` takes `val` for the
+  playbook. A test compares the table with the installed
+  `ansible-playbook --help` (skipped without ansible) so the drift is caught
+  when the table is updated, not by a user.
+- **No runtime parsing of `--help`** in v1: one more process before every
+  start for a table that changes about once per ansible-core release. If drift
+  proves a problem, the same parser the test uses can feed a cached table
+  later.
+- **The verbs have one table each**, because they call different tools. v1
+  covers the verbs that spawn `ansible-playbook` and take a playbook: `run`,
+  `rerun`, `role`, `debug`, and (their passthrough is the same ansible-playbook
+  options) `host` (hostname first, then the playbook, each found by the walk),
+  `hosts`, `inventory` and `ee verify` (after its own flags are removed).
+  `revisit` (its first positional is a log or run, not a playbook; it
+  keeps the old rule) stays as is; `template`, `vault` and `ee init`/`build`/
+  `push` have their own flags and parsers and are unchanged for now.
+  `rerun` and `debug` have their own first-positional meaning, which the
+  implementation checks against the new rule (`rerunresolve.go`,
+  `debugverb.go`).
+- **Synthetic flags are stripped first** (`--dialog`, `--no-dialog`, `--ee X`,
+  `--no-ee`, `--start-at-play X`), as the code already does elsewhere, so
+  they never reach the walk as unknowns; their values cannot be mistaken for
+  the playbook.
+
+A value that looks like a playbook is still a value (`-e site.yml` is an extra
+variable file name; `-i a.yml site.yml` is an inventory and a playbook), and
+the playbook can still be an extensionless name (`tangsible run -i hosts site`),
+since the rule is positional, not by extension. The `.yml` test in "The rule"
+is only for the verb-less form's first argument.
+
+Examples, under implicit `run` or after `run`:
+
+```
+tangsible run --ee img site.yml      # playbook site.yml, passthrough: none (--ee is ours)
+tangsible -i hosts site.yml          # playbook site.yml, passthrough: -i hosts
+tangsible -i hosts -vv               # no playbook: default_playbook / site.yml, passthrough: -i hosts -vv
+tangsible -e @vars.yml -- site.yml   # playbook site.yml, passthrough: -e @vars.yml
+tangsible --check --diff site.yml    # playbook site.yml (switches skipped)
+```
 
 ## Bare `tangsible` opens the run dialog
 
@@ -74,7 +157,9 @@ ansible-playbook's own.
 
 ## What changes
 
-- `internal/config/resolve.go`: `ParseVerb` returns the implicit `run` (verb
+- `internal/config/resolve.go`: `SplitPlaybookArgs` takes the walk above (a
+  per-verb table of value-taking flags; a new small file next to it holds
+  `ansible-playbook`'s). `ParseVerb` returns the implicit `run` (verb
   `run`, `rest` = all args, `ok` true) under the rules above, plus a way for
   `session.Main` to know the invocation was bare (a third result or a separate
   `IsBareInvocation(args)`), so it can pass `verbDefault = true`.
@@ -91,6 +176,14 @@ ansible-playbook's own.
 
 ## Tests
 
+- `TestSplitPlaybookArgs`: playbook first (unchanged); `--ee img site.yml`,
+  `--ee=img site.yml`, `-i hosts site.yml`, `-ihosts site.yml`, `-vvv site.yml`,
+  `-vi hosts site.yml`, `-e a=1 -e b=2 site.yml`, `--check --diff site.yml`,
+  `-- site.yml`, only flags (no playbook), `-e site.yml` alone (value, no
+  playbook), an extensionless playbook, `rest` order, the unknown-flag case.
+  The table-versus-`--help` test (skipped without ansible).
+- e2e: `tangsible run --ee img site.yml` starts one play, not two (the
+  command line in the `o` view names the playbook once).
 - `TestParseVerb`: no args, `site.yml`, `SITE.YAML`, `-i`, `--dialog`,
   `--version`, a verb still a verb, `rrun` and `site` still rejected, a
   verb-named file after the verb (`run host`).

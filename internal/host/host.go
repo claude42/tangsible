@@ -55,20 +55,15 @@ import (
 // [-e ...]" (design-docs/HostVerb.md), the same shape parseTemplateArgs
 // (template.go) already uses for "<path> [<hostname>]", just with the two
 // positionals' roles swapped: hostname is only recognized when it's the
-// *first* leading positional; playbook only when it's the *second*,
-// immediately after hostname and before any flag-shaped token. ok is
-// false if no hostname was given at all (a missing or flag-shaped first
-// argument).
+// *first* positional; playbook only when it's the *second* (positionals
+// are found by config.SplitPlaybookArgsAmongOptions, so options may come
+// before either). ok is false if no hostname was given at all.
 func ParseHostArgs(args []string) (hostname, playbookArg string, rest []string, ok bool) {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+	hostname, remaining, ok := config.SplitPlaybookArgsAmongOptions(args)
+	if !ok {
 		return "", "", nil, false
 	}
-	hostname = args[0]
-	remaining := args[1:]
-	if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") {
-		playbookArg = remaining[0]
-		remaining = remaining[1:]
-	}
+	playbookArg, remaining, _ = config.SplitPlaybookArgsAmongOptions(remaining)
 	return hostname, playbookArg, remaining, true
 }
 
@@ -106,7 +101,7 @@ func RunHostVerb(args []string) int {
 // same call template.go's resolveInventoryHost already makes for its own
 // single-host resolution) and shows the list-then-detail flow.
 func RunHostsVerb(args []string) int {
-	playbookArg, rest, _ := config.SplitPlaybookArgs(args)
+	playbookArg, rest, _ := config.SplitPlaybookArgsAmongOptions(args)
 	playbook := playbookArg
 	if playbook == "" {
 		playbook, _ = config.ResolvePlaybook()

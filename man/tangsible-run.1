@@ -22,6 +22,8 @@ as a live tree of plays → tasks → hosts, updating incrementally as the run
 proceeds.\& Any trailing arguments are passed straight through to
 \fBansible-playbook\fR unchanged.\&
 .PP
+Options may also come before the playbook, as in \fBtangsible run --ee\fR \fIimage\fR \fBsite.\&yml\fR: the playbook is the first argument that is neither an option nor an option'\&s value, and \fB--\&\fR ends the options.\&
+.PP
 .SH ADDITIONAL OPTIONS
 .PP
 \fB--start-at-play\fR \fIname\fR
