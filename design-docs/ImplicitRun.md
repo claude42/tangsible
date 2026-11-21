@@ -41,7 +41,7 @@ error. Reasons:
   the verb wins. That is the documented, rare case.
 
 The implicit form is exactly `run` with `args` unchanged: the playbook is
-the first positional argument (`SplitPlaybookArgs`, see "Options before the
+the first positional argument (`SplitPlaybookArgsAmongOptions`, see "Options before the
 playbook"), else it resolves through
 `TANGSIBLE_PLAYBOOK` / `default_playbook` / `./site.yml` (`ResolvePlaybook`);
 `--dialog`/`--no-dialog`, `--ee`/`--no-ee` and `--start-at-play` work as
@@ -49,7 +49,7 @@ for `run`. History, run logs and `rerun` do not tell the forms apart.
 
 ## Options before the playbook
 
-Today the playbook has to come first: `SplitPlaybookArgs` treats an `args[0]`
+Today the playbook has to come first: `SplitPlaybookArgsAmongOptions` treats an `args[0]`
 starting with `-` as "no playbook given", so everything after it, a playbook
 included, is passthrough. `tangsible run --ee img site.yml` therefore resolves
 the default playbook, strips `--ee img` and appends the typed `site.yml` to
@@ -58,7 +58,7 @@ first does the same, `-i inv site.yml` too). With an implicit `run` (rule 2)
 a flag-first invocation becomes ordinary, so this is fixed here, not later.
 
 The rule: **the playbook is the first argument that is neither a flag nor a
-flag's value.** `SplitPlaybookArgs` walks `args` from the left:
+flag's value.** `SplitPlaybookArgsAmongOptions` walks `args` from the left:
 
 - `--` ends the options: the next argument is the playbook, the rest
   passthrough (the `--` itself is dropped).
@@ -104,8 +104,8 @@ Choices made:
   and `template` (path, then host spec) and `vault` (the file; the
   ansible-playbook table already has `--vault-password-file` as a
   value-taking flag, `--ask-vault-pass` as a switch). `revisit` (its first
-  positional is a log or run, not a playbook; it keeps the old rule) stays as
-  is. `ee init`, `build` and `push` parse their own flags in one loop that
+  positional is a playbook, role or export file; its filters `-l`/`--tags`
+  are in the same table). `ee init`, `build` and `push` parse their own flags in one loop that
   accepts them anywhere (`--base` and `-f`/`-t` consume their value), so
   they already behave this way.
   `rerun` and `debug` have their own first-positional meaning, which the
@@ -161,7 +161,7 @@ ansible-playbook's own.
 
 ## What changes
 
-- `internal/config/resolve.go`: `SplitPlaybookArgs` takes the walk above (a
+- `internal/config/resolve.go`: `SplitPlaybookArgsAmongOptions` takes the walk above (a
   per-verb table of value-taking flags; a new small file next to it holds
   `ansible-playbook`'s). `ParseVerb` returns the implicit `run` (verb
   `run`, `rest` = all args, `ok` true) under the rules above, plus a way for
@@ -180,7 +180,7 @@ ansible-playbook's own.
 
 ## Tests
 
-- `TestSplitPlaybookArgs`: playbook first (unchanged); `--ee img site.yml`,
+- `TestSplitPlaybookArgsAmongOptions`: playbook first (unchanged); `--ee img site.yml`,
   `--ee=img site.yml`, `-i hosts site.yml`, `-ihosts site.yml`, `-vvv site.yml`,
   `-vi hosts site.yml`, `-e a=1 -e b=2 site.yml`, `--check --diff site.yml`,
   `-- site.yml`, only flags (no playbook), `-e site.yml` alone (value, no

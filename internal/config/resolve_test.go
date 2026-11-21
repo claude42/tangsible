@@ -85,54 +85,6 @@ func TestParseVerb(t *testing.T) {
 	}
 }
 
-func TestSplitPlaybookArgs(t *testing.T) {
-	cases := []struct {
-		name         string
-		args         []string
-		wantPlaybook string
-		wantRest     []string
-		wantExplicit bool
-	}{
-		{
-			name:         "playbook followed by passthrough args",
-			args:         []string{"site.yml", "-v"},
-			wantPlaybook: "site.yml",
-			wantRest:     []string{"-v"},
-			wantExplicit: true,
-		},
-		{
-			name:         "first arg looks like a flag - no playbook given",
-			args:         []string{"-v"},
-			wantPlaybook: "",
-			wantRest:     []string{"-v"},
-			wantExplicit: false,
-		},
-		{
-			name:         "no args at all",
-			args:         nil,
-			wantPlaybook: "",
-			wantRest:     nil,
-			wantExplicit: false,
-		},
-		{
-			name:         "playbook with multiple passthrough args",
-			args:         []string{"myplaybook.yml", "-i", "hosts"},
-			wantPlaybook: "myplaybook.yml",
-			wantRest:     []string{"-i", "hosts"},
-			wantExplicit: true,
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			playbook, rest, explicit := SplitPlaybookArgs(c.args)
-			if playbook != c.wantPlaybook || !slices.Equal(rest, c.wantRest) || explicit != c.wantExplicit {
-				t.Errorf("splitPlaybookArgs(%v) = (%q, %v, %v), want (%q, %v, %v)",
-					c.args, playbook, rest, explicit, c.wantPlaybook, c.wantRest, c.wantExplicit)
-			}
-		})
-	}
-}
-
 func TestConfigHome(t *testing.T) {
 	t.Run("XDG_CONFIG_HOME set wins", func(t *testing.T) {
 		t.Setenv("XDG_CONFIG_HOME", "/custom/xdg/config")

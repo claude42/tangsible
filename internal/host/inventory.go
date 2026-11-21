@@ -368,7 +368,7 @@ func flattenInventoryRows(root *invNode, pingKnown, pingOK map[string]bool, sele
 // into an optional playbook and everything else as passthrough args -
 // "tangsible inventory [<playbook>] [-i ...] [-e ...]" (design-docs/
 // HostVerb.md), the exact same shape RunHostsVerb already uses for
-// "hosts", via config.SplitPlaybookArgs.
+// "hosts", via config.SplitPlaybookArgsAmongOptions.
 func RunInventoryVerb(args []string) int {
 	playbookArg, rest, _ := config.SplitPlaybookArgsAmongOptions(args)
 	playbook := playbookArg

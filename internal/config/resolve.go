@@ -413,21 +413,6 @@ func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 	}
 }
 
-// SplitPlaybookArgs splits args (everything after the verb) into the playbook path and
-// the remaining ansible-playbook passthrough args. Tangsible's calling
-// convention has always put the playbook first, with everything after it
-// passed straight through - so the only way to tell "no playbook given"
-// from "playbook given" without breaking that is: if args is empty or
-// its first element looks like a flag (starts with '-'), no playbook was
-// given positionally, and the whole of args is passthrough; otherwise
-// args[0] is the playbook, exactly as before this feature existed.
-func SplitPlaybookArgs(args []string) (playbook string, rest []string, explicit bool) {
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		return args[0], args[1:], true
-	}
-	return "", args, false
-}
-
 // ConfigHome implements the XDG Base Directory Specification's rule for
 // this exact case: $XDG_CONFIG_HOME if set and non-empty, else
 // $HOME/.config. Returns "" if neither can be determined (no HOME set),

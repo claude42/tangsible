@@ -144,3 +144,23 @@ func TestCsvOverlap(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveRevisitEntriesOptionsBeforeTarget(t *testing.T) {
+	cfg := config.StateConfig{History: []config.PlaybookHistory{
+		{Playbook: "site.yml", Invocations: []config.InvocationRecord{
+			{Args: "-l web1", Time: "2026-08-23T10:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-1"},
+			{Args: "-l db1", Time: "2026-08-23T11:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-2"},
+		}},
+		{Playbook: "other.yml", Invocations: []config.InvocationRecord{
+			{Args: "-l web1", Time: "2026-08-23T12:00:00Z", ExitCode: exitCodePtr(0), RunID: "run-3"},
+		}},
+	}}
+	got := ResolveRevisitEntries([]string{"-l", "web1", "site.yml"}, cfg)
+	if len(got) != 1 || got[0].RunID != "run-1" {
+		t.Errorf("ResolveRevisitEntries(-l web1 site.yml) = %+v, want only run-1", got)
+	}
+	got = ResolveRevisitEntries([]string{"--tags", "x", "-l", "web1"}, cfg)
+	if len(got) != 0 {
+		t.Errorf("a tag filter nothing recorded matches should list nothing, got %+v", got)
+	}
+}

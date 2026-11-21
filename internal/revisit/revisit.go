@@ -73,7 +73,7 @@ type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bo
 func RunRevisitVerb(args []string, newLiveTUI NewLiveTUIFunc) int {
 	// "tangsible revisit <export file>": open a shared run straight into its
 	// tree - no list, nothing recorded in history.
-	if target, _, explicit := config.SplitPlaybookArgs(args); explicit && IsExportFile(target) {
+	if target, _, explicit := config.SplitPlaybookArgsAmongOptions(args); explicit && IsExportFile(target) {
 		data, err := os.ReadFile(target)
 		var er *ExportedRun
 		if err == nil {

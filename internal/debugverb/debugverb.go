@@ -115,7 +115,7 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 	// Session's own REPL-driving calls block forever on a prompt that
 	// never arrives in the shape they expect, hanging rather than erroring
 	// cleanly. Rejected up front instead, the same "usage error" shape
-	// SplitPlaybookArgs' own missing-playbook case above uses.
+	// SplitPlaybookArgsAmongOptions' own missing-playbook case above uses.
 	for _, a := range rest {
 		if a == "--step" {
 			fmt.Fprintln(os.Stderr, "tangsible: debug does not support --step - its own breakpoint mechanism (not ansible-playbook's) is what pauses the run")

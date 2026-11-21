@@ -52,8 +52,8 @@ type RevisitEntry struct {
 // which is what makes "has a RunID" alone a reliable revisitability filter
 // here, with no filesystem access needed in this function at all.
 //
-// Filtering: an explicit positional playbook/role (same shape
-// SplitPlaybookArgs already uses for "run") keeps only that one target's
+// Filtering: an explicit positional playbook/role (found like
+// "run"'s playbook, options may come first) keeps only that one target's
 // own history. -l/--tags, parsed the same way ParsePassthroughArgs already
 // does elsewhere, keep only entries whose own recorded Args overlap - at
 // least one requested host, or one requested tag, is also present in that
@@ -61,7 +61,7 @@ type RevisitEntry struct {
 // --tags/-l OR semantics for a comma list, not a strict subset requirement.
 // Everything unset (a bare "tangsible revisit") means no filtering at all.
 func ResolveRevisitEntries(args []string, cfg config.StateConfig) []RevisitEntry {
-	target, rest, explicit := config.SplitPlaybookArgs(args)
+	target, rest, explicit := config.SplitPlaybookArgsAmongOptions(args)
 	filter := config.ParsePassthroughArgs(rest)
 
 	var entries []RevisitEntry

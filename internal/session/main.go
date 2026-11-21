@@ -492,10 +492,9 @@ func Main(build BuildInfo) {
 		// The role name is always required, positionally - unlike "run"'s
 		// playbook, there's no config/env fallback cascade for it
 		// (design-docs/Tangsible role.md only ever specifies
-		// "tangsible role <role_name>"). SplitPlaybookArgs's own
-		// shape-based rule (a missing or flag-shaped first argument means
-		// nothing was given) applies identically here - a role name can't
-		// start with '-' in practice either.
+		// "tangsible role <role_name>"). The role name is found like
+		// "run"'s playbook (SplitPlaybookArgsAmongOptions): the first
+		// argument that is neither a flag nor a flag's value.
 		roleName, rest, explicit := config.SplitPlaybookArgsAmongOptions(args)
 		if !explicit {
 			fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbRole))
