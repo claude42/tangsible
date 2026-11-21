@@ -20,12 +20,15 @@ func TestParseVaultArgs(t *testing.T) {
 		wantErr          bool
 	}{
 		{"no args", nil, "", "", false, true},
-		{"flag-shaped first arg", []string{"--vault-password-file", "x"}, "", "", false, true},
+		{"only flags, no filename", []string{"--vault-password-file", "x"}, "", "", false, true},
 		{"filename only", []string{"secrets.yml"}, "secrets.yml", "", false, false},
 		{"space-separated password file", []string{"secrets.yml", "--vault-password-file", "pw.txt"}, "secrets.yml", "pw.txt", false, false},
 		{"equals-form password file", []string{"secrets.yml", "--vault-password-file=pw.txt"}, "secrets.yml", "pw.txt", false, false},
 		{"ask pass", []string{"secrets.yml", "--ask-vault-pass"}, "secrets.yml", "", true, false},
 		{"both password sources rejected", []string{"secrets.yml", "--vault-password-file", "pw.txt", "--ask-vault-pass"}, "", "", false, true},
+		{"options before the filename", []string{"--vault-password-file", "pw.txt", "secrets.yml"}, "secrets.yml", "pw.txt", false, false},
+		{"ask pass before the filename", []string{"--ask-vault-pass", "secrets.yml"}, "secrets.yml", "", true, false},
+		{"password file value that looks like a file", []string{"--vault-password-file=pw.yml", "secrets.yml"}, "secrets.yml", "pw.yml", false, false},
 		{"dangling password file flag ignored", []string{"secrets.yml", "--vault-password-file"}, "secrets.yml", "", false, false},
 	}
 	for _, c := range cases {

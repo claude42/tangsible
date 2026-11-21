@@ -61,10 +61,19 @@ func TestParseTemplateArgs(t *testing.T) {
 			wantOK:   true,
 		},
 		{
-			name:     "a positional after a flag never becomes the hostname",
+			name:     "a positional after a flag is still the hostname",
 			args:     []string{"foo.j2", "-e", "x=1", "myhost"},
 			wantPath: "foo.j2",
-			wantRest: []string{"-e", "x=1", "myhost"},
+			wantHost: "myhost",
+			wantRest: []string{"-e", "x=1"},
+			wantOK:   true,
+		},
+		{
+			name:     "options before the path and the hostname",
+			args:     []string{"-i", "inv.ini", "foo.j2", "-e", "x=1", "web1,web2"},
+			wantPath: "foo.j2",
+			wantHost: "web1,web2",
+			wantRest: []string{"-i", "inv.ini", "-e", "x=1"},
 			wantOK:   true,
 		},
 		{

@@ -100,10 +100,14 @@ Choices made:
   covers the verbs that spawn `ansible-playbook` and take a playbook: `run`,
   `rerun`, `role`, `debug`, and (their passthrough is the same ansible-playbook
   options) `host` (hostname first, then the playbook, each found by the walk),
-  `hosts`, `inventory` and `ee verify` (after its own flags are removed).
-  `revisit` (its first positional is a log or run, not a playbook; it
-  keeps the old rule) stays as is; `template`, `vault` and `ee init`/`build`/
-  `push` have their own flags and parsers and are unchanged for now.
+  `hosts`, `inventory` and `ee verify` (after its own flags are removed),
+  and `template` (path, then host spec) and `vault` (the file; the
+  ansible-playbook table already has `--vault-password-file` as a
+  value-taking flag, `--ask-vault-pass` as a switch). `revisit` (its first
+  positional is a log or run, not a playbook; it keeps the old rule) stays as
+  is. `ee init`, `build` and `push` parse their own flags in one loop that
+  accepts them anywhere (`--base` and `-f`/`-t` consume their value), so
+  they already behave this way.
   `rerun` and `debug` have their own first-positional meaning, which the
   implementation checks against the new rule (`rerunresolve.go`,
   `debugverb.go`).

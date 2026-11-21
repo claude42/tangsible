@@ -32,10 +32,10 @@ import (
 // codebase), matching internal/config/rerunargs.go's ParsePassthroughArgs
 // style.
 func ParseVaultArgs(args []string) (filename, passwordFile string, askPass bool, err error) {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+	filename, args, ok := config.SplitPlaybookArgsAmongOptions(args)
+	if !ok {
 		return "", "", false, errors.New("a target file is required")
 	}
-	filename = args[0]
 
 	take := func(flag string, i int) (value string, consumed int, ok bool) {
 		a := args[i]
@@ -51,7 +51,7 @@ func ParseVaultArgs(args []string) (filename, passwordFile string, askPass bool,
 		return "", 0, false
 	}
 
-	for i := 1; i < len(args); {
+	for i := 0; i < len(args); {
 		if v, n, ok := take("--vault-password-file", i); ok {
 			passwordFile = v
 			i += n

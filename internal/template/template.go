@@ -52,24 +52,19 @@ import (
 // into the required template path, an optional hostname/group spec, and
 // everything else as passthrough args - per design-docs/Tangsible
 // template.md's own syntax, "tangsible template <path to template>
-// [<hostname>[,<hostname>|<group>|all]...] [-e...]": hostSpec is only
-// recognized when it's the *second* leading positional, immediately after
-// the path and before any flag-shaped token - anything after the first
-// flag-shaped token (or after hostSpec, if present) is rest. ok is false
-// if no template path was given at all (a missing or flag-shaped first
-// argument). hostSpec is returned as one raw string, still
+// [<hostname>[,<hostname>|<group>|all]...] [-e...]": the path is the first
+// positional and hostSpec the second, found by
+// config.SplitPlaybookArgsAmongOptions (so options may come before either);
+// everything else is rest. ok is false if no template path was given at
+// all. hostSpec is returned as one raw string, still
 // comma-unsplit - SplitHostTokens (below) does that, keeping this
 // function's own job purely about syntax-level positional/flag splitting.
 func ParseTemplateArgs(args []string) (templatePath, hostSpec string, rest []string, ok bool) {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+	templatePath, remaining, found := config.SplitPlaybookArgsAmongOptions(args)
+	if !found {
 		return "", "", nil, false
 	}
-	templatePath = args[0]
-	remaining := args[1:]
-	if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") {
-		hostSpec = remaining[0]
-		remaining = remaining[1:]
-	}
+	hostSpec, remaining, _ = config.SplitPlaybookArgsAmongOptions(remaining)
 	return templatePath, hostSpec, remaining, true
 }
 
