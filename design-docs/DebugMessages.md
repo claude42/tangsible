@@ -81,6 +81,10 @@ same place the recap's rows already live, `flattenRecapRows`), and only when
 the run produced at least one message. It does not depend on the exit code and
 is shown for a failed or interrupted run too.
 
+When the run ends, the cursor lands on the first message (not on the end of
+the recap), and Enter on a message opens the task's drill-down directly on its
+Output tab.
+
 ```
 Messages (3)
 ============

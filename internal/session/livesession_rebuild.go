@@ -626,7 +626,7 @@ func (s *liveSession) rebuild() {
 		// The debug messages of the run (design-docs/DebugMessages.md),
 		// below the host summary - also after a failed or interrupted run.
 		s.messageTasks = uikit.CollectDebugMessages(s.state)
-		s.currentRows = append(s.currentRows, flattenMessageRows(s.messageTasks, s.messagesCollapsed, func() { s.messagesCollapsed = !s.messagesCollapsed }, s.showOutputFromRecap)...)
+		s.currentRows = append(s.currentRows, flattenMessageRows(s.messageTasks, s.messagesCollapsed, func() { s.messagesCollapsed = !s.messagesCollapsed }, s.showOutputFromMessage)...)
 	} else {
 		s.messageTasks = nil
 	}
@@ -696,6 +696,17 @@ func (s *liveSession) rebuild() {
 				break
 			}
 			selectedIndex--
+		}
+		// A finished run with debug messages: the cursor goes on the first
+		// message, so Enter shows its task (the lines below a message
+		// are not selectable, the cursor would be nowhere).
+		if frozen && !s.messagesCollapsed {
+			for i, r := range s.currentRows {
+				if _, ok := r.ID.(messageGroupRowID); ok {
+					selectedIndex = i
+					break
+				}
+			}
 		}
 	} else {
 		for i, r := range s.currentRows {

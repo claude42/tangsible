@@ -646,6 +646,14 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 		s.showOutputWithOrigin(task, host, true)
 	}
 
+	// s.showOutputFromMessage is the Messages section's own: the same
+	// drill-down, opened on its Output tab (the message is what the user
+	// came for).
+	s.showOutputFromMessage = func(task *playbook.TaskNode, host string) {
+		s.showOutputWithOrigin(task, host, true)
+		s.outputTabs.SetActiveByName("Output")
+	}
+
 	// s.searchInput.SetDoneFunc fires on Enter/Esc/Tab/Backtab - InputField's
 	// own fixed set of "done" keys (confirmed against inputfield.go),
 	// reached because s.searchDialogOpen tells SetInputCapture below to let

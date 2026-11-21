@@ -318,6 +318,7 @@ type liveSession struct {
 	// NewLiveTUI's whole scope normally otherwise.
 	showOutput            func(*playbook.TaskNode, string)
 	showOutputFromRecap   func(*playbook.TaskNode, string)
+	showOutputFromMessage func(*playbook.TaskNode, string)
 	outputTask            *playbook.TaskNode
 	outputHost            string
 	outputTopBarPlainText string
