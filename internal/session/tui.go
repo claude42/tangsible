@@ -458,6 +458,8 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 
 	// The statistics screen ('s', livesession_stats.go): own page and bars,
 	// a tab pane over one TextView per statistic.
+	s.statsOverviewView = tview.NewTextView().SetDynamicColors(true)
+	s.statsOverviewView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.statsHostsView = tview.NewTextView().SetDynamicColors(true)
 	s.statsHostsView.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	s.statsPlaysView = tview.NewTextView().SetDynamicColors(true)
@@ -472,7 +474,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.statsPlayPicker = uikit.StyleDropDown(tview.NewDropDown().SetLabel("P\u0332lay: "))
 	s.statsTabs = uikit.NewTabbedPane()
 	s.statsTabs.SetHeaderStyle(s.chromeStyle, s.chromeColorName())
-	s.statsTabs.SetTabs(statsTabNames, []tview.Primitive{s.statsHostsView, s.statsPlaysView, s.statsTimelineView,
+	s.statsTabs.SetTabs(statsTabNames, []tview.Primitive{s.statsOverviewView, s.statsHostsView, s.statsPlaysView, s.statsTimelineView,
 		s.statsAllTasksView, uikit.NewHeaderedText(s.statsPlayPicker, s.statsTasksView)})
 	s.statsTopBar = tview.NewTextView().SetDynamicColors(true)
 	s.statsTopBar.SetTextStyle(s.chromeStyle)

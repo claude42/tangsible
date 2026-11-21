@@ -353,6 +353,7 @@ type liveSession struct {
 	statsTopBar       *tview.TextView
 	statsBottomBar    *tview.TextView
 	statsTabs         *uikit.TabbedPane
+	statsOverviewView *tview.TextView
 	statsHostsView    *tview.TextView
 	statsPlaysView    *tview.TextView
 	statsTimelineView *tview.TextView

@@ -163,9 +163,15 @@ Plays without timing are left out.
 * Tasks without timing are left out (nothing to rank them by). No play
   column: the name alone, so equal names in different plays look alike.
 
+### Host overview
+
+The first tab: the recap's per-host table (the lines below Summary in the
+tree - `recapHostRowText`, same column widths and colors), one line per host,
+not expandable. Shown whenever the screen is.
+
 ### Tab names and order
 
-Slowest hosts, Slowest plays, Play timeline, Slowest tasks, Task timeline: a
+Host overview, Slowest hosts, Slowest plays, Play timeline, Slowest tasks, Task timeline: a
 name says the scope (host/play/task) and the view (a ranking by time, or a
 timeline). The `###` headings above keep the names the tabs had while they
 were designed (Hosts, Plays, Timeline, Tasks, All tasks).

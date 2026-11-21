@@ -185,6 +185,7 @@ var statsHelp = uikit.HelpScreen{
 	Sections: []uikit.HelpSection{
 		{Title: "Tabs", Entries: []uikit.HelpEntry{
 			{Keys: "Tab / Shift-Tab", Desc: "Next / previous tab"},
+			{Keys: "Host overview", Desc: "The recap's per-host table: one line per host with its counts (ok, changed, failed, ...) and time"},
 			{Keys: "Slowest hosts", Desc: "The run's elapsed time, then the time each host spent on tasks, slowest first. A host that failed is red, an unreachable one maroon"},
 			{Keys: "Slowest plays", Desc: "How long each play took (first task start to last finish), slowest first. Red if a host failed in it, maroon if one was unreachable"},
 			{Keys: "Play timeline", Desc: "The plays in the order they ran, on a timeline: each bar starts when the play began and is as long as the play took (first task start to last finish). Colored as on Slowest plays"},

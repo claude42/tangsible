@@ -228,7 +228,7 @@ arrives.
 
 Opened with `s` from the tree once the run has ended (also in `revisit` and
 a finished `debug` session); design-docs/Stats.md. One tab per statistic -
-Slowest hosts, Slowest plays, Play timeline, Slowest tasks and Task
+Host overview, Slowest hosts, Slowest plays, Play timeline, Slowest tasks and Task
 timeline.
 
 * Tab / Shift-Tab  - next / previous tab

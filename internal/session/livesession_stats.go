@@ -15,17 +15,23 @@
 package session
 
 import (
+	"strings"
+
+	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
 // The statistics screen (design-docs/Stats.md): 's' from the tree, once the
-// run has ended. A page of its own with a tab per statistic: Slowest hosts, Slowest plays, Play timeline, Slowest tasks, Task timeline. Its content is rebuilt from the run's state on every rebuild(), so a
+// run has ended. A page of its own with a tab per statistic: Host overview, Slowest hosts, Slowest plays, Play timeline, Slowest tasks, Task timeline. Its content is rebuilt from the run's state on every rebuild(), so a
 // terminal resize rescales the bars.
 
 // statsTabNames lists the screen's tabs, in order.
-var statsTabNames = []string{"Slowest hosts", "Slowest plays", "Play timeline", "Slowest tasks", taskTimelineTab}
+var statsTabNames = []string{hostOverviewTab, "Slowest hosts", "Slowest plays", "Play timeline", "Slowest tasks", taskTimelineTab}
+
+// hostOverviewTab is the first tab: the recap's per-host table.
+const hostOverviewTab = "Host overview"
 
 // taskTimelineTab is the tab with the play picker.
 const taskTimelineTab = "Task timeline"
@@ -66,6 +72,7 @@ func (s *liveSession) closeStatsView() {
 // renderStats fills the tabs from the current state, at the page's width.
 func (s *liveSession) renderStats() {
 	s.statsTopBar.SetText(" Statistics")
+	s.statsOverviewView.SetText(renderHostOverview(s.state))
 	stats, ok := computeRunStats(s.state)
 	if !ok {
 		s.statsHostsView.SetText("No timing was recorded for this run.")
@@ -81,6 +88,17 @@ func (s *liveSession) renderStats() {
 	s.statsTimelineView.SetText(renderTimelineTab(stats, width))
 	s.renderTasks(stats, width)
 	s.statsAllTasksView.SetText(renderAllTasksTab(stats, width))
+}
+
+// renderHostOverview is the recap's per-host table (the lines below Summary,
+// without their expansion): one line per host with the counts.
+func renderHostOverview(state *playbook.PlaybookState) string {
+	widths := recapComputeColumnWidths(state)
+	lines := make([]string, 0, len(state.AllHosts))
+	for _, host := range state.AllHosts {
+		lines = append(lines, recapHostRowText(host, recapForHost(state, host), widths, false))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // statsPlayPicked: the user chose a play in the picker.
