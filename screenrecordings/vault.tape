@@ -13,7 +13,7 @@ Require tangsible
 Set Shell "bash"
 Set FontSize 14
 Set Width 1200
-Set Height 800
+Set Height 700
 Set Framerate 10
 Set TypingSpeed 30ms
 Set WaitTimeout 60s
