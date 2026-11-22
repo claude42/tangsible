@@ -929,7 +929,7 @@ func Main(build BuildInfo) {
 		}
 	}
 	applyColors() // collects the terminal's answer if color_scheme = "auto" - see above
-	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, &knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg)
+	app, applyLive := NewLiveTUI(state, displayName, roleDisplayName != "", &procH, &processDone, &quitting, &exitCode, &lastStderr, &outLog, sourceIndex, knownTags, knownPlayNames, &knownGroups, startExpanded, twoPaneLayout, colorEnabled, initialPlay, originalArgs.Tags, originalArgs.SkipTags, originalArgs.Hosts, rerunDefaults, startWithRerunDialog, showDialog, requestRerun, originalArgs.Rest, &progH, nil, targetPlaybook, targetRole, pending != nil, debugCfg, "")
 
 	runDone := make(chan struct{})
 	if pending != nil {

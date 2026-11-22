@@ -150,6 +150,16 @@ func (s *liveSession) handleStatsViewKey(event *tcell.EventKey) *tcell.EventKey 
 		}
 		return nil
 	}
+	if s.statsExportOpen {
+		// The file name field owns every key (typed q/c must stay text).
+		// Called directly: see tabSearchPanel.handleComposingKey.
+		if event.Key() == tcell.KeyCtrlC {
+			s.closeStatsExport()
+		} else {
+			s.statsExportInput.InputHandler()(event, func(p tview.Primitive) { s.app.SetFocus(p) })
+		}
+		return nil
+	}
 	switch {
 	case (event.Key() == tcell.KeyLeft || event.Key() == tcell.KeyRight) && s.statsTabs.ActiveName() == taskTimelineTab:
 		// Previous / next play, without opening the picker; stops at the ends.
@@ -181,12 +191,7 @@ func (s *liveSession) handleStatsViewKey(event *tcell.EventKey) *tcell.EventKey 
 		s.help.Open(statsHelp, nil)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'c':
-		s.statsBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
-		if name, err := s.exportTimingCSV(); err != nil {
-			s.statsBottomBar.SetText(" Export to " + tview.Escape(name) + " failed: " + tview.Escape(err.Error()) + " ")
-		} else {
-			s.statsBottomBar.SetText(" Exported the timing to " + tview.Escape(name) + " ")
-		}
+		s.openStatsExport()
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 		s.statsBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
@@ -214,6 +219,13 @@ func (s *liveSession) handleStatsViewKey(event *tcell.EventKey) *tcell.EventKey 
 // steal focus.
 func (s *liveSession) handleStatsViewMouse(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
 	x, y := event.Position()
+	if s.statsExportOpen {
+		// A click outside the dialog must not reach the tabs under it.
+		if action == tview.MouseLeftClick && !uikit.InRect(x, y, s.statsExportFlex) {
+			return nil, action
+		}
+		return event, action
+	}
 	if s.statsPlayPicker.IsOpen() || (s.statsTabs.ActiveName() == taskTimelineTab && uikit.InRect(x, y, s.statsPlayPicker)) {
 		s.statsPlayPicker.MouseHandler()(action, event, func(p tview.Primitive) { s.app.SetFocus(p) })
 		if !s.statsPlayPicker.IsOpen() {

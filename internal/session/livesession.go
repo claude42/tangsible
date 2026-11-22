@@ -364,7 +364,14 @@ type liveSession struct {
 	// refills the options.
 	statsPlayPicker *tview.DropDown
 	statsSyncing    bool
-	stdoutFollowing bool
+	// The CSV export dialog ('c'); statsCSVName is the file name it suggests
+	// when set (a revisited run's own name) - "" names it after this run
+	// (timingCSVFileName), and a re-run from the session clears it.
+	statsExportOpen  bool
+	statsExportInput *tview.InputField
+	statsExportFlex  *tview.Flex
+	statsCSVName     string
+	stdoutFollowing  bool
 	// stdoutShownLog/stdoutShown: which log stdoutView currently holds
 	// lines from, and how many - syncStdoutView's "what's new" bookmark.
 	stdoutShownLog *runner.OutputLog

@@ -199,7 +199,7 @@ var statsHelp = uikit.HelpScreen{
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "y", Desc: "Copy the active tab to the clipboard"},
-			{Keys: "c", Desc: "Export the run's timing as a CSV file in the current directory: a line per host and task with play, start and end time and result. Named like a revisit export (start time and command), ending in .csv; an existing file is never overwritten"},
+			{Keys: "c", Desc: "Export the run's timing as a CSV file in the current directory: a line per host and task with play, start and end time and result. Opens a dialog with a name like a revisit export (start time and command, or the name given with R), ending in .csv; an existing file is never overwritten"},
 			{Keys: "? / F1", Desc: "This help"},
 			{Keys: "Esc / s / q", Desc: "Back to the tree"},
 			{Keys: "Ctrl-C", Desc: "Quit"},

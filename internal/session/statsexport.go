@@ -25,6 +25,9 @@ import (
 
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/revisit"
+	"code.aw.net/claude/tangsible/internal/uikit"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 )
 
 // The statistics screen's 'c' export (design-docs/Stats.md): the run's timing
@@ -71,9 +74,13 @@ func writeTimingCSV(w io.Writer, state *playbook.PlaybookState) error {
 	return cw.Error()
 }
 
-// timingCSVFileName names the export like revisit's 'E' names a run file (the
-// run's start time and command line), with a .csv suffix.
+// timingCSVFileName is the file name the export dialog suggests: the
+// original run's own (statsCSVName, set for a revisited run), else named like
+// a revisit export from this run's start time and command line, with .csv.
 func (s *liveSession) timingCSVFileName() string {
+	if s.statsCSVName != "" {
+		return s.statsCSVName
+	}
 	e := revisit.RevisitEntry{
 		Playbook: s.targetPlaybook,
 		Role:     s.targetRole,
@@ -83,23 +90,75 @@ func (s *liveSession) timingCSVFileName() string {
 	return revisit.ExportFileNameExt(e, ".csv")
 }
 
-// exportTimingCSV writes the CSV into the current directory, refusing to
-// overwrite a file; a failed write leaves no partial file. Returns the name.
-func (s *liveSession) exportTimingCSV() (string, error) {
-	name := s.timingCSVFileName()
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+// writeTimingCSVFile writes the CSV to path, refusing to overwrite a file; a
+// failed write leaves no partial file behind.
+func writeTimingCSVFile(path string, state *playbook.PlaybookState) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
-			return name, errors.New("file exists")
+			return errors.New("file exists - choose another name")
 		}
-		return name, err
+		return err
 	}
-	err = writeTimingCSV(f, s.state)
+	err = writeTimingCSV(f, state)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
-		os.Remove(name)
+		os.Remove(path)
 	}
-	return name, err
+	return err
+}
+
+const statsExportTitle = " Export the timing as CSV (enter: save, esc: cancel) "
+
+// initStatsExportDialog builds the 'c' dialog, like revisit's export dialog:
+// a file name written to the current directory (a path typed in works too);
+// an error goes in the dialog's own title so it can be fixed in place.
+func (s *liveSession) initStatsExportDialog() {
+	s.statsExportInput = tview.NewInputField().SetLabel("File: ")
+	uikit.StyleInputField(s.statsExportInput)
+	s.statsExportInput.SetLabelColor(tcell.GetColor(uikit.StandardTextColor))
+	note := tview.NewTextView().SetTextColor(tcell.GetColor(uikit.StandardTextColor)).
+		SetText("One line per host and task: play, start and end time, result.")
+	s.statsExportFlex = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tview.NewBox(), 1, 0, false). // top margin
+		AddItem(s.statsExportInput, 1, 0, true).
+		AddItem(tview.NewBox(), 1, 0, false).
+		AddItem(note, 1, 0, false)
+	s.statsExportFlex.SetBorder(true).SetBorderColor(tcell.GetColor(uikit.DialogBorderColor)).
+		SetTitleColor(tcell.GetColor(uikit.StandardTextColor)).SetTitle(statsExportTitle)
+	s.pages.AddPage("statsexport", uikit.CenteredModal(s.statsExportFlex, 70, 7), true, false)
+	s.statsExportInput.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			path := strings.TrimSpace(s.statsExportInput.GetText())
+			if path == "" {
+				return
+			}
+			if err := writeTimingCSVFile(path, s.state); err != nil {
+				s.statsExportFlex.SetTitle(" " + tview.Escape(err.Error()) + " ")
+				return
+			}
+			s.closeStatsExport()
+			s.statsBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
+			s.statsBottomBar.SetText(" Exported the timing to " + tview.Escape(path) + " ")
+		case tcell.KeyEscape:
+			s.closeStatsExport()
+		}
+	})
+}
+
+func (s *liveSession) openStatsExport() {
+	s.statsExportInput.SetText(s.timingCSVFileName())
+	s.statsExportFlex.SetTitle(statsExportTitle)
+	s.statsExportOpen = true
+	s.pages.ShowPage("statsexport")
+	s.app.SetFocus(s.statsExportInput)
+}
+
+func (s *liveSession) closeStatsExport() {
+	s.statsExportOpen = false
+	s.pages.HidePage("statsexport")
+	s.app.SetFocus(s.statsTabs.Primitive())
 }

@@ -171,16 +171,18 @@ not expandable. Shown whenever the screen is.
 
 ### CSV export (`c`)
 
-`c` writes the run's timing to a CSV file in the current directory
-(`statsexport.go`): a header and one line per host and executed task, in
+`c` opens a dialog like revisit's export one (a file name, Enter saves, Esc
+cancels; an error such as "file exists" shows in the dialog's title) and writes
+the run's timing to a CSV file in the current directory (`statsexport.go`): a header and one line per host and executed task, in
 execution order - `host`, `play`, `task`, `start time`, `end time`, `result`
 (OK, Changed, Skipped, Failed, Unreachable). Times are RFC 3339 with
 milliseconds in the local zone, empty if Ansible gave none; a play without a
-name is "play N" as on the other tabs. The name is revisit's export name
-(`revisit.ExportFileNameExt`: start time and command line, filename-safe) with
-`.csv`. No dialog: the result (or the error) shows in the bottom bar, and an
-existing file is never overwritten, so a second `c` on the same run reports
-"file exists".
+name is "play N" as on the other tabs. The suggested name is revisit's export name
+(`revisit.ExportFileNameExt`: the name given with `R`, else start time and
+command line, filename-safe) with `.csv`. A run opened through `revisit` is
+named after the original run, not the replay (`revisit` passes the name in as
+`NewLiveTUI`'s `statsCSVName`; a re-run from that session clears it). An
+existing file is never overwritten.
 
 ### Tab names and order
 

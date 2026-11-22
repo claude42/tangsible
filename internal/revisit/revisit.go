@@ -58,7 +58,7 @@ import (
 // types, and package-qualified vs. unqualified references to the same
 // imported type (e.g. this file's playbook.PlaybookState vs. tui.go's own,
 // unqualified within package main) are the same type either way.
-type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string, pendingSpawned bool, debugCfg debugverb.DebugConfig) (app *tview.Application, applyLive func(pb.RawEvent))
+type NewLiveTUIFunc func(state *pb.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string, pendingSpawned bool, debugCfg debugverb.DebugConfig, statsCSVName string) (app *tview.Application, applyLive func(pb.RawEvent))
 
 // RunRevisitVerb is "tangsible revisit [<playbook>] [ansible-playbook
 // args...]"'s own entry point. Loops between the list and a selected
@@ -878,7 +878,10 @@ func OpenRevisitEntry(e RevisitEntry, newLiveTUI NewLiveTUIFunc, startWithRerunD
 		// debugCfg is always the zero value here - "revisit" never builds
 		// a debug session (design-docs/DebugMode.md's "Stage 2" is "debug"
 		// Verb-only).
-		debugverb.DebugConfig{})
+		debugverb.DebugConfig{},
+		// The statistics screen's CSV export is named after the original
+		// run (its name from R, else its start time), not after this replay.
+		ExportFileNameExt(e, ".csv"))
 
 	runErr := uikit.RunWithTitleStack(app)
 	quitting.Store(true) // defensive: same reasoning as main.go's own

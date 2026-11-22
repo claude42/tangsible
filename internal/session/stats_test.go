@@ -386,3 +386,16 @@ func TestWriteTimingCSV(t *testing.T) {
 		t.Errorf("second record = %q", lines[2])
 	}
 }
+
+func TestTimingCSVFileName(t *testing.T) {
+	s := &liveSession{targetPlaybook: "site.yml", passthroughArgs: []string{"-i", "hosts"}}
+	s.startedAt = time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	got := s.timingCSVFileName()
+	if !strings.HasSuffix(got, "_run_site.yml_-i_hosts.csv") {
+		t.Errorf("name = %q", got)
+	}
+	s.statsCSVName = "night_run.csv"
+	if got := s.timingCSVFileName(); got != "night_run.csv" {
+		t.Errorf("a revisited run's name = %q", got)
+	}
+}

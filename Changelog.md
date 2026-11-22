@@ -4,7 +4,7 @@
 
 ### Added
 
-- Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export
+- Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
 
 ## [0.5.0] - 2026-11-22
 

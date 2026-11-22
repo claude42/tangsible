@@ -604,6 +604,7 @@ func (s *liveSession) submitRerun() {
 		// that.
 		s.bottomBar.SetText(s.currentMainBottomBarText())
 	}
+	s.statsCSVName = "" // a new run: its CSV is named after it
 	s.startedAt = time.Now()
 	s.rebuild() // clear the previous run's rows immediately, rather than
 	// leaving them on screen until the new generation's first event

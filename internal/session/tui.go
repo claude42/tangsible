@@ -180,7 +180,7 @@ import (
 // Needed for design-docs/Diff.md's own 'd' key, to look up this session's
 // own history entry and filter comparison candidates against it
 // (RunDiffFlow, diff.go).
-func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string, pendingSpawned bool, debugCfg debugverb.DebugConfig) (*tview.Application, func(playbook.RawEvent)) {
+func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool, procH *runner.ProcHandle, processDone, quitting *atomic.Bool, exitCode *atomic.Int32, lastStderr *atomic.Pointer[[]string], outLog *atomic.Pointer[runner.OutputLog], sourceIndex source.TaskSourceIndex, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], startExpanded, twoPaneLayout, colorEnabled bool, initialPlay, initialTags, initialSkipTags, initialHosts string, initialRerunDefaults runner.InitialRerunDefaults, startWithRerunDialog, showDialogAtStartup bool, requestRerun func(startAtPlay, tags, skipTags, hosts string), passthroughArgs []string, progH *atomic.Pointer[runner.ProgressTracker], revisitReturn func(), targetPlaybook, targetRole string, pendingSpawned bool, debugCfg debugverb.DebugConfig, statsCSVName string) (*tview.Application, func(playbook.RawEvent)) {
 	// s (*liveSession, livesession.go) holds every piece of state this
 	// function's closures share - see its own doc comment for the full
 	// rationale (design-docs/Restructuring.md's own postponed "Phase 3").
@@ -194,6 +194,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// reading the bare parameter directly - unaffected by this.
 	s.state = state
 	s.playbookName = playbookName
+	s.statsCSVName = statsCSVName
 	s.isRole = isRole
 	s.procH = procH
 	s.processDone = processDone
@@ -872,6 +873,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.pages.AddPage("split", s.splitFlex, true, false)
 	s.pages.AddPage("stdout", stdoutFlex, true, false)
 	s.pages.AddPage("stats", statsFlex, true, false)
+	s.initStatsExportDialog()
 	s.pages.AddPage("filter", uikit.CenteredModal(s.filterFlex, 46, 11), true, false)
 	s.pages.AddPage("search", uikit.CenteredModal(s.searchDialogFlex, 46, 11), true, false)
 	// Sized for the max case (all three checkboxes present: 7 form items,
