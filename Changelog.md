@@ -4,11 +4,12 @@
 
 ### Added
 
-- Execution environments: tangsible can run ansible-playbook inside a container image, project files are mounted into the container. 
-- `tangsible ee init [playbook] [--base image]` drafts an `execution-environment.yml` (ansible-builder v3) from a playbook: the collections and binaries its modules and roles need, the base image's package manager, Python and ansible-core, and a `# TODO` for what can't be determined statically
+- Execution environments: tangsible --ee <image> can run ansible-playbook inside a container image, project files are mounted into the container. 
+
+- `tangsible ee init [playbook] [--base image]` drafts an `execution-environment.yml` from a playbook which includes the collections and binaries its modules and roles need, the base image's package manager, Python and ansible-core, and a `# TODO` for what can't be determined statically
 - `tangsible ee verify` builds an `execution-environment.yml` into an image and checks it against the playbook with `ansible-playbook --syntax-check`.
-- `tangsible ee build [-f file] [-t tag ...] [--no-cache]` builds an `execution-environment.yml` with `ansible-builder`.
-- `tangsible ee push [-f file] [-y]` uploads the image names an `execution-environment.yml` lists in `options.tags` to their registry.
+- `tangsible ee build [-f file] [-t tag ...]` builds an `execution-environment.yml` with `ansible-builder`.
+- `tangsible ee push [-f file]` uploads the image names an `execution-environment.yml` lists in `options.tags` to their registry.
 - `ansible.builtin.debug` output now gets repeated below the summary
 
 ### Changed
