@@ -96,7 +96,9 @@ func TestExportFileName(t *testing.T) {
 		want string
 	}{
 		{RevisitEntry{Name: "my run: #1/x"}, "my_run_1_x.txt"},
-		{RevisitEntry{Playbook: "site.yml", Args: `-e msg="hello world"`, Time: "bad"}, "bad_run_site.yml_-e_msg_hello_world.txt"},
+		{RevisitEntry{Playbook: "site.yml", Args: `-e msg="hello world"`, Time: "bad"}, "bad_run_site_-e_msg_hello_world.txt"},
+		{RevisitEntry{Playbook: "play/site.yaml", Time: "bad"}, "bad_run_play_site.txt"},
+		{RevisitEntry{Role: "web", Time: "bad"}, "bad_role_web.txt"},
 		{RevisitEntry{Name: "///"}, "tangsible-run.txt"},
 	}
 	for _, c := range cases {

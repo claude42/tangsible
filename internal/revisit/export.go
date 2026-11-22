@@ -206,7 +206,7 @@ func IsExportFile(path string) bool {
 var exportUnsafeRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // ExportFileName suggests a file name for e: its name if it has one, else
-// its start time and command line, reduced to filename-safe characters.
+// its start time and command line (the playbook without its .yml/.yaml), reduced to filename-safe characters.
 func ExportFileName(e RevisitEntry) string {
 	return ExportFileNameExt(e, ".txt")
 }
@@ -220,6 +220,8 @@ func ExportFileNameExt(e RevisitEntry, ext string) string {
 		if t, err := time.Parse(time.RFC3339, e.Time); err == nil {
 			stamp = t.Local().Format("2006-01-02_15-04-05")
 		}
+		// The playbook's .yml/.yaml would only read as "site.yml.txt".
+		e.Playbook = strings.TrimSuffix(strings.TrimSuffix(e.Playbook, ".yml"), ".yaml")
 		base = stamp + "_" + strings.TrimPrefix(RevisitCommandText(e), "tangsible ")
 	}
 	base = strings.Trim(exportUnsafeRe.ReplaceAllString(base, "_"), "_.")
