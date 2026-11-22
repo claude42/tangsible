@@ -208,6 +208,12 @@ var exportUnsafeRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 // ExportFileName suggests a file name for e: its name if it has one, else
 // its start time and command line, reduced to filename-safe characters.
 func ExportFileName(e RevisitEntry) string {
+	return ExportFileNameExt(e, ".txt")
+}
+
+// ExportFileNameExt is ExportFileName with another suffix (the statistics
+// screen's CSV export uses ".csv").
+func ExportFileNameExt(e RevisitEntry, ext string) string {
 	base := e.Name
 	if base == "" {
 		stamp := e.Time
@@ -223,7 +229,7 @@ func ExportFileName(e RevisitEntry) string {
 	if base == "" {
 		base = "tangsible-run"
 	}
-	return base + ".txt"
+	return base + ext
 }
 
 // ExportRun writes e's saved run to path, refusing to overwrite an existing

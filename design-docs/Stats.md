@@ -169,6 +169,19 @@ The first tab: the recap's per-host table (the lines below Summary in the
 tree - `recapHostRowText`, same column widths and colors), one line per host,
 not expandable. Shown whenever the screen is.
 
+### CSV export (`c`)
+
+`c` writes the run's timing to a CSV file in the current directory
+(`statsexport.go`): a header and one line per host and executed task, in
+execution order - `host`, `play`, `task`, `start time`, `end time`, `result`
+(OK, Changed, Skipped, Failed, Unreachable). Times are RFC 3339 with
+milliseconds in the local zone, empty if Ansible gave none; a play without a
+name is "play N" as on the other tabs. The name is revisit's export name
+(`revisit.ExportFileNameExt`: start time and command line, filename-safe) with
+`.csv`. No dialog: the result (or the error) shows in the bottom bar, and an
+existing file is never overwritten, so a second `c` on the same run reports
+"file exists".
+
 ### Tab names and order
 
 Host overview, Slowest hosts, Slowest plays, Play timeline, Slowest tasks, Task timeline: a

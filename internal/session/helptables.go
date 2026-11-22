@@ -178,7 +178,7 @@ var stdoutHelp = uikit.HelpScreen{
 }
 
 // statsBar is the statistics screen's ('s') bottom bar.
-const statsBar = " ?: help  tab: next tab  p: pick play  ←/→: play  y: copy  esc: back "
+const statsBar = " ?: help  tab: next tab  p: pick play  ←/→: play  y: copy  c: CSV  esc: back "
 
 var statsHelp = uikit.HelpScreen{
 	Title: "statistics",
@@ -199,6 +199,7 @@ var statsHelp = uikit.HelpScreen{
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "y", Desc: "Copy the active tab to the clipboard"},
+			{Keys: "c", Desc: "Export the run's timing as a CSV file in the current directory: a line per host and task with play, start and end time and result. Named like a revisit export (start time and command), ending in .csv; an existing file is never overwritten"},
 			{Keys: "? / F1", Desc: "This help"},
 			{Keys: "Esc / s / q", Desc: "Back to the tree"},
 			{Keys: "Ctrl-C", Desc: "Quit"},

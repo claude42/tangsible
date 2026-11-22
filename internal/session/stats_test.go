@@ -364,3 +364,25 @@ func TestRenderAllTasksTab(t *testing.T) {
 		t.Errorf("empty = %q", got)
 	}
 }
+
+func TestWriteTimingCSV(t *testing.T) {
+	state := statsFixture()
+	state.Plays[0].Name = `Play, "one"`
+	state.Plays[0].Tasks[0].Name = "first"
+	state.Plays[0].Tasks[0].HostOrder = []string{"hydra", "artha"}
+	state.Plays[0].Tasks[0].Hosts["artha"] = playbook.OutcomeChanged
+	var b strings.Builder
+	if err := writeTimingCSV(&b, state); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(b.String()), "\n")
+	if lines[0] != "host,play,task,start time,end time,result" {
+		t.Errorf("header = %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], `hydra,"Play, ""one""",first,`) || !strings.HasSuffix(lines[1], ",OK") {
+		t.Errorf("first record = %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[2], "artha,") || !strings.HasSuffix(lines[2], ",Changed") {
+		t.Errorf("second record = %q", lines[2])
+	}
+}

@@ -234,6 +234,7 @@ timeline.
 * Tab / Shift-Tab  - next / previous tab
 * Up / Down, PgUp / PgDn, Home / End (and the usual aliases) - scroll
 * Left / Right     - Task timeline tab: previous / next play
+* c                - export the run's timing as a CSV file (see Stats.md)
 * p                - Task timeline tab: open the play picker (type to filter, Enter picks, Esc closes just the picker)
 * y                - copy the active tab (see "Copy to clipboard" below)
 * Escape / s / q   - back to the tree (q does NOT quit here)

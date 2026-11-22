@@ -460,7 +460,7 @@ thin constructor/wiring shell.
     `design-docs/Stats.md`): a page with a tab per statistic. `stats.go`
     is the tview-free part (`computeRunStats`, `renderHostsTab`,
     `renderPlaysTab`, `renderTimelineTab`, `renderTasksTab`),
-    `livesession_stats.go` the view (open/close, keys, mouse).
+    `livesession_stats.go` the view (open/close, keys, mouse); `statsexport.go` the `c` CSV export.
   - **livesession_filter.go** - the tree-level filter (`f`) and search
     (`/`) dialogs: `openFilterDialog`/`openSearchDialog`/`closeDialogs`/
     `applyFilter`.

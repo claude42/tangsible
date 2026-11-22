@@ -180,6 +180,14 @@ func (s *liveSession) handleStatsViewKey(event *tcell.EventKey) *tcell.EventKey 
 	case uikit.IsHelpKey(event):
 		s.help.Open(statsHelp, nil)
 		return nil
+	case event.Key() == tcell.KeyRune && event.Rune() == 'c':
+		s.statsBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
+		if name, err := s.exportTimingCSV(); err != nil {
+			s.statsBottomBar.SetText(" Export to " + tview.Escape(name) + " failed: " + tview.Escape(err.Error()) + " ")
+		} else {
+			s.statsBottomBar.SetText(" Exported the timing to " + tview.Escape(name) + " ")
+		}
+		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
 		s.statsBottomBar.SetTextStyle(s.outputBottomBarNormalStyle())
 		s.statsBottomBar.SetText(uikit.CopyActiveTabStatus(s.statsTabs))
