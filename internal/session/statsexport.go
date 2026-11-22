@@ -35,7 +35,7 @@ import (
 
 var statsCSVHeader = []string{"host", "play", "task", "start time", "end time", "result"}
 
-// csvTime formats a timestamp for the export as "2026-11-21 18:00:23.567" in
+// csvTime formats a timestamp for the export as "2026-11-21 18:00:23" in
 // the local zone - the form Excel and Google Sheets read as a date and time
 // (RFC 3339's "T" and zone suffix they take for text); a missing one is an
 // empty field.
@@ -43,7 +43,7 @@ func csvTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Local().Format("2006-01-02 15:04:05.000")
+	return t.Local().Format("2006-01-02 15:04:05")
 }
 
 // writeTimingCSV writes the header and then one record per host and task, in
