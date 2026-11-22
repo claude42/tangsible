@@ -88,5 +88,5 @@ go.work.sum
 
 __pycache__/
 
-# Rendered tape output (gifs/ppngs)
+# Rendered tape output (gifs/pngs)
 screenrecordings/output/
