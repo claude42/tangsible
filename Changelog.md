@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-22
+
 ### Added
 
 - Execution environments: tangsible --ee <image> can run ansible-playbook inside a container image, project files are mounted into the container. 
@@ -242,7 +244,8 @@
 Initial release. A `tview` TUI wrapper for `ansible-playbook` aimed at
 interactive development use.
 
-[Unreleased]: https://code.aw.net/claude/tangsible/compare/v0.4.2...HEAD
+[Unreleased]: https://code.aw.net/claude/tangsible/compare/v0.5.0...HEAD
+[0.5.0]: https://code.aw.net/claude/tangsible/compare/v0.4.2...v0.5.0
 [0.4.2]: https://code.aw.net/claude/tangsible/compare/v0.4.1...v0.4.2
 [0.4.1]: https://code.aw.net/claude/tangsible/compare/v0.4.0...v0.4.1
 [0.4.0]: https://code.aw.net/claude/tangsible/compare/v0.3.0...v0.4.0
