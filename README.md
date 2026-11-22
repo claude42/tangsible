@@ -1,645 +1,425 @@
 # Tangsible
 
-**A live terminal UI for `ansible-playbook`, for those actually
-watching it run.**
+**An interactive TUI workbench for Ansible.**
 
-Tangsible turns the rapidly scrolling output of ansible-playbook into a live,
-navigable tree of plays → tasks → hosts. You can inspect results,
-stdout/stderr, diffs and variables without losing your place - even while the
-playbook is still running.
+Why did that task fail? Where did that variable come from? What is Ansible about to do on this host? Why does this template not render as expected? And what's needed in this execution environment to make this playbook run?
 
-You can also rerun whole playbooks or parts of them as well as revisit and
-compare previous runs.
+Working with Ansible usually means juggling commands, switching between scrolling output, extra debug: tasks  and scratch playbooks. Tangsible puts these workflows in one terminal application. It wraps ansible-playbook and doesn't replace it.
 
-In addition, tangsible provides useful functionality for debugging Jinja2
-templates, editing individual encrypted variables and analyzing host
-information.
+## See it in action
 
-![Tangsible demo](assets/demo.gif)
+<table>
+  <tr>
+    <td width="33.33%" valign="top">
+      <a href="https://gettangsible.aw.net/run.gif"><img src="https://gettangsible.aw.net/run.png" width="100%" alt="Run playbooks"></a>
+      <b>Run playbooks</b>
+    </td>
+    <td width="33.33%" valign="top">
+      <a href="https://gettangsible.aw.net/debug.gif"><img src="https://gettangsible.aw.net/debug.png" width="100%" alt="Interactive debuggger"></a>
+      <b>Interactive debugger</b>
+    </td>
+    <td width="33.33%" valign="top">
+      <a href="https://gettangsible.aw.net/stats.gif"><img src="https://gettangsible.aw.net/stats.png" width="100%" alt="Show statistics"></a>
+      <b>Show statistics</b>
+    </td>
+  </tr>
+  <tr>
+    <td width="33.33%" valign="top">
+      <a href="https://gettangsible.aw.net/ee.gif"><img src="https://gettangsible.aw.net/ee.png" width="100%" alt="Execution environments"></a>
+      <b>Execution environments</b>
+    </td>
+    <td width="33.33%" valign="top">
+      <a href="https://gettangsible.aw.net/template.gif"><img src="https://gettangsible.aw.net/template.png" width="100%" alt="Render and debug Jinja2 templates"></a>
+      <b>Render and debug Jinja2 templates</b>
+    </td>
+    <td width="33.33%" valign="top">
+      <a href="https://gettangsible.aw.net/hosts.gif"><img src="https://gettangsible.aw.net/hosts.png" width="100%" alt="Explore host facts and variables"></a>
+      <b>Explore host facts and variables</b>
+    </td>
+  </tr>
+</table>
 
-## Why
 
-Running `ansible-playbook` directly is painful when you're actually
-watching it, not just kicking it off and walking away:
+## What can you do with Tangsible?
 
-- The output scrolls by faster than you can read it - reconstructing "which
-  hosts succeeded, which failed, and why" after the fact means scrolling
-  back through a terminal or grepping a log file.
-- A failing task's real error is usually buried several screens up, mixed
-  in with everything that ran fine.
-- There's no live overview - you can't tell at a glance how far along a
-  multi-host, multi-task run is, or which hosts have diverged from the
-  rest, until it's already finished (or you've lost the scrollback).
+### Run and debug playbooks
 
-Tangsible turns that stream of text into a structure you can navigate.  You
-can inspect earlier results while later tasks are still executing. Once
-something fails, you can jump straight to it. You can view the task as
-written, its output, and the full result, side by side, instead of spread
-across your scrollback.
+- **Run and inspect playbooks interactively.** Follow execution in a navigable tree of plays, tasks and hosts, with live updates as the playbook runs.
+- **Drill into task results.** Inspect task source, stdout/stderr, diffs and resolved variables without losing your place.
+- **Debug execution.** Set breakpoints, step through tasks and hosts, inspect variables, add expressions to a watch list and change variable values while execution is paused.
+- **Re-run and compare.** Re-run a complete playbook or a selected part of it, revisit previous runs and compare their results.
 
-## Who it's for
+### Explore hosts and inventories
 
-Anyone running `ansible-playbook` **by hand, repeatedly, against development,
-staging, or otherwise interactive environments** - the edit-run-inspect-rerun
-loop of writing or debugging a playbook or role, not unattended automation:
+- **Inspect hosts.** Browse facts, variables (including where they are defined), group membership and the plays that target a host.
+- **Explore inventories.** Navigate groups and hosts in a collapsible tree, or open a host directly for a detailed view.
 
-- Developers and platform engineers iterating on playbooks/roles against
-  dev or staging boxes.
-- Anyone who currently keeps a second terminal open just to `tail` a log
-  or scroll back to find where things went wrong.
-- Developers and operators working with relatively small inventories -
-  Tangsible isn't intended as a fleet-management UI.
+### Develop and troubleshoot
 
-It is *not* aimed at CI pipelines, scheduled/unattended runs, or
-orchestrating jobs across a team. For those purposes, other tools will be a
-better fit than Tangsible ever intends to be.
+- **Test roles in isolation** without having to create a temporary playbook.
+- **Render and debug Jinja2 templates** using Ansible's own templating system and the variables of an actual inventory host. Edit the template and render it again interactively.
+- **Manage encrypted variables.** Add, edit and remove individual Ansible Vault-encrypted variables without manually handling encrypted strings.
 
-## Why not ansible-navigator?
+### Work with execution environments
+(not yet released)
 
-[ansible-navigator](https://github.com/ansible/ansible-navigator/) is a great
-tool. It provides a comprehensive TUI for Ansible - including things like
-browsing inventory, collections or configuration options.
+- **Run playbooks and roles in an EE** to use the same Ansible Core and collection versions as another environment, such as CI or AWX.
+- **Generate an EE definition from a playbook.** `tangsible ee init` analyzes modules, collections, lookups and controller-side dependencies to create a starting `execution-environment.yml`.
+- **Verify the definition.** Build a temporary image and check it against the playbook before committing to a final build.
+- **Build and push images.** Build the configured image tags and publish them to a container registry.
 
-Unfortunately ansible-navigator didn't solve my particular problems when
-developing and debugging playbooks, roles and templates. Because of this,
-**Tangsible** focuses on workflows such as navigating tasks and hosts,
-inspecting diffs and resolved variables, or revisiting and comparing previous
-runs. It also lets you debug Jinja2 templates and inspect host variables.
+## Installation
 
-I designed Tangsible's UI around the information and options I need for these
-specific tasks.  I'm eager to hear if it also fits your requirements or what
-changes might be necessary.
-
-## Features
-
-### Run and inspect
-
-- **Live updates** - the TUI appears immediately and updates while the playbook
-  is still running. It even shows a progress bar!
-- **Tree view** - plays, tasks and hosts are shown in a navigable tree, with
-  outcomes such as OK, Changed, Skipped, Failed and Unreachable are clearly
-  visible.
-- **Drill-down** - inspect a host/task result with the task source, output,
-  stderr, --diff output and full JSON result in one place.
-- **Filtering and search** - show only Changed or Failed results, or search task
-  names, source and output.
-- **Keyboard and mouse navigation** - use the keyboard or mouse throughout the
-  TUI.
-- **Desktop integration** - desktop notifications, progress visualization in
-  the window title, copy output to clipboard.
-
-### Iterate
-
-Tangsible is designed around the development loop of finding something wrong,
-changing it and trying again.
-
-- **Re-run from the TUI** - rerun the whole playbook or start at a specific play, 
-  or limit tags or only failed hosts in subsequent runs
-- **Edit tags and hosts** before rerunning.
-- **`tangsible rerun`** - open the same rerun workflow directly from the command
-  line, pre-filled from the previous invocation.
-- **Revisit** all results and outputs of previous runs and compare differences between two runs.
-
-### Develop Ansible
-
-Tangsible provides a couple of shortcuts for common development tasks that
-normally require writing temporary playbooks.
-
-- **Run / test a role in isolation** with `tangsible role <role>`.
-- **Set breakpoints and step through a playbook**, inspecting variables at each pause, with `tangsible debug <playbook>`.
-- **Debug a Jinja2 template** with `tangsible template <path>`, using Ansible's own templating against a real inventory host. Press `e` to edit the template and automatically render it again after saving.
-- **Draft an execution environment definition** from a playbook with `tangsible ee init` (see "Running in an execution environment").
-- **Easily edit individual encrypted variables** without copy / pasting encrypted strings or typing secrets on the command line with `tangsible vault`.
-- A **host-centric view** of all relevant information about a particular host with `tangsible host <hostname>` &ndash; facts, variables (with where they are defined), groups, plays
-- A **tree view of the whole inventory** with `tangsible inventory` &ndash; groups as collapsible nodes, hosts as leaves, similar to `ansible-inventory --graph`
-
-## Requirements
-
-- Go 1.24+ to build.
-- `ansible-playbook`
-- A real terminal (TTY) - Tangsible opens a full-screen UI and cannot run in
-  a piped or headless shell.
-
-Tangsible ships its own bundled ansible callback plugin to receive Ansible
-events while a playbook runs, so no extra collection install is needed.
-
-## Install
-
-### With one line
+### One-line installer
 
 Interactive:
-```
+
+```sh
 curl -fsSL https://gettangsible.aw.net/ | sh
 ```
 
 Unattended:
-```
+
+```sh
 curl -fsSL https://gettangsible.aw.net/ | sh -s -- --yes
 ```
 
-Will install into the users home directory (i.e. `~/.local/bin`,
-`~/.local/share`) but will also honor `--prefix`.
+The installer uses the user's home directory (`~/.local/bin` and `~/.local/share`) by default and also supports `--prefix`.
 
-### On Debian/Ubuntu (apt)
+### Binary archive
 
-Releases are published to an apt repository (Debian 12+/Ubuntu 22.04+,
-amd64 and arm64; `ansible-core` is pulled in as a dependency):
+Download an archive from [Releases](https://code.aw.net/claude/tangsible/releases) and install it using the included `install.sh`.
 
-```
+### Debian / Ubuntu
+
+Releases are published to an APT repository for Debian 12+ and Ubuntu 22.04+ (amd64 and arm64). `ansible-core` is installed as a package dependency.
+
+```sh
 sudo curl -fsSL https://code.aw.net/api/packages/claude/debian/repository.key \
   -o /etc/apt/keyrings/tangsible.asc
+
 echo "deb [signed-by=/etc/apt/keyrings/tangsible.asc] https://code.aw.net/api/packages/claude/debian stable main" \
   | sudo tee /etc/apt/sources.list.d/tangsible.list
-sudo apt update && sudo apt install tangsible
+
+sudo apt update
+sudo apt install tangsible
 ```
 
-Each release also carries the `.deb` and `.rpm` files for a manual install
-(`sudo apt install ./tangsible_<version>_amd64.deb`).
+Each release also includes `.deb` and `.rpm` packages for manual installation.
 
-### From a binary archive
+### Go install
 
-Go to [Releases](https://code.aw.net/claude/tangsible/releases) and download
-a binary archive and install via `install.sh`.
-
-### Via go install
-
-Use
-
-```
+```sh
 go install code.aw.net/claude/tangsible@latest
 ```
 
-to install it in `$GOPATH/bin` (usually `~/go/bin`).
+This installs the binary into `$GOPATH/bin` (usually `~/go/bin`).
 
-### From source
+### Build from source
 
-```
+```sh
 git clone https://code.aw.net/claude/tangsible
 cd tangsible
 go build ./...
 ```
 
-This produces a `tangsible` binary in the current directory. You can use the
-provided `install.sh` to install it.
+This produces a `tangsible` binary in the current directory. The included `install.sh` can be used to install it.
 
-### System-wide, or as a distro package
+For system-wide installation, `install.sh --prefix /usr/local` installs Tangsible for all users when run as root. For distro packaging, see [`PACKAGING.md`](PACKAGING.md).
 
-`install.sh --prefix /usr/local` (run as root) installs tangsible for every
-user on a machine without building a package. If you're packaging tangsible
-for a distro instead (`.deb`/`.rpm`/AUR/nix/...), see `PACKAGING.md` for the
-file layout and why `install.sh` isn't the right tool for that job.
+## Requirements
+
+- Ansible Core
+- Podman - only required for running playbooks inside execution environments.
+- Ansible Builder - only required for creating new execution environments.
+- A real terminal (TTY). Tangsible opens a full-screen interface and cannot run in a piped or headless shell.
+- Go 1.24+ to build from source.
+
+Tangsible bundles its Ansible callback plugins, so no additional collection installation is required.
 
 ## Quick start
 
-Run a playbook:
+Run a playbook on the host:
 
+```sh
+tangsible run -i inventory.ini site.yml
 ```
+
+Pass Ansible arguments as you normally would:
+
+```sh
+tangsible run -i inventory.ini --limit webservers --tags deploy  site.yml
+```
+
+Run it in an execution environment instead (not released yet):
+
+```sh
+tangsible run -i inventory.ini --ee ghcr.io/ansible-community/community-ee-base:latest site.yml
+```
+
+Tangsible passes Ansible arguments through to `ansible-playbook`, so normal inventory, tag, limit and verbosity options continue to work.
+
+If you don't specify a playbook, Tangsible can resolve one from its configuration. See [Configuration](#configuration).
+
+## Commands and workflows
+
+| Command | What it does |
+|---|---|
+| `tangsible run` | Run a playbook and interactively inspect its execution |
+| `tangsible debug` | Debug playbook execution with breakpoints, stepping and variable inspection |
+| `tangsible rerun` | Repeat the last run after adjusting hosts, tags, … |
+| `tangsible revisit` | Browse and compare previous runs |
+| `tangsible role` | Run a role in isolation |
+| `tangsible template` | Render and debug a Jinja2 template |
+| `tangsible host` / `hosts` | Inspect one host or browse available hosts |
+| `tangsible inventory` | Explore the inventory as a tree |
+| `tangsible vault` | Edit individual encrypted variables |
+| `tangsible ee init` | Generate an execution-environment definition from a playbook |
+| `tangsible ee verify` | Build and check an EE definition against a playbook |
+| `tangsible ee build` | Build an execution-environment image |
+| `tangsible ee push` | Push configured image tags to their registries |
+
+## Run and debug playbooks
+
+### Inspect a live run
+
+```sh
 tangsible run playbook.yml
 ```
 
-Ansible arguments can be passed after the playbook as usual:
+Tangsible presents plays, tasks and hosts in a navigable tree. Outcomes such as OK, Changed, Skipped, Failed and Unreachable are visible at a glance. Drill into a result to inspect the task source, output, stderr, diff and full result. Show ansible-playbook's original output and show statistics.
 
-```
-tangsible run site.yml -i inventory.ini --limit webservers --tags deploy
-```
-Options may also come before the playbook (`tangsible run -i inventory.ini site.yml`); `--` ends the options.
+Filter by outcome or search task names, source and output. Keyboard and mouse navigation are supported, as are desktop notifications, terminal-title progress and clipboard integration.
 
+### Debug execution
 
-Tangsible passes arguments through to ansible-playbook, so your normal
-inventory, tag, limit and verbosity options continue to work.
-
-The playbook path can also be omitted when Tangsible can resolve one from its
-configuration. See Configuration.
-
-### Try it without an inventory
-
-The repository contains small fixtures that can be run locally:
-
-```
-tangsible run testdata/outcomes.yml -i localhost,
-tangsible run testdata/multihost.yml -i testdata/multihost-inventory.ini
+```sh
+tangsible debug [playbook.yml]
 ```
 
-## Re-running
+Set breakpoints with `F9` or the mouse, then use:
 
-Once a run has finished - successfully, with failures, or interrupted — press
-`r` to open the rerun dialog.
+- `F5` to run or continue to the next breakpoint.
+- `F10` to move to the next task.
+- `F11` to step to the next pause, including the next host within a task.
+- `F12` to redo the current task/host.
+- `v` to open the variable watch explorer.
 
-You can rerun the complete playbook, start at a specific task, change the
-target hosts, change tasks.
+While execution is paused, inspect variables, add expressions to the watch list and change variable values. Click on variables to see their value and origin. A **Resolved** tab shows the complete task with all variables replaced by their values.
+
+### Re-run, revisit and compare
+
+After a run, press `r` to open the rerun dialog. You can run the playbook again, start at a selected task, change the target hosts or adjust the tasks to execute.
 
 The same workflow is available from the command line:
 
-```
-tangsible rerun [playbook.yml] [ansible-playbook args...]
+```sh
+tangsible rerun [playbook.yml] 
 ```
 
-## Revisit and compare previous runs
+Previous executions can be opened with:
 
-<a href="https://gettangsible.aw.net/revisit.gif"><img src="https://gettangsible.aw.net/revisit.png" alt="Revisiting a run, diffing it against a failed one, and re-running it" width="360" align="right"></a>
-
-Pick a previous run with
-```
+```sh
 tangsible revisit
 ```
 
-and analyze / drill down into all results and outcomes in the same ways as if
-it just ran.
+Revisited runs can be inspected in the same way as a live run. Compare a run with an earlier execution, analyze the differences, or rerun it.
 
-Press `d` after a run or revisit to get a visual diff of its outcomes
-compared to a previous run, and `r` to re-run the one you are looking at.
+Previous runs can be renamed, deleted or exported. Exported files can be re-imported with:
 
-In the list of previous runs, `R` gives the selected run a name, which is shown
-in front of its command line, and `Delete` (or `Backspace`) removes it. `E` exports it to a single text file
-that anyone can read, with or without tangsible; `tangsible revisit file.txt`
-opens such a file as a tree.
-
-## Running a role in isolation
-
-Normally, `ansible-playbook` runs playbooks rather than individual roles.
-Testing a role in isolation therefore usually means creating a temporary
-playbook first.
-
-Tangsible can create that temporary wrapper for you:
-
-```
-tangsible role role_name  [ansible-playbook args...]
+```sh
+tangsible revisit exported-run.txt
 ```
 
-It runs the role against `hosts: all`, while normal Ansible options such as
-`-i` and `-l` can be used to select the actual target. The role is found in
-`./roles` or on Ansible's roles path (`$ANSIBLE_ROLES_PATH`, `roles_path`,
-`~/.ansible/roles`, `/usr/share/ansible/roles`, `/etc/ansible/roles`); a role in
-a collection is named `namespace.collection.role` and found in `./collections`
-or on the collections path (`$ANSIBLE_COLLECTIONS_PATH`, `collections_path`).
+## Explore hosts and inventories
 
+Inspect one host:
 
-## Debugging a playbook (breakpoints)
-
-<a href="https://gettangsible.aw.net/debug.gif"><img src="https://gettangsible.aw.net/debug.png" alt="Breakpoints and stepping with tangsible debug" width="360" align="right"></a>
-
-```
-tangsible debug [playbook.yml] [ansible-playbook args...]
+```sh
+tangsible host <hostname> [playbook.yml]
 ```
 
-Full screen debugger. Toggle breakpoints with F9 / left mouse button. Run /
-continue with F5, step to next task with F10, next host with F11, redo
-current task on current host with F12.
+Browse all hosts:
 
-v opens the variable watch explorer. 
-
-When execution is paused additional "Resolved" tab shows current task with
-all variables replaced by their values (for every task that has run, not only
-the ones you stopped at). Variables can be added to the watch list. Variable contents can also be changed by entering `var =
-value`.
-
-## Debugging a Jinja2 template
-
-<a href="https://gettangsible.aw.net/template.gif"><img src="https://gettangsible.aw.net/template.png" alt="Rendering a template per host and fixing an undefined variable" width="360" align="right"></a>
-
-Debugging a template properly means rendering it through Ansible's own
-templating system, with the variables and inventory context that Ansible will
-actually use.
-
-Tangsible provides a shortcut:
-
-```
-tangsible template <path-to-template> [<hostname>] [-e ...]
+```sh
+tangsible hosts [playbook.yml]
 ```
 
-The template is rendered for one inventory host and the result is displayed
-directly in the terminal. Extra variables can be specified with `-e`.  If
-rendering fails, the Jinja error is shown instead.
+The host view brings together information that is otherwise spread across inventory files and Ansible commands:
 
-If the template is in a conventional role template path, Tangsible also makes
-that role's variables available automatically.
+- Host data: FQDN, IP addresses, operating system and architecture.
+- Collected facts.
+- Variables, including where they are defined.
+- Direct and inherited group membership.
+- Plays that will run for the host.
 
-Press `e` to open the template in `$VISUAL` / `$EDITOR` and render it again
-after saving.
+Explore the inventory as a tree:
 
-## Encrypt individual variables
-
-<a href="https://gettangsible.aw.net/vault.gif"><img src="https://gettangsible.aw.net/vault.png" alt="Editing individually encrypted variables" width="360" align="right"></a>
-
-`ansible-vault` either allows you to encrypt a whole file via `edit` or
-`encrypt`- which will result in huge diff on every change or you can create
-individually encrypted variables via `encrypt_string` which involves
-specifying secrets on the command line, copy/pasting encrypted strings and
-decryption is even more messy.
-
+```sh
+tangsible inventory [playbook.yml]
 ```
+
+Groups are shown as collapsible nodes and hosts as leaves. Opening a host displays the same detailed view as `tangsible host`.
+
+## Develop and troubleshoot
+
+### Run a role in isolation
+
+```sh
+tangsible role <role-name>
+```
+
+Tangsible creates the temporary playbook wrapper needed to run the role against `hosts: all`. Normal Ansible options such as `-i` and `-l` can be used to select the target hosts.
+
+Roles can be found in the project's `roles` directory or on Ansible's configured roles path. Roles in collections can be specified as `namespace.collection.role`.
+
+### Render and debug a Jinja2 template
+
+```sh
+tangsible template <path-to-template> [<hostspec>] [-e ...]
+```
+
+Tangsible renders the template through Ansible's own templating system, using the variable and inventory context of an actual host. Extra variables can be supplied with `-e`. If rendering fails, the Jinja error is shown.
+
+For templates in a conventional role template directory, the role's variables are made available automatically. Press `e` to edit the template in `$VISUAL` or `$EDITOR`; Tangsible renders it again after you save.
+
+### Edit individual Vault-encrypted variables
+
+```sh
 tangsible vault <filename>
 ```
 
-provides an `ansible-vault edit` like experience but operates on individual
-variables. One can simply add / edit / remove encrypted variables in the text
-editor while diffs stay minimal.
+This provides an editor-based workflow for adding, editing and removing individually encrypted variables. Unlike encrypting an entire file, changes can remain limited to the variables that were edited, keeping diffs manageable.
 
-## Analyze hosts
+## Execution environments
+(not yet released)
 
-<a href="https://gettangsible.aw.net/hosts.gif"><img src="https://gettangsible.aw.net/hosts.png" alt="Inventory tree and host detail tabs" width="360" align="right"></a>
+Execution environments let you run Ansible with a defined Ansible Core version and set of collections, rather than relying on whatever happens to be installed on the host. This is useful when checking that a playbook or role works with the environment used by CI or AWX.
 
-```
-tangsible host hostname [playbook.yml] [ansible-playbook args...]
-```
+Tangsible uses Podman on Linux to run EEs. Docker and macOS are not supported at this point. It does not require `ansible-runner`.
 
-Provides in-depth information about a particular:
-- FQDN, IP addresses, OS, architecture, etc.
-- All groups a host belongs to (directly or indirectly) - i.e. a host-centric view compared to the group-centric view of inventory.yml
-- All plays that will be executed for that host
-- all variables defined for the host, with where each is defined
-- all collected facts
+### Run in an existing EE
 
-Browse through all hosts with
-```
-tangsible hosts
+Pass an image with `--ee`:
+
+```sh
+tangsible run -i hosts --ee ghcr.io/ansible-community/community-ee-base:latest [playbook.yml]
 ```
 
-Or browse the whole inventory as a tree (groups as collapsible nodes, hosts
-as leaves, similar to `ansible-inventory --graph`) with
-```
-tangsible inventory [playbook.yml] [ansible-playbook args...]
-```
-Opening a host from the tree shows the exact same detail view as `tangsible hosts`.
+The same EE support is available for `tangsible role`. It is not currently available for `tangsible debug`.
 
-## Keyboard shortcuts
+### Generate an EE definition
 
-The essentials - see `Keyboard-shortcuts.md` for the complete reference
-(Emacs/vim-style navigation aliases, expand/collapse-all, autoscroll
-control, and more).
+Stock EE images generally contain few collections. `tangsible ee init` creates a starting `execution-environment.yml` based on the modules and dependencies used by a playbook and its roles:
 
-**Main tree**
-
-| Key | Action |
-|---|---|
-| `Enter` | Toggle a task's host rows, or open a host's result |
-| `←`/`→` | Collapse / expand a task |
-| `C`/`E` | Collapse / expand all |
-| `n`/`N` | Jump to the next / previous task |
-| `F`| Follow new tasks | 
-| `f`| Filter: All / Changed / Failed |
-| `/` | Search filter (task name, source, output) |
-| `r` | Open the re-run dialog (once the run has finished) |
-| `o` | Show ansible-playbook's console output (`F` follows, `Esc` returns) |
-| `s` | Statistics screen (once the run has finished): elapsed time, time per host and per play as bars |
-| `?`/`F1` | Help: all of the tree view's shortcuts |
-| `q`/`Ctrl-C` | Interrupt the run, or quit once it's finished |
-
-**Drill-down view**
-
-| Key | Action |
-|---|---|
-| `Tab` / `Shift Tab` | Switch between tabs | 
-| `e` | Edit task file |
-| `n`/`N` | Next / previous task (same host) |
-| `←`/`→` | Previous / next host (same task) |
-| `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
-| `?`/`F1` | Help: all of this view's shortcuts |
-| `Esc`/`Enter` | Close, back to the tree |
-
-**Debug mode additions**
-
-The exact same Main tree and Drill-down view above, with six extra keys
-layered on (no separate "debug view" of its own):
-
-| Key | Action |
-|---|---|
-| `F5` | Run - to the next armed breakpoint, or to completion with none set |
-| `F9` | Arm / disarm a breakpoint on the selected task (or click its row) |
-| `F10` | Next task - skip the rest of this task's hosts, stop at the next task's first one |
-| `F11` | Step - stop at the very next pause, armed or not (host by host within the same task too) |
-| `F12` | Redo - re-run the task/host currently paused at, waiting for that exact result |
-| `v` | Open the variable watch explorer (type `expr = value` to set one) |
-
-`q`/`Ctrl-C` inherit their usual meaning from the Main tree above, with one
-exception: while F5/F10/F11 is actively running (not yet paused), `q`
-instead requests a soft stop - the real process is left untouched, the
-current task finishes naturally, and the very next pause is shown
-unconditionally, as if a single step had been taken. `Ctrl-C` always keeps
-its usual immediate-interrupt behavior, even then.
-
-**Template view**
-
-| Key | Action |
-|---|---|
-| `Tab` / `Shift Tab` | Switch between tabs | 
-| `e` | Edit template file |
-| `h` | Change host |
-| `/` | Search this tab's text; `n`/`N` for next/previous match while a search is active |
-| `?`/`F1` | Help: all of this view's shortcuts |
-| `q`/`Ctrl-C` | Quit |
-
-Mouse navigation is supported as well. Every view has `?`/`F1` help listing
-its shortcuts (F1 only in the re-run dialog).
-
-## Running in an execution environment
-
-To check that a playbook or role works with the ansible-core and collections
-your CI or AWX will use, rather than whatever is installed on your machine,
-run it in an [execution environment](https://docs.ansible.com/projects/ansible/latest/getting_started_ee/index.html)
-image. Tangsible needs only `podman` for that (Linux), not `ansible-runner`:
-
-```
-tangsible run site.yml -i hosts --ee ghcr.io/ansible-community/community-ee-base:latest
+```sh
+tangsible ee init [--base <image>] [--resolve-packages]  [playbook.yml]
 ```
 
-or set `image` in the `[execution_environment]` table of `config.toml` (see
-Configuration) and use `--no-ee` for a host run. The project is mounted into
-the container, your SSH agent is forwarded, and the UI
-works exactly as for a host run. If host names don't resolve or a target is only reachable through
-the host's own routing or VPN, set `network = "host"`. The re-run dialog (`r`) has an "Execution environment" field to switch
-a re-run to another image, or to the host by emptying it; the image of every
-run is recorded, so `tangsible rerun` and re-runs from `tangsible revisit` use
-the environment that run used.
+The generated file is a draft, not a guarantee that every dependency can be inferred. Anything that cannot be determined statically is left as a `# TODO` for you to review.
 
-The stock images carry almost no collections, so you usually need to build
-your own with `ansible-builder`. `tangsible ee init` drafts the
-`execution-environment.yml` for it from your playbook:
+### Verify an EE definition
 
-```
-tangsible ee init site.yml [--base <image>] [--resolve-packages] [--no-galaxy] [--latest]
+After reviewing and editing the generated definition, verify it against the playbook:
+
+```sh
+tangsible ee verify [playbook.yml]
 ```
 
-It collects the modules used by the playbook and its roles, asks your host's
-Ansible which collections provide them, and inspects the base image with
-`podman`. Collections are pinned to the versions of a `requirements.yml` if
-you have one, otherwise to the ones installed on the host; a collection the host
-lacks (a fully qualified module name is enough to know it) gets the newest
-version on Galaxy that is not a pre-release and works with the image's
-ansible-core, marked `from Galaxy` in the draft. `--no-galaxy` skips that
-(the collection stays unpinned), `--latest` asks Galaxy for every collection
-and prefers its answer to the host's version. A collection flagged deprecated on
-Galaxy is marked. Galaxy is not asked when `GALAXY_SERVER_LIST` configures other
-servers, and a failed lookup never stops the command. The result is a
-draft in `./execution-environment.yml` (an existing file is replaced, the old
-one kept as `execution-environment.yml.1`, `.2`, ...: see below) in which everything that can't be determined statically is a `# TODO`
-comment. Lookups (`lookup()`, `query()`, `with_*`) are found too: their collections are
-added, and packages they need that nothing declares (`dnspython` for `dig`,
-`hvac` for `hashi_vault`, `rsync` for `synchronize`) are added to
-`python:`/`system:` (delete one you don't want). Binaries that `command`/`shell` tasks running on the controller
-(`hosts: localhost`, `delegate_to: localhost`, `connection: local`) use, and the
-base image lacks, are listed too; `--resolve-packages` also looks up the package
-for each (downloads repository metadata, can take a minute or two) and adds it
-to `system:` when exactly one package provides the binary (several candidates, or none, stay a `TODO`). Set `base_image` in `[execution_environment]` to choose the base
-image; `image` is never used for that, as it is what you run, usually the
-result of that build.
+It reports missing dependencies and exits with status 1 if checks fail. Verification catches many dependency and syntax problems before a real run, but it cannot detect failures that only occur when a task actually executes.
 
-An existing `execution-environment.yml` is replaced, not refused: when the new
-draft differs, the old file is first kept as `execution-environment.yml.<N>`
-(the highest number plus one; the five newest are kept), and nothing at all is
-written when the content is identical. The new draft is generated from scratch,
-not merged with your edits; they are in the backup (`diff` it). `--no-backup`
-replaces the file without keeping the old one. The backups are ordinary files in
-your project: add them to `.gitignore` if you don't want them in `git status`.
+### Build the image
 
-### Verifying a definition
+Once the definition is ready, build the image with:
 
-Once you have edited the draft, `tangsible ee verify` builds it and checks the
-result against your playbook:
-
-```
-tangsible ee verify site.yml [-f execution-environment.yml] [--keep] [--no-cache] [--show-output] [ansible-playbook args]
+```sh
+tangsible ee build
 ```
 
-It builds the definition with `ansible-builder` into a throw-away image (a build
-takes minutes; the output goes to `.tangsible/ee-verify.log`), runs
-`ansible-playbook --syntax-check` in it, asks the image's `ansible-doc` about
-*every* module and lookup the playbook uses (so you get all the missing ones, not
-just the first) and checks the binaries that tasks running on the controller
-need. It needs `podman` and `ansible-builder` (`tangsible version` shows both),
-removes the image afterwards (`--keep` keeps it) but keeps podman's build cache,
-so the next verify is faster (`--no-cache` builds from scratch and leaves
-nothing; `podman image prune` frees the cache), and exits 1 if anything is missing. It can't catch what only fails when
-a task really runs.
+### Push the image
 
-### Building the image
-
-When the definition is right, `tangsible ee build` builds it into the image it
-names and keeps it:
-
-```
-tangsible ee build [-f execution-environment.yml] [-t name:tag ...] [--no-cache] [--show-output]
-```
-
-The name is `-t` (repeatable: one build, several names), else the definition's
-`options.tags`; with neither it stops before building (the draft has a
-commented `tags` stanza). It takes no playbook and runs no checks. It prints
-each tag with its image id and size, and the `image = "..."` line to put under
-`[execution_environment]` (it never writes your `config.toml`). The build
-output goes to `.tangsible/ee-build.log`. A verify first, then a build, costs
-little more than the build, as podman's build cache is kept.
-
-Both commands show what the build is doing on a terminal: one status line with
-the elapsed time, podman's current `[stage] STEP n/m` and the latest line of
-output (there is no percentage: podman does not say how many steps a stage has
-until it gets there). `--show-output` streams the complete build output
-instead; it is always in the log.
-
-### Pushing the image
-
-`tangsible ee push` uploads the image names the definition lists in
-`options.tags` to their registry:
-
-```
+```sh
 tangsible ee push [-f execution-environment.yml] [-y | --yes]
 ```
 
-The registry is part of the name (`registry.example.com/team/my-ee:1.0`); a name
-without one (`std-ee:latest`) is a local-only name: podman keeps it as
-`localhost/...`, nothing can be pushed to that, so it is left out and listed as
-not pushed, which lets one definition carry short names to run with next to the
-registry's. It is an error only when no name has a registry. The names that are
-pushed are checked first, then tangsible shows what it will push and asks `Proceed?`
-(`--yes` skips the question; without a terminal it is required). It uses your
-podman login: run `podman login registry.example.com` once (`--authfile
-~/.config/containers/auth.json` keeps it across reboots), or set
-`REGISTRY_AUTH_FILE` in CI. Tangsible never reads or stores a credential.
+Tangsible pushes the image names listed in `options.tags` to their registries.
+
+Before pushing, Tangsible checks the image names and shows what it is about to upload. Confirm with `Proceed?`, or use `--yes` to skip the confirmation.
+
+Authentication is handled by Podman, not by Tangsible. Log in beforehand:
+
+```sh
+podman login registry.example.com
+```
 
 ## Configuration
 
-When no playbook is given on the command line, Tangsible resolves one
-from, in order:
+When no playbook is given on the command line, Tangsible looks for one in this order:
 
 1. `$TANGSIBLE_PLAYBOOK`
-2. `.tangsible/config.toml` in the current directory
-3. `$XDG_CONFIG_HOME/tangsible/config.toml` (default:
-   `~/.config/tangsible/config.toml`)
-4. `/etc/tangsible/config.toml`, an admin-set system-wide default
-5. `./site.yml`, if present
+2. `.tangsible/config.toml` in the current directory.
+3. `$XDG_CONFIG_HOME/tangsible/config.toml` (default: `~/.config/tangsible/config.toml`).
+4. `/etc/tangsible/config.toml`.
+5. `./site.yml`, if present.
 
-The project, global and system `config.toml` files all share the same TOML
-format, and every `[general]` key cascades project → global → system (the
-more specific tier wins only when it actually sets that key):
+Project, user and system configuration files use the same TOML format. Settings cascade from project to user to system configuration; a more specific setting takes precedence when it is set.
+
+For example:
 
 ```toml
 [general]
 default_playbook = "myplaybook.yml"
 default_tree_state = "collapsed"
+
+[execution_environment]
+image = "registry.example.com/team/my-ee:latest"
+base_image = "ghcr.io/ansible-community/community-ee-minimal:latest"
+network = "host"
 ```
 
-Invocation history used by `tangsible rerun` lives in .tangsible/state.toml
-and should best be gitignored.
+`image` is the default image used to run playbooks and roles. `base_image` is used by `tangsible ee init` when generating a definition; it is not the image used to execute playbooks. Check this [example config](https://code.aw.net/claude/tangsible/raw/branch/main/examples/config.toml) for a detailed description of all configuration settings.
 
 ## Current limitations
 
-Tangsible is currently aimed at the common interactive use case rather than
-complete `ansible-playbook` feature parity.
+Tangsible focuses on interactive workflows rather than complete `ansible-playbook` feature parity.
 
-- **Execution environments** (see "Running in an execution environment") work with podman on Linux for `run`/`rerun`/`role` only; docker, macOS and `debug` are not supported yet, **ansible-runner** is not supported.
-- **Interactive input after the TUI starts is not supported** in `run`/`rerun`/`role`. For example, a bare pause: task does not wait for input, and `--step` will not work. (`tangsible debug` is the dedicated way to drive ansible-core's own task debugger - see "Debugging a playbook" above; it isn't available from inside the regular live tree.)
-  
-  Timed pauses work normally.
-  `--ask-become-pass`, `--ask-vault-pass` and `--ask-pass` work: Tangsible
-  asks once at startup, before the TUI, and hands Ansible private temporary
-  password files (removed on exit) for the first run and every re-run.
-- **Scale**: Tangsible is developed and tested primarily against relatively
-  small development inventories. It is not intended to be a fleet-management
-  interface.
-- **CLI parity**: only a limited subset of ansible-playbook options is
-  interpreted specially by Tangsible; other arguments are passed through to
-  Ansible.
+- **Execution environments:** Supported on Linux with Podman for `run`, `rerun` and `role`. Docker, macOS and `debug` are not supported for EE execution. `ansible-runner` is not required or supported.
+- **Interactive input:** Interactive input after the TUI starts is not supported in `run`, `rerun` or `role`. For example, a bare `pause` task will not wait for input, and `--step` will not work. Use `tangsible debug` for the interactive debugging workflow.\
+  Timed pauses work normally. `--ask-become-pass`, `--ask-vault-pass` and `--ask-pass` are supported: Tangsible prompts before opening the TUI and supplies Ansible with temporary password files, which are removed on exit.
+- **Scale:** Tangsible is developed and tested primarily with relatively small development inventories. It is not intended as a fleet-management interface.
+- **CLI parity:** Only a limited subset of `ansible-playbook` options is interpreted specially by Tangsible; other arguments are passed through to Ansible.
 
 ## Development
 
 Tangsible is written in Go.
 
-```
-go build ./...   # build
-go vet ./...     # lint
-go test ./...    # unit tests
+```sh
+go build ./...
+go vet ./...
+go test ./...
 ```
 
-The callback plugin is embedded at build time, so `go run .` works as is. To
-try a modified `callback/tangsible_events.py` without rebuilding, point
-`$TANGSIBLE_CALLBACK_DIR` at a directory containing it:
+The callback plugin is embedded at build time, so `go run .` works without installing it separately. To try a modified callback plugin without rebuilding, point `$TANGSIBLE_CALLBACK_DIR` at a directory containing it:
 
-```
+```sh
 TANGSIBLE_CALLBACK_DIR="$PWD/callback" go run . run site.yml
 ```
 
-There are also end-to-end smoke tests that run the real binary inside a
-`tmux` pane:
+End-to-end smoke tests use a real binary in a `tmux` pane and are excluded from the normal test run:
 
-```
+```sh
 go test -tags e2e ./...
 ```
 
-These require `tmux` and `ansible-playbook` and are excluded from the normal
-test run.
+The callback plugin has its own Python test suite in `callback-tests/`:
 
-The callback plugin has its own Python test suite in `callback-tests/`. It runs
-real `ansible-playbook` processes and checks the event stream, including a
-comparison against `ansible.posix.jsonl` (skipped if that collection isn't
-installed). It needs `ansible-playbook` and takes about a minute:
-
-```
+```sh
 python3 -m unittest discover -s callback-tests -v
 ```
 
 ## License
 
-The `tangsible` binary/CLI and the bundled Ansible callback plugin are
-**Apache-2.0** licensed - see `LICENSE`.
+Tangsible and its bundled Ansible callback plugin are licensed under Apache-2.0. See [LICENSE](LICENSE).
 
 ## Contact
 
