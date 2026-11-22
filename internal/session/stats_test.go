@@ -399,3 +399,13 @@ func TestTimingCSVFileName(t *testing.T) {
 		t.Errorf("a revisited run's name = %q", got)
 	}
 }
+
+func TestCSVTimeFormat(t *testing.T) {
+	ts := time.Date(2026, 11, 21, 18, 0, 23, 567_000_000, time.Local)
+	if got := csvTime(ts); got != "2026-11-21 18:00:23.567" {
+		t.Errorf("csvTime = %q", got)
+	}
+	if csvTime(time.Time{}) != "" {
+		t.Error("a zero time must be an empty field")
+	}
+}

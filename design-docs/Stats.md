@@ -175,8 +175,9 @@ not expandable. Shown whenever the screen is.
 cancels; an error such as "file exists" shows in the dialog's title) and writes
 the run's timing to a CSV file in the current directory (`statsexport.go`): a header and one line per host and executed task, in
 execution order - `host`, `play`, `task`, `start time`, `end time`, `result`
-(OK, Changed, Skipped, Failed, Unreachable). Times are RFC 3339 with
-milliseconds in the local zone, empty if Ansible gave none; a play without a
+(OK, Changed, Skipped, Failed, Unreachable). Times look like
+`2026-11-21 18:00:23.567` (local zone, milliseconds; Excel and Google Sheets
+read that, not RFC 3339), empty if Ansible gave none; a play without a
 name is "play N" as on the other tabs. The suggested name is revisit's export name
 (`revisit.ExportFileNameExt`: the name given with `R`, else start time and
 command line, filename-safe) with `.csv`. A run opened through `revisit` is
