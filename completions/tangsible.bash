@@ -297,7 +297,7 @@ _tangsible()
 		fi
 		;;
 	ee)
-		# tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest]
+		# tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [-t <tag> ...]
 		# tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [--show-output] [ansible-playbook args...]
 		# tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache] [--show-output]
 		# tangsible ee push [-f <file>] [-y | --yes]

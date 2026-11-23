@@ -31,11 +31,14 @@ type Options struct {
 	// for every collection and prefers its answer to the host's version.
 	NoGalaxy bool
 	Latest   bool
+	// Tags are the image names (-t/--tag, repeatable) written into the
+	// definition's options.tags instead of the commented suggestion.
+	Tags []string
 }
 
 // ParseArgs reads the arguments after "ee": the subcommand init, an
 // optional playbook, --base <image>, --resolve-packages, --no-backup,
-// --no-galaxy and --latest.
+// --no-galaxy, --latest and -t/--tag (repeatable).
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	if len(args) == 0 || args[0] != "init" {
@@ -57,6 +60,18 @@ func ParseArgs(args []string) (Options, error) {
 			o.ResolvePackages = true
 		case a == "--no-backup":
 			o.NoBackup = true
+		case a == "-t" || a == "--tag":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return o, fmt.Errorf("%s needs an image name", a)
+			}
+			i++
+			o.Tags = append(o.Tags, args[i])
+		case strings.HasPrefix(a, "--tag="):
+			v := strings.TrimPrefix(a, "--tag=")
+			if v == "" {
+				return o, errors.New("--tag needs an image name")
+			}
+			o.Tags = append(o.Tags, v)
 		case a == "--no-galaxy":
 			o.NoGalaxy = true
 		case a == "--latest":
@@ -88,7 +103,7 @@ func containsBaseFlag(args []string) bool {
 }
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee init [--base image] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [playbook.yml]"
+const Usage = "usage: tangsible ee init [--base image] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [-t tag ...] [playbook.yml]"
 
 // RunEEVerb is `tangsible ee init ...`; it returns the exit code. (ee verify
 // is internal/eeverify's.)
@@ -232,6 +247,7 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		Galaxy:           galaxy,
 		Latest:           opts.Latest,
 		ImageTag:         SuggestTag(cwd),
+		Tags:             opts.Tags,
 
 		Binaries:          missing,
 		ResolvePackages:   opts.ResolvePackages,

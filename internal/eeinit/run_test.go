@@ -1,6 +1,9 @@
 package eeinit
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestParseArgs(t *testing.T) {
 	for _, c := range []struct {
@@ -20,6 +23,11 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"init", "--latest", "site.yml"}, Options{Playbook: "site.yml", Latest: true}, false},
 		{[]string{"init", "--no-galaxy", "--resolve-packages"}, Options{NoGalaxy: true, ResolvePackages: true}, false},
 		{[]string{"init", "--no-galaxy", "--latest"}, Options{}, true},
+		{[]string{"init", "-t", "a:1", "--tag", "b:2", "site.yml"}, Options{Playbook: "site.yml", Tags: []string{"a:1", "b:2"}}, false},
+		{[]string{"init", "--tag=a:1"}, Options{Tags: []string{"a:1"}}, false},
+		{[]string{"init", "-t"}, Options{}, true},
+		{[]string{"init", "-t", "--latest"}, Options{}, true},
+		{[]string{"init", "--tag="}, Options{}, true},
 		{nil, Options{}, true},
 		{[]string{"build"}, Options{}, true},
 		{[]string{"init", "--base"}, Options{}, true},
@@ -29,7 +37,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"init", "-i", "hosts"}, Options{}, true},
 	} {
 		got, err := ParseArgs(c.args)
-		if (err != nil) != c.bad || (!c.bad && got != c.want) {
+		if (err != nil) != c.bad || (!c.bad && !reflect.DeepEqual(got, c.want)) {
 			t.Errorf("ParseArgs(%v) = %+v, %v; want %+v (bad=%v)", c.args, got, err, c.want, c.bad)
 		}
 	}

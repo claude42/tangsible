@@ -313,7 +313,7 @@ The same EE support is available for `tangsible role`. It is not currently avail
 Stock EE images generally contain few collections. `tangsible ee init` creates a starting `execution-environment.yml` based on the modules and dependencies used by a playbook and its roles:
 
 ```sh
-tangsible ee init [--base <image>] [--resolve-packages]  [playbook.yml]
+tangsible ee init [--base <image>] [--resolve-packages] [-t <tag> ...] [playbook.yml]
 ```
 
 The generated file is a draft, not a guarantee that every dependency can be inferred. Anything that cannot be determined statically is left as a `# TODO` for you to review.

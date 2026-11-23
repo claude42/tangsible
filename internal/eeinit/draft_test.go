@@ -338,7 +338,9 @@ func TestDraftBinariesResolved(t *testing.T) {
   # which their collections or the base image don't provide. Delete an entry you don't want:
   system:
     - jq [platform:rpm]   # jq: site.yml:40, roles/x/tasks/main.yml:3, +1 more; sshpass: site.yml:52
-    # TODO: binary "ip" (site.yml:9): one of iproute, iproute-tc
+    # TODO: binary "ip" (site.yml:9): one of
+    # - iproute [platform:rpm]
+    # - iproute-tc [platform:rpm]
     # TODO: binary "yq" (site.yml:60): no package found
 
 `
@@ -354,7 +356,7 @@ func TestDraftBinariesResolved(t *testing.T) {
 func TestDraftBinariesOnlyTodosStayComments(t *testing.T) {
 	got, rep := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, ResolvePackages: true,
 		Binaries: []BinaryNeed{{Name: "ip", Locs: []string{"site.yml:9"}, Packages: []string{"a", "b"}}, {Name: "yq", Locs: []string{"s.yml:1"}}}})
-	if strings.Contains(got, "\n  system:") || !strings.Contains(got, "  # TODO: binary \"ip\" (site.yml:9): one of a, b\n") || rep.Todos != 2 {
+	if strings.Contains(got, "\n  system:") || !strings.Contains(got, "  # TODO: binary \"ip\" (site.yml:9): one of\n  # - a [platform:rpm]\n  # - b [platform:rpm]\n") || rep.Todos != 2 {
 		t.Errorf("no single provider, so nothing is added (report %+v):\n%s", rep, got)
 	}
 	assertValidYAML(t, got)
@@ -448,4 +450,12 @@ func TestDraftImpliedPackagesAddedForReal(t *testing.T) {
 	if !reflect.DeepEqual(v.Dependencies.Python, []string{"dnspython", "hvac"}) || !reflect.DeepEqual(v.Dependencies.System, []string{"rsync"}) {
 		t.Errorf("dependencies = %+v", v.Dependencies)
 	}
+}
+
+func TestDraftTagsGiven(t *testing.T) {
+	got, _ := Draft(Inputs{Playbook: "site.yml", Base: "img:1", Facts: microFacts, Tags: []string{"reg.io/me/ee:1", "ee:latest"}})
+	if !strings.Contains(got, "\n  tags:\n    - reg.io/me/ee:1\n    - ee:latest\n") || strings.Contains(got, "# tags:") {
+		t.Errorf("tags not written for real:\n%s", got)
+	}
+	assertValidYAML(t, got)
 }

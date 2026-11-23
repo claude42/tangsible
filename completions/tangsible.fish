@@ -91,7 +91,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from host; and __fish_is_nth_to
 complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d 'Vars file'
 
-# ee: tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest]
+# ee: tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [-t <tag> ...]
 #     tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [--show-output] [ansible-playbook args...]
 #     tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache] [--show-output]
 #     tangsible ee push [-f <file>] [-y | --yes]
@@ -106,6 +106,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcom
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l no-backup -d 'Replace an existing file without keeping a backup'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l no-galaxy -d 'Do not ask Galaxy for collection versions'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l latest -d 'Use the newest compatible Galaxy version for every collection'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -s t -l tag -x -d 'Image name for options.tags (repeatable)'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -s f -l file -r -a '(__fish_complete_suffix .yml .yaml)' -d 'Definition to build'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -l keep -d 'Keep the built image'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -l no-cache -d 'Build without the podman build cache'

@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-ee" "1" "2026-11-21" "Tangsible" "Tangsible Manual"
+.TH "tangsible-ee" "1" "2026-11-23" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -15,7 +15,7 @@ tangsible-ee - draft an execution-environment.\&yml from a playbook, check it, b
 .PP
 \fBtangsible ee\fR <init | verify | build | push> [\fIoptions\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .PP
-\fBtangsible ee init\fR [--base \fIimage\fR] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [\fIplaybook.\&yml\fR]
+\fBtangsible ee init\fR [--base \fIimage\fR] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [-t \fItag\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .br
 \fBtangsible ee verify\fR [-f \fIfile\fR] [--keep] [--no-cache] [--show-output] [\fIansible-playbook options\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .br
@@ -156,6 +156,12 @@ use the network.\&)
 Ask Galaxy for every collection and use its newest compatible version
 instead of the host'\&s installed one.\& A \fBrequirements.\&yml\fR version still
 wins.\& Contradicts \fB--no-galaxy\fR.\&
+.PP
+.RE
+\fB-t\fR, \fB--tag\fR \fItag\fR
+.RS 4
+Write \fItag\fR into the definition'\&s \fBoptions.\&tags\fR (repeatable) instead of the
+commented suggestion, so \fBee build\fR needs no \fB-t\fR.\&
 .PP
 .RE
 .SH VERIFY

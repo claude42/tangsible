@@ -36,6 +36,9 @@ type Inputs struct {
 	// ImageTag is the name suggested for the built image in the commented
 	// tags: stanza ("" means "my-ee:latest").
 	ImageTag string
+	// Tags, when set (ee init -t), are written as the real options.tags
+	// instead of the commented suggestion.
+	Tags []string
 
 	// Binaries are the binaries that controller-side command/shell tasks run
 	// and the base image lacks. ResolvePackages says --resolve-packages was
@@ -173,13 +176,13 @@ func Draft(in Inputs) (string, Report) {
 		}
 		for _, t := range binTodos {
 			rep.Todos++
-			dw("%s# TODO: %s", indent, t)
+			dw("%s# TODO: %s", indent, strings.ReplaceAll(t, "\n", "\n"+indent+"# "))
 		}
 		dw("")
 	} else if len(binTodos) > 0 {
 		for _, t := range binTodos {
 			rep.Todos++
-			dw("  # TODO: %s", t)
+			dw("  # TODO: %s", strings.ReplaceAll(t, "\n", "\n  # "))
 		}
 		dw("")
 	}
@@ -256,6 +259,14 @@ func Draft(in Inputs) (string, Report) {
 		tag = "my-ee:latest"
 	}
 	w("")
+	if len(in.Tags) > 0 {
+		w("  # The names the built image gets (ansible-builder build --tag overrides them).")
+		w("  tags:")
+		for _, t := range in.Tags {
+			w("    - %s", scalar(t))
+		}
+		return b.String(), rep
+	}
 	w("  # The names the built image gets (ansible-builder build --tag overrides them).")
 	w("  # To set them, uncomment and adjust:")
 	w("")
@@ -537,7 +548,14 @@ func binaryPlan(in Inputs, rep *Report) (list []string, system []StanzaEntry, to
 		case 1:
 			system = append(system, StanzaEntry{b.Packages[0] + selector, b.Name + ": " + locsText(b.Locs)})
 		default:
-			todos = append(todos, fmt.Sprintf("binary %q (%s): one of %s", b.Name, locsText(b.Locs), strings.Join(b.Packages, ", ")))
+			// One commented list item per candidate, so choosing is just
+			// removing the "# " before one of them.
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "binary %q (%s): one of", b.Name, locsText(b.Locs))
+			for _, p := range b.Packages {
+				sb.WriteString("\n- " + p + selector)
+			}
+			todos = append(todos, sb.String())
 		}
 	}
 	return nil, system, todos

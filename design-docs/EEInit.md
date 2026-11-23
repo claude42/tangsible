@@ -340,7 +340,9 @@ stanza, naming the candidates:
     - jq [platform:rpm]        # jq: site.yml:40
     - sshpass [platform:rpm]   # sshpass: site.yml:52, +1 more
     # TODO: binary "yq" (site.yml:60): no package found
-    # TODO: binary "ip" (site.yml:9): one of iproute, iproute-tc
+    # TODO: binary "ip" (site.yml:9): one of
+    # - iproute [platform:rpm]
+    # - iproute-tc [platform:rpm]
 ```
 
 Why only a single provider: the scan that finds the binary is heuristic (a
@@ -1425,7 +1427,7 @@ version in that case, and a switch does the same for every collection.
 
 ```
 tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backup]
-                  [--no-galaxy] [--latest]
+                  [--no-galaxy] [--latest] [-t tag ...]
 ```
 
 - `--no-galaxy`: no Galaxy query; the behaviour before this section. (The name

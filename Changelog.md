@@ -6,6 +6,12 @@
 
 - Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
 
+### Changed
+
+- `ee init -t/--tag <name>` (repeatable): writes the definition's `options.tags` for real instead of the commented suggestion
+
+- `ee init --resolve-packages`: a binary several packages provide is now a commented list, one `# - package` line per candidate, so picking one means removing the `# `
+
 ## [0.5.0] - 2026-11-22
 
 ### Added
