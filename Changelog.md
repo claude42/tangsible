@@ -6,6 +6,10 @@
 
 - Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
 
+### Fixed
+
+- `ee init --resolve-packages`: the binary a `lookup('pipe', ...)` runs (e.g. in `group_vars`) is now detected and its package looked up, like a controller-side `shell` task's
+
 ### Changed
 
 - `ee init -t/--tag <name>` (repeatable): writes the definition's `options.tags` for real instead of the commented suggestion

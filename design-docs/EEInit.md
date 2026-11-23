@@ -255,6 +255,13 @@ and `ansible.legacy` names), and only when the task is controller-side:
 - or the task (or an enclosing block) has `connection: local`, `delegate_to:`
   one of those three, `vars: ansible_connection: local`, or is `local_action:`.
 
+A `lookup('pipe', 'cmd')` (also `query`/`q`, `ansible.builtin.pipe`) always
+counts, wherever it stands (task arguments, `group_vars`, templates): lookups
+run on the controller whatever the task's host, and `pipe` runs each string
+literal after its name through a shell. Its commands are scanned like a
+`shell` task's; a command that is not a literal is counted with the templated
+ones. (`with_pipe:` is not looked at.)
+
 Limitations, stated in the comment of the binaries block of the draft:
 a role's task file is scanned on its own, so it has no play context (only
 the task-level conditions above apply to it); an `ansible_connection` set in

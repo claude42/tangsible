@@ -66,5 +66,12 @@ func ScanProject(playbook, cwd string) (*Project, error) {
 			p.TemplatedLookups += lt
 		}
 	}
+	// A pipe lookup runs its command in a shell on the controller, like a
+	// shell task there.
+	for _, u := range p.Lookups {
+		for _, c := range u.Cmds {
+			p.Commands = append(p.Commands, Command{Loc: u.Loc, Shell: true, Text: c})
+		}
+	}
 	return p, nil
 }

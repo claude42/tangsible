@@ -18,6 +18,10 @@ type LookupUse struct {
 	Collections []string
 	// Loc is "path:line".
 	Loc string
+	// Cmds are the command lines of a pipe lookup's terms: it runs them
+	// through a shell on the controller, so what they run has to be in the
+	// image. A term that is not a string literal is "{{ ... }}" (unknown).
+	Cmds []string
 }
 
 var (
@@ -86,10 +90,40 @@ func scanText(text string, loc func(offset int) string, colls []string) (uses []
 		return nil, 0
 	}
 	for _, m := range lookupCall.FindAllStringSubmatchIndex(text, -1) {
-		uses = append(uses, LookupUse{Name: text[m[2]:m[3]], Collections: colls, Loc: loc(m[0])})
+		u := LookupUse{Name: text[m[2]:m[3]], Collections: colls, Loc: loc(m[0])}
+		if u.Name == "pipe" || u.Name == "ansible.builtin.pipe" {
+			u.Cmds = pipeTerms(text[m[1]:])
+		}
+		uses = append(uses, u)
 	}
 	templated = len(lookupVarCall.FindAllStringIndex(text, -1))
 	return uses, templated
+}
+
+// pipeTermLiteral is one more argument of a lookup call that is a quoted
+// string; pipeTermAny is any argument at all (a variable, a list, ...).
+var (
+	pipeTermLiteral = regexp.MustCompile(`^\s*,\s*(?:'([^']*)'|"([^"]*)")`)
+	pipeTermAny     = regexp.MustCompile(`^\s*,\s*[^\s,)]`)
+)
+
+// pipeTerms reads the arguments after a pipe lookup's name (text starts just
+// past the closing quote of 'pipe'): every leading string literal is a
+// command; a first argument that isn't one is an unknown command.
+func pipeTerms(text string) []string {
+	var cmds []string
+	for {
+		m := pipeTermLiteral.FindStringSubmatch(text)
+		if m == nil {
+			break
+		}
+		cmds = append(cmds, m[1]+m[2])
+		text = text[len(m[0]):]
+	}
+	if len(cmds) == 0 && pipeTermAny.MatchString(text) {
+		cmds = append(cmds, "{{ unknown }}")
+	}
+	return cmds
 }
 
 // nodeLoc is "path:line" of a node.
