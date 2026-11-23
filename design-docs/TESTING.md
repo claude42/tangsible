@@ -358,6 +358,18 @@ UI layer will never sensibly hit "100%," and treating coverage as a target
 rather than a map tends to produce low-value tests written just to move
 the number.
 
+## Code that shells out: fake binaries on `PATH`
+
+Functions that run `ansible-playbook`/`ansible-inventory` (`template`'s
+`RenderTemplate`, `host`'s `Fetch*`, `inventory`'s `List*`) are tested without
+ansible by putting a small shell script of the same name first on `PATH`
+(`t.Setenv("PATH", dir+":"+os.Getenv("PATH"))`; helpers `fakeBin` in each
+package's `fake_ansible_test.go`) and also pointing `XDG_CACHE_HOME` at a temp
+dir, since the callback plugin is extracted there. The script prints canned
+JSONL events or JSON and may write its arguments to a file for the test to
+check. Setting `PATH` to an empty temp dir tests the "binary not found"
+message. Not for the TUI parts; those stay tmux/e2e.
+
 ## CI
 
 Deliberately not addressed here. Worth revisiting once Phases 1-3 exist -
