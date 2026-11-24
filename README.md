@@ -4,7 +4,7 @@
 
 Why did that task fail? Where did that variable come from? What is Ansible about to do on this host? Why does this template not render as expected? And what's needed in this execution environment to make this playbook run?
 
-Working with Ansible usually means juggling commands, switching between scrolling output, extra debug: tasks  and scratch playbooks. Tangsible puts these workflows in one terminal application. It wraps ansible-playbook and doesn't replace it.
+Working with Ansible often means juggling commands, scrolling through output, adding temporary debug tasks and writing scratch playbooks. Tangsible brings these workflows together in one interactive terminal workbench for Ansible.
 
 ## See it in action
 
