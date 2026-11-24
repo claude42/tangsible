@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
@@ -27,10 +28,12 @@ type Options struct {
 	ResolvePackages bool
 	// NoBackup replaces an existing file without keeping its old content.
 	NoBackup bool
-	// NoGalaxy does not ask Galaxy for collection versions; Latest asks it
-	// for every collection and prefers its answer to the host's version.
-	NoGalaxy bool
-	Latest   bool
+	// Offline asks no one: not the registry for a base image matching the
+	// host (the built-in default is used) and not Galaxy for collection
+	// versions. Latest picks the newest base image and asks Galaxy for every
+	// collection, preferring its answer to the host's version.
+	Offline bool
+	Latest  bool
 	// Tags are the image names (-t/--tag, repeatable) written into the
 	// definition's options.tags instead of the commented suggestion.
 	Tags []string
@@ -38,7 +41,7 @@ type Options struct {
 
 // ParseArgs reads the arguments after "ee": the subcommand init, an
 // optional playbook, --base <image>, --resolve-packages, --no-backup,
-// --no-galaxy, --latest and -t/--tag (repeatable).
+// --offline, --latest and -t/--tag (repeatable).
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	if len(args) == 0 || args[0] != "init" {
@@ -72,8 +75,8 @@ func ParseArgs(args []string) (Options, error) {
 				return o, errors.New("--tag needs an image name")
 			}
 			o.Tags = append(o.Tags, v)
-		case a == "--no-galaxy":
-			o.NoGalaxy = true
+		case a == "--offline":
+			o.Offline = true
 		case a == "--latest":
 			o.Latest = true
 		case strings.HasPrefix(a, "-"):
@@ -87,8 +90,8 @@ func ParseArgs(args []string) (Options, error) {
 	if strings.HasPrefix(o.Base, "-") || (o.Base == "" && containsBaseFlag(args)) {
 		return o, errors.New("--base needs an image")
 	}
-	if o.NoGalaxy && o.Latest {
-		return o, errors.New("--no-galaxy and --latest contradict each other: --latest is what asks Galaxy")
+	if o.Offline && o.Latest {
+		return o, errors.New("--offline and --latest contradict each other: --latest is what asks the registry and Galaxy")
 	}
 	return o, nil
 }
@@ -103,7 +106,7 @@ func containsBaseFlag(args []string) bool {
 }
 
 // Usage is the synopsis printed with a usage error.
-const Usage = "usage: tangsible ee init [--base image] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [-t tag ...] [playbook.yml]"
+const Usage = "usage: tangsible ee init [--base image] [--resolve-packages] [--no-backup] [--offline] [--latest] [-t tag ...] [playbook.yml]"
 
 // RunEEVerb is `tangsible ee init ...`; it returns the exit code. (ee verify
 // is internal/eeverify's.)
@@ -152,6 +155,23 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 
 	settings := config.EEFromSettings(config.MergedSettingsConfig())
 	base, isDefault := ResolveBase(opts.Base, settings.BaseImage)
+	var baseNote []string
+	if isDefault {
+		switch {
+		case opts.Offline:
+		case opts.Latest:
+			fmt.Fprintln(stderr, "tangsible: looking for the newest base image ...")
+		default:
+			fmt.Fprintln(stderr, "tangsible: looking for a base image matching this host's ansible-core ...")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		choice := ChooseDefaultBase(ctx, NewRegistryClient(), HostAnsibleCore(), opts.Latest, opts.Offline)
+		cancel()
+		base, baseNote = choice.Image, choice.Note
+		if choice.Warning != "" {
+			fmt.Fprintf(stderr, "tangsible: %s; using %s\n", choice.Warning, base)
+		}
+	}
 	fmt.Fprintf(stderr, "tangsible: base image %s\n", base)
 
 	// The image is pulled by the same policy a run would use, then
@@ -238,6 +258,7 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 		Playbook:         displayPath(abs, cwd),
 		Base:             base,
 		BaseIsDefault:    isDefault,
+		BaseNote:         baseNote,
 		Facts:            facts,
 		Needed:           needed,
 		Todos:            todos,
@@ -278,7 +299,7 @@ func runInit(opts Options, stdout, stderr io.Writer) error {
 // it could not do leaves the collection unpinned, with a note in the draft and
 // one warning here.
 func galaxyPins(opts Options, in Inputs, core string, stderr io.Writer) map[string]GalaxyInfo {
-	if opts.NoGalaxy {
+	if opts.Offline {
 		return nil
 	}
 	targets := PinTargets(in, opts.Latest)
@@ -289,7 +310,7 @@ func galaxyPins(opts Options, in Inputs, core string, stderr io.Writer) map[stri
 		fmt.Fprintf(stderr, "tangsible: not asking Galaxy: %v\n", err)
 		return nil
 	} else if configured {
-		fmt.Fprintf(stderr, "tangsible: Galaxy servers are configured (GALAXY_SERVER_LIST); not asking Galaxy for %d collection(s) (--no-galaxy hides this)\n", len(targets))
+		fmt.Fprintf(stderr, "tangsible: Galaxy servers are configured (GALAXY_SERVER_LIST); not asking Galaxy for %d collection(s) (--offline hides this)\n", len(targets))
 		note := map[string]GalaxyInfo{}
 		for _, t := range targets {
 			note[t] = GalaxyInfo{Note: "unpinned: Galaxy servers are configured, not queried"}

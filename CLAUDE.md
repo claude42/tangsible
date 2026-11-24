@@ -388,9 +388,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   `# TODO`, not a guess. A collection's version: `requirements.yml`, else the
   host's, else (`eeinit/galaxy.go`) Galaxy's newest non-pre-release whose
   `requires_ansible` admits the *image's* ansible-core - the one network call
-  of the draft that must never fail the command (`--no-galaxy`, `--latest`;
-  skipped when `GALAXY_SERVER_LIST` is set). The base image is `--base` > `base_image` > a pinned
-  built-in default - **never `[execution_environment] image`** (it is usually
+  of the draft that must never fail the command (`--offline`, `--latest`;
+  skipped when `GALAXY_SERVER_LIST` is set). The base image is `--base` > `base_image` > the community image
+  matching the host's ansible-core (`eeinit/registry.go`: ghcr.io's tag list,
+  best effort, `--latest` = newest) > a pinned built-in default - **never `[execution_environment] image`** (it is usually
   the build's own output). Draft text is built by pure `eeinit.Draft`; keep
   file/ansible/podman access in `host.go`/`probe.go`/`run.go`.
 - **EE verify** (`EEInit.md`, "Verifying a definition"): `tangsible ee verify`

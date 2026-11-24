@@ -91,7 +91,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from host; and __fish_is_nth_to
 complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d 'Vars file'
 
-# ee: tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [-t <tag> ...]
+# ee: tangsible ee init [<playbook>] [--base <image>] [--resolve-packages] [--no-backup] [--offline] [--latest] [-t <tag> ...]
 #     tangsible ee verify [<playbook>] [-f <file>] [--keep] [--no-cache] [--show-output] [ansible-playbook args...]
 #     tangsible ee build [-f <file>] [-t <tag> ...] [--no-cache] [--show-output]
 #     tangsible ee push [-f <file>] [-y | --yes]
@@ -104,8 +104,8 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and not __fish_seen_su
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l base -x -d 'Base image for the draft'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l resolve-packages -d 'Look up the packages for binaries the base image lacks'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l no-backup -d 'Replace an existing file without keeping a backup'
-complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l no-galaxy -d 'Do not ask Galaxy for collection versions'
-complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l latest -d 'Use the newest compatible Galaxy version for every collection'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l offline -d 'Use no network: built-in base image, no Galaxy lookups'
+complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -l latest -d 'Newest base image and newest compatible Galaxy version for every collection'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from init' -s t -l tag -x -d 'Image name for options.tags (repeatable)'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -s f -l file -r -a '(__fish_complete_suffix .yml .yaml)' -d 'Definition to build'
 complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcommand_from verify' -l keep -d 'Keep the built image'

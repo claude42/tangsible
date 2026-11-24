@@ -313,8 +313,10 @@ The same EE support is available for `tangsible role`. It is not currently avail
 Stock EE images generally contain few collections. `tangsible ee init` creates a starting `execution-environment.yml` based on the modules and dependencies used by a playbook and its roles:
 
 ```sh
-tangsible ee init [--base <image>] [--resolve-packages] [-t <tag> ...] [playbook.yml]
+tangsible ee init [--base <image>] [--resolve-packages] [--offline] [--latest] [-t <tag> ...] [playbook.yml]
 ```
+
+Without `--base` (or `base_image` in the config), `ee init` looks up the community base image whose ansible-core matches your host's (the newest release of the same series if there is no exact match) and pins collections to the versions installed on your host, asking Galaxy only for those you lack. `--latest` takes the newest base image and the newest compatible collection versions instead. If the registry or Galaxy cannot be reached, the built-in default image and unpinned collections are used; `--offline` skips the lookups.
 
 The generated file is a draft, not a guarantee that every dependency can be inferred. Anything that cannot be determined statically is left as a `# TODO` for you to review.
 

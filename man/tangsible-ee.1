@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-ee" "1" "2026-11-23" "Tangsible" "Tangsible Manual"
+.TH "tangsible-ee" "1" "2026-11-24" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -15,7 +15,7 @@ tangsible-ee - draft an execution-environment.\&yml from a playbook, check it, b
 .PP
 \fBtangsible ee\fR <init | verify | build | push> [\fIoptions\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .PP
-\fBtangsible ee init\fR [--base \fIimage\fR] [--resolve-packages] [--no-backup] [--no-galaxy] [--latest] [-t \fItag\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
+\fBtangsible ee init\fR [--base \fIimage\fR] [--resolve-packages] [--no-backup] [--offline] [--latest] [-t \fItag\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .br
 \fBtangsible ee verify\fR [-f \fIfile\fR] [--keep] [--no-cache] [--show-output] [\fIansible-playbook options\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
 .br
@@ -144,18 +144,20 @@ Replace an existing file without keeping its old content; existing
 backups are left alone and no backup is made or removed.\&
 .PP
 .RE
-\fB--no-galaxy\fR
+\fB--offline\fR
 .RS 4
-Do not ask Galaxy for collection versions: a collection the host lacks is
-left unpinned, as before.\& (The image pull and \fB--resolve-packages\fR still
-use the network.\&)
+Use no network for choosing versions: the built-in base image (see \fB--base\fR)
+instead of one matching the host'\&s ansible-core, and no Galaxy lookups, so a
+collection the host lacks is left unpinned.\& (The image pull and
+\fB--resolve-packages\fR still use the network.\&) Contradicts \fB--latest\fR.\&
 .PP
 .RE
 \fB--latest\fR
 .RS 4
-Ask Galaxy for every collection and use its newest compatible version
-instead of the host'\&s installed one.\& A \fBrequirements.\&yml\fR version still
-wins.\& Contradicts \fB--no-galaxy\fR.\&
+Use the newest community base image, and ask Galaxy for every collection
+and use its newest compatible version instead of the host'\&s installed one.\&
+A \fBrequirements.\&yml\fR version still wins, and so does an explicit base image.\&
+Contradicts \fB--offline\fR.\&
 .PP
 .RE
 \fB-t\fR, \fB--tag\fR \fItag\fR

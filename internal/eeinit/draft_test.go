@@ -459,3 +459,18 @@ func TestDraftTagsGiven(t *testing.T) {
 	}
 	assertValidYAML(t, got)
 }
+
+func TestDraftBaseNote(t *testing.T) {
+	header := func(note []string) string {
+		got, _ := Draft(Inputs{Playbook: "site.yml", Base: "img:1", BaseIsDefault: true, BaseNote: note, Facts: microFacts})
+		return got
+	}
+	matched := header([]string{"# The base image is the ghcr.io/x build for this host's ansible-core 2.19.3."})
+	if !strings.Contains(matched, "# The base image is the ghcr.io/x build for this host's ansible-core 2.19.3.\n# It is not your choice: pass --base") || strings.Contains(matched, "built-in default") {
+		t.Errorf("matched:\n%s", matched)
+	}
+	fell := header([]string{"# no tag fits ansible-core 2.16.3; using the built-in default."})
+	if !strings.Contains(fell, "# no tag fits ansible-core 2.16.3; using the built-in default.\n# The base image is tangsible's built-in default") {
+		t.Errorf("fallback:\n%s", fell)
+	}
+}

@@ -50,7 +50,8 @@ tangsible ee init [playbook] [--base <image>] [--resolve-packages] [--no-backup]
 ## Base image
 
 Lookup order: `--base <image>` flag -> `[execution_environment].base_image`
-(new key, cascaded like the rest) -> built-in default
+(new key, cascaded like the rest) -> the community base image matching the host's
+ansible-core (see "Matching the host's ansible-core") -> built-in default
 `ghcr.io/ansible-community/community-ee-base:2.21.6-1`.
 
 **`[execution_environment].image` is deliberately never consulted.** It is
@@ -1437,13 +1438,12 @@ tangsible ee init [playbook.yml] [--base image] [--resolve-packages] [--no-backu
                   [--no-galaxy] [--latest] [-t tag ...]
 ```
 
-- `--no-galaxy`: no Galaxy query; the behaviour before this section. (The name
-  follows `--no-ee`, `--no-backup` and `--no-cache`; it says what is skipped,
-  not "offline", since the image pull and `--resolve-packages` still use the
-  network. The two do not conflict: `--resolve-packages` is not Galaxy.)
+- `--offline` (this was `--no-galaxy`, which only skipped Galaxy; it now also
+  skips the base-image lookup below): no Galaxy and no registry query. The image
+  pull and `--resolve-packages` still use the network.
 - `--latest`: Galaxy is asked for every collection, and its answer replaces the
   host's installed version. A `requirements.yml` version still wins. It
-  contradicts `--no-galaxy` (an error). The host's version is usually the one the
+  contradicts `--offline` (an error). The host's version is usually the one the
   playbook was tested with and newer is not always safer, so this is opt-in.
 
 ### Which version
@@ -1455,7 +1455,7 @@ Per collection the draft needs, in this order (the first that applies):
    unless `--latest`.
 3. Galaxy: the **newest version that is not a pre-release and whose
    `requires_ansible` admits the image's ansible-core** (`BaseFacts.AnsibleCore`,
-   not the host's: the image is what runs it). With `--no-galaxy`, this step is
+   not the host's: the image is what runs it). With `--offline`, this step is
    skipped.
 4. Otherwise unpinned, with a comment saying why.
 
@@ -1530,14 +1530,14 @@ unparseable string; empty core), `Newest` on a fixture of a real response
 (community.general, newest first, with `6.0.0-a1`-style pre-releases among
 older ones; a core that excludes the top versions picks an older one; none
 admitted), the pin order (requirements version, installed, `--latest`, Galaxy,
-unpinned), argument parsing (`--no-galaxy`, `--latest`, their contradictions with
+unpinned), argument parsing (`--offline`, `--latest`, their contradictions with
 each other and with `--resolve-packages`), the summary. With `httptest`: a
 paginated list, an empty list, a 500, a timeout, a deprecated flag - `ee init` still
 ends with a draft. e2e: not against galaxy.ansible.com.
 
 ### Changes elsewhere
 
-`config/help.go` (usage), the man page, completions (`--no-galaxy`, `--latest`),
+`config/help.go` (usage), the man page, completions (`--offline`, `--latest`),
 `README.md`, `Changelog.md`, `Codemap.md`, `CLAUDE.md` (the EE draft line: a
 network call that never fails the command). The interactive collections screen
 uses the same functions: its default for a collection the host lacks is this
@@ -1572,7 +1572,7 @@ answer.
 - With `--latest` and a failed lookup for a collection the host has, the host's
   version is kept (and the warning says the lookup failed).
 - The "Galaxy servers are configured" case adds the note to each collection that
-  would have been asked, and one warning (naming `--no-galaxy`); tried with
+  would have been asked, and one warning (naming `--offline`); tried with
   `ANSIBLE_GALAXY_SERVER_LIST=hub`.
 - Seen against galaxy.ansible.com: `community.mongodb` and `community.kubernetes`
   (not installed on this host) got `1.8.1` and `2.0.1` (the newest, both admit
@@ -1790,3 +1790,28 @@ the wizard does not model; a plain-prompt mode (the goal is the TUI).
   own requirements are resolved by `ansible-builder`.
 - Terminal resize, mouse support and the key table: specified with the code, as
   for the other TUIs.
+
+## Matching the host's ansible-core (`ee init`)
+
+**Implemented** (`internal/eeinit/registry.go`). Without `--base` or `base_image`,
+`ee init` no longer takes the pinned built-in default blindly: the playbook is run
+by the host's ansible-core today, so a base image with the same one is the closest
+a draft gets to "what I tested with".
+
+1. The host's version: `ansible-playbook --version` (`[core 2.19.11]`).
+2. ghcr.io's tag list of `community-ee-base` (anonymous pull token, `tags/list`
+   with `Link` paging; 5 s per request). Tags are `<core>-<build>` (`2.17-1`
+   means 2.17.0); `latest`, `devel`, digests and pre-releases are ignored.
+3. `PickBaseTag`: the highest build of the **exact** version; else the newest
+   release of the same **major.minor**; else nothing.
+4. Nothing - no network, no version, no fitting tag - falls back to the built-in
+   default, with a warning on stderr and a comment in the draft saying why. The
+   lookup never fails the command.
+
+`--latest` takes the newest release instead (and still Galaxy's newest collection
+versions); `--offline` skips the lookup silently. An explicit `--base` or
+`base_image` skips it. The draft's header says which image was chosen and why;
+the tag is pinned in the file, so later builds don't move. Collections keep the
+order of "Which version": installed versions are pinned, Galaxy fills the rest,
+filtered by the *chosen image's* ansible-core. Not done: warning when an installed
+collection's `requires_ansible` rules out a fallback image's core.

@@ -155,6 +155,9 @@ execution-environment.yml. The drafting is pure; host/probe/run do the I/O.
 - **galaxy.go** - Galaxy versions for collections the host lacks: `Admits`/
   `Newest` (pure), `GalaxyClient` (`Lookup`/`LookupAll`, deprecated flag),
   `GalaxyServersConfigured`; `PinTargets` and `pin` (draft.go) apply the order.
+- **registry.go** - the default base image matching the host: `RegistryClient`
+  (`ListTags`, ghcr.io anonymous token + paging), `PickBaseTag` (pure),
+  `HostAnsibleCore`, `ChooseDefaultBase` (falls back to `DefaultBaseImage`).
 - **write.go** - `WriteDraft` (temp file, hard-link backup `.N`, atomic rename,
   pruning to five), `CheckOutputPath`, the numbering helpers.
 - **run.go** - `ParseArgs`, `RunEEVerb`: the verb.

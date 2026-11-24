@@ -316,8 +316,8 @@ type PlaybookState struct {
 	// ("Origin: file:line:col") and so belong to the task defined there,
 	// however early ansible printed them (a role's tasks are loaded, and
 	// their deprecations reported, before the first play starts).
-	located []*locatedNotice
-	currentPlay     *PlayNode
+	located     []*locatedNotice
+	currentPlay *PlayNode
 	// tasksByID resolves a task's own identity (RawEvent.Task.ID) to its
 	// TaskNode, regardless of which event first revealed it - replaces the
 	// old single currentTask pointer (design-docs/StrategyFree.md), which

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `ee init` without `--base`/`base_image` now picks the community base image matching your host's ansible-core (the newest release of the same series if there is no exact one) instead of always the built-in default, which remains the fallback when the registry cannot be reached; `--latest` also takes the newest base image. `--no-galaxy` is replaced by `--offline`, which skips the registry lookup too
+
 ### Added
 
 - Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
