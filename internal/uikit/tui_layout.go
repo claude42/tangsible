@@ -1037,29 +1037,12 @@ func OutcomeDetail(task *playbook.TaskNode, host string) string {
 	return ""
 }
 
-// DecodeWarnings decodes raw and returns its own "warnings" field (nil
-// if raw doesn't decode, or carries none) - shared by hasWarnings (a
-// plain presence check, backing the tree's own ⚠ indicators) and
-// recap.go's own recapTaskDetail (which needs the actual joined text),
-// so both agree on exactly what "this result has a warning" means: any
-// result carrying a non-empty "warnings" field, "regardless of outcome
-// or module" - the same rule buildOutputTab's own Warnings section in
-// the drill-down view already follows.
-func DecodeWarnings(raw json.RawMessage) interface{} {
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return nil
-	}
-	return decoded["warnings"]
-}
-
-// HasWarnings reports whether raw's own "warnings" field is present and
-// non-empty. Backs hostLabel's own per-host ⚠ marker and taskHasWarnings
-// below - only presence matters there, not the warning text itself
-// (that's what drilling down, or the recap's own "warnings" category,
-// is for).
+// HasWarnings reports whether raw carries a warning or a deprecation
+// (playbook.ResultWarnings). Backs hostLabel's own per-host ⚠ marker and
+// taskHasWarnings below - only presence matters there, not the text (that's
+// what drilling down, or the recap's own "warnings" category, is for).
 func HasWarnings(raw json.RawMessage) bool {
-	return JoinedStringList(DecodeWarnings(raw), "\n") != ""
+	return len(playbook.ResultWarnings(raw)) > 0
 }
 
 // TaskHasWarnings reports whether any host recorded a warning for task -

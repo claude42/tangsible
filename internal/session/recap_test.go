@@ -326,6 +326,8 @@ func TestHasWarnings(t *testing.T) {
 		{"empty warnings list", `{"warnings":[]}`, false},
 		{"one warning", `{"warnings":["be careful"]}`, true},
 		{"multiple warnings", `{"warnings":["one","two"]}`, true},
+		{"only a deprecation", `{"deprecations":[{"msg":"old","version":"2.24"}]}`, true},
+		{"empty deprecations", `{"deprecations":[]}`, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

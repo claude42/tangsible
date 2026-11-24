@@ -554,7 +554,7 @@ func recapCategoryRowText(c recapCategory, selected bool) string {
 // single line, unlike that section's own free-standing TextView content.
 func recapTaskDetail(task *playbook.TaskNode, host, label string) string {
 	if label == "warnings" {
-		if joined := uikit.JoinedStringList(uikit.DecodeWarnings(task.Raw[host]), "; "); joined != "" {
+		if joined := strings.Join(playbook.ResultWarnings(task.Raw[host]), "; "); joined != "" {
 			return fmt.Sprintf(" (%s)", joined)
 		}
 		return ""

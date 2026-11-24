@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- A task result that carries only `deprecations` (ansible-core 2.19+ reports them apart from `warnings`) now gets the ⚠ marker, counts in the recap's `warnings`, and shows the deprecation (with its removal version) in the Warnings section of the drill-down
 - `ee init --resolve-packages`: the binary a `lookup('pipe', ...)` runs (e.g. in `group_vars`) is now detected and its package looked up, like a controller-side `shell` task's
 
 ### Changed

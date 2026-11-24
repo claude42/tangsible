@@ -113,7 +113,11 @@ same "compute once at ingestion, not on every render" approach
 performance reason (a large frozen recap's own CPU time was mostly spent
 re-decoding the same JSON on every cursor move). "Has a warning" means
 Ansible's own `warnings` result field is present and non-empty (a plain
-string or a list with at least one non-empty entry); "has stderr output"
+string or a list with at least one non-empty entry), or its `deprecations`
+field (ansible-core 2.19+, a list of `{msg, version}`) has an entry with a
+message (`playbook.ResultWarnings`, the one rule behind the ⚠ markers, the
+recap and the drill-down's Warnings section, which shows a deprecation as
+`Deprecated: <msg> (removal in <version>)`); "has stderr output"
 means the `stderr` result field (command/shell-family modules only) is a
 non-empty string. "Interesting" matches a task if *any* of its hosts has
 Changed, Failed, or Unreachable status, a warning, or stderr output - the

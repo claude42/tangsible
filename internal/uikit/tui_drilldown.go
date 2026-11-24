@@ -1052,9 +1052,10 @@ func BuildOutputTab(decoded map[string]interface{}, o playbook.Outcome) string {
 	// Warnings: design-docs/Drilldown, Task List.md's general rule, not
 	// module-specific like everything else here - any result carrying a
 	// "warnings" field (a JSON array of strings, confirmed empirically -
-	// e.g. ansible's own discovered-interpreter notice) gets its contents
-	// shown here, one per line, regardless of outcome or module.
-	if warnings := JoinedStringList(decoded["warnings"], "\n"); warnings != "" {
+	// e.g. ansible's own discovered-interpreter notice) or "deprecations"
+	// (ansible-core 2.19+, a list of {msg, version} objects) gets its
+	// contents shown here, one per line, regardless of outcome or module.
+	if warnings := strings.Join(playbook.CollectWarnings(decoded["warnings"], decoded["deprecations"]), "\n"); warnings != "" {
 		writeTextSection(WarningColor, "Warnings", warnings, false)
 	}
 

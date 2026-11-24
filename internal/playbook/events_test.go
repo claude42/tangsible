@@ -16,6 +16,7 @@ package playbook
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -126,6 +127,11 @@ func TestHasNonEmptyWarnings(t *testing.T) {
 		{"warnings: list with a real entry", `{"warnings":["","deprecated syntax"]}`, true},
 		{"warnings: list with a non-string entry mixed in", `{"warnings":[42,"deprecated syntax"]}`, true},
 		{"warnings: list of only non-string entries", `{"warnings":[42,true]}`, false},
+		{"deprecations: a real ansible-core 2.19 entry", `{"deprecations":[{"msg":"x is deprecated.","version":"2.24","collection_name":"ansible.builtin"}]}`, true},
+		{"deprecations: a plain string", `{"deprecations":["old"]}`, true},
+		{"deprecations: empty list", `{"deprecations":[]}`, false},
+		{"deprecations: entry without a message", `{"deprecations":[{"version":"2.24"}]}`, false},
+		{"deprecations: null", `{"deprecations":null}`, false},
 		{"malformed JSON", `not json`, false},
 	}
 	for _, c := range cases {
@@ -158,5 +164,40 @@ func TestHasNonEmptyStderr(t *testing.T) {
 				t.Errorf("hasNonEmptyStderr(%s) = %v, want %v", c.raw, got, c.want)
 			}
 		})
+	}
+}
+
+func TestResultWarnings(t *testing.T) {
+	got := ResultWarnings(json.RawMessage(`{
+		"warnings": ["interpreter discovered", ""],
+		"deprecations": [
+			{"msg": "Importing 'to_text' is deprecated.", "version": "2.24"},
+			{"msg": "no version given"},
+			{"msg": "numeric version", "version": 2.5},
+			"a plain string"
+		]}`))
+	want := []string{
+		"interpreter discovered",
+		"Deprecated: Importing 'to_text' is deprecated. (removal in 2.24)",
+		"Deprecated: no version given",
+		"Deprecated: numeric version (removal in 2.5)",
+		"Deprecated: a plain string",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+	if ResultWarnings(json.RawMessage(`{"changed":true}`)) != nil {
+		t.Error("a result with neither field must give nil")
+	}
+}
+
+// A task whose result carries only a deprecation is marked like one with a
+// warning (the ⚠ in the tree, the recap's warnings count).
+func TestApply_DeprecationOnlyResultCountsAsWarning(t *testing.T) {
+	task := &TaskNode{Warnings: map[string]bool{}, Raw: map[string]json.RawMessage{}, Hosts: map[string]Outcome{}, Finished: map[string]time.Time{},
+		HasStderr: map[string]bool{}, Ignored: map[string]bool{}, InFlight: map[string]bool{}}
+	task.record("h", OutcomeOK, json.RawMessage(`{"deprecations":[{"msg":"old","version":"2.24"}]}`), time.Time{})
+	if !task.Warnings["h"] {
+		t.Error("a deprecation did not set TaskNode.Warnings")
 	}
 }
