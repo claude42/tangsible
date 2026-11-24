@@ -616,6 +616,10 @@ thin constructor/wiring shell.
 - **e2e_ee_test.go** - same tier, for execution environments; also
   needs rootless podman and `TANGSIBLE_EE_IMAGE=<pulled image>`
   (skipped otherwise).
+- **e2e_ee_init_test.go** - `//go:build e2e`; `ee init` against a fake
+  `podman` on PATH (image exists + probe, logged), `--offline`: draft content,
+  `-t`, the default base, rerun/backup/`--no-backup`, usage errors. No podman,
+  network or tmux needed (ansible-doc is).
 
 ## screenrecordings/
 
