@@ -503,6 +503,10 @@ thin constructor/wiring shell.
     own `justSet` marker is cleared), `debugChromeStyle`/
     `debugChromeBg`/`debugRefreshChrome` (the two extra chrome states on
     top of the four plain-run ones).
+  - **livesession_variables.go** (+ `_test.go`) - the debug drill-down's
+    Variables tab (`debugVariablesTab`: the pause snapshot, vault-masked,
+    minus facts/built-ins, rendered by `uikit.RenderVariablesYAML`, which
+    `tangsible host`'s Variables tab shares - `internal/uikit/variables.go`).
   - **livesession_watch.go** (+ `_test.go` is `debugwatch_eval_test.go`
     below, not this file) - `watchPanel`, design-docs/DebugMode.md's
     "Stage 4" variable watch explorer: `newWatchPanel`/`render`/`height`

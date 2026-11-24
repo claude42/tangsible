@@ -203,7 +203,7 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - **Expand state** is per `*TaskNode`; a new task inherits the previous task's
   state (that's what makes `E` sticky while running).
 - **Drill-down** (`livesession_output.go`, `uikit/tui_drilldown.go`): tabs
-  Task, Output, Diff, File, Task definition, Resolved, Docs, Details - empty
+  Task, Output, Diff, File, Task definition, Resolved, Docs, Variables (debug only), Details - empty
   ones are omitted; File/Resolved/Docs fetch asynchronously on open. Two-pane
   mode (`design-docs/TwoPanedLayout.md`) is decided live per `rebuild()` from
   `pages`' width. The single-run **Diff tab** (Ansible's `--diff`, always

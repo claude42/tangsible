@@ -155,6 +155,12 @@ def _origin_of(name, value, facts, Origin):
     ``kind`` for what carries no tag: gathered facts, ansible's own variables,
     and registered results.
     """
+    if name in _BUILTIN_VARS and name != "environment":
+        # Ansible's own, even though its value may carry an origin tag (a
+        # config default, the playbook's own file): not something the user
+        # defined. ``environment`` is the exception, a play/group keyword
+        # users do set.
+        return {"kind": "builtin"}
     origin = Origin.get_tag(value) if Origin is not None else None
     if origin is not None and origin.path:
         info = {"path": str(origin.path)}

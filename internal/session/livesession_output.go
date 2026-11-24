@@ -37,6 +37,12 @@ import (
 func (s *liveSession) renderOutputTabs(task *playbook.TaskNode, host string, resolved, docs, file uikit.ResolvedRender) {
 	s.search.clear()
 	names, contents := uikit.BuildOutputTabs(task, host, s.sourceIndex, resolved, docs, file)
+	if text, ok := s.debugVariablesTab(task, host); ok && len(names) > 0 && names[len(names)-1] == "Details" {
+		// Before Details, which stays last.
+		at := len(names) - 1
+		names = append(names[:at], append([]string{"Variables"}, names[at:]...)...)
+		contents = append(contents[:at], append([]string{text}, contents[at:]...)...)
+	}
 	prims := make([]tview.Primitive, len(names))
 	for i, content := range contents {
 		tv := tview.NewTextView().SetDynamicColors(true)

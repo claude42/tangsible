@@ -113,8 +113,8 @@ for what *is* available there).
 
 ## Output/command drill-down view
 
-Opened by Enter/click on a host row. Up to 7 tabs - Task, Output,
-Diff, Task definition, Resolved, Docs, Details - shown only when that tab
+Opened by Enter/click on a host row. Up to 8 tabs - Task, Output,
+Diff, Task definition, Resolved, Docs, Variables (debug only), Details - shown only when that tab
 actually has content for the current task (Task/Details are always
 present; Output/Diff/Task definition/Resolved/Docs are shown only when
 there's something to put in them - Resolved/Docs specifically appear a

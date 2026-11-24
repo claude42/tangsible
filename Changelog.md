@@ -8,6 +8,7 @@
 
 ### Added
 
+- `debug`: the drill-down has a Variables tab, like the one of `tangsible host`: the variables the debugger saw when the task paused (vault values masked, facts and ansible's own variables left out), sorted, each with where it was defined (file and line, `-e`, `registered`)
 - Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
 
 ### Fixed

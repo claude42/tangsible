@@ -4075,6 +4075,27 @@ An action plugin was considered as the capture path and rejected: it would
 need an injected task per real task (a full task execution per host, the
 wrong `task_vars` for the following task, no breakpoints/redo/set).
 
+## Variables tab in the drill-down (2026-11-24)
+
+**Implemented.** `debug`'s drill-down has a Variables tab (before Details) next
+to Resolved, the counterpart of `tangsible host`'s (`HostVerb.md`, "Variables
+tab"). It needs no new query: it renders the snapshot every pause already
+captures (`debugTaskVarsCache`, vault-masked like the Resolved tab) with the
+origin labels the watch panel uses (`debugOriginCache`), as sorted YAML with
+a `# label` comment per top-level variable (`livesession_variables.go`, the
+shared `uikit.RenderVariablesYAML`). Left out: variables labeled `fact` and
+`built-in` (`ansible_facts`, `hostvars`, `groups`, ...), which would bury the
+user's own. Unlike the host verb's tab it also shows playbook-level variables,
+`set_fact` results (no origin, so no comment) and registered results
+(`# registered`). Absent for a task that never paused. The tab is rendered
+when the drill-down opens: a value changed later with the watch panel's
+`expr = value` shows on the next open.
+
+To make "ansible's own" reliable, `_origin_of` now classifies a name in
+`_BUILTIN_VARS` as `builtin` before looking at its origin tag (`ansible_forks`
+used to be labeled "Config default"); `environment`, which users do set, is
+the exception.
+
 ## Mouse support - new ideas
 
 We're currently not using the mouse very much in DebugMode. I think we could

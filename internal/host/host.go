@@ -871,7 +871,7 @@ func RenderHostFacts(prefix, note string, facts map[string]interface{}) string {
 	if err := yaml.Unmarshal(data, &node); err != nil {
 		return tview.Escape(err.Error())
 	}
-	clearYAMLStyle(&node)
+	uikit.ClearYAMLStyle(&node)
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -947,51 +947,10 @@ func RenderHostVariables(raw json.RawMessage) (string, error) {
 		}
 		return "", fmt.Errorf("%s", msg)
 	}
-	dec := json.NewDecoder(bytes.NewReader(res.Vars.Variables))
-	dec.UseNumber()
-	var vars map[string]interface{}
-	if err := dec.Decode(&vars); err != nil {
-		return "", err
-	}
 	note := "[" + uikit.AnnotationColor + "]Inventory-level variables; facts are on the Facts tab[-]\n\n"
-	if len(vars) == 0 {
-		return note + "No variables are defined for this host.\n", nil
-	}
-	sorted, err := json.Marshal(vars) // sorts every level's keys
-	if err != nil {
-		return "", err
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(sorted, &doc); err != nil || len(doc.Content) == 0 {
-		return "", fmt.Errorf("could not render the variables")
-	}
-	root := doc.Content[0]
-	clearYAMLStyle(root)
 	base, _ := os.Getwd()
-	labels := origin.Labels(res.Vars.Origins, "", "", base)
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if label := labels[root.Content[i].Value]; label != "" {
-			root.Content[i].LineComment = label
-		}
-	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
-		return "", err
-	}
-	_ = enc.Close()
-	return note + uikit.HighlightYAMLKeys(buf.String()), nil
-}
-
-// clearYAMLStyle drops the flow/quoted styles a node parsed from JSON
-// carries, so the encoder falls back to block style and quotes only where a
-// string needs it.
-func clearYAMLStyle(n *yaml.Node) {
-	n.Style = 0
-	for _, c := range n.Content {
-		clearYAMLStyle(c)
-	}
+	return uikit.RenderVariablesYAML(res.Vars.Variables, origin.Labels(res.Vars.Origins, "", "", base), note,
+		"No variables are defined for this host.\n")
 }
 
 // runHostStub runs stubPath narrowed to hostname (plus the user's own
