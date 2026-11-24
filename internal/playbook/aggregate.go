@@ -17,6 +17,7 @@ package playbook
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -153,6 +154,67 @@ type TaskNode struct {
 	// permanently empty, since IncompleteTasks (and so the spinner) had
 	// nothing to find.
 	InFlight map[string]bool
+	// Notices are the warnings and deprecations ansible-core printed on
+	// the controller while this task was the latest started one - a
+	// deprecated module, a reserved variable name - which no host's result
+	// carries (a "tangsible_message" event). Task-wide, not per host. One
+	// that merely repeats a result's own warning is dropped (AddNotice).
+	// Attribution is by time: a message about a task about to start can
+	// land on the task before it.
+	Notices []string
+	// resultTexts: every warning text seen in this task's results, to
+	// drop Notices that only repeat one.
+	resultTexts []string
+}
+
+// normSpace folds runs of whitespace, since ansible wraps long warnings.
+func normSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// AddNotice records a controller-side message unless a result of this task
+// already carries it (the user's own stdout callback prints result warnings
+// through the same channel).
+func (t *TaskNode) AddNotice(msg string) {
+	n := normSpace(msg)
+	if n == "" {
+		return
+	}
+	for _, r := range t.resultTexts {
+		if strings.Contains(n, r) {
+			return
+		}
+	}
+	for _, have := range t.Notices {
+		if normSpace(have) == n {
+			return
+		}
+	}
+	t.Notices = append(t.Notices, msg)
+}
+
+// noteResultWarnings remembers raw's warning texts and drops any notice
+// that repeats one of them (the notice arrives before the result).
+func (t *TaskNode) noteResultWarnings(raw json.RawMessage) {
+	texts := resultWarningTexts(raw)
+	if len(texts) == 0 {
+		return
+	}
+	for _, x := range texts {
+		t.resultTexts = append(t.resultTexts, normSpace(x))
+	}
+	kept := t.Notices[:0]
+	for _, n := range t.Notices {
+		dup := false
+		for _, x := range texts {
+			if strings.Contains(normSpace(n), normSpace(x)) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			kept = append(kept, n)
+		}
+	}
+	t.Notices = kept
 }
 
 func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedAt time.Time) {
@@ -162,6 +224,7 @@ func (t *TaskNode) record(host string, o Outcome, raw json.RawMessage, finishedA
 	t.Hosts[host] = o
 	t.Raw[host] = raw
 	t.Warnings[host] = hasNonEmptyWarnings(raw)
+	t.noteResultWarnings(raw)
 	t.HasStderr[host] = hasNonEmptyStderr(raw)
 	t.Ignored[host] = HasIgnoreErrors(raw)
 	t.Finished[host] = finishedAt
@@ -248,6 +311,12 @@ type PlaybookState struct {
 	HadUnreachable bool
 
 	pendingPlayName string
+
+	// located are the controller-side messages that name their source
+	// ("Origin: file:line:col") and so belong to the task defined there,
+	// however early ansible printed them (a role's tasks are loaded, and
+	// their deprecations reported, before the first play starts).
+	located []*locatedNotice
 	currentPlay     *PlayNode
 	// tasksByID resolves a task's own identity (RawEvent.Task.ID) to its
 	// TaskNode, regardless of which event first revealed it - replaces the
@@ -400,6 +469,9 @@ func (s *PlaybookState) findOrCreateTask(ev RawEvent, host string) *TaskNode {
 		s.tasksByID = map[string]*TaskNode{}
 	}
 	s.tasksByID[ev.Task.ID] = t
+	for _, n := range s.located {
+		n.offer(t)
+	}
 	if ev.Task.Path != "" {
 		if s.currentPlay.tasksByPath == nil {
 			s.currentPlay.tasksByPath = map[string][]*TaskNode{}
@@ -440,6 +512,28 @@ func (s *PlaybookState) Apply(ev RawEvent) {
 	// something else's data.
 	case "v2_playbook_on_task_start", "v2_playbook_on_handler_task_start":
 		s.findOrCreateTask(ev, "")
+
+	// A warning ansible-core printed itself (no result carries it): a
+	// notice on the task it names, silently dropped when that task isn't
+	// known (before the first task, or a stale id).
+	case "tangsible_message":
+		text := ev.Message
+		if ev.Level == "deprecation" {
+			text = "Deprecated: " + text
+		}
+		if file, line, ok := messageOrigin(ev.Message); ok {
+			n := &locatedNotice{file: file, line: line, text: text}
+			s.located = append(s.located, n)
+			for _, p := range s.Plays {
+				for _, t := range p.Tasks {
+					n.offer(t)
+				}
+			}
+		} else if ev.Task != nil {
+			if t, ok := s.tasksByID[ev.Task.ID]; ok {
+				t.AddNotice(text)
+			}
+		}
 
 	// Resolved once *per host*, not once per event, even though a
 	// terminal event only ever carries one host in ev.Hosts in practice

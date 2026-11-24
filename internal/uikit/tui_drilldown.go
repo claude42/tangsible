@@ -856,7 +856,14 @@ func BuildOutputTabs(task *playbook.TaskNode, host string, sourceIndex map[strin
 	names = append(names, "Task")
 	contents = append(contents, BuildTaskTab(task, host, decoded, o))
 
-	add("Output", BuildOutputTab(decoded, o))
+	output := BuildOutputTab(decoded, o)
+	if len(task.Notices) > 0 {
+		// Controller-side warnings of the task itself, not of this host
+		// (TaskNode.Notices): the same Warnings section a result's own
+		// warnings get, after everything else of the tab.
+		output += SectionLabel(WarningColor, "Warnings (task)") + tview.Escape(strings.Join(task.Notices, "\n")) + "\n\n\n"
+	}
+	add("Output", output)
 	add("Diff", BuildDiffTab(decoded))
 
 	// File (design-docs/ShowFileContents.md): the remote file's current

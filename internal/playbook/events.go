@@ -44,6 +44,13 @@ type RawEvent struct {
 	// outcome-event timestamp (aggregate.go's TaskNode.Started/Finished).
 	Host string `json:"host"`
 
+	// Level and Message are only populated on a "tangsible_message" event:
+	// a [WARNING]/[DEPRECATION WARNING] ansible-core printed itself
+	// ("warning" or "deprecation"), which no task result carries; Task names
+	// the task started last when it was printed.
+	Level   string `json:"level"`
+	Message string `json:"message"`
+
 	// TimestampText is the event's own "_timestamp" (empirically RFC3339
 	// with fractional seconds, e.g. "2026-08-06T12:41:02.439015Z").
 	// Deliberately a plain string, not time.Time: a time.Time field's own
@@ -120,6 +127,34 @@ func DecodeHostResult(raw json.RawMessage) HostResult {
 	var r HostResult
 	_ = json.Unmarshal(raw, &r)
 	return r
+}
+
+// resultWarningTexts lists the bare message of every warning and
+// deprecation raw carries (no "Deprecated:" decoration) - what ansible's own
+// stdout callback prints as "[WARNING]: <text>", so a controller-side notice
+// repeating one can be recognised (TaskNode.AddNotice).
+func resultWarningTexts(raw json.RawMessage) []string {
+	var decoded struct {
+		Warnings     []interface{} `json:"warnings"`
+		Deprecations []interface{} `json:"deprecations"`
+	}
+	if json.Unmarshal(raw, &decoded) != nil {
+		return nil
+	}
+	var out []string
+	for _, w := range decoded.Warnings {
+		if s, ok := w.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	for _, d := range decoded.Deprecations {
+		if m, ok := d.(map[string]interface{}); ok {
+			if s, _ := m["msg"].(string); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }
 
 // hasNonEmptyWarnings reports whether raw carries a warning or a deprecation

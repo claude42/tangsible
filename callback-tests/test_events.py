@@ -35,7 +35,7 @@ import unittest
 
 def is_addition(event):
     """Events the reference jsonl has no counterpart for."""
-    return event["_event"] == "v2_playbook_on_notify" or (
+    return event["_event"] in ("v2_playbook_on_notify", "tangsible_message") or (
         event["_event"] == "v2_runner_on_start" and "name" not in event["task"])
 
 
@@ -458,6 +458,45 @@ class EventStreamTests(Base):
         self.assertTrue(events)
         self.assertEqual(self.of(events, "playbook_on_task_start")[0]["task"]["name"],
                          "Gathering Facts")
+
+
+class MessageTests(Base):
+    # ansible-core itself warns about the reserved variable name, in the
+    # controller, while it prepares the second task.
+    PLAY = """
+        - hosts: all
+          gather_facts: false
+          tasks:
+            - name: first
+              debug: msg=hi
+            - name: second
+              debug: msg=hi
+              vars:
+                name: x
+    """
+
+    def test_controller_side_warning_is_reported_with_the_running_task(self):
+        events = self.events(self.PLAY, everything=True)
+        msgs = [e for e in events if e["_event"] == "tangsible_message"]
+        self.assertEqual(len(msgs), 1, msgs)
+        self.assertEqual(msgs[0]["level"], "warning")
+        self.assertIn("reserved name 'name'", msgs[0]["message"])
+        self.assertTrue(TS_RE.match(msgs[0]["_timestamp"]))
+        # Attributed to the task started last when it was printed - which
+        # can be the one before the task it is about.
+        started = [e["task"]["id"]
+                   for e in self.of(events, "playbook_on_task_start")]
+        self.assertIn(msgs[0]["task"]["id"], started)
+
+    def test_messages_do_not_disturb_the_shared_stream(self):
+        plain = self.events(self.PLAY)
+        self.assertFalse([e for e in plain if e["_event"] == "tangsible_message"])
+
+    def test_deprecation_notice_about_silencing_is_not_a_finding(self):
+        events = self.events(self.PLAY, everything=True, env={"ANSIBLE_DEPRECATION_WARNINGS": "true"})
+        for e in events:
+            if e["_event"] == "tangsible_message":
+                self.assertFalse(e["message"].startswith("Deprecation warnings can"))
 
 
 class StrategyTests(Base):

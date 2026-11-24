@@ -790,3 +790,21 @@ Found while building it:
 - **`--list-tasks`/`--list-hosts`/`--syntax-check` had printed nothing**
   since Phase 1 sent the child's stdout to `/dev/null`; fixed first, as a
   separate commit.
+
+
+## `tangsible_message` events
+
+ansible-core prints some warnings itself (a deprecated module, a reserved variable
+name, `to_text` deprecations): they go through `Display.display` as
+`[WARNING]: ...` / `[DEPRECATION WARNING]: ...` and are in no task result. The plugin
+wraps `display` on the shared `Display` object (the one funnel that exists in every
+ansible-core version; workers proxy to the main process, so only the main pid
+reports) and emits `{"_event": "tangsible_message", "level": "warning"|"deprecation",
+"message": ..., "task": {"id": <task started last>}}`. "Deprecation warnings can be
+disabled ..." is dropped. A message with an `Origin: file:line:col` (a role's tasks are loaded, and their
+deprecations printed, before the first play) is attached on the Go side
+(`playbook/notice.go`) to the task in that file starting closest above that line (within
+25 lines), whenever that task shows up; any other message goes to the task started last,
+so one about a task about to start can land on the previous one. A message repeating a result's own
+`warnings` (the user's stdout callback prints those too) is dropped on the Go side
+(`TaskNode.AddNotice`).

@@ -1052,6 +1052,9 @@ func HasWarnings(raw json.RawMessage) bool {
 // verdict for the whole row - expanding reveals which host, via
 // hostLabel's own marker).
 func TaskHasWarnings(task *playbook.TaskNode) bool {
+	if len(task.Notices) > 0 {
+		return true
+	}
 	for _, has := range task.Warnings {
 		if has {
 			return true

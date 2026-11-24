@@ -17,6 +17,7 @@ package playbook
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -199,5 +200,75 @@ func TestApply_DeprecationOnlyResultCountsAsWarning(t *testing.T) {
 	task.record("h", OutcomeOK, json.RawMessage(`{"deprecations":[{"msg":"old","version":"2.24"}]}`), time.Time{})
 	if !task.Warnings["h"] {
 		t.Error("a deprecation did not set TaskNode.Warnings")
+	}
+}
+
+func applyJSON(t *testing.T, s *PlaybookState, lines ...string) {
+	t.Helper()
+	for _, l := range lines {
+		var ev RawEvent
+		if err := json.Unmarshal([]byte(l), &ev); err != nil {
+			t.Fatal(err)
+		}
+		s.Apply(ev)
+	}
+}
+
+func TestApply_ControllerMessageBecomesTaskNotice(t *testing.T) {
+	s := &PlaybookState{}
+	applyJSON(t, s,
+		`{"_event":"v2_playbook_on_play_start","play":{"name":"p"}}`,
+		`{"_event":"v2_playbook_on_task_start","task":{"id":"t1","name":"a","path":"/x.yml:3"}}`,
+		`{"_event":"tangsible_message","level":"deprecation","message":"apt_repository has been\ndeprecated.","task":{"id":"t1"}}`,
+		`{"_event":"tangsible_message","level":"deprecation","message":"apt_repository has been deprecated.","task":{"id":"t1"}}`,
+		`{"_event":"tangsible_message","level":"warning","message":"early","task":null}`,
+		`{"_event":"tangsible_message","level":"warning","message":"stale","task":{"id":"nope"}}`,
+	)
+	task := s.Plays[0].Tasks[0]
+	want := []string{"Deprecated: apt_repository has been\ndeprecated."}
+	if !reflect.DeepEqual(task.Notices, want) {
+		t.Errorf("Notices = %q, want %q (wrapped duplicate folded, unknown task dropped)", task.Notices, want)
+	}
+}
+
+func TestApply_NoticeRepeatingAResultWarningIsDropped(t *testing.T) {
+	s := &PlaybookState{}
+	applyJSON(t, s,
+		`{"_event":"v2_playbook_on_play_start","play":{"name":"p"}}`,
+		`{"_event":"v2_playbook_on_task_start","task":{"id":"t1","name":"a","path":"/x.yml:3"}}`,
+		// The user's own callback prints the result's warning first ...
+		`{"_event":"tangsible_message","level":"warning","message":"Platform linux on host h is using the\ndiscovered Python interpreter","task":{"id":"t1"}}`,
+		`{"_event":"tangsible_message","level":"warning","message":"something else","task":{"id":"t1"}}`,
+		`{"_event":"v2_runner_on_ok","task":{"id":"t1","name":"a","path":"/x.yml:3"},"hosts":{"h":{"warnings":["Platform linux on host h is using the discovered Python interpreter"]}}}`,
+		// ... or after the result.
+		`{"_event":"tangsible_message","level":"warning","message":"Platform linux on host h is using the discovered Python interpreter","task":{"id":"t1"}}`,
+	)
+	task := s.Plays[0].Tasks[0]
+	if !reflect.DeepEqual(task.Notices, []string{"something else"}) {
+		t.Errorf("Notices = %q", task.Notices)
+	}
+}
+
+func TestApply_NoticeWithOriginFindsItsTaskEvenIfPrintedFirst(t *testing.T) {
+	msg := func(line int) string {
+		return `{"_event":"tangsible_message","level":"deprecation","message":"apt_repository is deprecated.\nOrigin: /r/tasks/main.yml:` + strconv.Itoa(line) + `:3\n\n17 - name: x","task":null}`
+	}
+	s := &PlaybookState{}
+	applyJSON(t, s,
+		// Printed while the roles load, before any play or task.
+		msg(18), msg(14),
+		`{"_event":"v2_playbook_on_play_start","play":{"name":"p"}}`,
+		`{"_event":"v2_playbook_on_task_start","task":{"id":"a","name":"a","path":"/r/tasks/main.yml:3"}}`,
+		`{"_event":"v2_playbook_on_task_start","task":{"id":"b","name":"b","path":"/r/tasks/main.yml:13"}}`,
+		`{"_event":"v2_playbook_on_task_start","task":{"id":"c","name":"c","path":"/r/tasks/main.yml:17"}}`,
+		`{"_event":"v2_playbook_on_task_start","task":{"id":"d","name":"d","path":"/other.yml:17"}}`,
+	)
+	got := map[string]int{}
+	for _, task := range s.Plays[0].Tasks {
+		got[task.Name] = len(task.Notices)
+	}
+	want := map[string]int{"a": 0, "b": 1, "c": 1, "d": 0}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("notices per task = %v, want %v", got, want)
 	}
 }

@@ -97,7 +97,9 @@ func taskHasAnyTrueHost(m map[string]bool) bool {
 
 // TaskHasAnyWarning reports whether any of t's hosts reported a warning
 // for this task - backs the "Interesting" filter (Filters.md) below.
-func TaskHasAnyWarning(t *playbook.TaskNode) bool { return taskHasAnyTrueHost(t.Warnings) }
+func TaskHasAnyWarning(t *playbook.TaskNode) bool {
+	return len(t.Notices) > 0 || taskHasAnyTrueHost(t.Warnings)
+}
 
 // TaskHasAnyStderr reports whether any of t's hosts reported non-empty
 // stderr for this task - backs the "Interesting" filter (Filters.md)

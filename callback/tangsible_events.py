@@ -66,6 +66,11 @@ notes:
   - Failed results carry C(ignore_errors), a boolean.
   - A C(v2_playbook_on_notify) event is emitted the moment a task queues a
     handler, well before the handler runs.
+  - A C(tangsible_message) event (not part of the jsonl schema) carries each
+    C([WARNING]) / C([DEPRECATION WARNING]) that ansible-core prints itself
+    instead of putting it in a task result - a deprecated module, a
+    deprecated filter - as C(level) (C(warning) or C(deprecation)), the
+    C(message) text and the C(task) id of the task started last.
 """
 
 import datetime
@@ -340,6 +345,8 @@ class CallbackModule(CallbackBase):
         self._task_started = {}
         self._host_started = {}
         self._lockstep = True
+        self._current_task = None
+        self._main_pid = os.getpid()
         self.set_options()
         self._sink = None
         fd = os.environ.get("TANGSIBLE_EVENT_FD")
@@ -349,6 +356,7 @@ class CallbackModule(CallbackBase):
         elif path:
             # A FIFO blocks here until the consumer has its read end open.
             self._sink = open(path, "w")
+        self._hook_display()
 
     # -- helpers ---------------------------------------------------------
 
@@ -369,6 +377,44 @@ class CallbackModule(CallbackBase):
         self._sink.write(document + "\n")
         self._sink.flush()
 
+    def _hook_display(self):
+        """Report ansible's own warnings, which never reach a result.
+
+        Wraps Display.display on the shared Display object: every
+        "[WARNING]: ..." / "[DEPRECATION WARNING]: ..." funnels through it,
+        in the main process (workers proxy their messages there), and it
+        exists in every ansible-core version. Never lets a failure here
+        reach ansible.
+        """
+        display = self._display
+        original = getattr(display, "display", None)
+        if original is None or self._sink is None:
+            return
+
+        def display_and_report(msg, *args, **kwargs):
+            try:
+                self._report_message(msg)
+            except Exception:  # pylint: disable=broad-except
+                pass
+            return original(msg, *args, **kwargs)
+
+        display.display = display_and_report
+
+    def _report_message(self, msg):
+        if os.getpid() != self._main_pid or not isinstance(msg, str):
+            return
+        for prefix, level in (("[DEPRECATION WARNING]: ", "deprecation"),
+                              ("[WARNING]: ", "warning")):
+            if msg.startswith(prefix):
+                text = msg[len(prefix):].strip()
+                break
+        else:
+            return
+        if text.startswith("Deprecation warnings can be disabled"):
+            return
+        task = {"id": self._current_task} if self._current_task else None
+        self._emit("tangsible_message", level=level, message=text, task=task)
+
     @staticmethod
     def _describe(entity, started, ended=None):
         duration = {"start": started}
@@ -382,6 +428,7 @@ class CallbackModule(CallbackBase):
         }
 
     def _announce_task(self, event, task, host=None, **extra):
+        self._current_task = str(task._uuid)
         started = _stamp()
         if host is None:
             self._task_started[task._uuid] = started
@@ -432,6 +479,7 @@ class CallbackModule(CallbackBase):
         if self._lockstep:
             # The task itself was announced once already; this only says
             # that a host has been handed it.
+            self._current_task = str(task._uuid)
             self._emit("v2_runner_on_start", task={"id": str(task._uuid)},
                        host=host.name)
         else:
