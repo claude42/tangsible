@@ -511,7 +511,7 @@ func TestReassemble_EditedContentUnparseable(t *testing.T) {
 // produces a !vault block the real ansible-vault CLI can still decrypt -
 // i.e. the block-scalar tag/style/indentation this package emits is
 // genuinely valid, not just self-consistent. Skips (doesn't fail) if
-// ansible-vault isn't installed, matching e2e_rerun_test.go's
+// ansible-vault isn't installed, matching e2e/rerun_test.go's
 // requireE2ETools convention.
 func TestReassemble_RealAnsibleVaultCanReadReencryptedValue(t *testing.T) {
 	binary, err := exec.LookPath("ansible-vault")

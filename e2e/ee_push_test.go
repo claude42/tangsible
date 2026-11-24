@@ -21,8 +21,8 @@
 //
 //	TANGSIBLE_EE_PUSH=1 TANGSIBLE_EE_IMAGE=ghcr.io/ansible-community/community-ee-base:latest \
 //	    TANGSIBLE_EE_REGISTRY_IMAGE=docker.io/library/registry:2 \
-//	    go test -tags e2e -run EEPush ./...
-package main
+//	    go test -tags e2e -run EEPush ./e2e
+package e2e
 
 import (
 	"encoding/json"

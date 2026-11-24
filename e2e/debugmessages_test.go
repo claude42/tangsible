@@ -16,8 +16,8 @@
 
 // End-to-end tests of design-docs/DebugMessages.md: the debug module's
 // output expands its task while the run is going and is listed in the recap's
-// Messages section. Needs tmux and ansible-playbook (see e2e_rerun_test.go).
-package main
+// Messages section. Needs tmux and ansible-playbook (see e2e/rerun_test.go).
+package e2e
 
 import (
 	"fmt"

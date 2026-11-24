@@ -25,7 +25,7 @@ import (
 
 // newTestRerunFieldSync builds one against a state with a named play
 // ("main play") containing one genuinely failed host (web2) and one
-// unreachable host (ghost) - the same shape e2e_rerun_test.go's own
+// unreachable host (ghost) - the same shape e2e/rerun_test.go's own
 // writeFailedUnreachableFixture uses, so these unit tests exercise the
 // exact scenarios that harness's tmux-driven tests already cover live, at
 // the wiring level rather than through a real terminal.
@@ -55,7 +55,7 @@ func newTestRerunFieldSync(t *testing.T) *rerunFieldSync {
 }
 
 // checked reports whether label's checkbox line would render checked -
-// same shape as e2e_rerun_test.go's own IsChecked assertions, but reading
+// same shape as e2e/rerun_test.go's own IsChecked assertions, but reading
 // the real widget directly.
 func checked(cb *tview.Checkbox) bool { return cb.IsChecked() }
 

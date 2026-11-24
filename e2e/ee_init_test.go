@@ -19,7 +19,7 @@
 // makes (does the image exist, and the probe script) and logs them, so no
 // podman or image is needed; the host's ansible-doc is real. Nothing here
 // touches the network (--offline) and no TUI is involved, so no tmux either.
-package main
+package e2e
 
 import (
 	"os"

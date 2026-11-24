@@ -17,8 +17,8 @@
 // End-to-end test of design-docs/ImplicitRun.md's "Options before the
 // playbook": options typed before the playbook must neither make tangsible
 // run the playbook twice nor fall back to the default playbook. Needs tmux
-// and ansible-playbook (see e2e_rerun_test.go).
-package main
+// and ansible-playbook (see e2e/rerun_test.go).
+package e2e
 
 import (
 	"fmt"

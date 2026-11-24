@@ -14,7 +14,7 @@
 
 //go:build e2e
 
-package main
+package e2e
 
 import (
 	"bytes"

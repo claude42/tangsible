@@ -114,7 +114,7 @@ func TestDecrypt_GoldenFixture(t *testing.T) {
 // TestEncrypt_RealAnsibleVaultInterop is the complementary direction: this
 // package's own output, decrypted by the real ansible-vault binary. Skips
 // (doesn't fail) if ansible-vault isn't installed, matching
-// e2e_rerun_test.go's requireE2ETools convention for optional external
+// e2e/rerun_test.go's requireE2ETools convention for optional external
 // tooling.
 func TestEncrypt_RealAnsibleVaultInterop(t *testing.T) {
 	binary, err := exec.LookPath("ansible-vault")

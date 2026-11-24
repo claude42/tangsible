@@ -21,11 +21,11 @@
 // a minute or two; it is opt in on top of the usual e2e tag:
 //
 //	TANGSIBLE_EE_VERIFY=1 TANGSIBLE_EE_IMAGE=ghcr.io/ansible-community/community-ee-base:latest \
-//	    go test -tags e2e -run "EEVerify|EEBuild" ./...
+//	    go test -tags e2e -run "EEVerify|EEBuild" ./e2e
 //
 // The image named by TANGSIBLE_EE_IMAGE (already pulled) is the base of the
 // definition `ee init` drafts for it.
-package main
+package e2e
 
 import (
 	"os"

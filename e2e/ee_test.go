@@ -16,18 +16,18 @@
 
 // End-to-end tests for execution environments
 // (design-docs/ExecutionEnvironments.md), driving the real binary in a tmux
-// pane like e2e_rerun_test.go. They need rootless podman and an image that
+// pane like e2e/rerun_test.go. They need rootless podman and an image that
 // is already pulled (nothing here pulls one), named by
 // TANGSIBLE_EE_IMAGE - skipped otherwise:
 //
 //	TANGSIBLE_EE_IMAGE=ghcr.io/ansible-community/community-ee-base:latest \
-//	    go test -tags e2e -run EE ./...
+//	    go test -tags e2e -run EE ./e2e
 //
 // Each test works in its own temp directory holding a copy of the playbook:
 // the project mount root is where the working directory and the playbook
 // meet, so a playbook elsewhere on the disk (the repo's testdata/, with the
 // temp dir as cwd) would put the root at "/", which tangsible rejects.
-package main
+package e2e
 
 import (
 	"fmt"

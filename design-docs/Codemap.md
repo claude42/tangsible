@@ -592,31 +592,37 @@ thin constructor/wiring shell.
 
 - **main.go** - 26 lines: `func main() { session.Main() }`. Nothing
   else lives here.
-- **e2e_rerun_test.go** - `//go:build e2e`; the one exception to
-  "tests live next to their code" - builds the real binary and drives
-  it inside a real tmux pane, so it has no direct dependency on any
-  package's internals and stays at the root regardless of what moves
-  around underneath it. Also holds the tmux harness
-  (`startTmuxSession`, `waitFor`, ...).
-- **e2e_debug_test.go** - `//go:build e2e`; `debug` mode's end-to-end
-  tests, reusing `e2e_rerun_test.go`'s harness: breakpoint pause and
+
+## e2e/
+
+All `//go:build e2e` (`go test -tags e2e ./e2e`), `package e2e`: the one
+exception to "tests live next to their code" - they build the real binary
+(`buildE2EBinary`, from the repo root) and drive it, mostly inside a real tmux
+pane, so they have no direct dependency on any package's internals and stay
+here regardless of what moves around underneath them. Fixtures are the repo's
+`testdata/` (`repoRoot`).
+
+- **e2e/rerun_test.go** - the re-run dialog and the live tree; also holds the
+  tmux harness (`startTmuxSession`, `waitFor`, ...).
+- **e2e/debug_test.go** - `//go:build e2e`; `debug` mode's end-to-end
+  tests, reusing `e2e/rerun_test.go`'s harness: breakpoint pause and
   continue, F10/F11 stepping across two hosts, a failing task plus F12
   redo, the `v` watch/set explorer, and an unarmed failure.
-- **e2e_credfile_test.go** - `//go:build e2e`; password flags (`-K`,
+- **e2e/credfile_test.go** - `//go:build e2e`; password flags (`-K`,
   `--ask-vault-pass`) surviving a re-run / `rerun` / both at once, history
   recording the original flags, and debug's `strategy: free` -> linear
   handling (global config, imported roles-only playbook).
-- **e2e_role_test.go** - `//go:build e2e`; roles inside a hand-made
+- **e2e/role_test.go** - `//go:build e2e`; roles inside a hand-made
   collection outside the project (`ANSIBLE_COLLECTIONS_PATH`): `role
   ns.coll.role` with a meta dependency, and a `collections:`-keyword short
   name - both must get a Task definition tab.
-- **e2e_optionsfirst_test.go** - `//go:build e2e`; options before the
+- **e2e/optionsfirst_test.go** - `//go:build e2e`; options before the
   playbook (`run -i localhost, --no-ee site.yml`, `--`) run it once; also
   `playbookargs.go`/`_test.go` in `internal/config` (the walk and its flag table).
-- **e2e_ee_test.go** - same tier, for execution environments; also
+- **e2e/ee_test.go** - same tier, for execution environments; also
   needs rootless podman and `TANGSIBLE_EE_IMAGE=<pulled image>`
   (skipped otherwise).
-- **e2e_ee_init_test.go** - `//go:build e2e`; `ee init` against a fake
+- **e2e/ee_init_test.go** - `//go:build e2e`; `ee init` against a fake
   `podman` on PATH (image exists + probe, logged), `--offline`: draft content,
   `-t`, the default base, rerun/backup/`--no-backup`, usage errors. No podman,
   network or tmux needed (ansible-doc is).

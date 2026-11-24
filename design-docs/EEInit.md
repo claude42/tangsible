@@ -757,7 +757,7 @@ promise a working EE.
   found); a failed build (unknown base image) shows its log tail and exits 1;
   Ctrl-C mid-build exits 130, and so do a build that fails inside a `RUN` step
   (exit 1) and a successful one: in all three podman's containers and images are
-  exactly as they were before. The e2e test (`e2e_ee_verify_test.go`,
+  exactly as they were before. The e2e test (`e2e/ee_verify_test.go`,
   `TANGSIBLE_EE_VERIFY=1 TANGSIBLE_EE_IMAGE=... go test -tags e2e -run EEVerify`)
   covers the passing and the failing case.
 

@@ -15,12 +15,12 @@
 //go:build e2e
 
 // End-to-end tests for `tangsible debug` (design-docs/DebugMode.md), sharing
-// e2e_rerun_test.go's tmux harness. The headless pieces (debugcopy,
+// e2e/rerun_test.go's tmux harness. The headless pieces (debugcopy,
 // debugrun, debugverb) are unit-tested; what only a real pty can show is
 // the wiring between them and the TUI: that F9 arms a breakpoint, that F5
 // really runs a real ansible-playbook up to it and surfaces the pause, and
 // that the session ends cleanly afterwards.
-package main
+package e2e
 
 import (
 	"fmt"

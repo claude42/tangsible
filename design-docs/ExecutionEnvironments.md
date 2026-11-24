@@ -52,7 +52,7 @@ happens to be on the developer's host.
   (startup), the dialog field in `livesession_rerundialog.go`.
 - **Tests:** unit tests per package; `TANGSIBLE_EE_IMAGE=<image> go test
   -run Smoke ./internal/ee` (real podman, builder output); `TANGSIBLE_EE_IMAGE=<image>
-  go test -tags e2e -run EE .` (tmux: indicator, dialog switch to host and
+  go test -tags e2e -run EE ./e2e` (tmux: indicator, dialog switch to host and
   back, `rerun` reusing the recorded image, Ctrl-C and cleanup, flag
   errors). The plugin's `callback-tests/` cover the FIFO transport; it was
   also run by hand on Python 3.9 / ansible-core 2.15.
@@ -447,7 +447,7 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   event-FIFO directory - and a SIGTERM to tangsible alone left the playbook
   (in EE mode: the container) running to completion. `session.Main` now turns
   SIGTERM/SIGHUP into the normal quit path (see `CLAUDE.md`) and exits
-  128+signal; `e2e_signal_test.go` (host mode, no podman) and
+  128+signal; `e2e/signal_test.go` (host mode, no podman) and
   `TestE2E_EE_SIGTERMRemovesContainerAndScratch` cover it, and fail without
   the handler (ansible-playbook / container still alive after the signal).
   Not covered: signals during the pre-flight gate (before any TUI), and
@@ -716,7 +716,7 @@ bundled, default `HOME=/runner`, entrypoint `dumb-init`).
   that delays only `run` by 5 s: notice, command and hint appear on screen
   before the TUI, the run then completes, `o` opens with the command; without
   the change the pane stays silent.
-- **Phase 6 done:** `e2e_ee_test.go` (tag `e2e`, needs
+- **Phase 6 done:** `e2e/ee_test.go` (tag `e2e`, needs
   `TANGSIBLE_EE_IMAGE`; skipped otherwise) covers the indicator and a full
   run, the dialog switching to the host and back, `rerun` reusing the
   recorded image and `--no-ee` overriding it, Ctrl-C reaching ansible and

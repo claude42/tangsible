@@ -190,6 +190,6 @@ Messages (3)
   the group and heading rows have their own selected styling in `rebuild`
   (`messagesRowSelectedText`). The pure part is `uikit/debugmessages.go`.
 - `testdata/debugmessages.yml` is the fixture of the e2e test
-  (`e2e_debugmessages_test.go`: the section, the expansion, the heading's
+  (`e2e/debugmessages_test.go`: the section, the expansion, the heading's
   Enter, and a failed run).
 - Not done, as specified: no config key, no full-screen page.

@@ -28,7 +28,7 @@
 // Needs `tmux` and `ansible-playbook` on PATH - skipped (not failed) if
 // either is missing, since this is deliberately not part of the plain
 // `go test ./...` dependency surface.
-package main
+package e2e
 
 import (
 	"fmt"
@@ -56,7 +56,9 @@ func requireE2ETools(t *testing.T) {
 func buildE2EBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "tangsible")
-	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+	build := exec.Command("go", "build", "-o", bin, ".")
+	build.Dir = repoRoot(t)
+	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	return bin
@@ -65,11 +67,11 @@ func buildE2EBinary(t *testing.T) string {
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd() // `go test` already runs with the package
-	// directory (this project's repo root) as cwd.
+	// directory (e2e/) as cwd; the repo root is its parent.
 	if err != nil {
 		t.Fatalf("os.Getwd: %v", err)
 	}
-	return wd
+	return filepath.Dir(wd)
 }
 
 // e2eCallbackEnv is the "TANGSIBLE_CALLBACK_DIR=... " shell prefix every

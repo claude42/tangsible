@@ -19,7 +19,7 @@
 // the running ansible-playbook (or container) is stopped, scratch files
 // are removed, and tangsible exits 128+signal - instead of ending the
 // process on the spot and orphaning its child.
-package main
+package e2e
 
 import (
 	"fmt"

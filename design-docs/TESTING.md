@@ -318,7 +318,7 @@ default `go test ./...` suite:
   `SetDisabled` focus-skip quirk documented in `tui.go`/`CLAUDE.md`) - no
   pure-function unit test could have seen it, since it lived entirely in
   the interaction between `tview.Form`'s internal focus state and real
-  keypresses. `e2e_rerun_test.go` (build tag `e2e`, so it's excluded from
+  keypresses. `e2e/rerun_test.go` (build tag `e2e`, so it's excluded from
   plain `go test ./...` - run explicitly with `go test -tags e2e ./...`)
   has a small number of smoke tests built this way, targeting exactly that
   class of regression - real bugs only visible through the actual
