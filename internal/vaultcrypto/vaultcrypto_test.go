@@ -1,6 +1,7 @@
 package vaultcrypto
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,4 +158,132 @@ func readTestdataFile(t *testing.T, name string) string {
 		t.Fatalf("reading testdata/%s: %v", name, err)
 	}
 	return string(data)
+}
+
+func TestLabelAndHeaderFor(t *testing.T) {
+	cases := []struct {
+		header  string
+		label   string
+		wantErr bool
+	}{
+		{"$ANSIBLE_VAULT;1.1;AES256", "", false},
+		{"$ANSIBLE_VAULT;1.2;AES256;prod", "prod", false},
+		{"$ANSIBLE_VAULT;1.2;AES256", "", false},
+		{"$ANSIBLE_VAULT;1.1;AES256;prod", "", true}, // 1.1 has no label field
+		{"$ANSIBLE_VAULT;1.3;AES256;prod", "", true},
+		{"$ANSIBLE_VAULT;1.2;AES128;prod", "", true},
+		{"nonsense", "", true},
+	}
+	for _, c := range cases {
+		got, err := Label(c.header + "\n0a0b")
+		if (err != nil) != c.wantErr || got != c.label {
+			t.Errorf("Label(%q) = %q, %v; want %q, error %v", c.header, got, err, c.label, c.wantErr)
+		}
+	}
+	for label, want := range map[string]string{
+		"": Header, DefaultID: Header, "prod": "$ANSIBLE_VAULT;1.2;AES256;prod",
+	} {
+		if got := HeaderFor(label); got != want {
+			t.Errorf("HeaderFor(%q) = %q, want %q", label, got, want)
+		}
+	}
+}
+
+func TestEncryptLabeledRoundTrip(t *testing.T) {
+	v, err := EncryptLabeled("s3cret", "pw", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(v, "$ANSIBLE_VAULT;1.2;AES256;prod\n") {
+		t.Fatalf("header: %q", strings.SplitN(v, "\n", 2)[0])
+	}
+	if got, err := Decrypt(v, "pw"); err != nil || got != "s3cret" {
+		t.Fatalf("Decrypt = %q, %v", got, err)
+	}
+	if l, _ := Label(v); l != "prod" {
+		t.Errorf("Label = %q", l)
+	}
+	v, _ = EncryptLabeled("x", "pw", DefaultID)
+	if !strings.HasPrefix(v, Header+"\n") {
+		t.Errorf("the default id must give the unlabeled header, got %q", strings.SplitN(v, "\n", 2)[0])
+	}
+}
+
+func TestDecryptWith(t *testing.T) {
+	dev := Secret{ID: "dev", Password: "dev-pw"}
+	prod := Secret{ID: "prod", Password: "prod-pw"}
+	other := Secret{ID: "default", Password: "prod-pw"} // right password, wrong label
+	prodValue, _ := EncryptLabeled("p", prod.Password, "prod")
+	plainValue, _ := Encrypt("u", dev.Password)
+
+	if got, used, err := DecryptWith(prodValue, []Secret{dev, prod}); err != nil || got != "p" || used != prod {
+		t.Errorf("matching label: %q, %v, %v", got, used, err)
+	}
+	// The label is a hint, not a check: the right password under another
+	// label still decrypts.
+	if got, used, err := DecryptWith(prodValue, []Secret{dev, other}); err != nil || got != "p" || used != other {
+		t.Errorf("wrong label, right password: %q, %v, %v", got, used, err)
+	}
+	// An unlabeled value is tried against every password.
+	if got, used, err := DecryptWith(plainValue, []Secret{prod, dev}); err != nil || got != "u" || used != dev {
+		t.Errorf("unlabeled: %q, %v, %v", got, used, err)
+	}
+	if _, _, err := DecryptWith(prodValue, []Secret{dev}); !errors.Is(err, ErrHMACMismatch) {
+		t.Errorf("no password fits: %v", err)
+	}
+	if _, _, err := DecryptWith(prodValue, nil); !errors.Is(err, ErrNoPassword) {
+		t.Errorf("no secrets: %v", err)
+	}
+	// The matching label is tried first: with two secrets of that id the
+	// order given decides, and a wrong one is skipped.
+	both := []Secret{{ID: "prod", Password: "nope"}, prod}
+	if got, _, err := DecryptWith(prodValue, both); err != nil || got != "p" {
+		t.Errorf("two secrets of one id: %q, %v", got, err)
+	}
+}
+
+// Real ansible-vault, both directions, for a labeled value.
+func TestLabeledRealAnsibleVaultInterop(t *testing.T) {
+	binary, err := exec.LookPath("ansible-vault")
+	if err != nil {
+		t.Skip("ansible-vault not found in PATH")
+	}
+	dir := t.TempDir()
+	pwFile := filepath.Join(dir, "pw")
+	if err := os.WriteFile(pwFile, []byte("label-pw\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// ours -> theirs
+	ours, err := EncryptLabeled("from tangsible", "label-pw", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(dir, "ours.vault")
+	if err := os.WriteFile(f, []byte(ours), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(binary, "decrypt", f, "--vault-id", "prod@"+pwFile, "--output", "-").CombinedOutput()
+	if err != nil || string(out) != "from tangsible" {
+		t.Fatalf("ansible-vault decrypting our labeled value: %v\n%s", err, out)
+	}
+
+	// theirs -> ours
+	cmd := exec.Command(binary, "encrypt_string", "--vault-id", "prod@"+pwFile, "--encrypt-vault-id", "prod", "from ansible")
+	enc, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("ansible-vault encrypt_string: %v", err)
+	}
+	// The output is "!vault |\n          $ANSIBLE_VAULT;1.2;AES256;prod\n ...".
+	var body []string
+	for _, l := range strings.Split(string(enc), "\n")[1:] {
+		body = append(body, strings.TrimSpace(l))
+	}
+	value := strings.Join(body, "\n")
+	if l, err := Label(value); err != nil || l != "prod" {
+		t.Fatalf("Label of ansible's value = %q, %v\n%s", l, err, value)
+	}
+	if got, _, err := DecryptWith(value, []Secret{{ID: "prod", Password: "label-pw"}}); err != nil || got != "from ansible" {
+		t.Fatalf("decrypting ansible's labeled value: %q, %v", got, err)
+	}
 }

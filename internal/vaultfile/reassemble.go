@@ -61,7 +61,11 @@ type ReassembleResult struct {
 // at a known line; an unparseable file has no such line, so the loop
 // falls back to showing the raw error and reopening the content
 // completely unchanged (design-docs/Vault.md point 5).
-func Reassemble(before DecryptedView, editedBytes []byte, password string) (ReassembleResult, error) {
+//
+// newSecret is the password and vault id for a brand-new value (a changed
+// value keeps its own, see DecryptedView.UsedBefore); nil means there is none
+// and a new value is a Problem.
+func Reassemble(before DecryptedView, editedBytes []byte, newSecret *vaultcrypto.Secret) (ReassembleResult, error) {
 	_, root, lines, err := parseTopLevelMapping(editedBytes)
 	if err != nil {
 		return ReassembleResult{}, err
@@ -85,7 +89,17 @@ func Reassemble(before DecryptedView, editedBytes []byte, password string) (Reas
 		case decisionSplice:
 			outLines = appendBlock(outLines, before.SourceContent[key])
 		case decisionReencrypt:
-			vaultString, err := vaultcrypto.Encrypt(valNode.Value, password)
+			password, label := "", ""
+			if used, ok := before.UsedBefore[key]; ok {
+				password, label = used.Password, used.Label
+			} else if newSecret != nil {
+				password, label = newSecret.Password, newSecret.ID
+			} else {
+				result.Problems = append(result.Problems, Problem{Key: key, Line: keyNode.Line, Msg: fmt.Sprintf(
+					"%q is new and there is no vault password to encrypt it with", key)})
+				continue
+			}
+			vaultString, err := vaultcrypto.EncryptLabeled(valNode.Value, password, label)
 			if err != nil {
 				return ReassembleResult{}, fmt.Errorf("vaultfile: encrypting %q: %w", key, err)
 			}
@@ -104,7 +118,9 @@ func Reassemble(before DecryptedView, editedBytes []byte, password string) (Reas
 		return ReassembleResult{Problems: result.Problems}, nil
 	}
 
-	result.YAML = strings.Join(outLines, "\n") + "\n"
+	if len(outLines) > 0 {
+		result.YAML = strings.Join(outLines, "\n") + "\n"
+	}
 	result.Unchanged = !reencrypted
 	return result, nil
 }

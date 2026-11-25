@@ -48,15 +48,7 @@ func fileExists(path string) bool {
 // existing convention for optional config sources
 // (internal/config.ReadTOMLFile's own "missing file, no warning" rule).
 func ansibleCfgVaultPasswordFile() string {
-	path, ok := locateAnsibleConfig()
-	if !ok {
-		return ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return iniValue(string(data), "defaults", "vault_password_file")
+	return ansibleCfgValue("vault_password_file")
 }
 
 // iniValue is a minimal INI reader, not a general one: it finds the
@@ -93,4 +85,45 @@ func iniValue(content, section, key string) string {
 		}
 	}
 	return ""
+}
+
+// ansibleCfgIdentityList is the configured default vault ids
+// (ANSIBLE_VAULT_IDENTITY_LIST, else [defaults] vault_identity_list): a
+// comma-separated list of "label@source" entries, tried before any
+// --vault-id.
+func ansibleCfgIdentityList() []string {
+	value, ok := os.LookupEnv("ANSIBLE_VAULT_IDENTITY_LIST")
+	if !ok {
+		value = ansibleCfgValue("vault_identity_list")
+	}
+	var ids []string
+	for _, id := range strings.Split(value, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// ansibleCfgEncryptIdentity is the configured vault id for encrypting
+// (ANSIBLE_VAULT_ENCRYPT_IDENTITY, else [defaults] vault_encrypt_identity).
+func ansibleCfgEncryptIdentity() string {
+	if v := os.Getenv("ANSIBLE_VAULT_ENCRYPT_IDENTITY"); v != "" {
+		return v
+	}
+	return ansibleCfgValue("vault_encrypt_identity")
+}
+
+// ansibleCfgValue reads one [defaults] key of the ansible.cfg
+// locateAnsibleConfig finds, "" when there is none.
+func ansibleCfgValue(key string) string {
+	path, ok := locateAnsibleConfig()
+	if !ok {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return iniValue(string(data), "defaults", key)
 }

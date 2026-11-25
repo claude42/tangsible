@@ -28,7 +28,7 @@ func testPassword(t *testing.T) string {
 
 func TestBuildDecryptedView_RealFixture(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
-	view, err := BuildDecryptedView(src, testPassword(t))
+	view, err := BuildDecryptedView(src, one(testPassword(t)))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
@@ -79,31 +79,34 @@ func TestBuildDecryptedView_RealFixture(t *testing.T) {
 	}
 }
 
-func TestBuildDecryptedView_WrongPassword(t *testing.T) {
+func TestBuildDecryptedView_WrongPasswordLocksEveryValue(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
-	_, err := BuildDecryptedView(src, "definitely the wrong password")
-	if err == nil {
-		t.Fatal("expected an error decrypting with the wrong password")
+	view, err := BuildDecryptedView(src, one("definitely the wrong password"))
+	if err != nil {
+		t.Fatalf("a password that fits nothing must open the file with placeholders: %v", err)
+	}
+	if len(view.VaultedBefore) != 0 || len(view.LockedBefore) == 0 {
+		t.Errorf("decrypted %d, locked %d", len(view.VaultedBefore), len(view.LockedBefore))
 	}
 }
 
 func TestBuildDecryptedView_RejectsNestedVault(t *testing.T) {
 	src := readTestdataFile(t, "vault-nested.yml")
-	_, err := BuildDecryptedView(src, testPassword(t))
+	_, err := BuildDecryptedView(src, one(testPassword(t)))
 	if err == nil {
 		t.Fatal("expected BuildDecryptedView to fail loudly on a nested !vault value")
 	}
 }
 
 func TestBuildDecryptedView_NotAMapping(t *testing.T) {
-	_, err := BuildDecryptedView([]byte("- just\n- a\n- list\n"), "password")
+	_, err := BuildDecryptedView([]byte("- just\n- a\n- list\n"), one("password"))
 	if !errors.Is(err, ErrInvalidYAML) {
 		t.Fatalf("got err %v, want ErrInvalidYAML", err)
 	}
 }
 
 func TestBuildDecryptedView_Unparseable(t *testing.T) {
-	_, err := BuildDecryptedView([]byte("this: [is not, valid yaml"), "password")
+	_, err := BuildDecryptedView([]byte("this: [is not, valid yaml"), one("password"))
 	if !errors.Is(err, ErrInvalidYAML) {
 		t.Fatalf("got err %v, want ErrInvalidYAML", err)
 	}
@@ -118,13 +121,13 @@ func TestBuildDecryptedView_Unparseable(t *testing.T) {
 func TestReassemble_UnchangedSplicesOriginalCiphertext(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	// Edit nothing - reassemble the exact plaintext view unchanged.
-	result, err := Reassemble(view, []byte(view.PlaintextYAML), password)
+	result, err := Reassemble(view, []byte(view.PlaintextYAML), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -135,7 +138,7 @@ func TestReassemble_UnchangedSplicesOriginalCiphertext(t *testing.T) {
 		t.Error("Unchanged should be true when nothing was edited")
 	}
 
-	reassembledView, err := BuildDecryptedView([]byte(result.YAML), password)
+	reassembledView, err := BuildDecryptedView([]byte(result.YAML), one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView(reassembled): %v", err)
 	}
@@ -168,18 +171,18 @@ func TestReassemble_UnchangedSplicesOriginalCiphertext(t *testing.T) {
 func TestReassemble_ChangedValueGetsFreshCiphertext(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	edited := strings.Replace(view.PlaintextYAML, "a top secret db password", "a brand new db password", 1)
 
-	result1, err := Reassemble(view, []byte(edited), password)
+	result1, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble (1): %v", err)
 	}
-	result2, err := Reassemble(view, []byte(edited), password)
+	result2, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble (2): %v", err)
 	}
@@ -195,7 +198,7 @@ func TestReassemble_ChangedValueGetsFreshCiphertext(t *testing.T) {
 		t.Fatal("two re-encryptions of the same new plaintext produced identical ciphertext - salt is not being randomized on re-encrypt")
 	}
 
-	decrypted1, err := BuildDecryptedView([]byte(result1.YAML), password)
+	decrypted1, err := BuildDecryptedView([]byte(result1.YAML), one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView(result1): %v", err)
 	}
@@ -213,13 +216,13 @@ func TestReassemble_ChangedValueGetsFreshCiphertext(t *testing.T) {
 func TestReassemble_NewKeyGetsEncrypted(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	edited := view.PlaintextYAML + "new_secret: a brand new secret value\n"
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -233,7 +236,7 @@ func TestReassemble_NewKeyGetsEncrypted(t *testing.T) {
 		t.Errorf("new_secret should have been encrypted (tag=%q)", valNode.Tag)
 	}
 
-	decrypted, err := BuildDecryptedView([]byte(result.YAML), password)
+	decrypted, err := BuildDecryptedView([]byte(result.YAML), one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView(result): %v", err)
 	}
@@ -255,7 +258,7 @@ func TestReassemble_NewKeyGetsEncrypted(t *testing.T) {
 func TestReassemble_CommentBeforeNewKeySurvives(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
@@ -265,7 +268,7 @@ func TestReassemble_CommentBeforeNewKeySurvives(t *testing.T) {
 	// directly after it, with no blank line in between, matching exactly
 	// what a user typing in a real editor would produce.
 	edited := strings.TrimRight(view.PlaintextYAML, "\n") + "\n# will this work?\ntesting: bla\n"
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -293,13 +296,13 @@ func TestReassemble_CommentBeforeNewKeySurvives(t *testing.T) {
 func TestReassemble_ExistingPlaintextStaysPlaintextWithWarning(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	edited := strings.Replace(view.PlaintextYAML, "region: us-east-1", "region: eu-west-1", 1)
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -324,13 +327,13 @@ func TestReassemble_ExistingPlaintextStaysPlaintextWithWarning(t *testing.T) {
 func TestReassemble_TypeChangeIsAProblemNotSilent(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	edited := strings.Replace(view.PlaintextYAML, "db_password: a top secret db password", "db_password: 12345", 1)
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -351,13 +354,13 @@ func TestReassemble_TypeChangeIsAProblemNotSilent(t *testing.T) {
 func TestReassemble_HandTypedVaultTagIsAProblem(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	edited := view.PlaintextYAML + "hand_typed: !vault |\n  not a real vault block\n"
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -373,7 +376,7 @@ func TestReassemble_HandTypedVaultTagIsAProblem(t *testing.T) {
 func TestReassemble_MultipleProblemsAnnotatedInOnePass(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
@@ -382,7 +385,7 @@ func TestReassemble_MultipleProblemsAnnotatedInOnePass(t *testing.T) {
 	edited = strings.Replace(edited, "db_password: a top secret db password", "db_password: 12345", 1)
 	edited = strings.Replace(edited, "api_token: another secret, an api token", "api_token: [1, 2, 3]", 1)
 
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -459,7 +462,7 @@ func TestStripAnnotations(t *testing.T) {
 func TestReassemble_KeyRemoved(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
@@ -480,7 +483,7 @@ func TestReassemble_KeyRemoved(t *testing.T) {
 	}
 	edited := strings.Join(kept, "\n")
 
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -495,12 +498,12 @@ func TestReassemble_KeyRemoved(t *testing.T) {
 func TestReassemble_EditedContentUnparseable(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
-	_, err = Reassemble(view, []byte("this: [is not, valid"), password)
+	_, err = Reassemble(view, []byte("this: [is not, valid"), newOne(password))
 	if !errors.Is(err, ErrInvalidYAML) {
 		t.Fatalf("got err %v, want ErrInvalidYAML", err)
 	}
@@ -521,13 +524,13 @@ func TestReassemble_RealAnsibleVaultCanReadReencryptedValue(t *testing.T) {
 
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	edited := strings.Replace(view.PlaintextYAML, "a top secret db password", "verified via the real ansible-vault binary", 1)
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -574,7 +577,7 @@ func TestReassemble_RealAnsibleVaultCanReadReencryptedValue(t *testing.T) {
 func TestReassemble_ReencryptedBlockUsesSourceIndentWidth(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml") // uses real ansible-vault's own 10-space convention
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
@@ -583,7 +586,7 @@ func TestReassemble_ReencryptedBlockUsesSourceIndentWidth(t *testing.T) {
 	}
 
 	edited := strings.Replace(view.PlaintextYAML, "a top secret db password", "a brand new db password", 1)
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -614,13 +617,13 @@ func TestReassemble_ReencryptedBlockUsesSourceIndentWidth(t *testing.T) {
 func TestReassemble_UntouchedKeyIsByteIdenticalToSource(t *testing.T) {
 	src := readTestdataFile(t, "vault.yml")
 	password := testPassword(t)
-	view, err := BuildDecryptedView(src, password)
+	view, err := BuildDecryptedView(src, one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
 
 	edited := view.PlaintextYAML + "new_key: a brand new secret\n"
-	result, err := Reassemble(view, []byte(edited), password)
+	result, err := Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
@@ -695,7 +698,7 @@ func layoutSource(t *testing.T, password string, secrets map[string]string) (src
 	}
 	src = "# header\n\nplain: one\n\n# note on a\n" + block("secret_a") +
 		"\n\n# note on b\n" + block("secret_b") + "\n\nlast: 3\n"
-	view, err := BuildDecryptedView([]byte(src), password)
+	view, err := BuildDecryptedView([]byte(src), one(password))
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
@@ -715,7 +718,7 @@ func TestBlankLinesAndCommentsSurviveRoundTrip(t *testing.T) {
 		t.Errorf("editable view:\n%q\nwant:\n%q", view.PlaintextYAML, wantView)
 	}
 
-	result, err := Reassemble(view, []byte(view.PlaintextYAML), password)
+	result, err := Reassemble(view, []byte(view.PlaintextYAML), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble (no edit): %v", err)
 	}
@@ -724,7 +727,7 @@ func TestBlankLinesAndCommentsSurviveRoundTrip(t *testing.T) {
 	}
 
 	edited := strings.Replace(view.PlaintextYAML, "secret_a: alpha", "secret_a: rotated", 1)
-	result, err = Reassemble(view, []byte(edited), password)
+	result, err = Reassemble(view, []byte(edited), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble (edit): %v", err)
 	}
@@ -753,11 +756,228 @@ func TestBuildDecryptedView_StringLookalikesStayQuoted(t *testing.T) {
 			t.Errorf("view missing %q:\n%s", want, view.PlaintextYAML)
 		}
 	}
-	result, err := Reassemble(view, []byte(view.PlaintextYAML), password)
+	result, err := Reassemble(view, []byte(view.PlaintextYAML), newOne(password))
 	if err != nil {
 		t.Fatalf("Reassemble: %v", err)
 	}
 	if len(result.Problems) != 0 || !result.Unchanged {
 		t.Errorf("unedited look-alike secrets should round-trip cleanly: problems=%v unchanged=%v", result.Problems, result.Unchanged)
+	}
+}
+
+// one is a single unlabeled password as the secrets BuildDecryptedView takes.
+func one(password string) []vaultcrypto.Secret {
+	return []vaultcrypto.Secret{{ID: vaultcrypto.DefaultID, Password: password}}
+}
+
+// newOne is the password a brand-new value is encrypted with.
+func newOne(password string) *vaultcrypto.Secret {
+	return &vaultcrypto.Secret{ID: vaultcrypto.DefaultID, Password: password}
+}
+
+// multiIDSource builds a vault file with a value per vault id: one under
+// "dev", one under "prod", one unlabeled (encrypted with the dev password).
+func multiIDSource(t *testing.T) []byte {
+	t.Helper()
+	block := func(key, label, pw, plain string) string {
+		v, err := vaultcrypto.EncryptLabeled(plain, pw, label)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return formatVaultBlockText(key, v)
+	}
+	return []byte("# secrets\n" +
+		block("dev_pass", "dev", "dev-pw", "d-secret") + "\n" +
+		block("prod_pass", "prod", "prod-pw", "p-secret") + "\n" +
+		block("old_pass", "", "dev-pw", "o-secret") + "\nplain: visible\n")
+}
+
+func formatVaultBlockText(key, vaultString string) string {
+	return strings.Join(formatVaultBlock(key, vaultString, 2), "\n")
+}
+
+var (
+	devSecret  = vaultcrypto.Secret{ID: "dev", Password: "dev-pw"}
+	prodSecret = vaultcrypto.Secret{ID: "prod", Password: "prod-pw"}
+)
+
+func TestMultiID_BothPasswordsDecryptEverythingAndKeepLabels(t *testing.T) {
+	src := multiIDSource(t)
+	view, err := BuildDecryptedView(src, []vaultcrypto.Secret{devSecret, prodSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.LockedBefore) != 0 || view.VaultedBefore["prod_pass"] != "p-secret" || view.VaultedBefore["old_pass"] != "o-secret" {
+		t.Fatalf("view: %+v", view)
+	}
+	if got := view.UsedBefore["prod_pass"]; got.Label != "prod" || got.Password != "prod-pw" {
+		t.Errorf("UsedBefore[prod_pass] = %+v", got)
+	}
+	if got := view.UsedBefore["old_pass"]; got.Label != "" || got.Password != "dev-pw" {
+		t.Errorf("UsedBefore[old_pass] = %+v", got)
+	}
+
+	// Changing the prod value re-encrypts it under prod, not under the
+	// secret meant for new values.
+	edited := strings.Replace(view.PlaintextYAML, "p-secret", "p-changed", 1)
+	res, err := Reassemble(view, []byte(edited), &devSecret)
+	if err != nil || len(res.Problems) != 0 {
+		t.Fatalf("Reassemble: %v %+v", err, res.Problems)
+	}
+	again, err := BuildDecryptedView([]byte(res.YAML), []vaultcrypto.Secret{devSecret, prodSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.VaultedBefore["prod_pass"] != "p-changed" || again.UsedBefore["prod_pass"].Label != "prod" {
+		t.Errorf("after the edit: %+v", again.UsedBefore["prod_pass"])
+	}
+	// And only that one changed: the others are byte-identical.
+	for _, key := range []string{"dev_pass", "old_pass"} {
+		if !strings.Contains(res.YAML, view.SourceContent[key]) {
+			t.Errorf("%s was not spliced back unchanged", key)
+		}
+	}
+}
+
+func TestMultiID_LockedValueShowsPlaceholderAndSurvivesASave(t *testing.T) {
+	src := multiIDSource(t)
+	view, err := BuildDecryptedView(src, []vaultcrypto.Secret{devSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.LockedBefore["prod_pass"] != "prod" || len(view.LockedBefore) != 1 {
+		t.Fatalf("LockedBefore = %v", view.LockedBefore)
+	}
+	if !strings.Contains(view.PlaintextYAML, "prod_pass: '<vaulted: prod>'") || strings.Contains(view.PlaintextYAML, "p-secret") {
+		t.Fatalf("view:\n%s", view.PlaintextYAML)
+	}
+	if got := view.LockedLabels(); got["prod"] != 1 {
+		t.Errorf("LockedLabels = %v", got)
+	}
+
+	// Edit a value we can decrypt; the locked one is left alone and must
+	// come back byte for byte.
+	edited := strings.Replace(view.PlaintextYAML, "d-secret", "d-changed", 1)
+	res, err := Reassemble(view, []byte(edited), &devSecret)
+	if err != nil || len(res.Problems) != 0 {
+		t.Fatalf("Reassemble: %v %+v", err, res.Problems)
+	}
+	if !strings.Contains(res.YAML, view.SourceContent["prod_pass"]) {
+		t.Errorf("the locked value was not spliced back unchanged:\n%s", res.YAML)
+	}
+	after, err := BuildDecryptedView([]byte(res.YAML), []vaultcrypto.Secret{devSecret, prodSecret})
+	if err != nil || after.VaultedBefore["prod_pass"] != "p-secret" || after.VaultedBefore["dev_pass"] != "d-changed" {
+		t.Errorf("round trip: %v %v", err, after.VaultedBefore)
+	}
+}
+
+func TestMultiID_LockedValueCannotBeChangedButCanBeDeleted(t *testing.T) {
+	view, err := BuildDecryptedView(multiIDSource(t), []vaultcrypto.Secret{devSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := strings.Replace(view.PlaintextYAML, "<vaulted: prod>", "guess", 1)
+	res, err := Reassemble(view, []byte(changed), &devSecret)
+	if err != nil || len(res.Problems) != 1 || res.Problems[0].Key != "prod_pass" {
+		t.Fatalf("changing a locked value: %v %+v", err, res.Problems)
+	}
+
+	var kept []string
+	for _, l := range strings.Split(view.PlaintextYAML, "\n") {
+		if !strings.HasPrefix(l, "prod_pass:") {
+			kept = append(kept, l)
+		}
+	}
+	res, err = Reassemble(view, []byte(strings.Join(kept, "\n")), &devSecret)
+	if err != nil || len(res.Problems) != 0 || strings.Contains(res.YAML, "prod_pass") {
+		t.Fatalf("deleting a locked value: %v %+v\n%s", err, res.Problems, res.YAML)
+	}
+}
+
+// Only a password for another vault id: every value is locked, the file still
+// opens, a new value is encrypted with that password and the locked ones are
+// saved unchanged.
+func TestMultiID_NoPasswordFitsAnyValueStillOpensAndAcceptsNewValues(t *testing.T) {
+	src := multiIDSource(t)
+	other := vaultcrypto.Secret{ID: "qa", Password: "qa pw"}
+	view, err := BuildDecryptedView(src, []vaultcrypto.Secret{other})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.VaultedBefore) != 0 {
+		t.Fatalf("decrypted %v", view.VaultedBefore)
+	}
+	res, err := Reassemble(view, []byte(view.PlaintextYAML+"qa_secret: hello\n"), &other)
+	if err != nil || len(res.Problems) != 0 {
+		t.Fatalf("%v %+v", err, res.Problems)
+	}
+	back, err := BuildDecryptedView([]byte(res.YAML), []vaultcrypto.Secret{other, devSecret, prodSecret})
+	if err != nil || back.VaultedBefore["qa_secret"] != "hello" || back.UsedBefore["qa_secret"].Label != "qa" {
+		t.Fatalf("%v %+v", err, back.UsedBefore)
+	}
+	for k := range view.LockedBefore {
+		if back.SourceContent[k] != view.SourceContent[k] {
+			t.Errorf("locked value %s changed", k)
+		}
+	}
+}
+
+func TestMultiID_NewValueUsesTheNewSecretOrIsAProblem(t *testing.T) {
+	view, err := BuildDecryptedView(multiIDSource(t), []vaultcrypto.Secret{devSecret, prodSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := view.PlaintextYAML + "fresh: brand new\n"
+	res, err := Reassemble(view, []byte(edited), &prodSecret)
+	if err != nil || len(res.Problems) != 0 {
+		t.Fatalf("Reassemble: %v %+v", err, res.Problems)
+	}
+	after, _ := BuildDecryptedView([]byte(res.YAML), []vaultcrypto.Secret{devSecret, prodSecret})
+	if after.VaultedBefore["fresh"] != "brand new" || after.UsedBefore["fresh"].Label != "prod" {
+		t.Errorf("new value: %+v", after.UsedBefore["fresh"])
+	}
+	res, err = Reassemble(view, []byte(edited), nil)
+	if err != nil || len(res.Problems) != 1 || res.Problems[0].Key != "fresh" {
+		t.Errorf("without a secret: %v %+v", err, res.Problems)
+	}
+}
+
+// An empty file (or one with only whitespace or comments) is a mapping with
+// no variables: the editor opens on it, and what is added gets encrypted.
+func TestEmptyFileIsAnEmptyMappingAndNewValuesAreEncrypted(t *testing.T) {
+	password := testPassword(t)
+	for name, src := range map[string]string{
+		"empty":      "",
+		"whitespace": "\n  \n",
+		"comments":   "# vault vars\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			view, err := BuildDecryptedView([]byte(src), one(password))
+			if err != nil {
+				t.Fatalf("BuildDecryptedView: %v", err)
+			}
+			if view.PlaintextYAML != src {
+				t.Errorf("view = %q, want the source %q", view.PlaintextYAML, src)
+			}
+			same, err := Reassemble(view, []byte(src), newOne(password))
+			if err != nil || len(same.Problems) != 0 || !same.Unchanged {
+				t.Fatalf("an unedited empty file: %+v, %v", same, err)
+			}
+
+			result, err := Reassemble(view, []byte(src+"db_password: s3cret\n"), newOne(password))
+			if err != nil || len(result.Problems) != 0 {
+				t.Fatalf("Reassemble: %+v, %v", result, err)
+			}
+			if src == "" && strings.HasPrefix(result.YAML, "\n") {
+				t.Errorf("a leading blank line in %q", result.YAML)
+			}
+			if !strings.HasPrefix(result.YAML, src) {
+				t.Errorf("the comment header was lost: %q", result.YAML)
+			}
+			back, err := BuildDecryptedView([]byte(result.YAML), one(password))
+			if err != nil || back.VaultedBefore["db_password"] != "s3cret" {
+				t.Errorf("db_password did not round-trip: %+v, %v", back.VaultedBefore, err)
+			}
+		})
 	}
 }

@@ -295,15 +295,63 @@ rest of `config.toml`, which is meant to be shared/tracked), while adding
 nothing a project can't already get from `ansible.cfg`, the env var, or
 the flag. Any project that uses vault already has one of those.
 
-## Deferred to v2
+## Vault ids (multiple passwords)
 
-- **Multiple vault-ids.** Ansible supports per-label vault-ids
-  (`$ANSIBLE_VAULT;1.2;AES256;label`), letting a single file mix ciphertexts
-  encrypted under different passwords. v1 assumes a single default vault
-  password (no `--vault-id` label support), and fails loudly if it
-  encounters a labeled-vault-id file it can't handle rather than silently
-  mishandling it. Revisit once there's real usage experience with multiple
-  vault-ids to design against.
+**Implemented.** Ansible lets one project keep secrets under different
+passwords (per environment, team, ...); each value then carries its label in
+its header (`$ANSIBLE_VAULT;1.2;AES256;prod`, the unlabeled 1.1 form is the id
+`default`). What `ansible-playbook` does with them, which `tangsible vault`
+follows (verified against ansible-core 2.19):
+
+- The password list is `vault_identity_list` (ini/`ANSIBLE_VAULT_IDENTITY_LIST`,
+  comma separated `label@source`), then every `--vault-id`, then the one
+  password of the older options (`--vault-password-file`, `--ask-vault-pass`,
+  `$ANSIBLE_VAULT_PASSWORD_FILE`, ansible.cfg's `vault_password_file`: the
+  first set wins, as before) as `default`. A source is a file, an executable
+  (its output; one named `*-client` gets `--vault-id <label>`) or `prompt`. A
+  `--vault-id` without `label@` is a source with the label `default`. When
+  nothing is configured there is still the prompt (step 5 above).
+- A value is decrypted with the passwords whose id equals its label first,
+  then with the others in order. **The label is a hint, not a check**: the
+  right password under the wrong label still works (`vaultcrypto.DecryptWith`).
+- Encrypting: `--encrypt-vault-id` / `vault_encrypt_identity` names which
+  password; ansible otherwise takes the first. We take the vault id all of the
+  file's values share when its password was given (so a new secret in a prod
+  file is not encrypted under whichever password is listed first), else the
+  first. The id `default` writes the unlabeled 1.1 header, as ansible does.
+
+What the verb does with several ids:
+
+- A changed value is encrypted again with its own label and the password that
+  decrypted it; unchanged values are spliced as before, so they keep their
+  ciphertext and label. A new value gets the encrypt secret above.
+- **Locked values.** The person editing may hold only some of the passwords.
+  A value no given password decrypts is shown as `<vaulted: label>` (just
+  `<vaulted>` without a label), saved unchanged while that text is left as it
+  is, refused when changed ("restore the placeholder or delete the line"), and
+  removed when its line is deleted. A note on stderr says how many there are.
+  This also holds when *no* value can be decrypted (a file whose values all use
+  another vault id, or a wrong password): the file opens with placeholders only,
+  a note says so, and a new value is encrypted with `--encrypt-vault-id`, else
+  the first password. A mistyped password is therefore no longer an error; it
+  shows as placeholders and nothing is saved unless something is added
+  (`DecryptedView.LockedBefore`, `vaultfile.LockedPlaceholder`).
+- A dangling `--vault-id`/`--encrypt-vault-id` is a usage error (silently
+  ignoring one would fall back to a prompt nobody asked for). `--encrypt-vault-id`
+  naming an id with no password is one too (exit 2).
+
+The prompts need a terminal (`term.ReadPassword`), so their test
+(`e2e/vault_test.go`, `TestE2E_Vault_PromptsForEachVaultID`) runs in tmux; the
+other vault e2e tests do not.
+
+A file that does not exist is created empty (a note on stderr), and an empty
+file (or one with only comments) is a mapping with no variables, not an error:
+the editor opens on it and every variable added is new, so it is encrypted.
+`vaultfile.parseTopLevelMapping` treats a document with no content as an empty
+mapping; an unedited empty file stays empty.
+
+Not done: a wholly encrypted file, nested `!vault` values (point 4), vault
+passwords that are themselves vault-encrypted.
 
 ## Implementation
 

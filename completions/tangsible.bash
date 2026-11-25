@@ -66,7 +66,7 @@ _tangsible_rerun_only_flags="--only-failed --only-unreachable --resume-where-fai
 # ansible-playbook flags but resolved entirely by tangsible's own password
 # lookup, never forwarded to ansible-playbook at all, since vault never
 # spawns it in the first place.
-_tangsible_vault_flags="--vault-password-file --ask-vault-pass"
+_tangsible_vault_flags="--vault-password-file --vault-pass-file --ask-vault-pass --vault-id --encrypt-vault-id"
 
 # ee's own flags (design-docs/EEInit.md): init's, and verify's (which also
 # passes ansible-playbook's own flags on to its syntax check).

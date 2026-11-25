@@ -314,7 +314,9 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   swaps those flags for password files at startup, so normally it doesn't).
 - **Vault** (`Vault.md`): native AES-CTR (`internal/vaultcrypto`); re-encrypts
   only changed keys and splices original bytes for unchanged ones (yaml.v3
-  can't reproduce ansible-vault's indentation); never touches tview.
+  can't reproduce ansible-vault's indentation); never touches tview. Several
+  vault ids (`--vault-id`, `vault_identity_list`): a value keeps its label, one
+  no given password opens shows as `<vaulted: label>` and is saved unchanged.
 - **Debug** (`DebugMode.md`): a `liveSession` with breakpoint/pause state
   layered on, not a second TUI - the real tree, two-pane layout, and
   drill-down are the exact same ones `run`/`rerun`/`role` use. Breakpoints

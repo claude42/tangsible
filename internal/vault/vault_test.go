@@ -4,72 +4,163 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"code.aw.net/claude/tangsible/internal/vaultcrypto"
 	"code.aw.net/claude/tangsible/internal/vaultfile"
 )
 
 func TestParseVaultArgs(t *testing.T) {
 	cases := []struct {
-		name             string
-		args             []string
-		wantFilename     string
-		wantPasswordFile string
-		wantAskPass      bool
-		wantErr          bool
+		name    string
+		args    []string
+		want    Args
+		wantErr bool
 	}{
-		{"no args", nil, "", "", false, true},
-		{"only flags, no filename", []string{"--vault-password-file", "x"}, "", "", false, true},
-		{"filename only", []string{"secrets.yml"}, "secrets.yml", "", false, false},
-		{"space-separated password file", []string{"secrets.yml", "--vault-password-file", "pw.txt"}, "secrets.yml", "pw.txt", false, false},
-		{"equals-form password file", []string{"secrets.yml", "--vault-password-file=pw.txt"}, "secrets.yml", "pw.txt", false, false},
-		{"ask pass", []string{"secrets.yml", "--ask-vault-pass"}, "secrets.yml", "", true, false},
-		{"both password sources rejected", []string{"secrets.yml", "--vault-password-file", "pw.txt", "--ask-vault-pass"}, "", "", false, true},
-		{"options before the filename", []string{"--vault-password-file", "pw.txt", "secrets.yml"}, "secrets.yml", "pw.txt", false, false},
-		{"ask pass before the filename", []string{"--ask-vault-pass", "secrets.yml"}, "secrets.yml", "", true, false},
-		{"password file value that looks like a file", []string{"--vault-password-file=pw.yml", "secrets.yml"}, "secrets.yml", "pw.yml", false, false},
-		{"dangling password file flag ignored", []string{"secrets.yml", "--vault-password-file"}, "secrets.yml", "", false, false},
+		{"no args", nil, Args{}, true},
+		{"only flags, no filename", []string{"--vault-password-file", "x"}, Args{}, true},
+		{"filename only", []string{"secrets.yml"}, Args{Filename: "secrets.yml"}, false},
+		{"space-separated password file", []string{"secrets.yml", "--vault-password-file", "pw.txt"}, Args{Filename: "secrets.yml", PasswordFile: "pw.txt"}, false},
+		{"equals-form password file", []string{"secrets.yml", "--vault-password-file=pw.txt"}, Args{Filename: "secrets.yml", PasswordFile: "pw.txt"}, false},
+		{"the alias of the password file flag", []string{"secrets.yml", "--vault-pass-file", "pw.txt"}, Args{Filename: "secrets.yml", PasswordFile: "pw.txt"}, false},
+		{"ask pass", []string{"secrets.yml", "--ask-vault-pass"}, Args{Filename: "secrets.yml", AskPass: true}, false},
+		{"both password sources rejected", []string{"secrets.yml", "--vault-password-file", "pw.txt", "--ask-vault-pass"}, Args{}, true},
+		{"options before the filename", []string{"--vault-password-file", "pw.txt", "secrets.yml"}, Args{Filename: "secrets.yml", PasswordFile: "pw.txt"}, false},
+		{"ask pass before the filename", []string{"--ask-vault-pass", "secrets.yml"}, Args{Filename: "secrets.yml", AskPass: true}, false},
+		{"password file value that looks like a file", []string{"--vault-password-file=pw.yml", "secrets.yml"}, Args{Filename: "secrets.yml", PasswordFile: "pw.yml"}, false},
+		{"dangling password file flag ignored", []string{"secrets.yml", "--vault-password-file"}, Args{Filename: "secrets.yml"}, false},
+		{"vault ids, both spellings, in order", []string{"--vault-id", "dev@d.txt", "secrets.yml", "--vault-id=prod@prompt"},
+			Args{Filename: "secrets.yml", VaultIDs: []string{"dev@d.txt", "prod@prompt"}}, false},
+		{"a vault id value is not the filename", []string{"--vault-id", "pw.txt", "secrets.yml"}, Args{Filename: "secrets.yml", VaultIDs: []string{"pw.txt"}}, false},
+		{"encrypt vault id", []string{"--encrypt-vault-id", "prod", "secrets.yml"}, Args{Filename: "secrets.yml", EncryptID: "prod"}, false},
+		{"dangling vault id is an error", []string{"secrets.yml", "--vault-id"}, Args{}, true},
+		{"dangling encrypt vault id is an error", []string{"secrets.yml", "--encrypt-vault-id"}, Args{}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			filename, passwordFile, askPass, err := ParseVaultArgs(c.args)
+			got, err := ParseVaultArgs(c.args)
 			if (err != nil) != c.wantErr {
 				t.Fatalf("err = %v, wantErr = %v", err, c.wantErr)
 			}
 			if c.wantErr {
 				return
 			}
-			if filename != c.wantFilename || passwordFile != c.wantPasswordFile || askPass != c.wantAskPass {
-				t.Errorf("got (%q, %q, %v), want (%q, %q, %v)", filename, passwordFile, askPass, c.wantFilename, c.wantPasswordFile, c.wantAskPass)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("got %+v, want %+v", got, c.want)
 			}
 		})
 	}
 }
 
-func TestChoosePasswordSource(t *testing.T) {
+func TestSecretSpecs(t *testing.T) {
+	d := vaultcrypto.DefaultID
 	cases := []struct {
-		name           string
-		flagFile       string
-		askFlag        bool
-		envFile        string
-		ansibleCfgFile string
-		wantKind       passwordSourceKind
-		wantFile       string
+		name string
+		args Args
+		src  passwordSources
+		want []secretSpec
 	}{
-		{"flag wins over everything", "flag.txt", true, "env.txt", "ansible.txt", passwordSourceFileKind, "flag.txt"},
-		{"ask flag wins over env and ansible.cfg", "", true, "env.txt", "ansible.txt", passwordSourcePromptKind, ""},
-		{"env wins over ansible.cfg", "", false, "env.txt", "ansible.txt", passwordSourceFileKind, "env.txt"},
-		{"ansible.cfg is the last file-backed fallback", "", false, "", "ansible.txt", passwordSourceFileKind, "ansible.txt"},
-		{"prompt when nothing is configured", "", false, "", "", passwordSourcePromptKind, ""},
+		{"flag wins over everything", Args{PasswordFile: "flag.txt", AskPass: false}, passwordSources{EnvFile: "env.txt", CfgFile: "ansible.txt"},
+			[]secretSpec{{d, "flag.txt"}}},
+		{"ask flag wins over env and ansible.cfg", Args{AskPass: true}, passwordSources{EnvFile: "env.txt", CfgFile: "ansible.txt"},
+			[]secretSpec{{d, askSource}}},
+		{"env wins over ansible.cfg", Args{}, passwordSources{EnvFile: "env.txt", CfgFile: "ansible.txt"}, []secretSpec{{d, "env.txt"}}},
+		{"ansible.cfg is the last file-backed fallback", Args{}, passwordSources{CfgFile: "ansible.txt"}, []secretSpec{{d, "ansible.txt"}}},
+		{"prompt when nothing is configured", Args{}, passwordSources{}, []secretSpec{{d, askSource}}},
+		{"the identity list comes first, then --vault-id, then the single password",
+			Args{VaultIDs: []string{"b@b.txt", "plain.txt"}, PasswordFile: "flag.txt"},
+			passwordSources{IdentityList: []string{"a@a.txt"}},
+			[]secretSpec{{"a", "a.txt"}, {"b", "b.txt"}, {d, "plain.txt"}, {d, "flag.txt"}}},
+		{"explicit ids do not add a prompt", Args{VaultIDs: []string{"prod@prompt"}}, passwordSources{}, []secretSpec{{"prod", promptSource}}},
+		{"an @ later in a path is part of the source", Args{VaultIDs: []string{"x@/tmp/a@b"}}, passwordSources{}, []secretSpec{{"x", "/tmp/a@b"}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			kind, file := choosePasswordSource(c.flagFile, c.askFlag, c.envFile, c.ansibleCfgFile)
-			if kind != c.wantKind || file != c.wantFile {
-				t.Errorf("got (%v, %q), want (%v, %q)", kind, file, c.wantKind, c.wantFile)
+			if got := secretSpecs(c.args, c.src); !reflect.DeepEqual(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+func TestLoadSecrets(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "pw")
+	writeFile(t, file, "from-file\n")
+	script := filepath.Join(dir, "pw.sh")
+	writeFile(t, script, "#!/bin/sh\necho from-script\n")
+	if err := os.Chmod(script, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client := filepath.Join(dir, "vault-client.sh")
+	writeFile(t, client, "#!/bin/sh\necho \"for $2\"\n")
+	if err := os.Chmod(client, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	prompt := func(id string, ask bool) (string, error) {
+		asked = append(asked, id)
+		return "typed-" + id, nil
+	}
+	got, err := loadSecrets([]secretSpec{{"a", file}, {"b", script}, {"c", client}, {"d", promptSource}, {"e", askSource}}, prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []vaultcrypto.Secret{{ID: "a", Password: "from-file"}, {ID: "b", Password: "from-script"},
+		{ID: "c", Password: "for c"}, {ID: "d", Password: "typed-d"}, {ID: "e", Password: "typed-e"}}
+	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(asked, []string{"d", "e"}) {
+		t.Errorf("got %v (asked %v)", got, asked)
+	}
+	if _, err := loadSecrets([]secretSpec{{"x", filepath.Join(dir, "missing")}}, prompt); err == nil {
+		t.Error("a missing password file must be an error")
+	}
+	if _, err := loadSecrets([]secretSpec{{"x", dir}}, prompt); err == nil {
+		t.Error("a directory must be an error")
+	}
+}
+
+func TestChooseEncryptSecret(t *testing.T) {
+	dev := vaultcrypto.Secret{ID: "dev", Password: "d"}
+	prod := vaultcrypto.Secret{ID: "prod", Password: "p"}
+	both := []vaultcrypto.Secret{dev, prod}
+	view := func(labels ...string) vaultfile.DecryptedView {
+		v := vaultfile.DecryptedView{UsedBefore: map[string]vaultfile.Used{}, LockedBefore: map[string]string{}}
+		for i, l := range labels {
+			v.UsedBefore[string(rune('a'+i))] = vaultfile.Used{Label: l}
+		}
+		return v
+	}
+	cases := []struct {
+		name    string
+		view    vaultfile.DecryptedView
+		id      string
+		want    string
+		wantErr bool
+	}{
+		{"explicit id", view("dev"), "prod", "prod", false},
+		{"explicit id that was not given", view(), "qa", "", true},
+		{"the file is all prod", view("prod", "prod"), "", "prod", false},
+		{"mixed file: the first password, as ansible does", view("prod", "dev"), "", "dev", false},
+		{"empty file: the first password", view(), "", "dev", false},
+		{"the file's one id has no password: the first", view("qa"), "", "dev", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := chooseEncryptSecret(c.view, both, c.id)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("err = %v", err)
+			}
+			if err == nil && got.ID != c.want {
+				t.Errorf("got %q, want %q", got.ID, c.want)
+			}
+		})
+	}
+	// An unlabeled value counts as the default id.
+	def := vaultcrypto.Secret{ID: "default", Password: "x"}
+	if got, _ := chooseEncryptSecret(view("", ""), []vaultcrypto.Secret{dev, def}, ""); got.ID != "default" {
+		t.Errorf("unlabeled values: got %q", got.ID)
 	}
 }
 
@@ -85,7 +176,7 @@ func setupEditorLoopFixture(t *testing.T) (vaultfile.DecryptedView, string) {
 	targetPath := filepath.Join(dir, "vault.yml")
 	writeFile(t, targetPath, src)
 
-	view, err := vaultfile.BuildDecryptedView([]byte(src), testFixturePassword)
+	view, err := vaultfile.BuildDecryptedView([]byte(src), []vaultcrypto.Secret{{ID: "default", Password: testFixturePassword}})
 	if err != nil {
 		t.Fatalf("BuildDecryptedView: %v", err)
 	}
@@ -127,7 +218,7 @@ func TestRunEditorLoop_NoOpMakesNoChange(t *testing.T) {
 
 	edit := func(ctx context.Context, path string) error { return nil } // editor "closes" without touching the file
 
-	code := runEditorLoop(targetPath, view, testFixturePassword, edit, askFailsIfCalled(t), context.Background())
+	code := runEditorLoop(targetPath, view, &vaultcrypto.Secret{ID: "default", Password: testFixturePassword}, edit, askFailsIfCalled(t), context.Background())
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -146,7 +237,7 @@ func TestRunEditorLoop_SuccessfulEditWrites(t *testing.T) {
 		return nil
 	}
 
-	code := runEditorLoop(targetPath, view, testFixturePassword, edit, askFailsIfCalled(t), context.Background())
+	code := runEditorLoop(targetPath, view, &vaultcrypto.Secret{ID: "default", Password: testFixturePassword}, edit, askFailsIfCalled(t), context.Background())
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -179,7 +270,7 @@ func TestRunEditorLoop_SweepsPrivateScratchDir(t *testing.T) {
 		return nil
 	}
 
-	code := runEditorLoop(targetPath, view, testFixturePassword, edit, askFailsIfCalled(t), context.Background())
+	code := runEditorLoop(targetPath, view, &vaultcrypto.Secret{ID: "default", Password: testFixturePassword}, edit, askFailsIfCalled(t), context.Background())
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -223,7 +314,7 @@ func TestRunEditorLoop_ProblemReopensThenSucceeds(t *testing.T) {
 		return true, nil // always choose "fix"
 	}
 
-	code := runEditorLoop(targetPath, view, testFixturePassword, edit, ask, context.Background())
+	code := runEditorLoop(targetPath, view, &vaultcrypto.Secret{ID: "default", Password: testFixturePassword}, edit, ask, context.Background())
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -276,7 +367,7 @@ func TestRunEditorLoop_StaleAnnotationDoesNotDuplicate(t *testing.T) {
 	}
 	ask := func() (bool, error) { return true, nil } // always choose "fix"
 
-	code := runEditorLoop(targetPath, view, testFixturePassword, edit, ask, context.Background())
+	code := runEditorLoop(targetPath, view, &vaultcrypto.Secret{ID: "default", Password: testFixturePassword}, edit, ask, context.Background())
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -305,7 +396,7 @@ func TestRunEditorLoop_ProblemUserReverts(t *testing.T) {
 	}
 	ask := func() (bool, error) { return false, nil } // choose "revert"
 
-	code := runEditorLoop(targetPath, view, testFixturePassword, edit, ask, context.Background())
+	code := runEditorLoop(targetPath, view, &vaultcrypto.Secret{ID: "default", Password: testFixturePassword}, edit, ask, context.Background())
 	if code != abortExitCode {
 		t.Fatalf("exit code = %d, want %d", code, abortExitCode)
 	}
@@ -331,7 +422,7 @@ func TestRunEditorLoop_AbortLeavesTargetUntouched(t *testing.T) {
 		return ctx.Err()
 	}
 
-	code := runEditorLoop(targetPath, view, testFixturePassword, edit, askFailsIfCalled(t), ctx)
+	code := runEditorLoop(targetPath, view, &vaultcrypto.Secret{ID: "default", Password: testFixturePassword}, edit, askFailsIfCalled(t), ctx)
 	if code != abortExitCode {
 		t.Fatalf("exit code = %d, want %d", code, abortExitCode)
 	}

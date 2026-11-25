@@ -8,6 +8,9 @@
 
 ### Added
 
+- `tangsible vault` supports several vault ids: `--vault-id [label@]source` (repeatable; a file, a script or `prompt`), `--encrypt-vault-id`, and `vault_identity_list`/`vault_encrypt_identity` from `ansible.cfg` (or their environment variables). A value is decrypted with the password for its label first, then any other; a changed value keeps its label. Values none of your passwords opens show as `<vaulted: label>` and are saved unchanged, so someone with only the dev password can edit a file that also holds prod secrets
+- `tangsible vault` opens a file even when no given password decrypts any of its values (all show as `<vaulted: label>`), so you can add values under a second vault id; before, it failed with an HMAC error
+- `tangsible vault` on a file that does not exist creates it empty, and an empty file opens in the editor instead of failing; whatever variables you add are encrypted
 - `debug`: the drill-down has a Variables tab, like the one of `tangsible host`: the variables the debugger saw when the task paused (vault values masked, facts and ansible's own variables left out), sorted, each with where it was defined (file and line, `-e`, `registered`)
 - Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
 

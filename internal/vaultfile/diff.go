@@ -32,6 +32,15 @@ func decideKey(key string, valNode *yaml.Node, before DecryptedView) keyDecision
 			"%q carries a !vault tag that wasn't there before editing - !vault values can't be typed by hand", key)}
 	}
 
+	if label, locked := before.LockedBefore[key]; locked {
+		placeholder := LockedPlaceholder(label)
+		if !isPlainString(valNode) || valNode.Value != placeholder {
+			return keyDecision{kind: decisionProblem, problem: fmt.Sprintf(
+				"%q is encrypted with a vault id no supplied password fits, so it can't be changed - restore %s or delete the line", key, placeholder)}
+		}
+		return keyDecision{kind: decisionSplice}
+	}
+
 	if oldPlaintext, wasVaulted := before.VaultedBefore[key]; wasVaulted {
 		if !isPlainString(valNode) {
 			return keyDecision{kind: decisionProblem, problem: fmt.Sprintf(

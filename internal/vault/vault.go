@@ -12,132 +12,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
+	"sort"
 	"syscall"
-
-	"golang.org/x/term"
 
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/vaultfile"
 )
-
-// ParseVaultArgs splits args (everything after the "vault" Verb) into the
-// required target filename plus the password-source flags design-docs/
-// Vault.md's password-source decision specifies: --vault-password-file
-// <path> (or --vault-password-file=<path>) and --ask-vault-pass (a bare
-// boolean, no value) - mirroring real ansible-vault's own flags rather
-// than inventing new ones, and rejected together the same way
-// ansible-vault itself treats them as mutually exclusive. Hand-rolled
-// rather than the stdlib flag package (used nowhere else in this
-// codebase), matching internal/config/rerunargs.go's ParsePassthroughArgs
-// style.
-func ParseVaultArgs(args []string) (filename, passwordFile string, askPass bool, err error) {
-	filename, args, ok := config.SplitPlaybookArgsAmongOptions(args)
-	if !ok {
-		return "", "", false, errors.New("a target file is required")
-	}
-
-	take := func(flag string, i int) (value string, consumed int, ok bool) {
-		a := args[i]
-		if a == flag {
-			if i+1 < len(args) {
-				return args[i+1], 2, true
-			}
-			return "", 0, false // dangling flag with no value
-		}
-		if v, found := strings.CutPrefix(a, flag+"="); found {
-			return v, 1, true
-		}
-		return "", 0, false
-	}
-
-	for i := 0; i < len(args); {
-		if v, n, ok := take("--vault-password-file", i); ok {
-			passwordFile = v
-			i += n
-			continue
-		}
-		if args[i] == "--ask-vault-pass" {
-			askPass = true
-			i++
-			continue
-		}
-		i++
-	}
-
-	if passwordFile != "" && askPass {
-		return "", "", false, errors.New("--vault-password-file and --ask-vault-pass can't be used together")
-	}
-	return filename, passwordFile, askPass, nil
-}
-
-// passwordSourceKind identifies which of design-docs/Vault.md's four
-// password sources won, per chosePasswordSource's precedence.
-type passwordSourceKind int
-
-const (
-	passwordSourcePromptKind passwordSourceKind = iota
-	passwordSourceFileKind                      // file is a path to read (flag, env var, or ansible.cfg)
-)
-
-// choosePasswordSource is the pure precedence decision behind
-// resolvePassword: an explicit CLI flag wins over
-// $ANSIBLE_VAULT_PASSWORD_FILE wins over the project's own ansible.cfg
-// ([defaults] vault_password_file - the standard, most common place
-// ansible users already configure this) wins over an interactive no-echo
-// prompt as a last resort - a deliberate divergence from real
-// ansible-vault, which errors instead of prompting when nothing is
-// configured; accepted here because this verb is inherently interactive,
-// with no batch/CI use case for editing one variable. Takes plain
-// strings/bools, not the environment/filesystem directly, so the
-// precedence logic itself is testable without a real filesystem or
-// terminal.
-func choosePasswordSource(flagFile string, askFlag bool, envFile string, ansibleCfgFile string) (kind passwordSourceKind, file string) {
-	switch {
-	case flagFile != "":
-		return passwordSourceFileKind, flagFile
-	case askFlag:
-		return passwordSourcePromptKind, ""
-	case envFile != "":
-		return passwordSourceFileKind, envFile
-	case ansibleCfgFile != "":
-		return passwordSourceFileKind, ansibleCfgFile
-	}
-	return passwordSourcePromptKind, ""
-}
-
-func resolvePassword(flagFile string, askFlag bool) (string, error) {
-	envFile := os.Getenv("ANSIBLE_VAULT_PASSWORD_FILE")
-	ansibleCfgFile := ansibleCfgVaultPasswordFile()
-
-	kind, file := choosePasswordSource(flagFile, askFlag, envFile, ansibleCfgFile)
-	if kind == passwordSourceFileKind {
-		return readPasswordFile(file)
-	}
-	return promptPassword()
-}
-
-func readPasswordFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("couldn't read vault password file %q: %w", path, err)
-	}
-	// Matches ansible-vault's own tolerance of a trailing newline in a
-	// password file - a password file is conventionally one line, and a
-	// trailing newline from `echo password > file` shouldn't become part
-	// of the actual password.
-	return strings.TrimRight(string(data), "\r\n"), nil
-}
-
-func promptPassword() (string, error) {
-	fmt.Fprint(os.Stderr, "Vault password: ")
-	b, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return "", fmt.Errorf("couldn't read password: %w", err)
-	}
-	return string(b), nil
-}
 
 // RunVaultVerb is main.go's entry point for the "vault" Verb. Returns the
 // process exit code rather than calling os.Exit itself, so its own
@@ -145,7 +25,7 @@ func promptPassword() (string, error) {
 // signal.NotifyContext's own stop func) reliably runs on every path -
 // same convention as RunTemplateVerb/RunHostVerb.
 func RunVaultVerb(args []string) int {
-	filename, passwordFile, askPass, err := ParseVaultArgs(args)
+	parsed, err := ParseVaultArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbVault))
 		fmt.Fprintln(os.Stderr, "tangsible:", err)
@@ -168,7 +48,11 @@ func RunVaultVerb(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
-	password, err := resolvePassword(passwordFile, askPass)
+	sources := readPasswordSources()
+	if parsed.EncryptID == "" {
+		parsed.EncryptID = sources.EncryptID
+	}
+	secrets, err := loadSecrets(secretSpecs(parsed, sources), promptPassword)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tangsible:", err)
 		return 1
@@ -177,17 +61,56 @@ func RunVaultVerb(args []string) int {
 		return abortExitCode
 	}
 
-	source, err := os.ReadFile(filename)
+	// A file that does not exist yet is created empty; an empty file is
+	// simply a file with no variables, and whatever is added is encrypted.
+	if _, statErr := os.Stat(parsed.Filename); errors.Is(statErr, os.ErrNotExist) {
+		f, err := os.OpenFile(parsed.Filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't create %s: %v\n", parsed.Filename, err)
+			return 1
+		}
+		f.Close()
+		fmt.Fprintf(os.Stderr, "tangsible: %s did not exist, created it\n", parsed.Filename)
+	}
+	source, err := os.ReadFile(parsed.Filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't read %s: %v\n", filename, err)
+		fmt.Fprintf(os.Stderr, "tangsible: couldn't read %s: %v\n", parsed.Filename, err)
 		return 1
 	}
 
-	view, err := vaultfile.BuildDecryptedView(source, password)
+	view, err := vaultfile.BuildDecryptedView(source, secrets)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tangsible:", err)
 		return 1
 	}
+	reportLocked(view)
 
-	return runEditorLoop(filename, view, password, realEditor, askFixOrRevert, ctx)
+	newSecret, err := chooseEncryptSecret(view, secrets, parsed.EncryptID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "tangsible:", err)
+		return 2
+	}
+
+	return runEditorLoop(parsed.Filename, view, newSecret, realEditor, askFixOrRevert, ctx)
+}
+
+// reportLocked tells the user which values the passwords given could not
+// open: they show as placeholders in the editor and are saved unchanged.
+func reportLocked(view vaultfile.DecryptedView) {
+	locked := view.LockedLabels()
+	if len(locked) == 0 {
+		return
+	}
+	if len(view.VaultedBefore) == 0 {
+		fmt.Fprintln(os.Stderr, "tangsible: none of the values could be decrypted with the given passwords (wrong password?); they show as placeholders and are saved unchanged, and any value you add is encrypted with the first password or --encrypt-vault-id")
+		return
+	}
+	labels := make([]string, 0, len(locked))
+	for l := range locked {
+		labels = append(labels, l)
+	}
+	sort.Strings(labels)
+	for _, l := range labels {
+		fmt.Fprintf(os.Stderr, "tangsible: %d value(s) with the vault id %q are not decryptable with the given passwords; they show as placeholders and are saved unchanged\n", locked[l], l)
+	}
 }

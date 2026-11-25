@@ -87,7 +87,11 @@ complete -c tangsible -n '__fish_seen_subcommand_from template; and __fish_is_nt
 complete -c tangsible -n '__fish_seen_subcommand_from host; and __fish_is_nth_token 3' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 
-# vault: tangsible vault <filename> [--vault-password-file <path> | --ask-vault-pass]
+# vault: tangsible vault <filename> [--vault-password-file <path> | --ask-vault-pass] [--vault-id id@source]... [--encrypt-vault-id <label>]
+complete -c tangsible -n '__fish_seen_subcommand_from vault' -l vault-password-file -r -d 'Vault password file'
+complete -c tangsible -n '__fish_seen_subcommand_from vault' -l ask-vault-pass -d 'Ask for the vault password'
+complete -c tangsible -n '__fish_seen_subcommand_from vault' -l vault-id -x -d 'Vault id and password source (id@source)'
+complete -c tangsible -n '__fish_seen_subcommand_from vault' -l encrypt-vault-id -x -d 'Vault id new values are encrypted with'
 complete -c tangsible -n '__fish_seen_subcommand_from vault; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d 'Vars file'
 

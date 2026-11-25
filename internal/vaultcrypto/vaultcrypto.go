@@ -20,11 +20,63 @@ import (
 	"strings"
 )
 
-// Header identifies an unlabeled AES256 vault (format 1.1) - the only
-// variant v1 supports. Labeled multi-vault-id headers
-// ($ANSIBLE_VAULT;1.2;AES256;<label>) are deferred to v2 per
-// design-docs/Vault.md's "Deferred to v2" section.
+// Header identifies an unlabeled AES256 vault (format 1.1). A value
+// encrypted under a vault id carries the label in its header instead:
+// "$ANSIBLE_VAULT;1.2;AES256;<label>" (see Label, HeaderFor). The body is
+// the same in both formats.
 const Header = "$ANSIBLE_VAULT;1.1;AES256"
+
+// DefaultID is the label Ansible gives a password supplied without one
+// (--vault-id path, --vault-password-file). A value encrypted under it is
+// written in the unlabeled 1.1 format, as ansible-vault does.
+const DefaultID = "default"
+
+// Secret is one vault password together with the vault id (label) it was
+// given.
+type Secret struct {
+	ID       string
+	Password string
+}
+
+// ErrNoPassword means no password was supplied at all.
+var ErrNoPassword = errors.New("vaultcrypto: no vault password available")
+
+// HeaderFor is the header line of a value encrypted under label: the
+// unlabeled 1.1 header for "" and DefaultID, "1.2" with the label otherwise.
+func HeaderFor(label string) string {
+	if label == "" || label == DefaultID {
+		return Header
+	}
+	return "$ANSIBLE_VAULT;1.2;AES256;" + label
+}
+
+// Label returns the vault id recorded in vaultString's header: "" for the
+// unlabeled 1.1 format (or a 1.2 header with an empty label). The
+// supported formats are 1.1 and 1.2 with AES256.
+func Label(vaultString string) (string, error) {
+	header, _, err := splitHeader(vaultString)
+	if err != nil {
+		return "", err
+	}
+	return parseHeader(header)
+}
+
+func parseHeader(header string) (label string, err error) {
+	parts := strings.Split(header, ";")
+	if len(parts) < 3 || parts[0] != "$ANSIBLE_VAULT" || parts[2] != "AES256" {
+		return "", fmt.Errorf("vaultcrypto: unsupported vault header %q (only AES256, format 1.1 or 1.2, is supported)", header)
+	}
+	switch {
+	case parts[1] == "1.1" && len(parts) == 3:
+		return "", nil
+	case parts[1] == "1.2" && len(parts) <= 4:
+		if len(parts) == 4 {
+			return parts[3], nil
+		}
+		return "", nil
+	}
+	return "", fmt.Errorf("vaultcrypto: unsupported vault header %q (only AES256, format 1.1 or 1.2, is supported)", header)
+}
 
 const (
 	keyLength     = 32    // AES-256 key size
@@ -49,6 +101,12 @@ var ErrHMACMismatch = errors.New("vaultcrypto: HMAC verification failed (wrong p
 // the reason the diff logic elsewhere must never blindly re-encrypt an
 // unchanged value).
 func Encrypt(plaintext, password string) (string, error) {
+	return EncryptLabeled(plaintext, password, "")
+}
+
+// EncryptLabeled is Encrypt under a vault id: the label goes into the
+// header (HeaderFor), "" and DefaultID give the unlabeled format.
+func EncryptLabeled(plaintext, password, label string) (string, error) {
 	salt := make([]byte, saltLength)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("vaultcrypto: generating salt: %w", err)
@@ -74,7 +132,7 @@ func Encrypt(plaintext, password string) (string, error) {
 	body := hex.EncodeToString(salt) + "\n" + hmacHex + "\n" + hex.EncodeToString(ciphertext)
 	outerHex := hex.EncodeToString([]byte(body))
 
-	return Header + "\n" + wrapLines(outerHex, wrapWidth), nil
+	return HeaderFor(label) + "\n" + wrapLines(outerHex, wrapWidth), nil
 }
 
 // Decrypt decrypts vaultString - a full "$ANSIBLE_VAULT;..." block, header
@@ -86,8 +144,8 @@ func Decrypt(vaultString, password string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if header != Header {
-		return "", fmt.Errorf("vaultcrypto: unsupported vault header %q (only unlabeled 1.1/AES256 is supported)", header)
+	if _, err := parseHeader(header); err != nil {
+		return "", err
 	}
 
 	outer, err := hex.DecodeString(stripWhitespace(body))
@@ -210,4 +268,43 @@ func wrapLines(s string, width int) string {
 		b.WriteString(s[i:end])
 	}
 	return b.String()
+}
+
+// DecryptWith decrypts vaultString with the first of secrets that works,
+// the way Ansible does: the secrets whose id equals the label in the value's
+// header go first, then all the others in the order given (the label is a
+// hint, not a check - any password that decrypts the value will do). The
+// secret that worked is returned. When none does the error is
+// ErrHMACMismatch; a value that is malformed is reported as such at once.
+func DecryptWith(vaultString string, secrets []Secret) (plaintext string, used Secret, err error) {
+	if len(secrets) == 0 {
+		return "", Secret{}, ErrNoPassword
+	}
+	label, err := Label(vaultString)
+	if err != nil {
+		return "", Secret{}, err
+	}
+	ordered := make([]Secret, 0, len(secrets))
+	if label != "" {
+		for _, s := range secrets {
+			if s.ID == label {
+				ordered = append(ordered, s)
+			}
+		}
+	}
+	for _, s := range secrets {
+		if label == "" || s.ID != label {
+			ordered = append(ordered, s)
+		}
+	}
+	for _, s := range ordered {
+		plaintext, err := Decrypt(vaultString, s.Password)
+		if err == nil {
+			return plaintext, s, nil
+		}
+		if !errors.Is(err, ErrHMACMismatch) {
+			return "", Secret{}, err
+		}
+	}
+	return "", Secret{}, ErrHMACMismatch
 }

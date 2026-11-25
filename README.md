@@ -291,6 +291,8 @@ tangsible vault <filename>
 
 This provides an editor-based workflow for adding, editing and removing individually encrypted variables. Unlike encrypting an entire file, changes can remain limited to the variables that were edited, keeping diffs manageable.
 
+The password comes from `--vault-password-file`, `--ask-vault-pass`, `$ANSIBLE_VAULT_PASSWORD_FILE`, your `ansible.cfg`, or a prompt. Several vault ids work as in Ansible: pass `--vault-id dev@dev.pw --vault-id prod@prompt` (or set `vault_identity_list` in `ansible.cfg`), and `--encrypt-vault-id` for the id new values get. Each value keeps its vault id when saved. A value none of your passwords opens shows as a `<vaulted: prod>` placeholder and is saved unchanged.
+
 ## Execution environments
 (not yet released)
 

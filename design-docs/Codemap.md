@@ -572,6 +572,11 @@ thin constructor/wiring shell.
   through untouched.
 - **resolve_register.go** - rewrites the task's `register: name` line in
   the Resolved tab to `register: name = value` (debug mode).
+- **internal/vault/secrets.go** - `tangsible vault`'s password options
+  (`ParseVaultArgs`, `secretSpecs`, `loadSecrets`, `chooseEncryptSecret`) and
+  `ansiblecfg.go`'s `vault_identity_list`/`vault_encrypt_identity` readers;
+  `vaultcrypto.DecryptWith` tries the passwords, `vaultfile`'s
+  `LockedBefore` holds the values none opens.
 - **vaultmask.go** - masks vault-protected values (`<vaulted>`) in a
   captured snapshot for the Resolved tab and the watch autocomplete;
   parses `callback/tangsible_events.py`'s `tangsible_snapshot` reply

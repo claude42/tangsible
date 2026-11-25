@@ -49,6 +49,17 @@ type DecryptedView struct {
 	// doesn't preserve original formatting - see detectIndentWidth's doc
 	// comment for the concrete case that caught this).
 	SourceContent map[string]string
+	// UsedBefore records, for every key in VaultedBefore, the vault id
+	// recorded in its header ("" for the unlabeled format) and the
+	// password that decrypted it - a changed value is encrypted again with
+	// both, so a value keeps its vault id.
+	UsedBefore map[string]Used
+	// LockedBefore holds the keys whose value no supplied password
+	// decrypts (a value of another vault id, say): key -> the vault id in
+	// its header. The editable view shows LockedPlaceholder for such a
+	// key and Reassemble splices its original text back while that
+	// placeholder is left alone; changing it is a Problem.
+	LockedBefore map[string]string
 	// PresentBefore records every top-level key that existed in the
 	// source file at all, vaulted or not - needed to tell "always been
 	// plaintext" (stays plaintext, with a warning) apart from "brand
@@ -65,6 +76,37 @@ type DecryptedView struct {
 	IndentWidth int
 }
 
+// Used is how a value was decrypted: the vault id in its header and the
+// password that worked.
+type Used struct {
+	Label    string
+	Password string
+}
+
+// LockedPlaceholder is the text shown in the editable view for a value
+// that could not be decrypted, with the vault id from its header ("" if it
+// has none).
+func LockedPlaceholder(label string) string {
+	if label == "" {
+		return "<vaulted>"
+	}
+	return "<vaulted: " + label + ">"
+}
+
+// LockedLabels returns the distinct vault ids (display form, "" shown as
+// "(unlabeled)") of the values the view leaves locked, sorted, with how many
+// values each covers.
+func (v DecryptedView) LockedLabels() map[string]int {
+	out := map[string]int{}
+	for _, label := range v.LockedBefore {
+		if label == "" {
+			label = "(unlabeled)"
+		}
+		out[label]++
+	}
+	return out
+}
+
 // parseTopLevelMapping decodes data into a yaml.Node tree and returns both
 // the document node and its real top-level (mapping) node, requiring the
 // latter to be a flat mapping - the only shape design-docs/Vault.md's v1
@@ -78,12 +120,18 @@ type DecryptedView struct {
 // *document* node's HeadComment, not to the mapping node it wraps -
 // encoding the mapping alone silently drops it.
 func parseTopLevelMapping(data []byte) (doc, root *yaml.Node, lines []string, err error) {
+	if len(data) == 0 {
+		// An empty file is a mapping with no keys,
+		// not an error: it is where a new vault file starts.
+		return &yaml.Node{}, &yaml.Node{Kind: yaml.MappingNode}, nil, nil
+	}
 	doc = &yaml.Node{}
 	if err := yaml.Unmarshal(data, doc); err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: %v", ErrInvalidYAML, err)
 	}
 	if len(doc.Content) == 0 {
-		return nil, nil, nil, fmt.Errorf("%w: empty document", ErrInvalidYAML)
+		// Only comments (yaml.v3 yields no content): no keys yet either.
+		return doc, &yaml.Node{Kind: yaml.MappingNode}, strings.Split(string(data), "\n"), nil
 	}
 	// yaml.Unmarshal into a *yaml.Node wraps the real top-level node one
 	// level down in a DocumentNode - root here is that actual top-level

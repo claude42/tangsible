@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"code.aw.net/claude/tangsible/internal/template"
+	"code.aw.net/claude/tangsible/internal/vaultcrypto"
 	"code.aw.net/claude/tangsible/internal/vaultfile"
 )
 
@@ -102,7 +103,7 @@ func askFixOrRevert() (bool, error) {
 // escape a detected problem, though - see askFixOrRevert's own doc
 // comment for why Ctrl-C can't reliably reach tangsible at all while a
 // real full-screen editor is open.
-func runEditorLoop(targetPath string, view vaultfile.DecryptedView, password string, edit editorFunc, askFixOrRevert askFixOrRevertFunc, ctx context.Context) int {
+func runEditorLoop(targetPath string, view vaultfile.DecryptedView, newSecret *vaultcrypto.Secret, edit editorFunc, askFixOrRevert askFixOrRevertFunc, ctx context.Context) int {
 	// A private scratch *directory* (0700), not a bare file in the shared
 	// /tmp - design-docs/Vault.md point 6's "restrictive permissions" for
 	// a file briefly holding decrypted secrets, hardened two ways:
@@ -182,7 +183,7 @@ func runEditorLoop(targetPath string, view vaultfile.DecryptedView, password str
 			return 0
 		}
 
-		result, err := vaultfile.Reassemble(view, edited, password)
+		result, err := vaultfile.Reassemble(view, edited, newSecret)
 		if errors.Is(err, vaultfile.ErrInvalidYAML) {
 			// No line to annotate a comment above - show the raw error
 			// and let the user choose whether to try again or give up,

@@ -1,6 +1,7 @@
 package vaultfile
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -28,14 +29,18 @@ func rejectNestedVault(n *yaml.Node) error {
 }
 
 // BuildDecryptedView parses sourceBytes (a vault file's full content),
-// decrypts every top-level !vault-tagged value under password, and
+// decrypts every top-level !vault-tagged value with the first of secrets that
+// works (the one whose vault id matches the value's header first, see
+// vaultcrypto.DecryptWith), and
 // produces the plaintext editable view an $EDITOR opens on. Fails loudly
 // (returns an error, never a partial/best-effort view) on: content that
 // isn't a flat top-level YAML mapping; a !vault tag found anywhere other
-// than a direct top-level value; a !vault node that fails to decrypt
-// (wrong password or corrupted data); or a !vault tag on a non-scalar
-// node (malformed input).
-func BuildDecryptedView(sourceBytes []byte, password string) (DecryptedView, error) {
+// than a direct top-level value; a malformed !vault value; or a !vault tag
+// on a non-scalar node (malformed input). A value that no password decrypts
+// is a locked value (LockedBefore), not an error - even when that is every
+// value: the person editing may hold only some of the passwords, or none of
+// those the file's values need, and still wants to add values of their own.
+func BuildDecryptedView(sourceBytes []byte, secrets []vaultcrypto.Secret) (DecryptedView, error) {
 	_, root, lines, err := parseTopLevelMapping(sourceBytes)
 	if err != nil {
 		return DecryptedView{}, err
@@ -45,6 +50,8 @@ func BuildDecryptedView(sourceBytes []byte, password string) (DecryptedView, err
 
 	view := DecryptedView{
 		VaultedBefore: map[string]string{},
+		UsedBefore:    map[string]Used{},
+		LockedBefore:  map[string]string{},
 		SourceContent: sourceContent,
 		PresentBefore: map[string]bool{},
 		IndentWidth:   detectIndentWidth(lines),
@@ -80,14 +87,22 @@ func BuildDecryptedView(sourceBytes []byte, password string) (DecryptedView, err
 			return DecryptedView{}, fmt.Errorf("vaultfile: %q: !vault tag on a non-scalar value (line %d)", key, valNode.Line)
 		}
 
-		plaintext, err := vaultcrypto.Decrypt(valNode.Value, password)
-		if err != nil {
+		plaintext, used, err := vaultcrypto.DecryptWith(valNode.Value, secrets)
+		shown := plaintext
+		switch {
+		case err == nil:
+			label, _ := vaultcrypto.Label(valNode.Value)
+			view.VaultedBefore[key] = plaintext
+			view.UsedBefore[key] = Used{Label: label, Password: used.Password}
+		case errors.Is(err, vaultcrypto.ErrHMACMismatch):
+			label, _ := vaultcrypto.Label(valNode.Value)
+			view.LockedBefore[key] = label
+			shown = LockedPlaceholder(label)
+		default:
 			return DecryptedView{}, fmt.Errorf("vaultfile: %q: %w", key, err)
 		}
 
-		view.VaultedBefore[key] = plaintext
-
-		text, err := encodePlainEntry(key, plaintext, view.IndentWidth)
+		text, err := encodePlainEntry(key, shown, view.IndentWidth)
 		if err != nil {
 			return DecryptedView{}, fmt.Errorf("vaultfile: encoding decrypted view: %w", err)
 		}

@@ -3,6 +3,7 @@ package vault
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -76,5 +77,32 @@ func TestAnsibleCfgVaultPasswordFile_NoAnsibleCfg(t *testing.T) {
 
 	if got := ansibleCfgVaultPasswordFile(); got != "" {
 		t.Errorf("ansibleCfgVaultPasswordFile() = %q, want empty when there's no ansible.cfg at all", got)
+	}
+}
+
+func TestAnsibleCfgIdentitySettings(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("ANSIBLE_CONFIG", "")
+	t.Setenv("HOME", dir)
+	if err := os.WriteFile(filepath.Join(dir, "ansible.cfg"), []byte(
+		"[defaults]\nvault_identity_list = dev@~/.vault-dev, prod@prompt ,\nvault_encrypt_identity = prod\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ansibleCfgIdentityList(); !reflect.DeepEqual(got, []string{"dev@~/.vault-dev", "prod@prompt"}) {
+		t.Errorf("identity list = %q", got)
+	}
+	if got := ansibleCfgEncryptIdentity(); got != "prod" {
+		t.Errorf("encrypt identity = %q", got)
+	}
+
+	// The environment wins over the file, as in ansible.
+	t.Setenv("ANSIBLE_VAULT_IDENTITY_LIST", "qa@qa.txt")
+	t.Setenv("ANSIBLE_VAULT_ENCRYPT_IDENTITY", "qa")
+	if got := ansibleCfgIdentityList(); !reflect.DeepEqual(got, []string{"qa@qa.txt"}) {
+		t.Errorf("identity list from the environment = %q", got)
+	}
+	if got := ansibleCfgEncryptIdentity(); got != "qa" {
+		t.Errorf("encrypt identity from the environment = %q", got)
 	}
 }
