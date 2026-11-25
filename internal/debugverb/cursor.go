@@ -46,6 +46,8 @@ type DebugConfig struct {
 	// see there for why internal/session needs both.
 	PlaybookDir string
 	CopyDir     string
+	// Refresher rebuilds the copy and skeleton for a restart (r).
+	Refresher *Refresher
 }
 
 // SeedState builds a *playbook.PlaybookState directly from skeleton

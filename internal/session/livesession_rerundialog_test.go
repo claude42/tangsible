@@ -51,7 +51,7 @@ func newTestRerunFieldSync(t *testing.T) *rerunFieldSync {
 		}},
 	}
 	form := tview.NewForm()
-	return newRerunFieldSync(form, state, []string{"deploy"}, []string{"main play"}, nil, runner.InitialRerunDefaults{}, false)
+	return newRerunFieldSync(form, state, []string{"deploy"}, []string{"main play"}, nil, runner.InitialRerunDefaults{}, false, false)
 }
 
 // checked reports whether label's checkbox line would render checked -
@@ -99,7 +99,7 @@ func TestRerunFieldSyncRebuildOmitsResumeCheckboxForUnnamedFailingPlay(t *testin
 	form := tview.NewForm()
 	// knownPlayNames deliberately does NOT contain "localhost" - it was
 	// never a named play in the source YAML.
-	r := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{}, false)
+	r := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{}, false, false)
 	r.rebuild()
 
 	if r.currentResumePlay != "" {
@@ -233,7 +233,7 @@ func TestRerunFieldSyncEditingPlayFieldByHandUnchecksResume(t *testing.T) {
 func TestRerunFieldSyncMatchHostsIncludesGroups(t *testing.T) {
 	state := &playbook.PlaybookState{AllHosts: []string{"web1", "web2"}}
 	form := tview.NewForm()
-	r := newRerunFieldSync(form, state, nil, nil, groupsOf("webservers", "dbservers"), runner.InitialRerunDefaults{}, false)
+	r := newRerunFieldSync(form, state, nil, nil, groupsOf("webservers", "dbservers"), runner.InitialRerunDefaults{}, false, false)
 
 	if got := r.matchHosts("web"); !slicesEqualUnordered(got, []string{"web1", "web2", "webservers"}) {
 		t.Errorf(`matchHosts("web") = %v, want [web1 web2 webservers] in some order`, got)
@@ -244,7 +244,7 @@ func TestRerunFieldSyncMatchHostsIncludesGroups(t *testing.T) {
 	// A literal host from live state.AllHosts is still found even with no
 	// group data at all (nil knownGroups) - group support is additive, not
 	// a replacement for the existing host-only behavior.
-	r2 := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{}, false)
+	r2 := newRerunFieldSync(form, state, nil, nil, nil, runner.InitialRerunDefaults{}, false, false)
 	if got := r2.matchHosts("web1"); !slicesEqualUnordered(got, []string{"web1"}) {
 		t.Errorf(`matchHosts("web1") with no groups = %v, want [web1]`, got)
 	}
@@ -313,7 +313,7 @@ func TestRerunFieldSyncInitialRerunDefaultsAppliedOnce(t *testing.T) {
 		UnreachableHosts:       []string{"ghost"},
 		ResumePlay:             "main play",
 		CheckResumeWhereFailed: true,
-	}, false)
+	}, false, false)
 
 	r.rebuild()
 	if !checked(r.resumeCheckbox) {
@@ -345,7 +345,7 @@ func groupsOf(names ...string) *atomic.Pointer[[]string] {
 func TestRerunFieldSyncEEFieldOnlyWhenShown(t *testing.T) {
 	for _, show := range []bool{true, false} {
 		form := tview.NewForm()
-		r := newRerunFieldSync(form, &playbook.PlaybookState{}, nil, nil, nil, runner.InitialRerunDefaults{}, show)
+		r := newRerunFieldSync(form, &playbook.PlaybookState{}, nil, nil, nil, runner.InitialRerunDefaults{}, show, false)
 		r.rebuild()
 		found := false
 		for i := 0; i < form.GetFormItemCount(); i++ {
@@ -367,7 +367,7 @@ func TestRerunFieldSyncEEFieldIsLastItem(t *testing.T) {
 	r := newRerunFieldSync(form, &playbook.PlaybookState{}, nil, nil, nil, runner.InitialRerunDefaults{
 		FailedHosts:      []string{"web2"},
 		UnreachableHosts: []string{"ghost"},
-	}, true)
+	}, true, false)
 	r.rebuild()
 	n := form.GetFormItemCount()
 	if n < 2 || form.GetFormItem(n-1) != r.eeField {

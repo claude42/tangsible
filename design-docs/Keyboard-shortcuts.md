@@ -587,6 +587,12 @@ collide with:
                      binding before this round (design-docs/DebugMode.md's
                      "Stage 3 follow-up round 8") - moved to F11 to make
                      room for F10's new meaning above.
+* r                - restart (`debug`, tree or drill-down): opens the restart
+                     dialog (tags, skip tags, hosts; Enter restarts, Esc
+                     cancels), see DebugMode.md "Restart". Only while
+                     paused (the title says the run will be ended) or
+                     finished; does nothing before the first run or while
+                     it is running.
 * F12              - redo (`debugrun.RedoUntilTarget`, design-docs/
                      DebugMode.md's "redo" follow-up): only meaningful
                      while genuinely paused (a no-op before the first F5/

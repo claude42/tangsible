@@ -130,7 +130,7 @@ func TestE2E_Debug_BreakpointPausesThenRunsToCompletion(t *testing.T) {
 	if !strings.Contains(done, "Completed 3 tasks") {
 		t.Errorf("expected all three tasks in the recap:\n%s", done)
 	}
-	s.waitFor("F5/F9/F10/F11/F12 disabled", 5*time.Second)
+	s.waitFor("finished - r: restart", 5*time.Second)
 }
 
 // TestE2E_Debug_StepAndNextTaskOnTwoHosts pins down the F10/F11 split
@@ -389,7 +389,7 @@ func TestE2E_Debug_UnarmedFailureEndsTheRun(t *testing.T) {
 
 	s.waitFor("F5: run", 15*time.Second)
 	s.send("F5")
-	got := s.waitFor("F5/F9/F10/F11/F12 disabled", 20*time.Second)
+	got := s.waitFor("finished - r: restart", 20*time.Second)
 	if strings.Contains(got, "F12: redo") {
 		t.Errorf("an unarmed failure must not leave a pause to redo:\n%s", got)
 	}
@@ -421,7 +421,7 @@ func TestE2E_Debug_FreeStrategyRunsLinear(t *testing.T) {
 		t.Errorf("top bar should say the strategy was changed:\n%s", got)
 	}
 	s.send("F5")
-	got = s.waitFor("F5/F9/F10/F11/F12 disabled", 20*time.Second)
+	got = s.waitFor("finished - r: restart", 20*time.Second)
 	for _, h := range []string{"h1 ", "h2 "} {
 		if recap := lineContaining(got, h+":"); !strings.Contains(recap, "changed=2") {
 			t.Errorf("recap for %s should show both tasks: %q\n%s", h, recap, got)
@@ -459,7 +459,7 @@ func TestE2E_Debug_AskVaultPassPromptsBeforeTheTUI(t *testing.T) {
 	s.send("pw123", "Enter")
 	s.waitFor("F5: run", 15*time.Second)
 	s.send("F5")
-	got := s.waitFor("F5/F9/F10/F11/F12 disabled", 20*time.Second)
+	got := s.waitFor("finished - r: restart", 20*time.Second)
 	if recap := lineContaining(got, "localhost :"); !strings.Contains(recap, "ok=1") {
 		t.Errorf("the vaulted playbook should run to completion: %q\n%s", recap, got)
 	}
@@ -529,8 +529,131 @@ ghost ansible_host=203.0.113.1 ansible_connection=ssh ansible_ssh_common_args='-
 
 	s.waitFor("F5: run", 15*time.Second)
 	s.send("F5")
-	got := s.waitFor("F5/F9/F10/F11/F12 disabled", 30*time.Second) // the session is over
+	got := s.waitFor("finished - r: restart", 30*time.Second) // the session is over
 	if strings.Contains(got, "Playbook failed") || !strings.Contains(got, "one or more hosts were unreachable") {
 		t.Errorf("an unreachable host should read as benign, not a failure:\n%s", got)
+	}
+}
+
+// TestE2E_Debug_RRestartsFromTheEditedPlaybookWithoutRunning: r (also over
+// the drill-down) opens the restart dialog; Esc cancels; Enter ends a paused
+// run and rebuilds the tree from the files on disk - an edit made meanwhile
+// shows - without starting anything. The breakpoint survives, F11 then steps
+// from the very first task, and a finished run can be restarted with other
+// tags (an impossible filter is reported, and a later restart recovers).
+func TestE2E_Debug_RRestartsFromTheEditedPlaybookWithoutRunning(t *testing.T) {
+	requireE2ETools(t)
+	s, workDir := startDebugSession(t, `- name: debug play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: first task
+      command: echo one
+
+    - name: second task
+      command: echo two
+
+    - name: third task
+      command: echo three
+`, nil, "-i localhost,")
+	s.waitFor("F5: run", 15*time.Second)
+	s.send("Down", "Down")
+	s.send("F9")
+	s.waitForFieldValue("third task", "●", 5*time.Second)
+	s.send("F5")
+	s.waitFor("Task:   third task", 20*time.Second)
+
+	// Over the drill-down: the dialog says it ends the run; Esc cancels and
+	// leaves the drill-down as it was.
+	s.send("r")
+	s.waitFor("Restart - ends the paused run", 5*time.Second)
+	s.send("Escape")
+	s.waitForAbsence("Restart - ends", 5*time.Second)
+	if got := s.capture(); !strings.Contains(got, "Task:   third task") {
+		t.Fatalf("Esc should leave the drill-down as it was:\n%s", got)
+	}
+	s.send("Escape") // out of the drill-down
+	s.waitFor("F5: continue", 5*time.Second)
+
+	// Edit the playbook, then restart from the tree.
+	path := filepath.Join(workDir, "site.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(string(data), "first task", "first task edited", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.send("r")
+	s.waitFor("Restart - ends the paused run", 5*time.Second)
+	s.send("Enter")
+	s.waitFor("first task edited", 20*time.Second)
+	idle := s.waitFor("F5: run", 5*time.Second)
+	if strings.Contains(idle, "Playbook completed") || strings.Contains(idle, "Task:   ") {
+		t.Errorf("a restart must leave the session idle, nothing started:\n%s", idle)
+	}
+
+	// Nothing runs by itself: F11 steps to the first task, the edited one.
+	s.send("F11")
+	s.waitFor("Task:   first task edited", 20*time.Second)
+	s.send("Escape")
+
+	// The breakpoint on the third task survived the restart.
+	s.send("F5")
+	s.waitFor("Task:   third task", 20*time.Second)
+	s.send("Escape")
+	s.send("F5")
+	s.waitFor("Playbook completed successfully", 20*time.Second)
+
+	// Finished: the dialog has the plain title. A tag nothing has leaves
+	// nothing to debug, which is reported...
+	s.send("r")
+	s.waitFor("Restart (enter: restart", 5*time.Second)
+	s.send("nosuchtag", "Enter")
+	s.waitFor("couldn't restart the debug session", 20*time.Second)
+	// ...and r again, with the tag removed, recovers.
+	s.send("r")
+	s.waitFor("Restart (enter: restart", 5*time.Second)
+	s.send("C-u", "Enter")
+	got := s.waitFor("F5: run", 20*time.Second)
+	if strings.Contains(got, "couldn't restart") || !strings.Contains(got, "first task edited") {
+		t.Errorf("the restart without the tag should show the tree again:\n%s", got)
+	}
+}
+
+// With tags and a host limit on the command line the restart dialog starts
+// with them filled in - and a known tag there must not have its completion
+// drop-down take the first Enter (it moved on to the next field before): one
+// Enter restarts.
+func TestE2E_Debug_RDialogEnterRestartsAtOnceWithPrefilledFields(t *testing.T) {
+	requireE2ETools(t)
+	s, _ := startDebugSession(t, `- name: debug play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: tagged task
+      command: echo one
+      tags: claude
+
+    - name: other task
+      command: echo two
+`, nil, "-i localhost, -l localhost -t claude")
+	s.waitFor("F5: run", 15*time.Second)
+	s.send("F11")
+	s.waitFor("Task:   tagged task", 20*time.Second)
+	s.send("Escape")
+	s.waitFor("F5: continue", 5*time.Second)
+
+	s.send("r")
+	got := s.waitFor("Restart - ends the paused run", 5*time.Second)
+	if !strings.Contains(got, "claude") || !strings.Contains(got, "localhost") {
+		t.Fatalf("the dialog should start with the command line's tags and limit:\n%s", got)
+	}
+	s.send("Enter")
+	idle := s.waitFor("F5: run", 20*time.Second)
+	if strings.Contains(idle, "Restart") {
+		t.Errorf("the first Enter should have closed the dialog and restarted:\n%s", idle)
 	}
 }

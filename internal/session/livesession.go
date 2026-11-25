@@ -430,6 +430,11 @@ type liveSession struct {
 	// the blocking call that follows it (the exact race a previous,
 	// separate debug TUI already fixed once - must not regress here).
 	debugSess *debugrun.Session
+	// debugRefresher rebuilds the shadow copy for a restart ('r'); see
+	// debugRestart. debugRestarting is true from the moment a restart
+	// begins until its new copy is installed.
+	debugRefresher  *debugverb.Refresher
+	debugRestarting bool
 	// debugDriving is true while a Start/Continue/Step call is in flight
 	// on its own goroutine - guards against a second one starting
 	// concurrently (F5 held down, a double keypress, ...), the same

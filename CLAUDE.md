@@ -330,7 +330,10 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   each live event against it - deliberately never through
   `PlaybookState.Apply`, which can't reuse those pre-built nodes at all
   once a real run starts. F5/F9/F10/F11/F12 run/toggle-breakpoint/
-  next-task/step/redo (`livesession_debug.go`); two extra chrome colors
+  next-task/step/redo (`livesession_debug.go`); `r` (paused or finished; the
+  re-run dialog's tags/skip-tags/hosts fields) returns to the idle state and rebuilds the shadow copy and tree from
+  the files on disk (`debugverb.Refresher`, `debugRestart`; DebugMode.md
+  "Restart"); two extra chrome colors
   (`chrome_debug_running`/`chrome_debug_paused`) mark a session actually
   running vs. paused, on top of the four other chrome states. `v` opens
   a persistent variable watch explorer (`livesession_watch.go`,

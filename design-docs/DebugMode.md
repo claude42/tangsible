@@ -2394,7 +2394,7 @@ planned to be revisited unless the tradeoff above changes.
 **Reported live:** pressing F5 to run, then `q`/Ctrl-C mid-run, was
 expected to land back in the debugger at the current task (so stepping
 could continue) - instead it killed the whole run outright, landing
-straight in "finished - F5/F9/F10/F11/F12 disabled."
+straight in "finished - F5/F9/F10/F11/F12 disabled." (since then: "finished - r: restart  F9: breakpoint")
 
 **Root cause:** `q`/Ctrl-C in debug mode reused the exact same code plain
 `run`/`rerun`/`role` already have (`handleGlobalQuit`/`handleCtrlC`,
@@ -4095,6 +4095,60 @@ To make "ansible's own" reliable, `_origin_of` now classifies a name in
 `_BUILTIN_VARS` as `builtin` before looking at its origin tag (`ansible_forks`
 used to be labeled "Config default"); `environment`, which users do set, is
 the exception.
+
+## Restart: r (2026-11-25)
+
+**Implemented.** `r` puts the session back in the state a fresh `tangsible
+debug` starts in: nothing run, the predicted tree rebuilt, idle. It does *not*
+start anything: the next F5/F10/F11 does, so you can step from the first task.
+Armed breakpoints are kept (they are keyed by task name; a renamed task loses
+its marker).
+
+- **When:** while paused or after the run finished, in the tree and over the
+  drill-down (same behavior; the dialog opens on top, and Esc leaves the
+  drill-down as it was). While the child is running between pauses, or before
+  anything started, it does nothing. `r` is typed text inside the watch field
+  and the search prompts (it is handled after them).
+- **A dialog, not a second key press.** A first version asked for a second `r`
+  to confirm, which no other place in the app does. `r` now opens the re-run
+  dialog (`rerunFieldSync`, `debug` flag) with only the fields that make sense
+  here: Limit tags, Skip tags, Limit hosts (starting from the `-t`/`--skip-tags`/
+  `-l` already in the arguments, `config.ParsePassthroughArgs`). Enter restarts,
+  Esc cancels; the title says "ends the paused run" when one is paused, because
+  ending it is destructive: handlers notified so far never run, no recap, hosts
+  may be left half-configured. Not offered: Start with play (it works through a
+  trimmed copy of the playbook that debug's copy would have to be built from),
+  the failed/unreachable checkboxes (they read a complete run's outcome), and
+  the execution environment (debug rejects it).
+- **New arguments** replace the old tags/limit for the rest of the session once
+  the rebuild worked (`passthroughArgs`, `Refresher.Reprepare(rest)`); other
+  options stay.
+- **Edits are picked up.** `debugverb.Refresher.Reprepare` builds a new shadow
+  copy (copy, `strategy` rewrite, splice, path mapping, `--list-tasks` probe: the
+  same `buildCopy` `PrepareSession` uses, minus its password prompts - the
+  password files from startup are reused) from the files as they are now, off the
+  event loop, then removes the previous copy. The seeded state is replaced *in
+  place* (`state.Reset()` + the new plays; the state pointer is shared), a new
+  `Cursor`/`ProgressTracker` is installed, the source index is merged again, and
+  all view state and the captured variable caches are reset as for a rerun.
+- **A failed restart** (the edited playbook no longer parses, a tag that matches
+  nothing) leaves the old copy and a finished-with-error session whose recap
+  shows the message; `r` again, after fixing the file or the field, tries again.
+- **Stale events.** The old session's event goroutine ignores everything once
+  `debugSess` is no longer its own (`debugDrainEvents`), so a late event cannot
+  write into the new tree. The child gets five seconds to leave before it is
+  killed (`endDebugSession`).
+- **Enter submits at once.** A completion drop-down open on a field takes Enter (it picks the suggestion and moves on), and a prefilled tag matched its own completion, so the first Enter only moved to the next field. The dialog now treats the drop-down as closed until the next edit, on open and after Tab/Shift-Tab (`acDismissed`) - also for the normal re-run dialog.
+- **Focus over the drill-down:** the drill-down's tabs keep reporting focus
+  (`TabbedPane.Blur`), which sent the typed text past the dialog's fields
+  (found by the e2e test); `openRerunDialog` blurs them.
+- Exit removes the copy actually in use (`Refresher.Cleanup`, called from
+  `session.Main`'s cleanup next to the initial one).
+- Not done: restarting while the child is running (use the soft stop `q` or
+  F10/F11 first), and keeping per-run state such as `expr = value` settings or
+  expansion.
+- The finished-run bottom bar changed from "finished - F5/F9/F10/F11/F12
+  disabled" to "finished - r: restart  F9: breakpoint".
 
 ## Mouse support - new ideas
 

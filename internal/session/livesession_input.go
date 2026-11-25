@@ -210,7 +210,16 @@ func (s *liveSession) handleRerunDialogKey(event *tcell.EventKey) (*tcell.EventK
 	case tcell.KeyF1:
 		// F1 only - '?' must stay typeable in the fields. Closing help
 		// hands focus back to whichever field had it.
-		s.help.Open(rerunHelp, nil)
+		if s.debugMode {
+			s.help.Open(restartHelp, nil)
+		} else {
+			s.help.Open(rerunHelp, nil)
+		}
+	case tcell.KeyTab, tcell.KeyBacktab:
+		// Text a field already holds when focus arrives was not typed just
+		// now: no drop-down is open on it until the next edit.
+		s.rerunFields.acDismissed = true
+		return event, true
 	case tcell.KeyEnter:
 		if _, button := s.rerunForm.GetFocusedItemIndex(); button >= 0 {
 			return event, true
@@ -451,6 +460,9 @@ func (s *liveSession) handleOutputViewKey(event *tcell.EventKey) *tcell.EventKey
 		}
 		s.navigateOutputTask(1)
 		return nil
+	case s.debugMode && event.Key() == tcell.KeyRune && event.Rune() == 'r':
+		s.debugResetKey() // same as in the tree
+		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == '/':
 		s.search.open()
 		return nil
@@ -521,6 +533,10 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'C':
 		s.collapseAll()
+		return nil
+	case s.debugMode && event.Key() == tcell.KeyRune && event.Rune() == 'r':
+		// DebugMode.md, "Restart": back to the idle state, nothing run.
+		s.debugResetKey()
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'r':
 		// Rerun.md: only once a run has actually finished - a no-op while

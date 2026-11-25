@@ -226,6 +226,13 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.debugCursor = debugCfg.Cursor
 	s.debugPlaybookDir = debugCfg.PlaybookDir
 	s.debugCopyDir = debugCfg.CopyDir
+	s.debugRefresher = debugCfg.Refresher
+	if s.debugMode {
+		// debug keeps -t/--skip-tags/-l inside its passthrough arguments;
+		// the restart dialog shows them as its fields' starting values.
+		parsed := config.ParsePassthroughArgs(passthroughArgs)
+		s.initialTags, s.initialSkipTags, s.initialHosts = parsed.Tags, parsed.SkipTags, parsed.Hosts
+	}
 	s.lastTitlePercent = -1 // sentinel: no percentage ever written to the
 	// window title yet (0 is a real, reachable value at the very start of
 	// a run) - see updateWindowTitle.
@@ -582,7 +589,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// own type doc comment for exactly what it does and doesn't own (in
 	// particular: not s.rerunForm above, which openRerunDialog/submitRerun
 	// below and SetMouseCapture/SetInputCapture still reach directly).
-	s.rerunFields = newRerunFieldSync(s.rerunForm, state, knownTags, knownPlayNames, knownGroups, initialRerunDefaults, !s.debugMode)
+	s.rerunFields = newRerunFieldSync(s.rerunForm, state, knownTags, knownPlayNames, knownGroups, initialRerunDefaults, !s.debugMode, s.debugMode)
 
 	// s.outputTask/s.outputHost track which (task, host) pair the output page
 	// is currently showing, so navigateOutputTask (below) knows where
@@ -994,7 +1001,11 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// and Tab-cycling order (Form.Focus() walks f.buttons in the order
 	// they were added), so this one call controls both at once.
 	s.rerunForm.SetButtonsAlign(tview.AlignRight)
-	s.rerunForm.AddButton("Cancel", s.closeDialogs).AddButton("Re-run", s.submitRerun)
+	buttonLabel := "Re-run"
+	if s.debugMode {
+		buttonLabel = "Restart"
+	}
+	s.rerunForm.AddButton("Cancel", s.closeDialogs).AddButton(buttonLabel, s.submitRerun)
 
 	s.app.SetInputCapture(s.handleKey)
 

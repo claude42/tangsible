@@ -174,7 +174,7 @@ func freeRecapCheck(t *testing.T, playbook string, extra map[string]string) {
 	s, _ := startDebugSession(t, playbook, extra, "-i inv.ini")
 	s.waitFor("F5: run", 15*time.Second)
 	s.send("F5")
-	got := s.waitFor("F5/F9/F10/F11/F12 disabled", 30*time.Second)
+	got := s.waitFor("finished - r: restart", 30*time.Second)
 	for _, h := range []string{"h1 ", "h2 "} {
 		if recap := lineContaining(got, h+":"); !strings.Contains(recap, "changed=2") {
 			t.Errorf("recap for %s should count both tasks: %q\n%s", h, recap, got)

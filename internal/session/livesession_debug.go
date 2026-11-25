@@ -19,12 +19,16 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
+	"time"
 
+	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/debugrun"
 	"code.aw.net/claude/tangsible/internal/debugverb"
 	"code.aw.net/claude/tangsible/internal/origin"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
+	"code.aw.net/claude/tangsible/internal/source"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -128,10 +132,12 @@ func (s *liveSession) debugRefreshChrome() {
 // (mirroring a previous, separate debug TUI's own debugBar* constants).
 func (s *liveSession) debugBottomBarHint() string {
 	switch {
+	case s.debugRestarting:
+		return " restarting... "
 	case s.processDone.Load() && s.everStarted:
-		return " finished - F5/F9/F10/F11/F12 disabled "
+		return " finished - r: restart  F9: breakpoint "
 	case s.debugPausedHost != "":
-		return " F5: continue  F9: breakpoint  F10: next task  F11: step  F12: redo "
+		return " F5: continue  F9: breakpoint  F10: next task  F11: step  F12: redo  r: restart "
 	case s.debugLoopDriving && s.debugStopPending.Load():
 		return " stopping after this task... (ctrl-c to interrupt now) "
 	case s.debugDriving:
@@ -287,7 +293,7 @@ func (s *liveSession) debugCursorTask() *playbook.TaskNode {
 // no debug-specific branch needed there at all) can reach it exactly as
 // it already does for a plain run.
 func (s *liveSession) debugStartOrContinue(mode debugrun.StepMode) {
-	if s.debugDriving || (s.processDone.Load() && s.everStarted) {
+	if s.debugDriving || s.debugRestarting || (s.processDone.Load() && s.everStarted) {
 		return
 	}
 	s.debugDriving = true
@@ -397,7 +403,7 @@ func (s *liveSession) debugConsumeStopRequest() bool {
 // re-pause of the redone task/host, or - rare - a pause for a *different*
 // task if the target was somehow never seen again.
 func (s *liveSession) debugRedo() {
-	if s.debugDriving || s.debugSess == nil || s.debugPausedHost == "" {
+	if s.debugDriving || s.debugRestarting || s.debugSess == nil || s.debugPausedHost == "" {
 		return
 	}
 	targetTask, targetHost := s.debugLastPauseTask, s.debugPausedHost
@@ -772,8 +778,8 @@ func (s *liveSession) debugDrainEvents(sess *debugrun.Session) {
 		}
 		ev := item.Ev
 		s.app.QueueUpdateDraw(func() {
-			if s.debugCursor == nil {
-				return
+			if s.debugCursor == nil || s.debugSess != sess {
+				return // a restart replaced this session; its events are stale
 			}
 			host, taskChanged := s.debugCursor.Apply(ev)
 			if host != "" {
@@ -817,7 +823,11 @@ func (s *liveSession) debugDrainEvents(sess *debugrun.Session) {
 	// event-loop goroutine first wins - is exactly why debugFinish itself
 	// (not just here) guards against running twice; see its own doc
 	// comment.
-	s.app.QueueUpdateDraw(s.debugFinish)
+	s.app.QueueUpdateDraw(func() {
+		if s.debugSess == sess {
+			s.debugFinish()
+		}
+	})
 }
 
 // Ctrl-C needs no debug-specific code at all: handleCtrlC
@@ -830,3 +840,148 @@ func (s *liveSession) debugDrainEvents(sess *debugrun.Session) {
 // instead (debugConsumeStopRequest's own doc comment, design-docs/
 // DebugMode.md's "q's own soft stop while actively driving") rather than
 // touching the real process at all.
+
+// debugResetKey is 'r': open the restart dialog (the re-run dialog's tags/
+// skip-tags/hosts fields; its title says when a paused run will be ended).
+// Enter then goes back to the idle state a fresh `tangsible debug` starts in
+// - nothing run, the tree rebuilt from the files on disk now, breakpoints
+// kept - without starting anything (the next F5/F10/F11 does, so stepping
+// from the very first task works). Only offered while paused or after the run
+// finished; while the child is running between pauses, or before anything
+// started, it does nothing. Works in the tree and over the drill-down.
+func (s *liveSession) debugResetKey() {
+	if s.debugRefresher == nil || s.debugDriving || s.debugRestarting {
+		return
+	}
+	finished := s.processDone.Load() && s.everStarted
+	paused := !finished && s.debugSess != nil && s.debugPausedHost != ""
+	if !finished && !paused {
+		return
+	}
+	s.openRerunDialog()
+}
+
+// debugSubmitRestart is the dialog's Enter in debug: the passthrough
+// arguments get the dialog's tags/skip-tags/hosts (the other options stay as
+// they were), then the session restarts.
+func (s *liveSession) debugSubmitRestart() {
+	parsed := config.ParsePassthroughArgs(s.passthroughArgs)
+	parsed.Tags = strings.TrimSpace(s.rerunFields.tagsField.GetText())
+	parsed.SkipTags = strings.TrimSpace(s.rerunFields.skipTagsField.GetText())
+	parsed.Hosts = strings.TrimSpace(s.rerunFields.hostsField.GetText())
+	s.closeDialogs()
+	s.debugRestart(parsed.Reassemble())
+}
+
+// debugRestart ends the current debug session (if any) and rebuilds the
+// shadow copy and the predicted tree from the files on disk, with args as
+// the ansible-playbook arguments from now on (kept only once the rebuild
+// worked). Runs off the event loop; debugApplyRestart installs the result.
+func (s *liveSession) debugRestart(args []string) {
+	old := s.debugSess
+	s.debugRestarting = true
+	// Nil first: the old session's drain goroutine (debugDrainEvents)
+	// ignores everything once debugSess is no longer its own.
+	s.debugSess = nil
+	s.debugPausedHost = ""
+	s.debugPendingOpenTask, s.debugPendingOpenHost = nil, ""
+	s.watch.clearJustSet()
+	if s.viewingOutput {
+		s.closeOutput()
+	}
+	s.debugRefreshChrome()
+	s.rebuild()
+	refresher := s.debugRefresher
+	go func() {
+		if old != nil {
+			endDebugSession(old)
+		}
+		prep, err := refresher.Reprepare(args)
+		if s.quitting.Load() {
+			refresher.Cleanup() // the copy just built is not the one the exit cleanup saw
+			return
+		}
+		s.app.QueueUpdateDraw(func() { s.debugApplyRestart(prep, err) })
+	}()
+}
+
+// endDebugSession closes sess's pipes (EOF makes a paused debugger quit)
+// and waits for the child, killing it if it does not leave within a few
+// seconds.
+func endDebugSession(sess *debugrun.Session) {
+	done := make(chan struct{})
+	go func() {
+		sess.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		_ = sess.Process().Kill()
+		<-done
+	}
+}
+
+// debugApplyRestart runs on the event loop: swaps the freshly seeded tree
+// into the session's state (in place - the state pointer is shared) and
+// returns every piece of view state to what a new session starts with.
+func (s *liveSession) debugApplyRestart(prep debugverb.SessionPrep, err error) {
+	s.debugRestarting = false
+	if err != nil {
+		// The old copy is still there; the run is over, so another r tries
+		// again once the playbook is fixed.
+		s.everStarted = true
+		s.processDone.Store(true)
+		s.exitCode.Store(-1)
+		errText := append([]string{"couldn't restart the debug session:"}, strings.Split(err.Error(), "\n")...)
+		s.lastStderr.Store(&errText)
+		s.debugRefreshChrome()
+		s.rebuild()
+		return
+	}
+
+	seeded, nodes, nodePlay := debugverb.SeedState(prep.Skeleton)
+	s.state.Reset()
+	s.state.Plays = seeded.Plays
+	tracker := runner.NewProgressTracker(prep.Skeleton)
+	s.progH.Store(tracker)
+	s.debugCursor = debugverb.NewCursor(nodes, nodePlay, tracker, prep.PathMapping)
+	s.debugCopyPlaybookPath = prep.CopyPlaybookPath
+	s.debugCopyDir = prep.CopyDir
+	s.passthroughArgs = prep.Rest
+	// Tasks may have moved or appeared: refresh the source lookups, as a
+	// rerun does. Entries of deleted tasks stay but are never looked up.
+	source.MergeSourceIndex(s.sourceIndex, prep.Playbook)
+
+	s.debugLastPauseTask = ""
+	s.debugStopPending.Store(false)
+	s.debugDriving, s.debugLoopDriving = false, false
+	s.expanded = map[*playbook.TaskNode]bool{}
+	s.autoExpanded = map[*playbook.TaskNode]bool{}
+	s.messageTasks = nil
+	s.messagesCollapsed = false
+	s.recapHostExpanded = map[string]bool{}
+	s.recapCategoryExpanded = map[recapCategoryRowID]bool{}
+	s.currentID = nil
+	s.following = true
+	s.failureCursorPlaced = false
+	s.haveFrozenElapsed = false
+	s.frozenElapsed = 0
+	s.finishedNotifySent = false
+	s.taskFailedNotifyCount = 0
+	s.suppressedTaskFailures = 0
+	s.lastAppliedSelectedIndex = -1
+	s.resolveCache = map[resolveKey]uikit.ResolvedRender{}
+	s.fileCache = map[resolveKey]uikit.ResolvedRender{}
+	s.debugTaskVarsCache = map[debugVarsKey]json.RawMessage{}
+	s.debugVaultMaskCache = map[debugVarsKey]vaultMask{}
+	s.debugOriginCache = map[debugVarsKey]map[string]string{}
+	s.debugSetNames = map[debugVarsKey]map[string]bool{}
+	s.everStarted = false
+	s.processDone.Store(true) // the idle state: nothing to interrupt
+	s.exitCode.Store(0)
+	s.lastStderr.Store(nil)
+	s.startedAt = time.Now()
+	s.debugRefreshChrome()
+	s.rebuild()
+}

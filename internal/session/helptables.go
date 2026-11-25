@@ -67,6 +67,7 @@ var treeHelp = uikit.HelpScreen{
 			{Keys: "F10", Desc: "Next task - skip the rest of this task's hosts, stop at the next task's first one", ID: helpIDDebug},
 			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
 			{Keys: "F12", Desc: "Redo - re-run the task/host currently paused at, waiting for that exact result", ID: helpIDDebug},
+			{Keys: "r", Desc: "Restart - back to the start with nothing run, from the playbook as it is on disk now (breakpoints kept; asks first while paused)", ID: helpIDDebug},
 			{Keys: "v", Desc: "Open the variable watch explorer (type expr = value to set one)", ID: helpIDDebug},
 			{Keys: "q", Desc: "While running: soft stop - finish this task, then pause (ctrl-c still force-kills)", ID: helpIDDebug},
 		}},
@@ -129,6 +130,7 @@ var outputHelp = uikit.HelpScreen{
 			{Keys: "F10", Desc: "Next task - skip the rest of this task's hosts, stop at the next task's first one", ID: helpIDDebug},
 			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
 			{Keys: "F12", Desc: "Redo - re-run the task/host currently paused at, waiting for that exact result", ID: helpIDDebug},
+			{Keys: "r", Desc: "Restart - back to the start with nothing run, from the playbook as it is on disk now (breakpoints kept; asks first while paused)", ID: helpIDDebug},
 			{Keys: "v", Desc: "Open the variable watch explorer (type expr = value to set one)", ID: helpIDDebug},
 			{Keys: "click", Desc: "On a variable in the Task definition tab: pop-up with its value and origin, and a Watch button", ID: helpIDDebug},
 			{Keys: "q", Desc: "While running: soft stop - finish this task, then pause (ctrl-c still force-kills)", ID: helpIDDebug},
@@ -232,6 +234,28 @@ var rerunHelp = uikit.HelpScreen{
 			{Keys: "Enter", Desc: "Run (or pick the highlighted completion)"},
 			{Keys: "Tab / Shift-Tab", Desc: "Next / previous field"},
 			{Keys: "Space", Desc: "Toggle the focused checkbox"},
+			{Keys: "Esc", Desc: "Cancel (or close the completion list)"},
+			{Keys: "F1", Desc: "This help"},
+		}},
+	},
+}
+
+// restartHelp is the restart dialog of `debug` (DebugMode.md, "Restart"):
+// the re-run dialog's fields that apply there.
+var restartHelp = uikit.HelpScreen{
+	Title: "restart",
+	Sections: []uikit.HelpSection{
+		{Title: "Restart", Entries: []uikit.HelpEntry{
+			{Keys: "", Desc: "Back to the start with nothing run, built from the playbook and roles as they are on disk now. Breakpoints are kept; a paused run is ended"},
+		}},
+		{Title: "Fields - all optional", Entries: []uikit.HelpEntry{
+			{Keys: "Limit tags to", Desc: "--tags: comma-separated tags (offers completions)"},
+			{Keys: "Skip tags", Desc: "--skip-tags: comma-separated tags (offers completions)"},
+			{Keys: "Limit hosts to", Desc: "--limit: comma-separated hosts or groups (offers completions)"},
+		}},
+		{Title: "Keys", Entries: []uikit.HelpEntry{
+			{Keys: "Enter", Desc: "Restart (or pick the highlighted completion)"},
+			{Keys: "Tab / Shift-Tab", Desc: "Next / previous field"},
 			{Keys: "Esc", Desc: "Cancel (or close the completion list)"},
 			{Keys: "F1", Desc: "This help"},
 		}},

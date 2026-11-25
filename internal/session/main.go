@@ -559,7 +559,10 @@ func Main(build BuildInfo) {
 		args = rejectExecutionEnvironmentForDebug(args)
 		debugPrep, debugCleanup = debugverb.PrepareSession(args)
 		playbook = debugPrep.Playbook
-		cleanup = debugCleanup
+		cleanup = func() {
+			debugCleanup()
+			debugPrep.Refresher.Cleanup() // the copy a restart ('r') made, if any
+		}
 		originalArgs = config.ParsedPassthroughArgs{Rest: debugPrep.Rest}
 		// pending stays nil - unlike "run"/"role", nothing is spawned
 		// here: the predicted tree (seeded from debugPrep.Skeleton, after
@@ -926,6 +929,7 @@ func Main(build BuildInfo) {
 			Cursor:           debugverb.NewCursor(debugNodes, debugNodePlay, progH.Load(), debugPrep.PathMapping),
 			PlaybookDir:      debugPrep.PlaybookDir,
 			CopyDir:          debugPrep.CopyDir,
+			Refresher:        debugPrep.Refresher,
 		}
 	}
 	applyColors() // collects the terminal's answer if color_scheme = "auto" - see above

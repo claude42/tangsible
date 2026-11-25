@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"code.aw.net/claude/tangsible/internal/config"
@@ -84,6 +85,8 @@ type SessionPrep struct {
 	// rewritten to linear in the copy (debugcopy.ForceLinearStrategy);
 	// the top bar says so.
 	ForcedLinear bool
+	// Refresher rebuilds the copy for a restart; nil only in tests.
+	Refresher *Refresher
 }
 
 // PrepareSession resolves "tangsible debug [<playbook.yml>] [ansible-
@@ -128,12 +131,6 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
 		os.Exit(1)
 	}
-	playbookDir := filepath.Dir(absPlaybook)
-	relPlaybook, err := filepath.Rel(playbookDir, absPlaybook)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
-		os.Exit(1)
-	}
 
 	locs := source.ListTaskLocations(absPlaybook)
 	if len(locs) == 0 {
@@ -149,17 +146,35 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		os.Exit(1)
 	}
 
+	prep, shadowCleanup, err := buildCopy(absPlaybook, rest, locs)
+	if err != nil {
+		credCleanup()
+		fmt.Fprintf(os.Stderr, "tangsible: %v\n", err)
+		os.Exit(1)
+	}
+	prep.Refresher = &Refresher{playbook: absPlaybook, latest: shadowCleanup}
+	return prep, func() { shadowCleanup(); credCleanup() }
+}
+
+// buildCopy makes one shadow copy of absPlaybook's directory, splices the
+// debugger in, probes the task skeleton and returns it all, with the
+// copy's own cleanup. Shared by PrepareSession and Refresher.Reprepare;
+// rest already has its password prompts swapped for files. The error text
+// is the whole message (no "tangsible:" prefix), possibly several lines.
+func buildCopy(absPlaybook string, rest []string, locs []source.TaskLocation) (SessionPrep, func(), error) {
+	playbookDir := filepath.Dir(absPlaybook)
+	relPlaybook, err := filepath.Rel(playbookDir, absPlaybook)
+	if err != nil {
+		return SessionPrep{}, nil, err
+	}
+
 	// internal/debugcopy (M0): hardlink shadow copy + debugger: always
 	// splice, exactly as spiked/built there - never touches the real
 	// playbook tree.
 	copyDir, copyCleanup, err := debugcopy.BuildShadowCopy(playbookDir, config.NewRunID(time.Now()))
 	if err != nil {
-		credCleanup()
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a debug copy of %s: %v\n", playbookDir, err)
-		os.Exit(1)
+		return SessionPrep{}, nil, fmt.Errorf("couldn't prepare a debug copy of %s: %v", playbookDir, err)
 	}
-	shadowCleanup := copyCleanup
-	copyCleanup = func() { shadowCleanup(); credCleanup() }
 
 	// Before the splice (which only inserts lines; this edits in place):
 	// debug's skeleton-by-position tree needs a lockstep strategy.
@@ -167,8 +182,7 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 
 	if err := debugcopy.SpliceDebuggerAlways(playbookDir, copyDir, locs); err != nil {
 		copyCleanup()
-		fmt.Fprintf(os.Stderr, "tangsible: couldn't prepare a debug copy of %s: %v\n", playbookDir, err)
-		os.Exit(1)
+		return SessionPrep{}, nil, fmt.Errorf("couldn't prepare a debug copy of %s: %v", playbookDir, err)
 	}
 
 	// Computed from the exact same locs SpliceDebuggerAlways just used,
@@ -194,12 +208,9 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		// vault password file, a YAML error, an unknown flag), and its own
 		// message is what the user needs to read.
 		if probeStderr != "" {
-			fmt.Fprintln(os.Stderr, "tangsible: ansible-playbook could not list this playbook's tasks, so there is nothing to debug:")
-			fmt.Fprintln(os.Stderr, summarizeProbeStderr(probeStderr))
-		} else {
-			fmt.Fprintln(os.Stderr, "tangsible: ansible-playbook listed no tasks for this playbook - nothing to debug")
+			return SessionPrep{}, nil, fmt.Errorf("ansible-playbook could not list this playbook's tasks, so there is nothing to debug:\n%s", summarizeProbeStderr(probeStderr))
 		}
-		os.Exit(1)
+		return SessionPrep{}, nil, fmt.Errorf("ansible-playbook listed no tasks for this playbook - nothing to debug")
 	}
 
 	return SessionPrep{
@@ -211,7 +222,53 @@ func PrepareSession(args []string) (prep SessionPrep, cleanup func()) {
 		PlaybookDir:      playbookDir,
 		CopyDir:          copyDir,
 		ForcedLinear:     forcedLinear,
-	}, copyCleanup
+	}, copyCleanup, nil
+}
+
+// Refresher rebuilds a session's shadow copy from the playbook as it is on
+// disk now (design-docs/DebugMode.md, "Restart"): what lets 'r' pick up
+// edits to the playbook or its roles. It keeps the latest copy's cleanup so
+// the session's exit removes the copy actually in use.
+type Refresher struct {
+	playbook string
+
+	mu     sync.Mutex
+	latest func()
+}
+
+// Reprepare builds a new copy and skeleton - with rest as the
+// ansible-playbook arguments (tags, limit, ... may have changed; password
+// prompts already swapped for files) - and, once that worked, removes the
+// previous copy. On error nothing changes: the previous copy stays. Safe off
+// the event loop (it only runs ansible-playbook --list-tasks).
+func (r *Refresher) Reprepare(rest []string) (SessionPrep, error) {
+	locs := source.ListTaskLocations(r.playbook)
+	if len(locs) == 0 {
+		return SessionPrep{}, fmt.Errorf("no tasks found in %s", r.playbook)
+	}
+	prep, cleanup, err := buildCopy(r.playbook, rest, locs)
+	if err != nil {
+		return SessionPrep{}, err
+	}
+	r.mu.Lock()
+	old := r.latest
+	r.latest = cleanup
+	r.mu.Unlock()
+	if old != nil {
+		old()
+	}
+	prep.Refresher = r
+	return prep, nil
+}
+
+// Cleanup removes the latest copy; idempotent.
+func (r *Refresher) Cleanup() {
+	r.mu.Lock()
+	c := r.latest
+	r.mu.Unlock()
+	if c != nil {
+		c()
+	}
 }
 
 // summarizeProbeStderr trims BuildProgressSkeletonVerbose's own raw

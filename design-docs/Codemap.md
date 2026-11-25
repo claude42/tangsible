@@ -296,7 +296,8 @@ layered on top - this package is exactly the glue that makes that
 possible, and `internal/session` (`main.go`'s `VerbDebug` case,
 `livesession_debug.go`) is its only caller.
 
-- **debugverb.go** - `PrepareSession`: resolves "tangsible debug"'s own
+- **debugverb.go** - `Refresher` (rebuilds the copy and skeleton for `r`, via the
+  shared `buildCopy`); `PrepareSession`: resolves "tangsible debug"'s own
   arguments (rejects `--step` outright - a second, unhandled pause
   mechanism), builds the shadow copy + `debugger:
   always` splice (`internal/debugcopy`), and probes the spliced copy for

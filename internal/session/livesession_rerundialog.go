@@ -56,8 +56,12 @@ type rerunFieldSync struct {
 	// eeField (design-docs/ExecutionEnvironments.md) is the image to run in,
 	// empty for the host; showEE is false where an execution environment
 	// can't apply (debug), which leaves the field out of the form.
-	eeField                 *tview.InputField
-	showEE                  bool
+	eeField *tview.InputField
+	showEE  bool
+	// debug is the restart dialog of `debug` (DebugMode.md, "Restart"): only
+	// the tags, skip-tags and hosts fields - no play to start with, and no
+	// last run whose failures the checkboxes could use.
+	debug                   bool
 	resumeCheckbox          *tview.Checkbox
 	onlyFailedCheckbox      *tview.Checkbox
 	onlyUnreachableCheckbox *tview.Checkbox
@@ -125,9 +129,10 @@ type rerunFieldSync struct {
 // initialRerunDefaults are copied in since NewLiveTUI's own parameters
 // aren't needed anywhere outside this subsystem (confirmed by grep before
 // this extraction) and so were never hoisted onto liveSession itself.
-func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], initialRerunDefaults runner.InitialRerunDefaults, showEE bool) *rerunFieldSync {
+func newRerunFieldSync(form *tview.Form, state *playbook.PlaybookState, knownTags, knownPlayNames []string, knownGroups *atomic.Pointer[[]string], initialRerunDefaults runner.InitialRerunDefaults, showEE, debug bool) *rerunFieldSync {
 	r := &rerunFieldSync{
 		showEE:               showEE,
+		debug:                debug,
 		form:                 form,
 		state:                state,
 		knownTags:            knownTags,
@@ -407,6 +412,12 @@ func (r *rerunFieldSync) rebuild() {
 	}
 
 	r.form.Clear(false)
+	if r.debug {
+		r.form.AddFormItem(r.tagsField)
+		r.form.AddFormItem(r.skipTagsField)
+		r.form.AddFormItem(r.hostsField)
+		return
+	}
 	r.form.AddFormItem(r.playField)
 	if r.currentResumePlay != "" {
 		r.form.AddFormItem(r.resumeCheckbox)
@@ -465,6 +476,13 @@ func (r *rerunFieldSync) rebuild() {
 // after that leaves the field alone, whatever it now contains.
 func (s *liveSession) openRerunDialog() {
 	s.rerunDialogOpen = true
+	if s.debugMode {
+		if s.debugSess != nil && !s.processDone.Load() {
+			s.rerunForm.SetTitle(" Restart - ends the paused run (enter/esc) ")
+		} else {
+			s.rerunForm.SetTitle(" Restart (enter: restart, esc: cancel) ")
+		}
+	}
 
 	if !s.playPreFilled {
 		s.rerunFields.playField.SetText(s.initialPlay)
@@ -511,12 +529,23 @@ func (s *liveSession) openRerunDialog() {
 	// where both fire.
 	s.rerunFields.rebuild()
 
+	// What the fields hold when the dialog opens was not typed just now: no
+	// completion drop-down is open, so Enter submits at once instead of
+	// picking a suggestion (acDismissed is reset by the next edit). After
+	// the pre-fills and rebuild above, whose SetText calls reset it.
+	s.rerunFields.acDismissed = true
 	s.rerunForm.SetFocus(0) // always start on the Play field (the first,
 	// broadest-scope option - design-docs/StartWithPlay.md), not
 	// wherever focus happened to be left inside the form the last time
 	// it closed.
 	s.pages.ShowPage("rerun")
 	s.app.SetFocus(s.rerunForm)
+	if s.viewingOutput {
+		// Over the drill-down (debug's restart): its tabs may still report
+		// focus (TabbedPane.Blur's doc comment) and would take the keys
+		// meant for the form's fields.
+		s.outputTabs.Blur()
+	}
 }
 
 // submitRerun (Enter while s.rerunDialogOpen - see SetInputCapture) reads
@@ -524,6 +553,10 @@ func (s *liveSession) openRerunDialog() {
 // generation - resetting this session's own view state and restarting
 // the heartbeat ticker.
 func (s *liveSession) submitRerun() {
+	if s.debugMode {
+		s.debugSubmitRestart()
+		return
+	}
 	startAtPlay := strings.TrimSpace(s.rerunFields.playField.GetText()) // empty
 	// means "whole playbook" - see s.playField's own doc comment.
 	tags := strings.TrimSpace(s.rerunFields.tagsField.GetText())
