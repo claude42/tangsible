@@ -657,3 +657,38 @@ func TestE2E_Debug_RDialogEnterRestartsAtOnceWithPrefilledFields(t *testing.T) {
 		t.Errorf("the first Enter should have closed the dialog and restarted:\n%s", idle)
 	}
 }
+
+// F6 while a run is going stops after the current task and leaves the session
+// in the debugger there, without any breakpoint armed; the run is not ended.
+func TestE2E_Debug_F6StopsAfterTheRunningTask(t *testing.T) {
+	requireE2ETools(t)
+	s, _ := startDebugSession(t, `- name: debug play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: slow task
+      command: sleep 4
+
+    - name: after slow
+      command: echo two
+
+    - name: last task
+      command: echo three
+`, nil, "-i localhost,")
+	s.waitFor("F5: run", 15*time.Second)
+	s.send("F5")
+	s.waitFor("F6: stop after this task", 10*time.Second)
+	s.send("F6")
+	s.waitFor("stopping after this task", 5*time.Second)
+	// The drill-down opens on the pause, at the task that was running.
+	s.waitFor("Task:   slow task", 20*time.Second)
+	s.send("Escape")
+	got := s.waitFor("F5: continue", 5*time.Second)
+	if strings.Contains(got, "Playbook completed") {
+		t.Fatalf("F6 must not end the run:\n%s", got)
+	}
+	// And the session carries on from there.
+	s.send("F5")
+	s.waitFor("Playbook completed successfully", 20*time.Second)
+}

@@ -202,6 +202,7 @@ Set breakpoints with `F9` or the mouse, then use:
 - `F5` to run or continue to the next breakpoint.
 - `F10` to move to the next task.
 - `F11` to step to the next pause, including the next host within a task.
+- `F6` to stop while it runs: the current task finishes and you are in the debugger right there, as at a breakpoint (`q` does the same while running; Ctrl-C ends the run). It can only stop between tasks, never inside one.
 - `F12` to redo the current task/host.
 - `r` to start over: opens a small dialog (tags, skip tags, limit hosts); Enter takes the session back to the idle state with nothing run, rebuilt from the playbook and roles as they are on disk now (so edits show), breakpoints kept. A paused run is ended by it, which the dialog says. Works in the tree and in the drill-down.
 - `v` to open the variable watch explorer.

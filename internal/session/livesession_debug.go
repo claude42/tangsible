@@ -140,6 +140,8 @@ func (s *liveSession) debugBottomBarHint() string {
 		return " F5: continue  F9: breakpoint  F10: next task  F11: step  F12: redo  r: restart "
 	case s.debugLoopDriving && s.debugStopPending.Load():
 		return " stopping after this task... (ctrl-c to interrupt now) "
+	case s.debugLoopDriving:
+		return " running...  F6: stop after this task  ctrl-c: interrupt "
 	case s.debugDriving:
 		return " running... (ctrl-c to interrupt) "
 	default:
@@ -181,8 +183,27 @@ func (s *liveSession) handleDebugKey(event *tcell.EventKey) (*tcell.EventKey, bo
 	case tcell.KeyF12:
 		s.debugRedo()
 		return nil, true
+	case tcell.KeyF6:
+		s.debugSoftStop()
+		return nil, true
 	}
 	return nil, false
+}
+
+// debugSoftStop is F6, and what q does while the run is being driven: no
+// signal reaches the real child; the current task finishes and the next pause
+// is shown instead of being continued past (one-shot, consumed by
+// debugConsumeStopRequest), so the session is in the debugger right there.
+// A no-op unless an F5/F10/F11 drive loop is in flight - Ctrl-C stays the
+// way to interrupt a stuck task, since a soft stop only takes effect at the
+// next task boundary. Scoped to debugLoopDriving, not debugDriving: see that
+// field's doc comment (a slow F12 redo or watch-set must stay interruptible).
+func (s *liveSession) debugSoftStop() {
+	if !s.debugLoopDriving {
+		return
+	}
+	s.debugStopPending.Store(true)
+	s.debugRefreshChrome()
 }
 
 // debugToggleBreakpoint arms/disarms a breakpoint on s.currentID - a

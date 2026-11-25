@@ -587,6 +587,10 @@ collide with:
                      binding before this round (design-docs/DebugMode.md's
                      "Stage 3 follow-up round 8") - moved to F11 to make
                      room for F10's new meaning above.
+* F6              - stop after the running task (`debug`, while F5/F10/F11
+                     drive the run): the soft stop `q` also does, under a
+                     key of its own that the bottom bar shows; see
+                     DebugMode.md "F6".
 * r                - restart (`debug`, tree or drill-down): opens the restart
                      dialog (tags, skip tags, hosts; Enter restarts, Esc
                      cancels), see DebugMode.md "Restart". Only while

@@ -4096,6 +4096,19 @@ To make "ansible's own" reliable, `_origin_of` now classifies a name in
 used to be labeled "Config default"); `environment`, which users do set, is
 the exception.
 
+## F6: stop (2026-11-25)
+
+**Implemented.** F6 is the soft stop of "q's own soft stop" above under a key
+of its own: while F5/F10/F11 drive the run (`debugLoopDriving`), it lets the
+current task finish and surfaces the very next pause, so the session is in the
+debugger at that position, as at a breakpoint (`debugSoftStop`, one-shot,
+consumed by `debugConsumeStopRequest`). Reason: the stop existed but only as
+`q`, which nothing advertised while running. The running bottom bar now reads
+"running...  F6: stop after this task  ctrl-c: interrupt". `q` keeps doing the
+same while driving, deliberately: it gets hammered out of reflex. F6 does
+nothing otherwise. It cannot stop inside a task: the debugger only runs between
+tasks, so a stuck task still needs Ctrl-C (which ends the run).
+
 ## Restart: r (2026-11-25)
 
 **Implemented.** `r` puts the session back in the state a fresh `tangsible

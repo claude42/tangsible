@@ -63,13 +63,13 @@ var treeHelp = uikit.HelpScreen{
 		}},
 		{Title: "Debug mode", Entries: []uikit.HelpEntry{
 			{Keys: "F5", Desc: "Run - to the next armed breakpoint, or to completion with none set", ID: helpIDDebug},
+			{Keys: "F6", Desc: "While running: stop after this task and be in the debugger there (like a breakpoint; q does the same while running; ctrl-c force-kills)", ID: helpIDDebug},
 			{Keys: "F9", Desc: "Arm / disarm a breakpoint on the selected task (or click its row)", ID: helpIDDebug},
 			{Keys: "F10", Desc: "Next task - skip the rest of this task's hosts, stop at the next task's first one", ID: helpIDDebug},
 			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
 			{Keys: "F12", Desc: "Redo - re-run the task/host currently paused at, waiting for that exact result", ID: helpIDDebug},
-			{Keys: "r", Desc: "Restart - back to the start with nothing run, from the playbook as it is on disk now (breakpoints kept; asks first while paused)", ID: helpIDDebug},
+			{Keys: "r", Desc: "Restart - back to the start with nothing run, from the playbook as it is on disk now (breakpoints kept; ends a paused run)", ID: helpIDDebug},
 			{Keys: "v", Desc: "Open the variable watch explorer (type expr = value to set one)", ID: helpIDDebug},
-			{Keys: "q", Desc: "While running: soft stop - finish this task, then pause (ctrl-c still force-kills)", ID: helpIDDebug},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},
@@ -126,14 +126,14 @@ var outputHelp = uikit.HelpScreen{
 		}},
 		{Title: "Debug mode", Entries: []uikit.HelpEntry{
 			{Keys: "F5", Desc: "Run - to the next armed breakpoint, or to completion with none set", ID: helpIDDebug},
+			{Keys: "F6", Desc: "While running: stop after this task and be in the debugger there (like a breakpoint; q does the same while running; ctrl-c force-kills)", ID: helpIDDebug},
 			{Keys: "F9", Desc: "Arm / disarm a breakpoint on the selected task (or click its row)", ID: helpIDDebug},
 			{Keys: "F10", Desc: "Next task - skip the rest of this task's hosts, stop at the next task's first one", ID: helpIDDebug},
 			{Keys: "F11", Desc: "Step - stop at the very next pause, armed or not (host by host within the same task too)", ID: helpIDDebug},
 			{Keys: "F12", Desc: "Redo - re-run the task/host currently paused at, waiting for that exact result", ID: helpIDDebug},
-			{Keys: "r", Desc: "Restart - back to the start with nothing run, from the playbook as it is on disk now (breakpoints kept; asks first while paused)", ID: helpIDDebug},
+			{Keys: "r", Desc: "Restart - back to the start with nothing run, from the playbook as it is on disk now (breakpoints kept; ends a paused run)", ID: helpIDDebug},
 			{Keys: "v", Desc: "Open the variable watch explorer (type expr = value to set one)", ID: helpIDDebug},
 			{Keys: "click", Desc: "On a variable in the Task definition tab: pop-up with its value and origin, and a Watch button", ID: helpIDDebug},
-			{Keys: "q", Desc: "While running: soft stop - finish this task, then pause (ctrl-c still force-kills)", ID: helpIDDebug},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},
