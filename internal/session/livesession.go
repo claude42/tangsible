@@ -26,6 +26,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
+	"code.aw.net/claude/tangsible/internal/staticplay"
 	"code.aw.net/claude/tangsible/internal/uikit"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -433,7 +434,14 @@ type liveSession struct {
 	// debugRefresher rebuilds the shadow copy for a restart ('r'); see
 	// debugRestart. debugRestarting is true from the moment a restart
 	// begins until its new copy is installed.
-	debugRefresher  *debugverb.Refresher
+	debugRefresher *debugverb.Refresher
+	// view is the view verb's static data (livesession_view.go); non-nil
+	// while the session shows the playbook without having run it.
+	view *staticplay.View
+	// viewNotice is a transient note after the view bars' hints (reload
+	// result); viewReloading guards against overlapping reloads.
+	viewNotice      string
+	viewReloading   bool
 	debugRestarting bool
 	// debugDriving is true while a Start/Continue/Step call is in flight
 	// on its own goroutine - guards against a second one starting

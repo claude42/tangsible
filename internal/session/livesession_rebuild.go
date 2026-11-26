@@ -173,6 +173,9 @@ func (s *liveSession) revealExpandedTask(t *playbook.TaskNode) {
 // rebuild's own split-mode toggle), and each of those call sites should
 // see s.revisitActive's current value, not a snapshot from construction.
 func (s *liveSession) currentMainBottomBarText() string {
+	if s.view != nil {
+		return viewTreeBar + s.viewNotice
+	}
 	text := treeBar
 	if s.requestRerun == nil {
 		// Matches handleTreeKey's own 'r' guard: nothing to advertise a
@@ -192,7 +195,12 @@ func (s *liveSession) currentMainBottomBarText() string {
 
 // topBarLabel is the top/split bars' first field name - see
 // uikit.TopBarLabel.
-func (s *liveSession) topBarLabel() string { return uikit.TopBarLabel(s.isRole, s.checkMode) }
+func (s *liveSession) topBarLabel() string {
+	if s.view != nil {
+		return "View"
+	}
+	return uikit.TopBarLabel(s.isRole, s.checkMode)
+}
 
 // topBarName is the top/split bars' playbook (or role) name, followed by
 // the execution environment's image when the session runs in one - a
@@ -249,7 +257,9 @@ func (s *liveSession) chromeColorName() string {
 // mostly measures how long the user sat at a breakpoint, not anything
 // about the run. Read fresh on every call, same reasoning as
 // chromeColorName/currentMainBottomBarText just above.
-func (s *liveSession) showElapsed() bool { return !s.revisitActive && !s.debugMode }
+func (s *liveSession) showElapsed() bool {
+	return !s.revisitActive && !s.debugMode && s.view == nil
+}
 
 // outputBottomBarNormalStyle resolves s.outputBottomBar's own non-search
 // style fresh on every call, the same "s.revisitActive decides, s.chromeStyle
@@ -389,10 +399,17 @@ func (s *liveSession) rebuild() {
 			hostAndTask := s.outputHost
 			if s.outputTask != nil {
 				hostAndTask = s.outputHost + "   " + s.outputTask.Name
+				if s.view != nil {
+					hostAndTask = s.outputTask.Name // a static task has no host
+				}
 			}
-			s.splitHeader.SetText(uikit.ProgressFillLine(
-				uikit.ComposeSplitHeaderLine(s.topBarName(), s.topBarLabel(), hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.splitTreeWidth(totalWidth), s.showElapsed()),
-				progressPos, progressTotal, frozen, s.chromeColorName()))
+			if s.view != nil {
+				s.splitHeader.SetText(uikit.ProgressFillLine(s.viewSplitHeaderLine(totalWidth, s.splitTreeWidth(totalWidth)), 0, 0, false, s.chromeColorName()))
+			} else {
+				s.splitHeader.SetText(uikit.ProgressFillLine(
+					uikit.ComposeSplitHeaderLine(s.topBarName(), s.topBarLabel(), hostAndTask, elapsed, frozen, s.currentFilter, progressPos, progressTotal, totalWidth, s.splitTreeWidth(totalWidth), s.showElapsed()),
+					progressPos, progressTotal, frozen, s.chromeColorName()))
+			}
 		} else {
 			// Padded to the full terminal width before the fill is
 			// applied (same reason ComposeTopBarLine pads its own
@@ -497,7 +514,11 @@ func (s *liveSession) rebuild() {
 		// mode, where s.splitHeader (above) shows this same information
 		// instead - s.topBar itself sits unused, off-page, for the
 		// duration of a split session.
-		s.topBar.SetText(uikit.TopBarText(s.topBarName(), s.topBarLabel(), s.state.AllHosts, elapsed, frozen, s.currentFilter, progressPos, progressTotal, width, s.chromeColorName(), s.showElapsed()))
+		if s.view != nil {
+			s.topBar.SetText(uikit.ProgressFillLine(s.viewTopBarLine(width), 0, 0, false, s.chromeColorName()))
+		} else {
+			s.topBar.SetText(uikit.TopBarText(s.topBarName(), s.topBarLabel(), s.state.AllHosts, elapsed, frozen, s.currentFilter, progressPos, progressTotal, width, s.chromeColorName(), s.showElapsed()))
+		}
 	}
 
 	// One-time, right on the running-to-frozen transition: for a
@@ -581,6 +602,9 @@ func (s *liveSession) rebuild() {
 	durationLayout := uikit.ComputeDurationLayout(s.state, treeAllHosts)
 
 	s.currentRows = uikit.FlattenRows(s.state, s.expanded, width, layout, durationLayout, treeAllHosts, activeTasks, uikit.SpinnerAt(elapsed), s.currentFilter, s.sourceIndex, s.showOutput, s.useColor, s.debugArmed, s.debugIsPaused)
+	if s.view != nil {
+		s.viewSelectRows(s.currentRows)
+	}
 	if s.everStarted && !frozen && len(s.state.Plays) == 0 {
 		// Nothing has come back yet: a container or a slow connection still
 		// starting. The spinner turns with the heartbeat's redraws.

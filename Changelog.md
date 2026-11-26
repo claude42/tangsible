@@ -4,6 +4,7 @@
 
 ### Added
 
+- `tangsible view`: browse a playbook's plays and tasks without running anything; `Enter` on a task shows its Task (with the play's `Hosts:`), Task definition and Docs tabs, `r` runs it; `R` (and returning from the editor opened with `e`) reads the playbook again
 - The `run` verb is now optional - `tangsible site.yml` or `tangsible run site.yml` are equivalent, a bare `tangsible` opens the run dialog first.  This makes `#!/usr/bin/env tangsible` even nicer
 - `debug`: `F6` stops a running session after the current task and leaves it in the debugger
 - `debug`: `r` starts over - back to the idle state with nothing run

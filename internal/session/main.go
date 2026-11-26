@@ -47,6 +47,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/role"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/source"
+	"code.aw.net/claude/tangsible/internal/staticplay"
 	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/termbg"
 	"code.aw.net/claude/tangsible/internal/uikit"
@@ -100,8 +101,8 @@ func Main(build BuildInfo) {
 	// --ee/--no-ee (design-docs/ExecutionEnvironments.md) likewise: run,
 	// rerun and role take them (setupExecutionEnvironment), debug has its
 	// own message (rejectExecutionEnvironmentForDebug).
-	if v != config.VerbRun && v != config.VerbRerun && v != config.VerbRole && v != config.VerbDebug && config.HasEEFlag(args) {
-		fmt.Fprintln(os.Stderr, "tangsible: --ee/--no-ee are only supported for run, rerun, and role")
+	if v != config.VerbRun && v != config.VerbRerun && v != config.VerbRole && v != config.VerbDebug && v != config.VerbView && config.HasEEFlag(args) {
+		fmt.Fprintln(os.Stderr, "tangsible: --ee/--no-ee are only supported for run, rerun, role, debug, and view")
 		os.Exit(2)
 	}
 
@@ -363,8 +364,43 @@ func Main(build BuildInfo) {
 	// to make that spawn-timing decision.
 	runDialogPref := config.RunDialogPreference(config.MergedSettingsConfig())
 	var showDialog bool
+	// viewState/viewData are "view"'s statically loaded tree (see its case
+	// below); nil for every other verb.
+	var viewState *pb.PlaybookState
+	var viewData *staticplay.View
 
 	switch v {
+	case config.VerbView:
+		// design-docs/View.md: the plays and tasks of a playbook, nothing
+		// run. The session is "rerun"'s idle one - no generation, nothing
+		// spawned, the 'r' dialog starts a real run through the ordinary
+		// requestRerun - with the tree seeded from the playbook as ansible
+		// parses it (internal/staticplay) instead of from events.
+		var rest []string
+		var explicit bool
+		playbook, rest, explicit = config.SplitPlaybookArgsAmongOptions(args)
+		if !explicit {
+			playbook, _ = config.ResolvePlaybook()
+			if playbook == "" {
+				fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbView))
+				fmt.Fprintln(os.Stderr, "no playbook given, and none could be determined from TANGSIBLE_PLAYBOOK, .tangsible/config.toml, $XDG_CONFIG_HOME/tangsible/config.toml, or ./site.yml")
+				os.Exit(2)
+			}
+		}
+		// --ee/--no-ee as for "run": the playbook is read in the same
+		// environment a later 'r' would run it in.
+		rest = setupExecutionEnvironment(config.VerbView, rest)
+		// A password prompt is only possible before the TUI; 'r' would
+		// otherwise hang on --ask-vault-pass and the like.
+		rest = askPasswords(rest)
+		originalArgs = config.ParsePassthroughArgs(rest)
+		loaded, err := staticplay.Load(playbook)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tangsible: couldn't read %s: %v\n", playbook, err)
+			os.Exit(1)
+		}
+		viewState, viewData = staticplay.Seed(loaded)
+
 	case config.VerbRun:
 		// The playbook is the first argument that is neither a flag nor a
 		// flag's value (SplitPlaybookArgsAmongOptions); none given
@@ -821,6 +857,10 @@ func Main(build BuildInfo) {
 	colorEnabled := config.ColorEnabledByUser(settings)
 
 	state := &pb.PlaybookState{}
+	if v == config.VerbView {
+		state = viewState
+		startupView = viewData
+	}
 	if v == config.VerbDebug {
 		// Seeded directly from the skeleton, never grown via Apply - see
 		// debugverb.SeedState's own doc comment for exactly why Apply
@@ -921,7 +961,7 @@ func Main(build BuildInfo) {
 	// F5/F10/F11 - design-docs/DebugMode.md's "Stage 1" chrome states: idle
 	// before that, not mid-dialog), but wants no dialog at all, so it's
 	// excluded here rather than let that inference wrongly pop one open.
-	startWithRerunDialog := pending == nil && v != config.VerbDebug
+	startWithRerunDialog := pending == nil && v != config.VerbDebug && v != config.VerbView
 	var debugCfg debugverb.DebugConfig
 	if v == config.VerbDebug {
 		debugCfg = debugverb.DebugConfig{

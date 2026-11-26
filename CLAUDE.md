@@ -13,11 +13,11 @@ design choices. `README.md` is the user-facing tour; `design-docs/Codemap.md`
 maps packages/files (verify against `grep`, it can drift);
 `design-docs/Keyboard-shortcuts.md` is the full key reference.
 
-One Go binary, twelve verbs (`internal/config/resolve.go`'s `ParseVerb`;
+One Go binary, thirteen verbs (`internal/config/resolve.go`'s `ParseVerb`;
 the verb is optional for `run`: no arguments, a first argument starting
 with `-` or ending `.yml`/`.yaml` is an implicit `run`, bare `tangsible`
 opens its dialog first - `design-docs/ImplicitRun.md`):
-`run`, `rerun`, `role`, `revisit`, `debug` share the live tree/TUI
+`run`, `rerun`, `role`, `revisit`, `debug`, `view` share the live tree/TUI
 machinery (`internal/session`) - `debug` (`design-docs/DebugMode.md`)
 adds breakpoint/pause state on top, not a second TUI of its own;
 `template`, `host`/`hosts`/`inventory`, `vault`, `ee init`/`ee verify`/`ee build`/`ee push`, `version` are standalone
@@ -62,7 +62,10 @@ dialogs, search, help, colors - nothing verb-specific) · `internal/config`
 progress/outcome of one `ansible-playbook` generation) · `internal/source`
 (task YAML source lookup) · `internal/session` (run/rerun/role/debug
 orchestration + the live TUI) · one package per standalone verb (`role`,
-`template`, `host`, `revisit`, `diff`, `vault*`) · `internal/debugcopy`/
+`template`, `host`, `revisit`, `diff`, `vault*`) · `internal/staticplay` (`view`'s static
+playbook loader: ansible's own parser in an embedded Python script, so `view`
+shows a playbook's plays and tasks - with host pattern, source and docs - and
+runs nothing; `design-docs/View.md`) · `internal/debugcopy`/
 `internal/debugrun`/`internal/debugverb` (debug mode's own headless
 primitives: shadow-copy/splice, the live process driver + breakpoint
 policy, and skeleton-seeded state/event resolution, respectively -
@@ -471,3 +474,5 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
 - Changelog: one terse bullet per user-visible change.
 - New/renamed files: update `design-docs/Codemap.md`.
 - A CLI change: update `completions/`, `README.md`, `man/`.
+- Code that relies on an undocumented Ansible behavior (private API, scraped
+  output, a copied format): add a row to `design-docs/AnsibleInternals.md`.

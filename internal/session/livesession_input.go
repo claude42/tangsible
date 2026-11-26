@@ -17,6 +17,7 @@ package session
 import (
 	"os"
 	"os/exec"
+	"strings"
 
 	"code.aw.net/claude/tangsible/internal/diff"
 	"code.aw.net/claude/tangsible/internal/template"
@@ -452,6 +453,10 @@ func (s *liveSession) handleOutputViewKey(event *tcell.EventKey) *tcell.EventKey
 		s.search.open()
 		return nil
 	case uikit.IsHelpKey(event):
+		if s.view != nil {
+			s.help.Open(viewOutputHelp, nil)
+			return nil
+		}
 		s.help.Open(outputHelp, s.helpEntryHidden)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'y':
@@ -475,8 +480,12 @@ func (s *liveSession) handleOutputViewKey(event *tcell.EventKey) *tcell.EventKey
 					cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 					_ = cmd.Run()
 				})
+				s.viewReload() // no-op outside a view session
 			}
 		}
+		return nil
+	case s.view != nil && event.Key() == tcell.KeyRune && event.Rune() == 'R':
+		s.viewReload()
 		return nil
 	}
 	return event
@@ -500,7 +509,16 @@ func (s *liveSession) handleTreeKey(event *tcell.EventKey) *tcell.EventKey {
 		}
 		s.jumpingToEnd = false
 		return nil
+	case s.view != nil && event.Key() == tcell.KeyRune && event.Rune() == 'R':
+		s.viewReload()
+		return nil
+	case s.view != nil && event.Key() == tcell.KeyRune && strings.ContainsRune("fosdEC", event.Rune()):
+		return nil // belong to a run; nothing to show in a static view
 	case uikit.IsHelpKey(event):
+		if s.view != nil {
+			s.help.Open(viewTreeHelp, nil)
+			return nil
+		}
 		s.help.Open(treeHelp, s.helpEntryHidden)
 		return nil
 	case event.Key() == tcell.KeyRune && event.Rune() == 'o':

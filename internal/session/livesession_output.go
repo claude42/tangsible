@@ -43,6 +43,11 @@ func (s *liveSession) renderOutputTabs(task *playbook.TaskNode, host string, res
 		names = append(names[:at], append([]string{"Variables"}, names[at:]...)...)
 		contents = append(contents[:at], append([]string{text}, contents[at:]...)...)
 	}
+	s.setOutputTabs(names, contents)
+}
+
+// setOutputTabs replaces the drill-down's tabs by one text view per entry.
+func (s *liveSession) setOutputTabs(names, contents []string) {
 	prims := make([]tview.Primitive, len(names))
 	for i, content := range contents {
 		tv := tview.NewTextView().SetDynamicColors(true)
@@ -296,6 +301,10 @@ func (s *liveSession) navigateOutputTask(delta int) {
 	if s.outputTask == nil {
 		return
 	}
+	if s.view != nil {
+		s.viewNavigateTask(delta)
+		return
+	}
 	tasks := uikit.VisibleTasksForHost(s.state, s.outputHost, s.currentFilter, s.sourceIndex, s.activeTasks())
 	idx := -1
 	for i, t := range tasks {
@@ -325,6 +334,10 @@ func (s *liveSession) navigateOutputTask(delta int) {
 // task list is exhausted, and before any output has been shown yet.
 func (s *liveSession) navigateOutputHost(delta int) {
 	if s.outputTask == nil {
+		return
+	}
+	if s.view != nil { // a static task has no hosts: ←/→ step through tasks like n/N
+		s.viewNavigateTask(delta)
 		return
 	}
 	hosts := s.outputTask.HostOrder

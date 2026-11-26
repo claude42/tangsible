@@ -395,6 +395,7 @@ const (
 	VerbEE        Verb = "ee"
 	VerbVersion   Verb = "version"
 	VerbDebug     Verb = "debug"
+	VerbView      Verb = "view"
 	VerbHelp      Verb = "help"
 )
 
@@ -409,7 +410,7 @@ func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 		return VerbRun, nil, true
 	}
 	switch Verb(args[0]) {
-	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbEE, VerbVersion, VerbDebug, VerbHelp:
+	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbEE, VerbVersion, VerbDebug, VerbView, VerbHelp:
 		return Verb(args[0]), args[1:], true
 	}
 	if args[0] == "--version" || args[0] == "-V" {

@@ -22,7 +22,7 @@
 # chased further" heuristic tangsible's own source uses for similar
 # judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts inventory revisit vault ee debug version help"
+_tangsible_verbs="run rerun role template host hosts inventory revisit vault ee debug view version help"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards
@@ -98,6 +98,9 @@ _tangsible_flags_for_verb()
 		;;
 	debug)
 		echo "$_tangsible_ap_flags_no_step"
+		;;
+	view)
+		echo "$_tangsible_ap_flags $_tangsible_ee_flags"
 		;;
 	vault)
 		echo "$_tangsible_vault_flags"
@@ -256,7 +259,7 @@ _tangsible()
 	done
 
 	case "$verb" in
-	run | rerun | hosts | inventory | revisit | debug)
+	run | rerun | hosts | inventory | revisit | debug | view)
 		# tangsible <playbook.yml> [ansible-playbook args...]
 		# revisit's own positional is optional too (falls back to the most
 		# recently revisitable target), same shape as run/rerun/hosts/

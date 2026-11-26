@@ -575,6 +575,9 @@ func (s *liveSession) submitRerun() {
 	}
 	s.closeDialogs()
 
+	if s.view != nil {
+		s.endView() // the view session becomes a run
+	}
 	s.requestRerun(startAtPlay, tags, skipTags, hosts) // resets
 	// processDone/exitCode/state synchronously (see main.go) - by the
 	// time this returns, s.rebuild() below already sees a running, empty

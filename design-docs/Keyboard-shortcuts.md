@@ -111,6 +111,17 @@ for what *is* available there).
                      make Escape/arrow keys appear to stop working until
                      you clicked the tree again, fixed this session)
 
+## View (`tangsible view`)
+
+The tree of plays and tasks of a playbook nothing has run (`View.md`). Up/
+Down/PgUp/PgDn/Home/End, `n`/`N`, `/` (search) as in the run tree. `Enter` or
+a click on a task opens its drill-down (Task, Task definition, Docs): Tab/
+Shift-Tab switch tabs, `→`/`←` or `n`/`N` the next/previous task, `/` searches the tab,
+`y` copies it, `e` opens the source file in `$VISUAL`/`$EDITOR` (and reloads
+the playbook when the editor returns), `R` reloads it, Esc goes back. `r` opens the re-run dialog; confirming it runs the playbook and the
+session becomes a normal run. `f` (filter), `o`, `s`, `d`, `E`, `C` do
+nothing. `q`/Ctrl-C quit.
+
 ## Output/command drill-down view
 
 Opened by Enter/click on a host row. Up to 8 tabs - Task, Output,

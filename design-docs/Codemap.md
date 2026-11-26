@@ -283,6 +283,23 @@ run, and `internal/session`'s own orchestration goroutine
   no access to `bps`/`mode` of its own (`design-docs/DebugMode.md`'s
   "Stage 3 follow-up round 6").
 
+## internal/staticplay
+
+The static layer behind `tangsible view` (`design-docs/View.md`): a playbook
+read the way ansible-playbook reads it, nothing run.
+
+- **loader.py** - embedded Python script, run as `python3 -c` through
+  `runner.NewToolCommand` (so it follows the active execution environment;
+  on the host, with the interpreter named by `ansible-playbook`'s own
+  shebang): `Playbook.load` + `play.compile()`, printing plays (name, host
+  pattern as written) and tasks (name, action, `path`:`line`, role, tags,
+  `when`) as JSON; implicit `meta` tasks left out, `include_tasks` not
+  expanded, handlers not listed. Uses ansible-core internals.
+- **staticplay.go** - `Load`, `Parse`, the `Playbook`/`Play`/`Task` types.
+- **seed.go** - `Seed` turns that into a `playbook.PlaybookState` (no
+  hosts, every task with its source path) plus a `View` side table (the
+  task facts and each play's host pattern, keyed by node); `PlayOf`.
+
 ## internal/debugverb
 
 The "debug" verb's own headless glue (`design-docs/DebugMode.md`'s
@@ -483,6 +500,13 @@ thin constructor/wiring shell.
     shortcuts" section for the tier breakdown).
   - **livesession_mouse.go** - `handleMouse`, the mouse dispatcher, and
     its 7 named sub-methods (same per-mode split as the keyboard side).
+  - **livesession_view.go** - the `view` verb's session part: `s.view`
+    (non-nil while the playbook is shown without having been run, set from
+    `startupView`), Enter on a task row opens `showViewTask` (Task / Task
+    definition / Docs, `uikit.BuildViewTabs`), `viewNavigateTask`,
+    `viewTopBarLine`; the rest is `if s.view != nil` branches in
+    rebuild/input/help. `r` is the ordinary re-run dialog; confirming it
+    calls `endView` and the session is a plain run.
   - **livesession_debug.go** - everything specific to `debugMode`
     (`design-docs/DebugMode.md`): `handleDebugKey`
     (F5/F9/F10/F11/F12, `livesession_input.go`'s own dispatcher calls into

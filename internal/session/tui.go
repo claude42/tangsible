@@ -227,6 +227,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	s.debugPlaybookDir = debugCfg.PlaybookDir
 	s.debugCopyDir = debugCfg.CopyDir
 	s.debugRefresher = debugCfg.Refresher
+	s.view = startupView
 	if s.debugMode {
 		// debug keeps -t/--skip-tags/-l inside its passthrough arguments;
 		// the restart dialog shows them as its fields' starting values.
@@ -269,7 +270,7 @@ func NewLiveTUI(state *playbook.PlaybookState, playbookName string, isRole bool,
 	// back to the cursor on every call - including the heartbeat ticker's,
 	// every 200ms, while a run is still live, fighting any mouse-wheel
 	// panning the user just did. See RestoreCurrentItem's own doc comment.
-	s.following = true // auto-follow the newest row until the user navigates away
+	s.following = s.view == nil // auto-follow the newest row until the user navigates away (a static view has no newest row)
 	// s.everStarted is false whenever nothing has actually been spawned yet
 	// (pendingSpawned false - main.go's own ground truth, pending != nil
 	// there) - see s.rebuild()'s own use of it below: processDone starts

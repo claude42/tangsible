@@ -1,0 +1,28 @@
+# Fixture for tangsible view / internal/staticplay: a role, a block with rescue, an include
+# and an unnamed task, two plays.
+- name: Web servers
+  hosts: web:!db1
+  pre_tasks:
+    - name: pre one
+      ansible.builtin.debug: msg=hi
+  roles:
+    - web
+  tasks:
+    - name: main one
+      ansible.builtin.command: /bin/true
+      when: x is defined
+    - block:
+        - name: in block
+          ansible.builtin.debug: msg=b
+      rescue:
+        - name: in rescue
+          ansible.builtin.debug: msg=r
+    - ansible.builtin.include_tasks: other.yml
+    - ansible.builtin.copy: {src: a, dest: b}
+  handlers:
+    - name: restart x
+      ansible.builtin.service: {name: x, state: restarted}
+- hosts: all
+  gather_facts: false
+  tasks:
+    - ansible.builtin.ping:

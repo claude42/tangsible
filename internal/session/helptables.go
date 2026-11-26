@@ -101,6 +101,59 @@ func (s *liveSession) helpEntryHidden(id string) bool {
 	return false
 }
 
+// viewTreeBar/viewOutputBar/viewTreeHelp/viewOutputHelp are the view verb's
+// own (design-docs/View.md): no filter, output, stats or hosts there.
+const viewTreeBar = " ?: help  /: search  enter: task  R: reload  r: run  q: quit "
+const viewOutputBar = " ?: help  tab: next tab  ←/→: task  /: search  y: copy  e: edit  R: reload  esc: back "
+
+var viewTreeHelp = uikit.HelpScreen{
+	Title: "view",
+	Sections: []uikit.HelpSection{
+		{Title: "Moving around", Entries: []uikit.HelpEntry{
+			{Keys: "↑ / ↓, j / k", Desc: "Move the cursor"},
+			{Keys: "PgUp / PgDn", Desc: "Page up / down - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "First / last row - also Ctrl-A / Ctrl-E, < / > and G"},
+			{Keys: "n / N", Desc: "Next / previous task"},
+		}},
+		{Title: "Looking at a task", Entries: []uikit.HelpEntry{
+			{Keys: "Enter", Desc: "Open the task: where its play runs (Hosts), its definition and the documentation of its module"},
+			{Keys: "/", Desc: "Show only tasks whose name or source contains a text"},
+		}},
+		{Title: "Playbook changed", Entries: []uikit.HelpEntry{
+			{Keys: "R", Desc: "Read the playbook again (after editing it elsewhere); also done when the editor opened with e returns"},
+		}},
+		{Title: "Running", Entries: []uikit.HelpEntry{
+			{Keys: "r", Desc: "Re-run dialog; confirming it runs the playbook in this session (with the tags and hosts entered)"},
+		}},
+		{Title: "Other", Entries: []uikit.HelpEntry{
+			{Keys: "q, Ctrl-C", Desc: "Quit"},
+		}},
+	},
+}
+
+var viewOutputHelp = uikit.HelpScreen{
+	Title: "task view",
+	Sections: []uikit.HelpSection{
+		{Title: "Switching what's shown", Entries: []uikit.HelpEntry{
+			{Keys: "Tab / Shift-Tab", Desc: "Next / previous tab: Task, Task definition, Docs"},
+			{Keys: "→ / ←, n / N", Desc: "Next / previous task (n / N step through matches instead while a search has matches)"},
+		}},
+		{Title: "Scrolling", Entries: []uikit.HelpEntry{
+			{Keys: "↑ / ↓, j / k", Desc: "Scroll a line"},
+			{Keys: "PgUp / PgDn", Desc: "Scroll a page - also b / Space and Ctrl-B / Ctrl-F"},
+			{Keys: "Home / End", Desc: "Top / bottom - also Ctrl-A / Ctrl-E, < / > and G"},
+		}},
+		{Title: "This tab", Entries: []uikit.HelpEntry{
+			{Keys: "/", Desc: "Search this tab's text"},
+			{Keys: "y", Desc: "Copy this tab's text to the clipboard"},
+			{Keys: "e", Desc: "Open the task's source file in $VISUAL / $EDITOR; the playbook is read again when it returns"},
+			{Keys: "R", Desc: "Read the playbook again"},
+			{Keys: "click", Desc: "On a key in the Task definition tab: what that module option, module or task keyword means"},
+			{Keys: "Esc", Desc: "Back to the tree"},
+		}},
+	},
+}
+
 // outputBar is the drill-down's bottom bar. tabSearchPanel restores it
 // whenever a search or a 'y' copy status clears.
 const outputBar = " ?: help  tab: next tab  ←/→: host  n/N: task  /: search  y: copy  esc: back "

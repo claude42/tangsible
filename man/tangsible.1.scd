@@ -58,6 +58,9 @@ The verb *run* is optional. An invocation whose first argument is not a verb is 
 *tangsible-debug*(1)
 	Step through a playbook, set breakpoints, watch variables.
 
+*tangsible-view*(1)
+	Browse a playbook's plays and tasks, with each task's definition and docs, without running anything.
+
 *tangsible-ee*(1)
 	Draft an execution-environment.yml for *ansible-builder*(1) from a playbook (*ee init*): the collections it uses, the base image's facts, and a *# TODO* for everything that can't be determined. *ee verify* builds a definition into a throw-away image and checks it against the playbook; *ee build* builds it into the image it names; *ee push* uploads that image to its registry.
 
@@ -161,4 +164,4 @@ because it exposes private keys to the image) and *pass_env* (host environment v
 
 # SEE ALSO
 
-*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-revisit*(1), *tangsible-vault*(1), *tangsible-debug*(1), *tangsible-ee*(1)
+*ansible-playbook*(1), *tangsible-run*(1), *tangsible-rerun*(1), *tangsible-role*(1), *tangsible-template*(1), *tangsible-host*(1), *tangsible-hosts*(1), *tangsible-inventory*(1), *tangsible-revisit*(1), *tangsible-vault*(1), *tangsible-debug*(1), *tangsible-view*(1), *tangsible-ee*(1)

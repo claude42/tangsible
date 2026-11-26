@@ -47,7 +47,7 @@ end
 # is completed like run's.
 function __tangsible_implicit_run
 	set -l tokens (commandline -opc)
-	test (count $tokens) -ge 2; and not contains -- $tokens[2] run rerun role template host hosts inventory revisit vault ee debug version help
+	test (count $tokens) -ge 2; and not contains -- $tokens[2] run rerun role template host hosts inventory revisit vault ee debug view version help
 end
 complete -c tangsible -n '__fish_is_nth_token 1' -a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 
@@ -62,17 +62,18 @@ complete -c tangsible -n '__fish_is_nth_token 1' -a revisit -d 'Browse and reope
 complete -c tangsible -n '__fish_is_nth_token 1' -a vault -d 'Edit vault-encrypted variables in place'
 complete -c tangsible -n '__fish_is_nth_token 1' -a ee -d 'Draft an execution-environment.yml from a playbook'
 complete -c tangsible -n '__fish_is_nth_token 1' -a debug -d 'Set breakpoints and step through a playbook'
+complete -c tangsible -n '__fish_is_nth_token 1' -a view -d 'Browse a playbook without running it'
 complete -c tangsible -n '__fish_is_nth_token 1' -a version -d 'Print version and build info, then exit'
 complete -c tangsible -n '__fish_is_nth_token 1' -a help -d 'List all verbs with their synopsis'
 
 # --- Verb-specific positionals ---
 
-complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_token 2' -a 'run rerun role template host hosts inventory revisit vault ee debug version help'
+complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_token 2' -a 'run rerun role template host hosts inventory revisit vault ee debug view version help'
 
 # run/rerun/hosts/inventory/revisit/debug: tangsible <playbook.yml> [ansible-playbook args...]
 # revisit's own positional is optional too (falls back to the most
 # recently revisitable target), same shape as run/rerun/hosts/inventory/debug.
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun hosts inventory revisit debug; and __fish_is_nth_token 2' \
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun hosts inventory revisit debug view; and __fish_is_nth_token 2' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 # revisit also takes an exported run (E in its list): tangsible revisit <file.txt>
 complete -c tangsible -n '__fish_seen_subcommand_from revisit; and __fish_is_nth_token 2' \
@@ -136,7 +137,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcom
 # straight through regardless of which one), from ansible-playbook's own
 # --help output.
 
-set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit debug; or __tangsible_implicit_run'
+set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit debug view; or __tangsible_implicit_run'
 
 complete -c tangsible -n $__tangsible_has_verb -l help -d 'Show ansible-playbook help and exit'
 complete -c tangsible -n $__tangsible_has_verb -l version -d 'Show ansible-playbook version info and exit'
@@ -213,8 +214,8 @@ complete -c tangsible -n '__fish_seen_subcommand_from vault' -l ask-vault-pass -
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun; or __tangsible_implicit_run' -l start-at-play -x -d 'Start at this play (by name), dropping every earlier one'
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l dialog -d 'Always show the re-run dialog at startup'
 complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l no-dialog -d 'Never show the re-run dialog at startup'
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l ee -x -d 'Run inside this execution environment image (podman)'
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l no-ee -d 'Run on the host even if an execution environment is configured'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role view; or __tangsible_implicit_run' -l ee -x -d 'Run inside this execution environment image (podman)'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role view; or __tangsible_implicit_run' -l no-ee -d 'Run on the host even if an execution environment is configured'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-failed -d 'Limit to hosts that failed last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-unreachable -d 'Limit to hosts that were unreachable last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l resume-where-failed -d 'Start at the first play with a failure, limited to failed hosts'

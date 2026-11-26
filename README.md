@@ -46,6 +46,7 @@ Working with Ansible often means juggling commands, scrolling through output, ad
 
 - **Run and inspect playbooks interactively.** Follow execution in a navigable tree of plays, tasks and hosts, with live updates as the playbook runs.
 - **Drill into task results.** Inspect task source, stdout/stderr, diffs and resolved variables without losing your place.
+- **Browse a playbook.** Look at its plays and tasks, each task's definition and docs, without running it.
 - **Debug execution.** Set breakpoints, step through tasks and hosts, inspect variables, add expressions to a watch list and change variable values while execution is paused.
 - **Re-run and compare.** Re-run a complete playbook or a selected part of it, revisit previous runs and compare their results.
 
@@ -169,6 +170,7 @@ If you don't specify a playbook, Tangsible can resolve one from its configuratio
 |---|---|
 | `tangsible run` | Run a playbook and interactively inspect its execution |
 | `tangsible debug` | Debug playbook execution with breakpoints, stepping and variable inspection |
+| `tangsible view` | Browse a playbook's plays and tasks without running anything |
 | `tangsible rerun` | Repeat the last run after adjusting hosts, tags, … |
 | `tangsible revisit` | Browse and compare previous runs |
 | `tangsible role` | Run a role in isolation |
@@ -192,6 +194,14 @@ tangsible run playbook.yml
 Tangsible presents plays, tasks and hosts in a navigable tree. Outcomes such as OK, Changed, Skipped, Failed and Unreachable are visible at a glance. Drill into a result to inspect the task source, output, stderr, diff and full result. Show ansible-playbook's original output and show statistics.
 
 Filter by outcome or search task names, source and output. Keyboard and mouse navigation are supported, as are desktop notifications, terminal-title progress and clipboard integration.
+
+### Browse without running
+
+```sh
+tangsible view [playbook.yml]
+```
+
+Shows the playbook's plays and tasks as the run tree does, without host lines and without running anything. The playbook is read the way Ansible reads it (roles, blocks, imports, order), so only what is known statically appears: an `include_tasks` is one row, a templated host pattern is shown as written, handlers are not listed. `Enter` (or a click) on a task opens its **Task** tab (name, role, action, the play's **Hosts**, `when:` and tags), its **Task definition** and the module's **Docs**. `r` opens the usual re-run dialog; confirming it runs the playbook in the same session.
 
 ### Debug execution
 
