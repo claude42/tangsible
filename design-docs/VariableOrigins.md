@@ -1,7 +1,42 @@
 # Variable origins (where was this value defined?)
 
-Status: researched, not implemented. Findings below are from a live probe
-against ansible-core 2.19.11 (2026-10-27).
+Status: **implemented for `debug` and for `host`/`hosts`/`inventory`;
+not available in `run`/`rerun`/`role`** (updated 2026-11-26). The findings
+below are from a live probe against ansible-core 2.19.11 (2026-10-27); "As
+built" says what exists and where, the sections after it are the original
+research, kept for the reasoning.
+
+## As built
+
+| Where | What it shows | How the origin is fetched |
+|---|---|---|
+| `debug`: `v` watch panel | `(label)` after the value of the expression's root variable; `(just set)` / `(set in debugger)` after an `expr = value` | `tangsible_snapshot`'s `origins`, one batched query per pause (`debugOriginCache`) |
+| `debug`: drill-down Variables tab | every non-fact, non-builtin top-level variable of the paused task as sorted YAML, `# label` comment each (registered results `# registered`) | the same snapshot and origins, no extra query (`livesession_variables.go`) |
+| `host`/`hosts`/`inventory`: Variables tab | inventory-level variables only, `# file:line` or `# -e` | a one-task stub play running tangsible's own action plugin (`callback/action/tangsible_vars.py`) |
+
+Shared pieces: the callback plugin's `tangsible_snapshot` /
+`tangsible_variables` (the Python side, `Origin` read by tag name), and
+`internal/origin` (labels: project-relative path and line, `-e`; a path in
+the debug shadow copy is mapped back to the real tree and the lines inserted
+for `debugger: always` are subtracted). Details: `Data Tagging.md` ("Design",
+"Variables tab on the host verb"), `HostVerb.md` ("Variables tab"),
+`DebugMode.md` ("Variables tab in the drill-down").
+
+What the snapshot reports per top-level variable: `{path, line}`, `{desc}`
+(`-e`), or a coarse `kind` - `fact`, `builtin` (ansible's own, a fixed list;
+checked before the tag) or `registered`. Top-level only, the winning
+definition only; nested leaves (the research below found they carry their
+own origins) are not shown.
+
+**Not available in `run`, `rerun`, `role`.** Origins exist only inside the
+ansible process, and nothing in the normal event stream carries them. `debug`
+reads them at the debugger prompt, `host` runs a stub play with an action
+plugin. For a normal run the callback plugin could emit them with each task
+(it has `task_vars`), but that adds a variable snapshot to every task event
+(size, secret masking, ansible-core 2.19+ only) - not built. A cheaper
+alternative would be an on-demand probe like the Resolved/File tabs use,
+limited to what a probe run can see (static context, no `register`/`set_fact`
+state). Not decided.
 
 ## Idea
 
@@ -57,11 +92,9 @@ the debugger prompt (stdin piped).
   the origin of the exact leaf, not just the top-level variable.
 * **Magic/computed variables have none** (`inventory_hostname`,
   `ansible_check_mode`): the tag set has no `Origin`; show nothing.
-* **Not verified**: registered results (`register:`), facts, anything
-  coming from lookups. A probe of `result._result` errored (`_RawTaskResult`
-  has no `_result`); the right attribute wasn't pursued. Expect results/facts
-  to be untrusted values and likely without a file origin; check before
-  promising anything for them.
+* Registered results, facts and anything from lookups carry no `Origin`
+  (confirmed later, see `Data Tagging.md`'s spike findings); the snapshot
+  labels them by kind instead (`registered`, `fact`).
 * Only 2.19.11 tested. Older ansible-core has no tags at all.
 
 ## How to fetch it (no new transport)
@@ -89,7 +122,7 @@ so the one-liner needs only the `AnsibleTagHelper` import.
 
 ## Variables tab (full list: values + origins)
 
-Idea: while paused, an extra drill-down tab listing every variable in the
+Built (see "As built"); the original idea: while paused, an extra drill-down tab listing every variable in the
 paused task's `task_vars`, with value and origin. Cost was measured, not
 guessed (ansible-core 2.19.11, localhost, `gather_facts: true`, inside the
 debugger):
@@ -138,7 +171,7 @@ Open design points:
   many facts (many interfaces/mounts) - the origins-only output stays small
   either way, the value rendering is what scales.
 
-## Implementation sketch
+## Implementation sketch (original; see "As built" for what was done)
 
 1. In `debugwatch_eval.go`, build the origin query for a watched expression's
    resolved path (same bare-name / dotted / `[idx]` grammar the value
@@ -166,4 +199,5 @@ Open design points:
   display code must tolerate `null` for each field.
 * Do origins survive into the other places tangsible reads variables
   (Resolved tab's extra `ansible-playbook` run, callback plugin results)?
-  Unchecked; this document only covers the debugger's `task_vars`.
+  Still unchecked; this document only covers the debugger's `task_vars` and
+  the stub play's.
