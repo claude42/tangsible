@@ -768,7 +768,7 @@ func TestE2E_EE_FlagUsageErrors(t *testing.T) {
 	}{
 		{[]string{"run", "x.yml", "--ee"}, "--ee needs an image"},
 		{[]string{"run", "x.yml", "--ee", "img", "--no-ee"}, "cannot be combined"},
-		{[]string{"host", "h", "--ee", "img"}, "only supported for run, rerun, and role"},
+		{[]string{"host", "h", "--ee", "img"}, "only supported for run, rerun, role, and view"},
 		{[]string{"debug", "x.yml", "--ee", "img"}, "debug does not support execution environments"},
 	}
 	for _, c := range cases {

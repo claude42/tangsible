@@ -18,10 +18,12 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -92,14 +94,32 @@ func runVault(t *testing.T, dir, editorScript string, args ...string) (int, stri
 // decrypting with the fixture password.
 func ansibleValue(t *testing.T, dir, file, name string) string {
 	t.Helper()
-	cmd := exec.Command("ansible", "localhost", "-i", "localhost,", "-c", "local", "-m", "debug", "-a", "var="+name,
+	// b64encode, not var=: newer ansible-core prints a vaulted value as
+	// $REDACTED$ (also for msg={{ name }}), but a filter's result is a plain
+	// string - the same "marker is lost" the debug masking has to cope with.
+	cmd := exec.Command("ansible", "localhost", "-i", "localhost,", "-c", "local", "-m", "debug", "-a", "msg={{ "+name+" | b64encode }}",
 		"-e", "@"+file, "--vault-password-file", "vault-password.txt")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ansible could not read %s from %s: %v\n%s", name, file, err, out)
 	}
-	return string(out)
+	return decodeAnsibleMsg(t, name, out)
+}
+
+// decodeAnsibleMsg is the plain text of an ad-hoc debug msg that carried
+// "{{ name | b64encode }}".
+func decodeAnsibleMsg(t *testing.T, name string, out []byte) string {
+	t.Helper()
+	m := regexp.MustCompile(`"msg": "([^"]*)"`).FindSubmatch(out)
+	if m == nil {
+		t.Fatalf("ansible's answer for %s has no msg:\n%s", name, out)
+	}
+	plain, err := base64.StdEncoding.DecodeString(string(m[1]))
+	if err != nil {
+		t.Fatalf("ansible's answer for %s is not base64 (%v):\n%s", name, err, out)
+	}
+	return string(plain)
 }
 
 func TestE2E_Vault_EditChangesOnlyTheEditedValues(t *testing.T) {
@@ -260,14 +280,14 @@ func multiIDFixture(t *testing.T) string {
 // passwords.
 func ansibleMultiValue(t *testing.T, dir, name string) string {
 	t.Helper()
-	cmd := exec.Command("ansible", "localhost", "-i", "localhost,", "-c", "local", "-m", "debug", "-a", "var="+name,
+	cmd := exec.Command("ansible", "localhost", "-i", "localhost,", "-c", "local", "-m", "debug", "-a", "msg={{ "+name+" | b64encode }}",
 		"-e", "@vars.yml", "--vault-id", "dev@dev.pw", "--vault-id", "prod@prod.pw")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ansible could not read %s: %v\n%s", name, err, out)
 	}
-	return string(out)
+	return decodeAnsibleMsg(t, name, out)
 }
 
 func TestE2E_Vault_TwoVaultIDsKeepTheirLabelsAndNewValuesUseEncryptVaultID(t *testing.T) {

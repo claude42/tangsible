@@ -40,3 +40,11 @@ $(MANDIR)/%.1: $(MANDIR)/%.1.scd
 .PHONY: clean-man
 clean-man:
 	rm -f $(MANOUT)
+
+# Run the callback (Python), unit and e2e tests against another ansible-core:
+# `make test-ansible VERSION=2.20` (see scripts/test-ansible.sh for the
+# SUITES / ISOLATE / REFRESH options and what it does not cover).
+.PHONY: test-ansible
+test-ansible:
+	@test -n "$(VERSION)" || { echo "usage: make test-ansible VERSION=2.20"; exit 2; }
+	@scripts/test-ansible.sh $(VERSION)

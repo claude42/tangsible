@@ -33,6 +33,8 @@ go test ./...                     # unit tests; -run <Name> for one
 python3 -m unittest discover -s callback-tests   # callback plugin (needs ansible)
 go test -tags e2e ./...           # + tmux-driven e2e (e2e/rerun_test.go; needs tmux, ansible-playbook;
                                   #   e2e/ee_test.go also needs podman + TANGSIBLE_EE_IMAGE=<pulled image>)
+make test-ansible VERSION=2.20      # all of the above against another ansible-core
+                                  #   (scripts/test-ansible.sh: own venv, isolated HOME)
 go run . run testdata/outcomes.yml -i localhost,
 go run . run testdata/multihost.yml -i testdata/multihost-inventory.ini
 ```

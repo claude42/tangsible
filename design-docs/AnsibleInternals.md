@@ -16,7 +16,8 @@ lives**, and **what happens when the assumption fails**.
 Everything here was developed and probed against **ansible-core 2.19.x**
 (mostly 2.19.11); the research notes name the probes (`VariableOrigins.md`,
 `Data Tagging.md`, `DebugMode.md`). Nothing has been verified against another
-series unless a line says so.
+series unless a line says so; "Tested releases" at the end has the results of
+`make test-ansible`.
 
 ## How to read the risk column
 
@@ -380,7 +381,11 @@ Not ansible-core, but the same kind of risk:
 
 ## Keeping this current
 
-* **When a new ansible-core series appears**, run, in this order:
+* **When a new ansible-core series appears**, `make test-ansible VERSION=2.20`
+  (`scripts/test-ansible.sh`) runs all three suites below against it in a
+  virtualenv of its own, with an empty HOME and no `ANSIBLE_*` variables so
+  the result is about the release and not your setup. By hand, the same, in
+  this order:
   `python3 -m unittest discover -s callback-tests` (callback plugin and
   helpers), `go test ./...` (the flag-table test, parsers), then
   `go test -tags e2e ./e2e` - especially `TestE2E_Debug_*` (REPL, prompt,
@@ -395,3 +400,39 @@ Not ansible-core, but the same kind of risk:
 * The research documents behind the rows: `OwnCallbackPlugin.md`,
   `DebugMode.md`, `Data Tagging.md`, `VariableOrigins.md`, `Vault.md`,
   `ExecutionEnvironments.md`, `HostVerb.md`, `View.md`.
+
+## Tested releases
+
+Results of `make test-ansible VERSION=...` (all three suites, a venv with
+`ansible.posix` for the callback parity tests):
+
+| ansible-core | callback (Python) | unit | e2e | Notes |
+|---|---|---|---|---|
+| 2.19.11 | ok | ok | ok | the series everything was developed on |
+| 2.22.0 (2026-11-26) | ok | **5 failures** | ok after a test fix | see below |
+
+**2.22.0**:
+
+* The callback plugin passes, including byte-for-byte parity with
+  `ansible.posix.jsonl`: #1 and #2 hold.
+* **The debugger's `result` object changed (#6).** In the debugger scope
+  `result` is now a `HostTaskResult(host, task, utr)`
+  (`ansible/_internal/_task.py`) holding a `UnifiedTaskResult`; the
+  `TaskResult` methods and attributes we query - `result.is_failed()` (only
+  used by `internal/debugrun/session_test.go`) and `result._return_data`
+  (`livesession_debug.go`, the value a task registered) - no longer exist
+  and the debugger answers `AttributeError`. Failing tests:
+  `TestSession_Redo`, `TestSession_Redo_MultiHostInterleaving`,
+  `TestSession_Set` (the redo it relies on never re-pauses),
+  `TestSession_Set_ReachesTaskArgumentsOnRedo` (all `internal/debugrun`),
+  `TestMergeRegisteredResult_Live` (`internal/session`). The debug e2e tests
+  pass, which means the registered-value merge degrades silently: the
+  Resolved/Variables views lack `register:` results. **Not yet ported.**
+  The replacement lives under `result.utr` (`failed`, `changed`, ...); what
+  carries the registered value has not been looked up.
+* **Vaulted values print as `$REDACTED$`** in an ad-hoc `ansible ... -m debug
+  -a var=x` (also `msg={{ x }}`); a filter's result (`| upper`, `| b64encode`)
+  is plain text again. Only the e2e tests' way of reading a value back was
+  affected, and now decodes `b64encode`'s output; tangsible's own handling of
+  vaulted values is unaffected. (Worth knowing for #3: the marker survives
+  direct use of the value, not a filter's result.)

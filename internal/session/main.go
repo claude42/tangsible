@@ -102,7 +102,7 @@ func Main(build BuildInfo) {
 	// rerun and role take them (setupExecutionEnvironment), debug has its
 	// own message (rejectExecutionEnvironmentForDebug).
 	if v != config.VerbRun && v != config.VerbRerun && v != config.VerbRole && v != config.VerbDebug && v != config.VerbView && config.HasEEFlag(args) {
-		fmt.Fprintln(os.Stderr, "tangsible: --ee/--no-ee are only supported for run, rerun, role, debug, and view")
+		fmt.Fprintln(os.Stderr, "tangsible: --ee/--no-ee are only supported for run, rerun, role, and view")
 		os.Exit(2)
 	}
 
