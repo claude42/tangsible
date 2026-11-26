@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -611,7 +612,8 @@ func (s *liveSession) debugSetWatch(expr, target, value string) bool {
 // that exact same pause separately exposes the completed task and its
 // result (Session.Query's own doc comment) - task.register gives the
 // variable name ansible would store the result under, and
-// result._return_data gives that value, confirmed live both queryable
+// result._return_data gives that value (registeredValuesExpr: the same
+// through result.utr on ansible-core 2.22+), confirmed live both queryable
 // at the same pause task_vars comes from. Leaves raw completely
 // unchanged on any error (no register: on this task, a query failure,
 // unparseable JSON) - the same silent-fallback contract the rest of this
@@ -621,20 +623,26 @@ func mergeRegisteredResult(raw json.RawMessage, sess *debugrun.Session) json.Raw
 	return merged
 }
 
-// mergeRegisteredResultNamed is mergeRegisteredResult that also reports the
-// register name it merged under ("" when it left raw unchanged).
-func mergeRegisteredResultNamed(raw json.RawMessage, sess *debugrun.Session) (json.RawMessage, string) {
-	regRaw, err := sess.Query("task.register")
-	if err != nil {
-		return raw, ""
-	}
-	var regName string
-	if err := json.Unmarshal(regRaw, &regName); err != nil || regName == "" {
-		return raw, ""
-	}
+// registeredValuesExpr is the debugger-scope expression for what the paused
+// task registered, as a name -> value mapping, written for both result
+// shapes ansible-core has had (design-docs/AnsibleInternals.md, "Tested
+// releases"): before 2.22 `task.register` is the variable's name and
+// `result._return_data` its value; from 2.22 `result` is a HostTaskResult
+// whose `utr.registered_values` is that mapping itself (and `task.register`
+// a mapping too, so it can't be used the old way). Empty for a task without
+// register:.
+const registeredValuesExpr = `(dict(result.utr.registered_values or {}) if hasattr(result, 'utr') else ({task.register: result._return_data} if task.register else {}))`
 
-	resultRaw, err := sess.Query("result._return_data")
+// mergeRegisteredResultNamed is mergeRegisteredResult that also reports the
+// (first, by name) register name it merged under ("" when it left raw
+// unchanged).
+func mergeRegisteredResultNamed(raw json.RawMessage, sess *debugrun.Session) (json.RawMessage, string) {
+	regRaw, err := sess.Query(registeredValuesExpr)
 	if err != nil {
+		return raw, ""
+	}
+	var registered map[string]json.RawMessage
+	if err := json.Unmarshal(regRaw, &registered); err != nil || len(registered) == 0 {
 		return raw, ""
 	}
 
@@ -642,12 +650,17 @@ func mergeRegisteredResultNamed(raw json.RawMessage, sess *debugrun.Session) (js
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return raw, ""
 	}
-	obj[regName] = resultRaw
+	names := make([]string, 0, len(registered))
+	for name, value := range registered {
+		obj[name] = value
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	merged, err := json.Marshal(obj)
 	if err != nil {
 		return raw, ""
 	}
-	return merged, regName
+	return merged, names[0]
 }
 
 // debugUnfakeShadowPaths rewrites every occurrence of the shadow copy's

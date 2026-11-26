@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- `debug` works with ansible-core 2.22: its debugger hands out a different result object (registered values missing from the Resolved and Variables views) and redoing a task with `register:` after changing a variable killed the run
 - Warnings and deprecations that ansible-core prints itself instead of putting them in a task result now give the running task the ⚠ marker
 - A task result that carries only `deprecations` (ansible-core 2.19+ reports them apart from `warnings`) now gets the ⚠ marker
 - `ee init --resolve-packages`: the binary a `lookup('pipe', ...)` runs (e.g. in `group_vars`) is now detected and its package looked up, like a controller-side `shell` task's

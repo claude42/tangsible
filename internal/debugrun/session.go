@@ -242,12 +242,28 @@ func (s *Session) Continue() (pause Pause, eof bool, err error) {
 // task's *already-templated* arguments - a `command: echo {{ greeting }}`
 // still printed the old value, whatever play/task/set_fact variable it came
 // from - and only expressions evaluated at run time (failed_when:, ...)
-// would see the assignment. It's best-effort: a template error doesn't
+// would see the assignment (on 2.22 it is followed by a repair of the task's
+// register: field, see below). It's best-effort: a template error doesn't
 // surface here (templating is lazy) or stop the redo, matching a plain redo.
 func (s *Session) Redo() (pause Pause, eof bool, err error) {
 	if s.varsSet {
 		s.varsSet = false
 		if _, werr := io.WriteString(s.replW, "update_task\n"); werr != nil {
+			return Pause{}, false, werr
+		}
+		if _, _, eof, err = s.readUntilPrompt(); err != nil || eof {
+			return Pause{}, eof, err
+		}
+		// ansible-core 2.22: update_task reloads the raw `register:` string,
+		// which Task._validate_register had turned into a {name: expression}
+		// projection when the task was first loaded - and the executor now
+		// expects the projection, so the worker dies on the redo of any task
+		// with register: ("'str' object has no attribute 'items'"). Do that
+		// translation again. A no-op wherever register is no longer a string
+		// (that bug fixed) or the method doesn't exist (before 2.22, where
+		// the string is what the executor wants).
+		fix := "if isinstance(task.register, str) and hasattr(task, '_validate_register'): task._validate_register(None, 'register', task.register)\n"
+		if _, werr := io.WriteString(s.replW, fix); werr != nil {
 			return Pause{}, false, werr
 		}
 		if _, _, eof, err = s.readUntilPrompt(); err != nil || eof {

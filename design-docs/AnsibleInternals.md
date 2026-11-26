@@ -188,13 +188,17 @@ session.go`, `DebugMode.md`):
 * **Scope objects**: `task_vars`, `task`, `host`, `result`, `play_context`.
   `task_vars`, `task` and `host` are in the docs; we also read
   `task.register` (the register name) and `result._return_data` (the value a
-  failed/ok task registered) - private (`livesession_debug.go`).
+  failed/ok task registered) - private (`livesession_debug.go`). Both are
+  asked for through one expression that handles the two shapes `result` has
+  had (`registeredValuesExpr`, "Tested releases" below).
 * **Evaluating expressions**: queries are sent as `p print(__import__
   ('json').dumps(<expr>, default=str)) or 0`: `p` runs a Python expression,
   and the `or 0` keeps the debugger from printing the `None`. Responses
   hundreds of KB long (a host's gathered facts) are read with a bounded
   prompt scan (`promptCheckTail`), after one version took ~20 s on a
   100 KB reply.
+* **Repairing `register:` after `update_task`** (2.22): see "Tested
+  releases"; `Session.Redo` sends one more line after `update_task`.
 * **Assigning**: `expr = value` in the watch panel is sent as a bare
   `task_vars[...] = value` line, which the debugger executes as Python
   because no command matches - relies on `Debugger`'s fall-through to
@@ -409,27 +413,36 @@ Results of `make test-ansible VERSION=...` (all three suites, a venv with
 | ansible-core | callback (Python) | unit | e2e | Notes |
 |---|---|---|---|---|
 | 2.19.11 | ok | ok | ok | the series everything was developed on |
-| 2.22.0 (2026-11-26) | ok | **5 failures** | ok after a test fix | see below |
+| 2.22.0 (2026-11-26) | ok | ok | ok | needed a port of the debug mode, see below |
 
-**2.22.0**:
+**2.22.0** (first run: callback ok; 5 unit failures, 6 e2e failures; all
+fixed below, then all three suites green):
 
 * The callback plugin passes, including byte-for-byte parity with
   `ansible.posix.jsonl`: #1 and #2 hold.
-* **The debugger's `result` object changed (#6).** In the debugger scope
-  `result` is now a `HostTaskResult(host, task, utr)`
-  (`ansible/_internal/_task.py`) holding a `UnifiedTaskResult`; the
-  `TaskResult` methods and attributes we query - `result.is_failed()` (only
-  used by `internal/debugrun/session_test.go`) and `result._return_data`
-  (`livesession_debug.go`, the value a task registered) - no longer exist
-  and the debugger answers `AttributeError`. Failing tests:
-  `TestSession_Redo`, `TestSession_Redo_MultiHostInterleaving`,
-  `TestSession_Set` (the redo it relies on never re-pauses),
-  `TestSession_Set_ReachesTaskArgumentsOnRedo` (all `internal/debugrun`),
-  `TestMergeRegisteredResult_Live` (`internal/session`). The debug e2e tests
-  pass, which means the registered-value merge degrades silently: the
-  Resolved/Variables views lack `register:` results. **Not yet ported.**
-  The replacement lives under `result.utr` (`failed`, `changed`, ...); what
-  carries the registered value has not been looked up.
+* **The debugger's `result` object changed (#6).** It is now a
+  `HostTaskResult(host, task, utr)` (`ansible/_internal/_task.py`) holding a
+  `UnifiedTaskResult`; `result.is_failed()` and `result._return_data` are
+  gone, and `task.register` is a mapping `{name: expression}` instead of the
+  name. Ported without a version switch in Go: one debugger expression
+  (`registeredValuesExpr`, `livesession_debug.go`) returns "what the task
+  registered" as a name -> value mapping on both shapes -
+  `result.utr.registered_values` from 2.22, `{task.register:
+  result._return_data}` before - and the tests ask `result.utr.failed` /
+  `result.utr.as_result_dict()` the same way (`session_test.go`).
+  `mergeRegisteredResult` now merges every registered name (a 2.22 task can
+  register several) and reports the first.
+* **`update_task` breaks tasks with `register:` (an ansible-core 2.22
+  defect, as far as we can tell).** The `register:` string is translated
+  into a projection by `Task._validate_register` when a task is first loaded;
+  the debugger's `update_task` reloads `task._ds`, leaves the raw string, and
+  the redo then dies in the worker (`'_AnsibleTaggedStr' object has no
+  attribute 'items'`, "A worker was found in a dead state"). `Session.Redo`
+  therefore sends one more line after `update_task` that calls
+  `task._validate_register(None, 'register', task.register)` when
+  `task.register` is still a string and the method exists - a no-op before
+  2.22 (no such method) and on a release that fixes it (not a string any
+  more). Private API (class A), pinned by `TestSession_Set*`.
 * **Vaulted values print as `$REDACTED$`** in an ad-hoc `ansible ... -m debug
   -a var=x` (also `msg={{ x }}`); a filter's result (`| upper`, `| b64encode`)
   is plain text again. Only the e2e tests' way of reading a value back was

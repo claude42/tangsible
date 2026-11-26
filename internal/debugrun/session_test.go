@@ -31,6 +31,15 @@ import (
 // requireAnsiblePlaybook skips the test if ansible-playbook isn't on
 // PATH - same pattern internal/vaultcrypto's own real-binary interop
 // tests already use, not just a one-off manual check.
+// What the paused task's result says, for both result shapes ansible-core has
+// had: before 2.22 the debugger's `result` is a TaskResult (is_failed(),
+// _return_data), from 2.22 a HostTaskResult whose `utr` holds the same
+// (design-docs/AnsibleInternals.md, "Tested releases").
+const (
+	resultFailedExpr = "(result.utr.failed if hasattr(result, 'utr') else result.is_failed())"
+	resultStdoutExpr = "(result.utr.as_result_dict() if hasattr(result, 'utr') else result._return_data)['stdout']"
+)
+
 func requireAnsiblePlaybook(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("ansible-playbook"); err != nil {
@@ -319,7 +328,7 @@ func TestSession_Redo(t *testing.T) {
 		t.Fatalf("first pause = %+v, want TASK: flaky task", pause)
 	}
 
-	raw, err := sess.Query("result.is_failed()")
+	raw, err := sess.Query(resultFailedExpr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +351,7 @@ func TestSession_Redo(t *testing.T) {
 		t.Errorf("redo pause = %+v, want the exact same task/host as %+v", redone, pause)
 	}
 
-	raw, err = sess.Query("result.is_failed()")
+	raw, err = sess.Query(resultFailedExpr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +446,7 @@ func TestSession_Redo_MultiHostInterleaving(t *testing.T) {
 
 	isFailed := func() bool {
 		t.Helper()
-		raw, err := sess.Query("result.is_failed()")
+		raw, err := sess.Query(resultFailedExpr)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -616,7 +625,7 @@ func TestSession_Set(t *testing.T) {
 		t.Fatalf("redo pause = %+v, want the same task", pause)
 	}
 
-	raw, err := sess.Query("result.is_failed()")
+	raw, err := sess.Query(resultFailedExpr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +693,7 @@ func TestSession_Set_ReachesTaskArgumentsOnRedo(t *testing.T) {
 
 	stdout := func() string {
 		t.Helper()
-		raw, err := sess.Query("result._return_data['stdout']")
+		raw, err := sess.Query(resultStdoutExpr)
 		if err != nil {
 			t.Fatal(err)
 		}
