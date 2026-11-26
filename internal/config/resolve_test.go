@@ -59,13 +59,69 @@ func TestParseVerb(t *testing.T) {
 			wantOK:   true,
 		},
 		{
-			name:   "unrecognized verb",
-			args:   []string{"site.yml", "-v"},
+			name:     "implicit run: a playbook first",
+			args:     []string{"site.yml", "-v"},
+			wantVerb: VerbRun,
+			wantRest: []string{"site.yml", "-v"},
+			wantOK:   true,
+		},
+		{
+			name:     "implicit run: upper-case extension",
+			args:     []string{"SITE.YAML"},
+			wantVerb: VerbRun,
+			wantRest: []string{"SITE.YAML"},
+			wantOK:   true,
+		},
+		{
+			name:     "implicit run: a flag first",
+			args:     []string{"-i", "hosts", "--limit", "web1"},
+			wantVerb: VerbRun,
+			wantRest: []string{"-i", "hosts", "--limit", "web1"},
+			wantOK:   true,
+		},
+		{
+			name:     "implicit run: tangsible's own flag first",
+			args:     []string{"--dialog"},
+			wantVerb: VerbRun,
+			wantRest: []string{"--dialog"},
+			wantOK:   true,
+		},
+		{
+			name:     "implicit run: no args at all",
+			args:     nil,
+			wantVerb: VerbRun,
+			wantRest: nil,
+			wantOK:   true,
+		},
+		{
+			name:     "--version is the version verb",
+			args:     []string{"--version"},
+			wantVerb: VerbVersion,
+			wantRest: nil,
+			wantOK:   true,
+		},
+		{
+			name:     "-V is the version verb",
+			args:     []string{"-V"},
+			wantVerb: VerbVersion,
+			wantRest: nil,
+			wantOK:   true,
+		},
+		{
+			name:     "a file named like a verb needs the run verb",
+			args:     []string{"run", "host"},
+			wantVerb: VerbRun,
+			wantRest: []string{"host"},
+			wantOK:   true,
+		},
+		{
+			name:   "a verb typo is not a playbook",
+			args:   []string{"rrun", "site.yml"},
 			wantOK: false,
 		},
 		{
-			name:   "no args at all",
-			args:   nil,
+			name:   "an extensionless word is not a playbook",
+			args:   []string{"site"},
 			wantOK: false,
 		},
 	}
@@ -597,5 +653,16 @@ func TestColorSchemeAuto(t *testing.T) {
 	cfg.General.ColorScheme = "auto"
 	if got := ColorSchemePreference(cfg); got != "dark" {
 		t.Errorf("unresolved auto: got %q, want dark", got)
+	}
+}
+
+func TestIsBareInvocation(t *testing.T) {
+	if !IsBareInvocation(nil) {
+		t.Error("no arguments is a bare invocation")
+	}
+	for _, args := range [][]string{{"site.yml"}, {"-i", "hosts"}, {"run"}} {
+		if IsBareInvocation(args) {
+			t.Errorf("%v is not a bare invocation", args)
+		}
 	}
 }

@@ -74,8 +74,6 @@ immediately implemented.
 * Watch mode (check for changes to playbook etc and then run automatically) -
   probably not
 
-* Execution environments
-
 * Directed graph visualizing dependencies between tasks - probably not
 
 * Mistral's ideas
@@ -87,11 +85,6 @@ immediately implemented.
 
 * edit file
 
-* hide encrypted values in drill down
-
-
-* allow tangsible run -l host playbook.yml (in addition to tangsible run
-  playbook.yml -l host)
 
 * tangsible rerun --only-failed
 
@@ -100,6 +93,21 @@ immediately implemented.
 * systemd integration
 
 * Host - use tree in play tab
+
+------
+
+Wild stuff
+
+* Get all origins of a variable
+* tangsible ee inspect
+* Debugging on EEs
+* Presets
+* no verb
+* Loops
+
+not so wild
+* variable explorer vs. facts
+
 
 ------
 

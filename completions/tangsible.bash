@@ -160,11 +160,25 @@ _tangsible()
 	prev=${COMP_WORDS[COMP_CWORD-1]}
 
 	if [ "$COMP_CWORD" -eq 1 ]; then
-		COMPREPLY=($(compgen -W "$_tangsible_verbs" -- "$cur"))
+		# the verb is optional (an implicit run): playbooks complete too
+		local verbs
+		verbs=($(compgen -W "$_tangsible_verbs" -- "$cur"))
+		_tangsible_ymlfiles "$cur"
+		COMPREPLY=("${verbs[@]}" "${COMPREPLY[@]}")
 		return
 	fi
 
 	verb=${COMP_WORDS[1]}
+	# not a verb: an implicit "run", completed like one (its own first
+	# word already counts as an argument)
+	local first=2
+	case " $_tangsible_verbs " in
+	*" $verb "*) ;;
+	*)
+		verb=run
+		first=1
+		;;
+	esac
 
 	# A fixed-choice ansible-playbook flag was just typed - complete its
 	# value from the choices ansible-core itself documents, not a file.
@@ -223,7 +237,7 @@ _tangsible()
 	# same shape splitPlaybookArgs/parseTemplateArgs/parseHostArgs give
 	# meaning to on tangsible's own side.
 	local pos=0 i w skip=0
-	for ((i = 2; i < COMP_CWORD; i++)); do
+	for ((i = first; i < COMP_CWORD; i++)); do
 		w=${COMP_WORDS[i]}
 		if [ "$skip" -eq 1 ]; then
 			skip=0

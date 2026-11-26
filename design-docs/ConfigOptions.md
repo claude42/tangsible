@@ -78,8 +78,9 @@ yet implemented" below).
 
 **`run_dialog`** — whether the re-run dialog opens at a session's startup
 (`RerunDialog.md`), independent of which Verb started it. `"default"`
-keeps the pre-existing per-Verb behavior (shown for `rerun`, not for
-`run`/`role`); `"never"`/`"always"` force it off/on regardless of Verb.
+keeps the pre-existing per-Verb behavior (shown for `rerun` and for a
+bare `tangsible` - an implicit `run` with no arguments at all, see
+`ImplicitRun.md` - not for `run`/`role`); `"never"`/`"always"` force it off/on regardless of Verb.
 Case-insensitive; any unrecognized value (including a typo) falls back to
 `"default"` (and warns, see "Mistakes in config.toml"), same convention as
 `default_tree_state`. An explicit

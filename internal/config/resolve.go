@@ -399,19 +399,32 @@ const (
 )
 
 // ParseVerb reads args[0] (os.Args[1:]) as the verb Tangsible was invoked
-// with. ok is false if args is empty or its first element isn't a
-// recognized verb - the caller treats that as a usage error.
+// with. A first argument that is not a verb is an implicit "run"
+// (design-docs/ImplicitRun.md) when there are no arguments at all, it
+// starts with "-", or it ends in .yml/.yaml (case-insensitive); "--version"
+// and "-V" are the version verb. ok is false for anything else - the caller
+// treats that as a usage error (a verb typo must not become a playbook).
 func ParseVerb(args []string) (v Verb, rest []string, ok bool) {
 	if len(args) == 0 {
-		return "", nil, false
+		return VerbRun, nil, true
 	}
 	switch Verb(args[0]) {
 	case VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbEE, VerbVersion, VerbDebug, VerbHelp:
 		return Verb(args[0]), args[1:], true
-	default:
-		return "", nil, false
 	}
+	if args[0] == "--version" || args[0] == "-V" {
+		return VerbVersion, args[1:], true
+	}
+	first := strings.ToLower(args[0])
+	if strings.HasPrefix(first, "-") || strings.HasSuffix(first, ".yml") || strings.HasSuffix(first, ".yaml") {
+		return VerbRun, args, true
+	}
+	return "", nil, false
 }
+
+// IsBareInvocation reports whether tangsible was started with no
+// arguments at all; that implicit run opens the run dialog first.
+func IsBareInvocation(args []string) bool { return len(args) == 0 }
 
 // ConfigHome implements the XDG Base Directory Specification's rule for
 // this exact case: $XDG_CONFIG_HOME if set and non-empty, else

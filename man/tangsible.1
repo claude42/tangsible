@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible" "1" "2026-11-21" "Tangsible" "Tangsible Manual"
+.TH "tangsible" "1" "2026-11-26" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -14,6 +14,10 @@ tangsible - a live terminal UI for ansible-playbook
 .SH SYNOPSIS
 .PP
 \fBtangsible\fR \fIverb\fR [\fIoptions\fR .\&.\&.\&] [\fIarguments\fR .\&.\&.\&]
+.PP
+\fBtangsible\fR [\fIoptions\fR .\&.\&.\&] [\fIplaybook.\&yml\fR]
+.PP
+\fBtangsible\fR
 .PP
 .SH DESCRIPTION
 .PP
@@ -26,6 +30,8 @@ In addition, tangsible provides useful utilities to rerun / analyze previous pla
 Every \fIverb\fR below is documented in its own manual page.\& This page covers what all of them have in common: configuration, environment variables, and files.\&
 .PP
 Options may come before or after a verb'\&s positional arguments (the playbook, role, hostname or file); the manual pages list them first.\& \fB--\fR ends the options.\&
+.PP
+The verb \fBrun\fR is optional.\& An invocation whose first argument is not a verb is a \fBrun\fR if that argument starts with \fB-\fR or ends in \fI.\&yml\fR or \fI.\&yaml\fR: \fBtangsible site.\&yml -i hosts\fR is \fBtangsible run site.\&yml -i hosts\fR.\& \fBtangsible\fR alone is \fBrun\fR with the re-run dialog opened first, so nothing starts until it is confirmed (\fBrun_dialog = "never"\fR turns the dialog off; see \fBtangsible-run\fR(1)).\& Any other first word is a usage error, so a mistyped verb is never taken for a playbook; a playbook without a \fI.\&yml\fR extension, or one named like a verb, needs \fBtangsible run\fR.\& \fB--version\fR and \fB-V\fR as the first argument print the \fBtangsible version\fR output.\&
 .PP
 .SH VERBS
 .PP

@@ -409,7 +409,8 @@ func Main(build BuildInfo) {
 			fmt.Fprintln(os.Stderr, "--dialog and --no-dialog cannot be combined")
 			os.Exit(2)
 		}
-		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, false)
+		// A bare "tangsible" asks first (design-docs/ImplicitRun.md).
+		showDialog = config.ResolveDialogVisibility(dialogOverride, runDialogPref, config.IsBareInvocation(os.Args[1:]))
 
 		// --ee/--no-ee, same stripping reasoning; also activates the
 		// execution environment and pulls its image before any TUI.

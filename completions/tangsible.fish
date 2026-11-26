@@ -42,6 +42,15 @@ end
 
 # --- Verb (the first positional) ---
 
+# The verb is optional (an implicit run, design-docs/ImplicitRun.md): the
+# first word may also be a playbook, and a first word that is not a verb
+# is completed like run's.
+function __tangsible_implicit_run
+	set -l tokens (commandline -opc)
+	test (count $tokens) -ge 2; and not contains -- $tokens[2] run rerun role template host hosts inventory revisit vault ee debug version help
+end
+complete -c tangsible -n '__fish_is_nth_token 1' -a '(__fish_complete_suffix .yml .yaml)' -d Playbook
+
 complete -c tangsible -n '__fish_is_nth_token 1' -a run -d 'Run a playbook, streaming its output live'
 complete -c tangsible -n '__fish_is_nth_token 1' -a rerun -d 'Re-run the last (or a given) playbook/role'
 complete -c tangsible -n '__fish_is_nth_token 1' -a role -d 'Run a single role in isolation'
@@ -127,7 +136,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcom
 # straight through regardless of which one), from ansible-playbook's own
 # --help output.
 
-set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit debug'
+set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit debug; or __tangsible_implicit_run'
 
 complete -c tangsible -n $__tangsible_has_verb -l help -d 'Show ansible-playbook help and exit'
 complete -c tangsible -n $__tangsible_has_verb -l version -d 'Show ansible-playbook version info and exit'
@@ -201,11 +210,11 @@ complete -c tangsible -n '__fish_seen_subcommand_from vault' -l ask-vault-pass -
 # ExtractDialogFlag/ExtractRerunFlags, internal/session/main.go) -
 # offering a flag a verb would reject as a usage error isn't "good
 # enough," it's actively wrong.
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun' -l start-at-play -x -d 'Start at this play (by name), dropping every earlier one'
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l dialog -d 'Always show the re-run dialog at startup'
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l no-dialog -d 'Never show the re-run dialog at startup'
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l ee -x -d 'Run inside this execution environment image (podman)'
-complete -c tangsible -n '__fish_seen_subcommand_from run rerun role' -l no-ee -d 'Run on the host even if an execution environment is configured'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun; or __tangsible_implicit_run' -l start-at-play -x -d 'Start at this play (by name), dropping every earlier one'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l dialog -d 'Always show the re-run dialog at startup'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l no-dialog -d 'Never show the re-run dialog at startup'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l ee -x -d 'Run inside this execution environment image (podman)'
+complete -c tangsible -n '__fish_seen_subcommand_from run rerun role; or __tangsible_implicit_run' -l no-ee -d 'Run on the host even if an execution environment is configured'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-failed -d 'Limit to hosts that failed last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l only-unreachable -d 'Limit to hosts that were unreachable last run'
 complete -c tangsible -n '__fish_seen_subcommand_from rerun' -l resume-where-failed -d 'Start at the first play with a failure, limited to failed hosts'

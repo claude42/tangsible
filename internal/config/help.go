@@ -89,7 +89,8 @@ func WriteHelp(w io.Writer, topic string) bool {
 	for _, h := range VerbHelpTable {
 		fmt.Fprintf(w, "tangsible %-*s  %s\n", width, h.Verb, h.Summary)
 	}
-	fmt.Fprintln(w, "\nSynopsis of one verb: tangsible help <verb>")
+	fmt.Fprintln(w, "\nThe run verb is optional: tangsible [options] [playbook.yml] is tangsible run, and a bare tangsible opens the run dialog.")
+	fmt.Fprintln(w, "Synopsis of one verb: tangsible help <verb>")
 	return true
 }
 

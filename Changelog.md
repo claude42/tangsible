@@ -2,31 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+
+- The `run` verb is optional: `tangsible site.yml -i hosts` or `tangsible -i hosts` is `tangsible run ...`, a bare `tangsible` opens the run dialog first, and `--version`/`-V` print the version
+- `debug`: `F6` stops a running session after the current task and leaves it in the debugger
+- `debug`: `r` starts over - back to the idle state with nothing run
+- `tangsible vault` supports several vault ids
+- `tangsible vault` opens a file even when no given password decrypts any of its values (all show as `<vaulted: label>`), so you can add values under a second vault id
+- `tangsible vault` on a file that does not exist creates it empty, and an empty file opens in the editor instead of failing
+- `debug`: the drill-down has a Variables tab, like the one of `tangsible host`: the variables the debugger saw when the task paused (vault values masked, facts and ansible's own variables left out), sorted, each with where it was defined (file and line, `-e`, `registered`)
+- Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
+
 ### Changed
 
 - `ee init` without `--base`/`base_image` now picks the community base image matching your host's ansible-core (the newest release of the same series if there is no exact one) instead of always the built-in default, which remains the fallback when the registry cannot be reached; `--latest` also takes the newest base image. `--no-galaxy` is replaced by `--offline`, which skips the registry lookup too
+- `ee init -t/--tag <name>` (repeatable): writes the definition's `options.tags` for real instead of the commented suggestion
 
-### Added
-
-- `debug`: `F6` stops a running session after the current task and leaves it in the debugger right there, like a breakpoint; shown in the bottom bar while running. `q` still does the same
-- `debug`: `r` starts over - back to the idle state with nothing run, rebuilt from the playbook and roles as they are on disk now (so edits show), breakpoints kept; the next F5/F10/F11 starts the run. `r` opens a small dialog (tags, skip tags, limit hosts) and Enter restarts; a paused run is ended by it, which the dialog says; also works in the drill-down
-- `tangsible vault` supports several vault ids: `--vault-id [label@]source` (repeatable; a file, a script or `prompt`), `--encrypt-vault-id`, and `vault_identity_list`/`vault_encrypt_identity` from `ansible.cfg` (or their environment variables). A value is decrypted with the password for its label first, then any other; a changed value keeps its label. Values none of your passwords opens show as `<vaulted: label>` and are saved unchanged, so someone with only the dev password can edit a file that also holds prod secrets
-- `tangsible vault` opens a file even when no given password decrypts any of its values (all show as `<vaulted: label>`), so you can add values under a second vault id; before, it failed with an HMAC error
-- `tangsible vault` on a file that does not exist creates it empty, and an empty file opens in the editor instead of failing; whatever variables you add are encrypted
-- `debug`: the drill-down has a Variables tab, like the one of `tangsible host`: the variables the debugger saw when the task paused (vault values masked, facts and ansible's own variables left out), sorted, each with where it was defined (file and line, `-e`, `registered`)
-- Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result), named like a `revisit` export (a dialog lets you change it)
+- `ee init --resolve-packages`: a binary several packages provide is now a commented list, one `# - package` line per candidate, so picking one means removing the `# `
 
 ### Fixed
 
 - Warnings and deprecations that ansible-core prints itself instead of putting them in a task result (a deprecated module such as `apt_repository`, a reserved variable name, a deprecated filter) now give the running task the ⚠ marker, count for the "Interesting" filter and show in its drill-down as "Warnings (task)"; the callback plugin reports them as a new `tangsible_message` event. A message that names its source (`Origin: file:line`) goes to the task defined there, even when ansible printed it while loading the roles, before the run started; others go to the task started last, which can be the one before the task they are about
 - A task result that carries only `deprecations` (ansible-core 2.19+ reports them apart from `warnings`) now gets the ⚠ marker, counts in the recap's `warnings`, and shows the deprecation (with its removal version) in the Warnings section of the drill-down
 - `ee init --resolve-packages`: the binary a `lookup('pipe', ...)` runs (e.g. in `group_vars`) is now detected and its package looked up, like a controller-side `shell` task's
-
-### Changed
-
-- `ee init -t/--tag <name>` (repeatable): writes the definition's `options.tags` for real instead of the commented suggestion
-
-- `ee init --resolve-packages`: a binary several packages provide is now a commented list, one `# - package` line per candidate, so picking one means removing the `# `
 
 ## [0.5.0] - 2026-11-22
 

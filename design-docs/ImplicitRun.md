@@ -1,6 +1,6 @@
 # Implicit `run`
 
-Status: **spec** (not implemented). Includes the flag-before-playbook rule
+Status: **implemented** (2026-11-26). Includes the flag-before-playbook rule
 ("Options before the playbook").
 
 ## Goal

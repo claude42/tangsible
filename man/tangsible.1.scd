@@ -8,6 +8,10 @@ tangsible - a live terminal UI for ansible-playbook
 
 *tangsible* _verb_ [_options_ ...] [_arguments_ ...]
 
+*tangsible* [_options_ ...] [_playbook.yml_]
+
+*tangsible*
+
 # DESCRIPTION
 
 *tangsible* wraps *ansible-playbook*(1) in a live, navigable tree of plays → tasks → hosts. It comes up immediately and updates live while the playbook is still running, and lets you drill into any host's result — task source, output, stderr, *--diff* output, full JSON — without losing your place in the run.
@@ -19,6 +23,8 @@ In addition, tangsible provides useful utilities to rerun / analyze previous pla
 Every _verb_ below is documented in its own manual page. This page covers what all of them have in common: configuration, environment variables, and files.
 
 Options may come before or after a verb's positional arguments (the playbook, role, hostname or file); the manual pages list them first. *--* ends the options.
+
+The verb *run* is optional. An invocation whose first argument is not a verb is a *run* if that argument starts with *-* or ends in _.yml_ or _.yaml_: *tangsible site.yml -i hosts* is *tangsible run site.yml -i hosts*. *tangsible* alone is *run* with the re-run dialog opened first, so nothing starts until it is confirmed (*run_dialog = "never"* turns the dialog off; see *tangsible-run*(1)). Any other first word is a usage error, so a mistyped verb is never taken for a playbook; a playbook without a _.yml_ extension, or one named like a verb, needs *tangsible run*. *--version* and *-V* as the first argument print the *tangsible version* output.
 
 # VERBS
 

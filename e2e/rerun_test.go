@@ -741,3 +741,49 @@ func TestE2E_CLIStartAtPlay(t *testing.T) {
 		t.Errorf("expected a \"Task definition\" tab for a task defined directly in the trimmed play:\n%s", got)
 	}
 }
+
+// TestE2E_ImplicitRun covers design-docs/ImplicitRun.md: tangsible without a
+// verb is `run` (a playbook or a flag first), and a bare tangsible opens the
+// run dialog and starts nothing until it is confirmed.
+func TestE2E_ImplicitRun(t *testing.T) {
+	requireE2ETools(t)
+	bin := buildE2EBinary(t)
+	playbook := filepath.Join(repoRoot(t), "testdata", "outcomes.yml")
+
+	t.Run("playbook first runs at once", func(t *testing.T) {
+		s := startTmuxSession(t)
+		s.send(fmt.Sprintf("cd %s && %s %s %s -i localhost,", shellQuote(t.TempDir()), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook)), "Enter")
+		s.waitFor("Playbook completed successfully", 15*time.Second)
+	})
+
+	t.Run("flag first, playbook after", func(t *testing.T) {
+		s := startTmuxSession(t)
+		s.send(fmt.Sprintf("cd %s && %s %s -i localhost, %s", shellQuote(t.TempDir()), e2eCallbackEnv(t), shellQuote(bin), shellQuote(playbook)), "Enter")
+		s.waitFor("Playbook completed successfully", 15*time.Second)
+	})
+
+	t.Run("bare tangsible opens the dialog first", func(t *testing.T) {
+		dir := t.TempDir()
+		data, err := os.ReadFile(playbook)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "site.yml"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s := startTmuxSession(t)
+		s.send(fmt.Sprintf("cd %s && %s %s", shellQuote(dir), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
+		s.waitFor("Re-run (enter: run, esc: cancel, F1: help)", 10*time.Second)
+		if strings.Contains(s.capture(), "Playbook completed") {
+			t.Fatal("the playbook ran before the dialog was confirmed")
+		}
+		s.send("Escape")
+	})
+
+	t.Run("a verb typo is a usage error", func(t *testing.T) {
+		out, err := exec.Command(bin, "rrun", "site.yml").CombinedOutput()
+		if err == nil || !strings.Contains(string(out), "usage: tangsible") {
+			t.Fatalf("want a usage error, got err=%v out=%q", err, out)
+		}
+	})
+}

@@ -13,7 +13,10 @@ design choices. `README.md` is the user-facing tour; `design-docs/Codemap.md`
 maps packages/files (verify against `grep`, it can drift);
 `design-docs/Keyboard-shortcuts.md` is the full key reference.
 
-One Go binary, twelve verbs (`internal/config/resolve.go`'s `ParseVerb`):
+One Go binary, twelve verbs (`internal/config/resolve.go`'s `ParseVerb`;
+the verb is optional for `run`: no arguments, a first argument starting
+with `-` or ending `.yml`/`.yaml` is an implicit `run`, bare `tangsible`
+opens its dialog first - `design-docs/ImplicitRun.md`):
 `run`, `rerun`, `role`, `revisit`, `debug` share the live tree/TUI
 machinery (`internal/session`) - `debug` (`design-docs/DebugMode.md`)
 adds breakpoint/pause state on top, not a second TUI of its own;

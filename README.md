@@ -145,6 +145,8 @@ Run a playbook on the host:
 tangsible run -i inventory.ini site.yml
 ```
 
+The `run` verb is optional: `tangsible -i inventory.ini site.yml` does the same, and a bare `tangsible` opens the run dialog for `./site.yml` (or your `default_playbook`) and starts when you confirm it.
+
 Pass Ansible arguments as you normally would:
 
 ```sh
