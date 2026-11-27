@@ -327,6 +327,9 @@ func (s *Session) Set(target, value string) error {
 	return nil
 }
 
+// jsonDefault is the json.dumps default Query uses (see there).
+const jsonDefault = `getattr(__import__('sys').modules.get('ansible.plugins.callback.tangsible_events'), '_json_default', str)`
+
 // Query evaluates expr against the currently paused task's own debugger
 // scope (task/host/task_vars/play_context/result - ansible-core's own
 // debugger globals) and returns its JSON-encoded result, without
@@ -334,10 +337,13 @@ func (s *Session) Set(target, value string) error {
 // JSON-serializable data; this wraps it exactly the way design-docs/
 // DebugMode.md's JSON-dump trick does, confirmed live: __import__('json')
 // is required since json isn't pre-imported into the debugger's own eval
-// globals, and default=str sanitizes non-JSON-serializable objects
-// (warnings, etc.) that can appear nested in a real result.
+// globals, and the default function sanitizes non-JSON-serializable objects
+// (warnings, etc.) that can appear nested in a real result: str(), except
+// that a vaulted value no available password opens (str() raises) becomes
+// the plugin's "<vaulted>" mask instead of failing the whole query - one
+// stale value in group_vars would otherwise blank every snapshot.
 func (s *Session) Query(expr string) (json.RawMessage, error) {
-	cmd := fmt.Sprintf("p print(__import__('json').dumps(%s, default=str)) or 0\n", expr)
+	cmd := fmt.Sprintf("p print(__import__('json').dumps(%s, default=%s)) or 0\n", expr, jsonDefault)
 	if _, err := io.WriteString(s.replW, cmd); err != nil {
 		return nil, err
 	}
