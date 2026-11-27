@@ -25,6 +25,7 @@ package e2e
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -691,4 +692,43 @@ func TestE2E_Debug_F6StopsAfterTheRunningTask(t *testing.T) {
 	// And the session carries on from there.
 	s.send("F5")
 	s.waitFor("Playbook completed successfully", 20*time.Second)
+}
+
+// TestE2E_Debug_StaleVaultedValueKeepsTheSnapshot: a vaulted value in
+// group_vars that no available password opens (a leftover from vault-id
+// experiments) used to make every debug snapshot fail, which removed the
+// Resolved and Variables tabs. Ansible only complains when such a value is
+// used, so the drill-down must still have both.
+func TestE2E_Debug_StaleVaultedValueKeepsTheSnapshot(t *testing.T) {
+	requireE2ETools(t)
+	pw := filepath.Join(t.TempDir(), "other-password.txt")
+	if err := os.WriteFile(pw, []byte("some other password\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := exec.Command("ansible-vault", "encrypt_string", "--vault-password-file", pw,
+		"--name", "stale_secret", "leftover-secret").Output()
+	if err != nil {
+		t.Skipf("ansible-vault unavailable: %v", err)
+	}
+	s, _ := startDebugSession(t, `- name: stale play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: greet
+      debug:
+        msg: "{{ greeting }} world"
+`, map[string]string{"group_vars/all.yml": "greeting: hello\n" + string(stale)}, "-i localhost,")
+
+	s.waitFor("F5: run", 15*time.Second)
+	s.send("F9")
+	s.waitForFieldValue("greet", "●", 5*time.Second)
+	s.send("F5")
+	s.waitFor("Task:   greet", 20*time.Second)
+	got := s.waitFor("Resolved", 10*time.Second) // resolved asynchronously
+	for _, tab := range []string{"Resolved", "Variables"} {
+		if !strings.Contains(got, tab) {
+			t.Errorf("the drill-down should have a %s tab despite the stale vaulted value:\n%s", tab, got)
+		}
+	}
 }

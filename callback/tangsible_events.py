@@ -101,7 +101,7 @@ def _fallback(value):
         return dict(value)
     if isinstance(value, (Set, tuple)):
         return list(value)
-    return str(value)
+    return _json_default(value)
 
 
 _VAULT_MAGIC = b"$ANSIBLE_VAULT"
