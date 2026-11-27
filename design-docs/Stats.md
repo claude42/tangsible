@@ -76,6 +76,15 @@ should be rendered normally. I hope you understand what I mean.
   via `ignore_errors`), maroon when it was unreachable (the tree's own
   colors; failed wins when both apply). Rows are separated by a blank line.
 
+* **Average line** (all three bar tabs, `renderBars`): with two or more rows
+  a dotted vertical line (`uikit.MarkerGlyph`, annotation color) marks the
+  mean of the rows' values, and the first line says `┆ average 12.3s`. The
+  line runs behind the labels (a label character is never replaced) and through
+  the blank lines between rows; on a filled bar it is drawn in the bar's text
+  color. On Slowest hosts the `elapsed` bar is not one of the values averaged.
+  Same scale as the bars, so a bar ends left of the line when it is faster than
+  average. One row has no average line.
+
 ### Slowest plays tab (implemented; first called Plays)
 
 * A play's bar is its wall-clock time: first task start to last finish,

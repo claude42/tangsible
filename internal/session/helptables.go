@@ -241,10 +241,10 @@ var statsHelp = uikit.HelpScreen{
 		{Title: "Tabs", Entries: []uikit.HelpEntry{
 			{Keys: "Tab / Shift-Tab", Desc: "Next / previous tab"},
 			{Keys: "Host overview", Desc: "The recap's per-host table: one line per host with its counts (ok, changed, failed, ...) and time"},
-			{Keys: "Slowest hosts", Desc: "The run's elapsed time, then the time each host spent on tasks, slowest first. A host that failed is red, an unreachable one maroon"},
-			{Keys: "Slowest plays", Desc: "How long each play took (first task start to last finish), slowest first. Red if a host failed in it, maroon if one was unreachable"},
+			{Keys: "Slowest hosts", Desc: "The run's elapsed time, then the time each host spent on tasks, slowest first. A host that failed is red, an unreachable one maroon. A dotted line marks the average of the hosts"},
+			{Keys: "Slowest plays", Desc: "How long each play took (first task start to last finish), slowest first. Red if a host failed in it, maroon if one was unreachable. A dotted line marks the average"},
 			{Keys: "Play timeline", Desc: "The plays in the order they ran, on a timeline: each bar starts when the play began and is as long as the play took (first task start to last finish). Colored as on Slowest plays"},
-			{Keys: "Slowest tasks", Desc: "Every task of the run as a bar of its wall time (first host start to last host finish), longest first. Colored as in the tree"},
+			{Keys: "Slowest tasks", Desc: "Every task of the run as a bar of its wall time (first host start to last host finish), longest first. Colored as in the tree. A dotted line marks the average"},
 			{Keys: "Task timeline", Desc: "One play's tasks on a timeline, in execution order: each bar starts when the task's first host started and ends when its last host finished. Colored as in the tree. ← / → pick the previous / next play, p opens the play picker (type to filter, Enter picks, Esc closes)"},
 		}},
 		{Title: "Scrolling", Entries: []uikit.HelpEntry{

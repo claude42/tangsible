@@ -49,6 +49,34 @@ func ContrastTextColor(bgName string) string {
 // cell is an eighth block, unless a label character needs that cell. The
 // result is exactly width cells wide, tview-tagged (label escaped).
 func LabeledBar(label string, fraction float64, width int, barColor, textColor, outsideColor string) string {
+	return LabeledBarMarked(label, fraction, width, barColor, textColor, outsideColor, -1, "")
+}
+
+// MarkerGlyph is the cell LabeledBarMarked and MarkerCell draw for a
+// reference line (the average on the statistics tabs): dotted, so it reads as
+// a guide behind the bars rather than as part of one.
+const MarkerGlyph = '┆'
+
+// MarkerCell is what a row with no bar of its own (the blank line between two
+// bars) shows at column mark of a width-cell area: spaces with the marker in
+// markColor, or just spaces when mark is outside the area.
+func MarkerCell(width, mark int, markColor string) string {
+	if width <= 0 {
+		return ""
+	}
+	if mark < 0 || mark >= width {
+		return strings.Repeat(" ", width)
+	}
+	return strings.Repeat(" ", mark) + fmt.Sprintf("[%s]%c[-]", markColor, MarkerGlyph) +
+		strings.Repeat(" ", width-mark-1)
+}
+
+// LabeledBarMarked is LabeledBar with a reference line: cell mark (0-based,
+// ignored when outside 0..width-1) shows MarkerGlyph, in markColor, wherever
+// no label character is - the line runs behind the text, so a name is never
+// cut. On a filled cell the glyph is drawn in the bar's text color
+// (readable on any bar color) over the bar.
+func LabeledBarMarked(label string, fraction float64, width int, barColor, textColor, outsideColor string, mark int, markColor string) string {
 	if width <= 0 {
 		return ""
 	}
@@ -74,39 +102,81 @@ func LabeledBar(label string, fraction float64, width int, barColor, textColor, 
 	}
 	inner := append([]rune{' '}, runes...) // the leading bar cell, then the label
 
-	var b strings.Builder
-	used := 0
-	if full > 0 {
-		inside := make([]rune, full)
-		for i := range inside {
-			inside[i] = ' '
-			if i < len(inner) {
-				inside[i] = inner[i]
-			}
+	const (
+		blank = iota
+		inverted
+		plain
+		sliver
+		marker
+		markerOnBar
+	)
+	type cell struct {
+		kind int
+		r    rune
+	}
+	cells := make([]cell, width)
+	for c := range cells {
+		cells[c] = cell{blank, ' '}
+	}
+	for c := 0; c < full; c++ {
+		cells[c] = cell{inverted, ' '}
+		if c < len(inner) {
+			cells[c].r = inner[c]
 		}
-		fmt.Fprintf(&b, "[%s:%s]%s[-:-]", textColor, barColor, tview.Escape(string(inside)))
-		used = full
 	}
 	switch {
 	case full == 0 && partial > 0:
 		// A bar under one cell: its sliver, then the label as it falls.
-		fmt.Fprintf(&b, "[%s]%c[-]", barColor, eighthBlocks[partial])
-		used = 1
-		if len(runes) > 0 {
-			fmt.Fprintf(&b, "[%s]%s[-]", outsideColor, tview.Escape(string(runes)))
-			used += len(runes)
+		cells[0] = cell{sliver, eighthBlocks[partial]}
+		for i, r := range runes {
+			cells[1+i] = cell{plain, r}
 		}
 	case len(inner) > full:
-		rest := string(inner[full:])
-		fmt.Fprintf(&b, "[%s]%s[-]", outsideColor, tview.Escape(rest))
-		used += len(inner) - full
+		for i, r := range inner[full:] {
+			cells[full+i] = cell{plain, r}
+		}
 	case partial > 0:
-		fmt.Fprintf(&b, "[%s]%c[-]", barColor, eighthBlocks[partial])
-		used++
+		cells[full] = cell{sliver, eighthBlocks[partial]}
 	}
-	if used < width {
-		b.WriteString(strings.Repeat(" ", width-used))
+	if mark >= 0 && mark < width {
+		switch c := cells[mark]; {
+		case c.kind == blank:
+			cells[mark] = cell{marker, MarkerGlyph}
+		case c.kind == inverted && c.r == ' ':
+			cells[mark] = cell{markerOnBar, MarkerGlyph}
+		}
 	}
+
+	var b strings.Builder
+	prev, run := -1, ""
+	flush := func() {
+		if run == "" {
+			return
+		}
+		switch prev {
+		case inverted:
+			fmt.Fprintf(&b, "[%s:%s]%s[-:-]", textColor, barColor, tview.Escape(run))
+		case markerOnBar:
+			fmt.Fprintf(&b, "[%s:%s]%s[-:-]", textColor, barColor, run)
+		case plain:
+			fmt.Fprintf(&b, "[%s]%s[-]", outsideColor, tview.Escape(run))
+		case sliver:
+			fmt.Fprintf(&b, "[%s]%s[-]", barColor, run)
+		case marker:
+			fmt.Fprintf(&b, "[%s]%s[-]", markColor, run)
+		default:
+			b.WriteString(run)
+		}
+		run = ""
+	}
+	for _, c := range cells {
+		if c.kind != prev {
+			flush()
+			prev = c.kind
+		}
+		run += string(c.r)
+	}
+	flush()
 	return b.String()
 }
 

@@ -267,6 +267,9 @@ type statRow struct {
 	label string
 	total time.Duration
 	color string
+	// notInAverage keeps the row out of the average line (the Hosts tab's
+	// elapsed bar is the run, not one of the hosts).
+	notInAverage bool
 }
 
 // statusColor is a row's bar color: red when it failed, maroon when
@@ -285,10 +288,14 @@ func statusColor(failed, unreachable bool, normal string) string {
 // each row is a bar with its label drawn inside it (uikit.LabeledBar -
 // inverted on the filled cells, plain where it runs past the bar) and the
 // duration in a right-aligned column after it. Bars share one scale, the
-// longest row filling the bar area; a blank line separates rows.
+// longest row filling the bar area; a blank line separates rows. With two or
+// more rows a dotted vertical line marks the average of the rows' values
+// (the legend above the bars gives it as a number); it runs behind the labels
+// and through the blank lines.
 func renderBars(rows []statRow, width int) string {
 	durWidth := 0
-	var longest time.Duration
+	var longest, sum time.Duration
+	counted := 0
 	for _, r := range rows {
 		if n := len(uikit.FormatDuration(r.total)); n > durWidth {
 			durWidth = n
@@ -296,23 +303,39 @@ func renderBars(rows []statRow, width int) string {
 		if r.total > longest {
 			longest = r.total
 		}
+		if !r.notInAverage {
+			sum += r.total
+			counted++
+		}
 	}
 	barWidth := width - durWidth - 2 // bar + " " + dur, 1 spare
 	if barWidth < 20 {
 		barWidth = 20
 	}
+	mark := -1
+	var average time.Duration
+	if counted >= 2 && longest > 0 {
+		average = sum / time.Duration(counted)
+		mark = int(float64(average) / float64(longest) * float64(barWidth))
+		if mark > barWidth-1 {
+			mark = barWidth - 1
+		}
+	}
 	var b strings.Builder
+	if mark >= 0 {
+		fmt.Fprintf(&b, "[%s]%c average %s[-]", uikit.AnnotationColor, uikit.MarkerGlyph, uikit.FormatDuration(average))
+	}
 	b.WriteString("\n")
 	for i, r := range rows {
 		if i > 0 {
-			b.WriteString("\n")
+			b.WriteString(uikit.MarkerCell(barWidth, mark, uikit.AnnotationColor) + "\n")
 		}
 		fraction := 0.0
 		if longest > 0 {
 			fraction = float64(r.total) / float64(longest)
 		}
 		fmt.Fprintf(&b, "%s [%s]%*s[-]\n",
-			uikit.LabeledBar(r.label, fraction, barWidth, r.color, uikit.ContrastTextColor(r.color), uikit.StandardTextColor),
+			uikit.LabeledBarMarked(r.label, fraction, barWidth, r.color, uikit.ContrastTextColor(r.color), uikit.StandardTextColor, mark, uikit.AnnotationColor),
 			r.color, durWidth, uikit.FormatDuration(r.total))
 	}
 	return b.String()
@@ -325,10 +348,10 @@ func renderBars(rows []statRow, width int) string {
 func renderHostsTab(stats runStats, width int) string {
 	var rows []statRow
 	if stats.Wall > 0 {
-		rows = append(rows, statRow{elapsedLabel, stats.Wall, uikit.AnnotationColor})
+		rows = append(rows, statRow{label: elapsedLabel, total: stats.Wall, color: uikit.AnnotationColor, notInAverage: true})
 	}
 	for _, h := range stats.Hosts {
-		rows = append(rows, statRow{h.Host, h.Total, statusColor(h.Failed, h.Unreachable, uikit.ValueHighlightColor)})
+		rows = append(rows, statRow{label: h.Host, total: h.Total, color: statusColor(h.Failed, h.Unreachable, uikit.ValueHighlightColor)})
 	}
 	return renderBars(rows, width)
 }
@@ -342,7 +365,7 @@ func renderPlaysTab(stats runStats, width int) string {
 	}
 	var rows []statRow
 	for _, p := range stats.Plays {
-		rows = append(rows, statRow{p.Name, p.Wall, statusColor(p.Failed, p.Unreachable, uikit.ValueHighlightColor)})
+		rows = append(rows, statRow{label: p.Name, total: p.Wall, color: statusColor(p.Failed, p.Unreachable, uikit.ValueHighlightColor)})
 	}
 	return renderBars(rows, width)
 }
@@ -357,7 +380,7 @@ func renderAllTasksTab(stats runStats, width int) string {
 	}
 	rows := make([]statRow, len(stats.AllTasks))
 	for i, t := range stats.AllTasks {
-		rows[i] = statRow{t.Name, t.Wall, t.Color}
+		rows[i] = statRow{label: t.Name, total: t.Wall, color: t.Color}
 	}
 	return renderBars(rows, width)
 }

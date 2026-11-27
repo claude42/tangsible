@@ -125,3 +125,32 @@ func TestSpanBarEdges(t *testing.T) {
 		}
 	}
 }
+
+func TestLabeledBarMarked(t *testing.T) {
+	// The marker shows on a blank cell and on a filled one...
+	if plain := plainCells(LabeledBarMarked("a", 0.5, 10, "blue", "#fff", "silver", 8, "gray")); plain != " a      ┆ " {
+		t.Errorf("blank cell: %q", plain)
+	}
+	got := LabeledBarMarked("a", 1, 10, "blue", "#fff", "silver", 5, "gray")
+	if plain := plainCells(got); plain != " a   ┆    " {
+		t.Errorf("filled cell: %q", plain)
+	}
+	if !strings.Contains(got, "[#fff:blue]┆[-:-]") {
+		t.Errorf("on the bar the marker takes the bar's text color: %q", got)
+	}
+	// ...but never over a label character, and a marker outside the area is ignored.
+	if plain := plainCells(LabeledBarMarked("abc", 1, 10, "blue", "#fff", "silver", 2, "gray")); plain != plainCells(LabeledBar("abc", 1, 10, "blue", "#fff", "silver")) {
+		t.Errorf("a label character stays: %q", plain)
+	}
+	for _, m := range []int{-1, 10, 99} {
+		if a, b := LabeledBarMarked("x", 0.3, 10, "blue", "#fff", "silver", m, "gray"), LabeledBar("x", 0.3, 10, "blue", "#fff", "silver"); a != b {
+			t.Errorf("mark %d should change nothing: %q vs %q", m, a, b)
+		}
+	}
+	if got := plainCells(MarkerCell(6, 2, "gray")); got != "  ┆   " {
+		t.Errorf("MarkerCell = %q", got)
+	}
+	if got := MarkerCell(4, 9, "gray"); got != "    " {
+		t.Errorf("MarkerCell out of range = %q", got)
+	}
+}

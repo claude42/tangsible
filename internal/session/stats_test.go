@@ -121,9 +121,31 @@ func TestRenderHostsTabColorsAndSpacing(t *testing.T) {
 		}
 	}
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
-	// leading blank, a, blank, b, blank, c
-	if len(lines) != 6 || lines[0] != "" || lines[2] != "" || lines[4] != "" {
+	// legend, a, blank, b, blank, c (the blank lines carry the average line)
+	blank := func(i int) bool { return strings.TrimSpace(tagPatternForTest.ReplaceAllString(lines[i], "")) == "┆" }
+	if len(lines) != 6 || !strings.Contains(lines[0], "average 2.0s") || !blank(2) || !blank(4) {
 		t.Errorf("want a blank line between hosts, got:\n%q", lines)
+	}
+}
+
+func TestRenderBarsAverageLine(t *testing.T) {
+	plain := func(s string) string { return tagPatternForTest.ReplaceAllString(s, "") }
+	stats := runStats{Wall: 100 * time.Second, Hosts: []hostStat{
+		{Host: "a", Total: 30 * time.Second},
+		{Host: "b", Total: 10 * time.Second},
+	}}
+	got := renderHostsTab(stats, 52) // duration column 6 -> 44-cell bars, 100s = 44 cells
+	if !strings.Contains(plain(got), "average 20.0s") {
+		t.Errorf("the legend names the average of the hosts, not the elapsed bar:\n%s", plain(got))
+	}
+	// 20s of 100s on 44 cells: column 8, on every line of the bar area.
+	for i, line := range strings.Split(strings.TrimRight(plain(got), "\n"), "\n")[1:] {
+		if r := []rune(line); len(r) < 9 || r[8] != '┆' {
+			t.Errorf("line %d has no marker: %q", i, line)
+		}
+	}
+	if one := renderHostsTab(runStats{Hosts: stats.Hosts[:1]}, 52); strings.Contains(one, "┆") {
+		t.Errorf("one row has no average line:\n%s", one)
 	}
 }
 
