@@ -1047,6 +1047,18 @@ class VariablesActionTests(unittest.TestCase):
             os.makedirs(os.path.join(tmp, "host_vars", "h1"))
             with open(os.path.join(tmp, "group_vars", "all.yml"), "w") as handle:
                 handle.write("plain: hello\nrepeat: pre-a top secret db password\n" + block)
+            # A value encrypted with a password we do not pass: ansible only
+            # complains when it is used, so listing must not fail either.
+            other = os.path.join(tmp, "other-password.txt")
+            with open(other, "w") as handle:
+                handle.write("some other password\n")
+            stale = subprocess.run(
+                ["ansible-vault", "encrypt_string", "--vault-password-file", other,
+                 "--name", "stale_secret", "leftover-secret-1"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            with open(os.path.join(tmp, "group_vars", "all.yml"), "a") as handle:
+                handle.write(stale)
             whole = os.path.join(tmp, "host_vars", "h1", "whole.yml")
             with open(whole, "w") as handle:
                 handle.write("whole_secret: hunter22\n")
@@ -1088,6 +1100,7 @@ class VariablesActionTests(unittest.TestCase):
         self.assertEqual(variables["inv_var"], 1)
         self.assertEqual(variables["db_password"], "<vaulted>")  # inline !vault
         self.assertEqual(variables["whole_secret"], "<vaulted>")  # wholly encrypted file
+        self.assertEqual(variables["stale_secret"], "<vaulted>")  # no password opens it
         self.assertEqual(variables["repeat"], "pre-<vaulted>")  # text of a secret
         self.assertTrue(origins["plain"]["path"].endswith("group_vars/all.yml"))
         self.assertEqual(origins["plain"]["line"], 1)

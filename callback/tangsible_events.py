@@ -262,6 +262,20 @@ def tangsible_snapshot(task_vars):
 
 
 _PLACEHOLDER = "<vaulted>"
+
+
+def _json_default(value):
+    """str() for values json cannot encode; the mask for an undecryptable one.
+
+    A vaulted value no available password opens (a stale or foreign vault id)
+    raises on str(). Ansible only raises when such a variable is used, so one
+    unused leftover must not fail the whole listing: it is masked like any
+    vaulted value (tangsible_snapshot already lists its path).
+    """
+    try:
+        return str(value)
+    except Exception:
+        return _PLACEHOLDER
 _MIN_SECRET_LEN = 4
 
 
@@ -316,7 +330,7 @@ def tangsible_variables(task_vars, stub_path=None):
         return "'-e'" in info.get("desc", "")
 
     kept = {name: value for name, value in snap["vars"].items() if wanted(name, value)}
-    plain = json.loads(json.dumps(kept, default=str))
+    plain = json.loads(json.dumps(kept, default=_json_default))
     for path in snap["vaulted"]:
         if path and path[0] in plain:
             _set_at_path(plain, path)

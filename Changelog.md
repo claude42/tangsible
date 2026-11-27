@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- `host`: the Variables tab no longer fails with "Decryption failed (no vault secrets were found that could decrypt)" when one of the host's vaulted values cannot be opened with the given password (such a value now shows as `<vaulted>`)
 - `debug` works with ansible-core 2.22: its debugger hands out a different result object (registered values missing from the Resolved and Variables views) and redoing a task with `register:` after changing a variable killed the run
 - Warnings and deprecations that ansible-core prints itself instead of putting them in a task result now give the running task the ⚠ marker
 - A task result that carries only `deprecations` (ansible-core 2.19+ reports them apart from `warnings`) now gets the ⚠ marker
