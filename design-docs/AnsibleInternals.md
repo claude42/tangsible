@@ -197,8 +197,9 @@ session.go`, `DebugMode.md`):
   hundreds of KB long (a host's gathered facts) are read with a bounded
   prompt scan (`promptCheckTail`), after one version took ~20 s on a
   100 KB reply.
-* **Repairing `register:` after `update_task`** (2.22): see "Tested
-  releases"; `Session.Redo` sends one more line after `update_task`.
+* **Repairing `register:` after `update_task`** (2.22; ansible issue
+  #87981): see "Tested releases"; `Session.Redo` sends one more line after
+  `update_task`. Stays until no supported release lacks the upstream fix.
 * **Assigning**: `expr = value` in the watch panel is sent as a bare
   `task_vars[...] = value` line, which the debugger executes as Python
   because no command matches - relies on `Debugger`'s fall-through to
@@ -433,7 +434,13 @@ fixed below, then all three suites green):
   `mergeRegisteredResult` now merges every registered name (a 2.22 task can
   register several) and reports the first.
 * **`update_task` breaks tasks with `register:` (an ansible-core 2.22
-  defect, as far as we can tell).** The `register:` string is translated
+  defect, reported).** Issue
+  <https://github.com/ansible/ansible/issues/87981>, fix proposed in
+  <https://github.com/ansible/ansible/pull/87982>. Affected: 2.22.0 and
+  2.22.1rc1 (2.19.11 is fine). **Keep the workaround below** even after a
+  fixed release ships: 2.22.0 is in the wild, and the repair is a no-op on a
+  fixed release. Drop it only when no release we support lacks the fix.
+  The `register:` string is translated
   into a projection by `Task._validate_register` when a task is first loaded;
   the debugger's `update_task` reloads `task._ds`, leaves the raw string, and
   the redo then dies in the worker (`'_AnsibleTaggedStr' object has no
