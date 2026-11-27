@@ -960,6 +960,41 @@ class ParityTests(Base):
                              re.sub(r'"msg": "[^"]*"', "", b))
 
 
+class JsonFallbackTests(unittest.TestCase):
+    """The JSON defaults must not raise on a vaulted value no password opens
+    (str() of one raises): a raise in the event stream would end the run's
+    events, and one in a snapshot blanks every tab built from it."""
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "tangsible_events_under_test", os.path.join(cls.ROOT, "callback", "tangsible_events.py"))
+        cls.plugin = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.plugin)
+
+    class Unopenable:
+        def __str__(self):
+            raise RuntimeError("Decryption failed (no vault secrets were found that could decrypt)")
+
+    def test_fallback_masks_an_unopenable_value(self):
+        self.assertEqual(self.plugin._fallback(self.Unopenable()), "<vaulted>")
+        self.assertEqual(self.plugin._json_default(self.Unopenable()), "<vaulted>")
+
+    def test_fallback_keeps_its_other_conversions(self):
+        when = datetime.date(2026, 11, 27)
+        self.assertEqual(self.plugin._fallback(when), "2026-11-27")
+        self.assertEqual(self.plugin._fallback(b"ab"), "ab")
+        self.assertEqual(self.plugin._fallback((1, 2)), [1, 2])
+        self.assertEqual(self.plugin._fallback(object.__new__(type("X", (), {"__str__": lambda s: "x"}))), "x")
+
+    def test_a_payload_with_one_still_dumps(self):
+        text = json.dumps({"a": 1, "b": self.Unopenable()}, default=self.plugin._fallback)
+        self.assertEqual(json.loads(text), {"a": 1, "b": "<vaulted>"})
+
+
 class SnapshotHelperTests(unittest.TestCase):
     """tangsible_snapshot, queried through the real debugger REPL."""
 
