@@ -52,8 +52,8 @@ should be rendered normally. I hope you understand what I mean.
 
 * Hosts are sorted by duration, slowest first.
 * The screen opens only after the run has ended (and only if timing was
-  recorded - a run log from before durations existed has none). More tabs
-  will follow later (so far Hosts and Plays).
+  recorded - a run log from before durations existed has none). The tabs are
+  listed under "Tab names and order" at the end.
 * A host's bar is its total: the sum of its tasks' own durations
   (`uikit.HostDuration`). Hosts run in parallel, so these don't add up to the
   run time. The first bar, `elapsed`, is the run's own time (first task start
@@ -75,15 +75,6 @@ should be rendered normally. I hope you understand what I mean.
 * A host's bar is red when it had a genuinely failed task (not one ignored
   via `ignore_errors`), maroon when it was unreachable (the tree's own
   colors; failed wins when both apply). Rows are separated by a blank line.
-
-* **Average line** (all three bar tabs, `renderBars`): with two or more rows
-  a dotted vertical line (`uikit.MarkerGlyph`, annotation color) marks the
-  mean of the rows' values, and the first line says `┆ average 12.3s`. The
-  line runs behind the labels (a label character is never replaced) and through
-  the blank lines between rows; on a filled bar it is drawn in the bar's text
-  color. On Slowest hosts the `elapsed` bar is not one of the values averaged.
-  Same scale as the bars, so a bar ends left of the line when it is faster than
-  average. One row has no average line.
 
 ### Slowest plays tab (implemented; first called Plays)
 
@@ -171,6 +162,28 @@ Plays without timing are left out.
   unreachable, ignored, changed, ok, skipped - `taskColor`).
 * Tasks without timing are left out (nothing to rank them by). No play
   column: the name alone, so equal names in different plays look alike.
+
+### Average line (Slowest hosts, Slowest plays, Slowest tasks)
+
+`renderBars` marks the average of the rows' values with a dotted vertical line
+(`uikit.MarkerGlyph`, annotation color), and the first line of the tab names
+it: `┆ average 12.3s` (where the tab used to start with a blank line).
+
+* **Which rows**: all displayed rows, except the `elapsed` bar of Slowest
+  hosts (the run, not one of the hosts - `statRow.notInAverage`). Fewer than
+  two rows: no line, no legend.
+* **Position**: the same scale as the bars (the longest row fills the area),
+  so a bar that ends left of the line is faster than average. The cell is the
+  one the average falls in, never past the last.
+* **Drawing** (`uikit.LabeledBarMarked`, `uikit.MarkerCell`): the line runs
+  behind the text - a label character is never replaced, so a name is never
+  cut - and through the blank separator lines, so it reads as one line. On a
+  filled bar the glyph takes the bar's text color (readable on every bar color,
+  red and maroon included); elsewhere it is the annotation color. A bar that
+  ends exactly at the line (the row at the average) shows its end block, not the
+  dot.
+* The timeline tabs have none: their bars are positions in time, not
+  quantities to average.
 
 ### Host overview
 

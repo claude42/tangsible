@@ -1,0 +1,15 @@
+# Fixture for `tangsible variables` (design-docs/Variables.md): the same
+# variables defined at several levels, so every one has a winner and
+# shadowed definitions. Use with -i inventory/hosts.ini.
+- name: Configure the web servers
+  hosts: web
+  gather_facts: false
+  roles:
+    - app
+
+- name: Only the database
+  hosts: db
+  gather_facts: false
+  tasks:
+    - ansible.builtin.debug:
+        msg: nothing

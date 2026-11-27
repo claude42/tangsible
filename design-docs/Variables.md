@@ -101,3 +101,88 @@ drill-down, for a chosen host, showing what is in effect at that task (play
 which play and task is selected. That tab is "v2" of `variables`.
 
 Order of work: `view` first (it needs the static layer), `variables` second.
+
+
+## As built (2026-11-27)
+
+**Implemented**: `tangsible variables [ansible-playbook options] hostname
+[playbook.yml]` (v1: no play-level variables). Packages `internal/varscrawl`
+(data) and `internal/variables` (screen); fixture `testdata/variables`.
+
+* **One mechanism, not two.** The discussion above planned the winner from the
+  host verb's stub play and the other definitions from a static crawl. Both
+  now come from one embedded Python script (`varscrawl/loader.py`) that uses
+  ansible's own code: `PlaybookCLI(...)._play_prereqs()` for the inventory,
+  then, in the order of `C.VARIABLE_PRECEDENCE`, the same calls
+  `VariableManager.get_vars` makes - but one source at a time, so each layer
+  keeps the file and line of every value (data tags, 2.19+). Ansible's own
+  merged answer for the same context (`variable_manager.get_vars(play, host)`)
+  comes from the same script, no play runs, and is what the crawl is checked
+  against. This is not a static YAML crawl in Go: group trees, `group_vars`
+  directories, vault, `-i` handling and role loading are ansible's. See
+  `AnsibleInternals.md` #21.
+* **The real order of precedence** (lowest first), which is not the simplified
+  list in the discussion above: role defaults; inventory file `[all:vars]`;
+  inventory file group vars (parents before children); inventory
+  `group_vars/all`; playbook `group_vars/all`; inventory `group_vars/<group>`;
+  playbook `group_vars/<group>`; inventory file host vars; inventory
+  `host_vars`; playbook `host_vars`; (facts, not shown); play vars and
+  `vars_files` (v2); role vars; (block/task vars, `set_fact`: not shown);
+  `-e`. A playbook's `group_vars` therefore do *not* lose to an inventory's
+  `host_vars` file by directory but by level, as above. The first six
+  precedence entries are matched by name from ansible's configuration.
+* **Inventory beside the playbook.** Ansible reads `group_vars`/`host_vars`
+  next to every inventory source and next to the playbook; in a project whose
+  inventory sits in the playbook's directory that is one directory read twice,
+  and every variable would show the same file as two definitions. The
+  playbook's level is higher (it comes after the inventory's at each step), so
+  that one is listed and the inventory's level for the same directory is
+  skipped (also for two inventory sources in one directory). Without a
+  playbook there is no playbook level, so the inventory's stays.
+* **Which roles**: those of every play whose host pattern matches the host
+  (the pattern is evaluated against the inventory; a templated one is skipped
+  with a note). Several applying plays are treated as one set; the check
+  against ansible's answer is made only when exactly one or no play applies.
+* **Disagreement** (`Variable.Disagree`): ansible's winner differs from the
+  crawl's first definition. Ansible's definition moves to the top (or is added
+  as `ansible's answer` when the crawl never found it), the variable shows a
+  `?`, and expanded it says the order below the first row is our
+  reconstruction. On the fixture and in the tests the two always agree.
+* **Booleans and null** carry no origin tag in ansible; their file is found by
+  searching the layer's files for the key (last file first) and they are
+  compared with ansible's answer by value.
+* **Screen**: a tree like the `inventory` verb's - `Enter`/click expands a
+  variable to its definitions (winner marked `●`), `E`/`C` all, host chosen
+  with `←`/`→` (no wraparound) or the `h` picker (a modal list, not tabs: it
+  scales to many hosts), per-host results cached for the session, expansion
+  kept by variable name across hosts, the cursor kept by variable and
+  definition across a reload. `e` opens the definition's file (no line
+  number: as in the drill-downs) and reloads everything when the editor
+  returns; `R` reloads. Values are one line (a multi-line string is cut with
+  `…`), vaulted ones `<vaulted>`. Not built: search (`/`), copy.
+* **The file view.** `Enter` on a *definition* row (not the variable's own row,
+  which still expands) opens one tab with the file as it is on disk
+  (`variables/filepane.go`): the definition's lines marked in the selected-row
+  style (the key's line and, for a top-level key, the indented lines and list
+  items of its value), YAML keys highlighted, scrolled so the marked line is on
+  screen - from the top when it is on the first screen, else a third of the way
+  down. Wide terminals (`uikit.SplitMinTotalWidth`) use the two-pane layout of
+  the other views, the list left (its columns laid out for its own width), the
+  divider draggable; narrower ones show the pane alone. `Esc`/`q` close it
+  (`Esc` first ends a search), arrows/paging scroll, `/` `n` `N` search, `y`
+  copies the whole file, `e` edits it and the data is read again afterwards -
+  the pane then shows the same definition (found again by variable name and
+  position in its list) and closes if it is gone. A click on another
+  definition in the two-pane layout shows that file instead. Not shown: a file
+  encrypted as a whole with ansible-vault (a notice instead - the file's own
+  ciphertext is not useful), binary or over-1-MB files; a definition that is
+  no file (`-e`) says so in the bottom bar. No line-number gutter (so `y`
+  copies the file as it is).
+* **Left out of v1, as planned**: play `vars:`/`vars_files:`, block and task
+  vars, `set_fact`/`register`, facts; `variables path/to/role` (no host);
+  `--ask-vault-pass` (use a password file); execution environments (host
+  side, like the other standalone verbs); `include_role` with a computed name;
+  group_vars next to roles (`PLAYBOOK_VARS_ROOT=all` search paths).
+* **Next** (v2): the Variables tab of `view`'s drill-down for a chosen host
+  (play and task level), built on the same layers.
+

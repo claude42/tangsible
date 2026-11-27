@@ -13,14 +13,14 @@ design choices. `README.md` is the user-facing tour; `design-docs/Codemap.md`
 maps packages/files (verify against `grep`, it can drift);
 `design-docs/Keyboard-shortcuts.md` is the full key reference.
 
-One Go binary, thirteen verbs (`internal/config/resolve.go`'s `ParseVerb`;
+One Go binary, fourteen verbs (`internal/config/resolve.go`'s `ParseVerb`;
 the verb is optional for `run`: no arguments, a first argument starting
 with `-` or ending `.yml`/`.yaml` is an implicit `run`, bare `tangsible`
 opens its dialog first - `design-docs/ImplicitRun.md`):
 `run`, `rerun`, `role`, `revisit`, `debug`, `view` share the live tree/TUI
 machinery (`internal/session`) - `debug` (`design-docs/DebugMode.md`)
 adds breakpoint/pause state on top, not a second TUI of its own;
-`template`, `host`/`hosts`/`inventory`, `vault`, `ee init`/`ee verify`/`ee build`/`ee push`, `version` are standalone
+`template`, `host`/`hosts`/`inventory`, `variables`, `vault`, `ee init`/`ee verify`/`ee build`/`ee push`, `version` are standalone
 programs that never build the live tree. Requires `ansible-playbook` and
 a real TTY. Root `main.go` just calls `session.Main`.
 
@@ -64,7 +64,7 @@ dialogs, search, help, colors - nothing verb-specific) · `internal/config`
 progress/outcome of one `ansible-playbook` generation) · `internal/source`
 (task YAML source lookup) · `internal/session` (run/rerun/role/debug
 orchestration + the live TUI) · one package per standalone verb (`role`,
-`template`, `host`, `revisit`, `diff`, `vault*`) · `internal/staticplay` (`view`'s static
+`template`, `host`, `revisit`, `diff`, `vault*`) · `internal/varscrawl` + `internal/variables` (`tangsible variables`: the crawl - ansible's own code, one variable source at a time in precedence order, plus ansible's own merged answer to check it against - and the standalone screen; `design-docs/Variables.md`) · `internal/staticplay` (`view`'s static
 playbook loader: ansible's own parser in an embedded Python script, so `view`
 shows a playbook's plays and tasks - with host pattern, source and docs - and
 runs nothing; `design-docs/View.md`) · `internal/debugcopy`/
@@ -358,6 +358,7 @@ backgrounds. Plain text uses `standard_text` (view-wide via `SetTextColor`, or
   Session.Redo`), but never a later task - only valid while the current
   selection is exactly the live pause (`debugIsPaused`), since that's the
   only task/host `task_vars` exists for right now.
+- **Variables** (`Variables.md`): `tangsible variables hostname [playbook]` - where each variable of a host is defined, all definitions in ansible's order of precedence. `internal/varscrawl/loader.py` makes `VariableManager.get_vars`'s own calls one source at a time (so each layer keeps file and line) and also asks ansible for its merged answer; `varscrawl.merge` puts ansible's winner on top and flags a disagreement (`?`). Host side only; play-level variables are v2. Private ansible API: `AnsibleInternals.md` #21.
 - **Execution environments** (`ExecutionEnvironments.md`): `run`/`rerun`/
   `role` (and a rerun from `revisit`) run in a podman container when
   `[execution_environment]` or `--ee` names an image (`--no-ee` forces the

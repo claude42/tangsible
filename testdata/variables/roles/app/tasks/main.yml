@@ -1,0 +1,2 @@
+- ansible.builtin.debug:
+    msg: "{{ app_name }} on {{ listen_port }}"

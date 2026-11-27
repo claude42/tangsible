@@ -4,6 +4,7 @@
 
 ### Added
 
+- `tangsible variables hostname [playbook.yml]`: where each variable of a host is defined - one line per variable with the winning value and its file and line, `Enter` shows every definition in order of precedence (inventory, `group_vars`/`host_vars`, role `defaults`/`vars`, `-e`); `Enter` on a definition shows its file with the line marked; `←`/`→`/`h` switch hosts, `e` edits the file
 - Statistics: the Slowest hosts, Slowest plays and Slowest tasks tabs draw a dotted vertical line at the average, and say what it is on the first line
 - `tangsible view`: browse a playbook's plays and tasks without running anything; `Enter` on a task shows its Task (with the play's `Hosts:`), Task definition and Docs tabs, `r` runs it; `R` (and returning from the editor opened with `e`) reads the playbook again
 - The `run` verb is now optional - `tangsible site.yml` or `tangsible run site.yml` are equivalent, a bare `tangsible` opens the run dialog first.  This makes `#!/usr/bin/env tangsible` even nicer
@@ -23,6 +24,7 @@
 
 ### Fixed
 
+- `debug`: the Resolved and Variables tabs and the variable explorer came up empty when any variable in scope was vaulted with a password that isn't available (a stale file in `group_vars`)
 - `host`: the Variables tab no longer fails with "Decryption failed (no vault secrets were found that could decrypt)" when one of the host's vaulted values cannot be opened with the given password (such a value now shows as `<vaulted>`)
 - `debug` works with ansible-core 2.22: its debugger hands out a different result object (registered values missing from the Resolved and Variables views) and redoing a task with `register:` after changing a variable killed the run
 - Warnings and deprecations that ansible-core prints itself instead of putting them in a task result now give the running task the ⚠ marker

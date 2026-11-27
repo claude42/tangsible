@@ -47,7 +47,7 @@ end
 # is completed like run's.
 function __tangsible_implicit_run
 	set -l tokens (commandline -opc)
-	test (count $tokens) -ge 2; and not contains -- $tokens[2] run rerun role template host hosts inventory revisit vault ee debug view version help
+	test (count $tokens) -ge 2; and not contains -- $tokens[2] run rerun role template host hosts inventory revisit vault ee debug view variables version help
 end
 complete -c tangsible -n '__fish_is_nth_token 1' -a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 
@@ -63,12 +63,13 @@ complete -c tangsible -n '__fish_is_nth_token 1' -a vault -d 'Edit vault-encrypt
 complete -c tangsible -n '__fish_is_nth_token 1' -a ee -d 'Draft an execution-environment.yml from a playbook'
 complete -c tangsible -n '__fish_is_nth_token 1' -a debug -d 'Set breakpoints and step through a playbook'
 complete -c tangsible -n '__fish_is_nth_token 1' -a view -d 'Browse a playbook without running it'
+complete -c tangsible -n '__fish_is_nth_token 1' -a variables -d 'Where each variable of a host is defined'
 complete -c tangsible -n '__fish_is_nth_token 1' -a version -d 'Print version and build info, then exit'
 complete -c tangsible -n '__fish_is_nth_token 1' -a help -d 'List all verbs with their synopsis'
 
 # --- Verb-specific positionals ---
 
-complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_token 2' -a 'run rerun role template host hosts inventory revisit vault ee debug view version help'
+complete -c tangsible -n '__fish_seen_subcommand_from help; and __fish_is_nth_token 2' -a 'run rerun role template host hosts inventory revisit vault ee debug view variables version help'
 
 # run/rerun/hosts/inventory/revisit/debug: tangsible <playbook.yml> [ansible-playbook args...]
 # revisit's own positional is optional too (falls back to the most
@@ -94,7 +95,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from template; and __fish_is_nt
 # host: tangsible host <hostname> [<playbook>] [ansible-playbook args...]
 # Same "no dynamic hostname completion" reasoning as template's 2nd arg,
 # applied here to the 1st.
-complete -c tangsible -n '__fish_seen_subcommand_from host; and __fish_is_nth_token 3' \
+complete -c tangsible -n '__fish_seen_subcommand_from host variables; and __fish_is_nth_token 3' \
 	-a '(__fish_complete_suffix .yml .yaml)' -d Playbook
 
 # vault: tangsible vault <filename> [--vault-password-file <path> | --ask-vault-pass] [--vault-id id@source]... [--encrypt-vault-id <label>]
@@ -137,7 +138,7 @@ complete -c tangsible -n '__fish_seen_subcommand_from ee; and __fish_seen_subcom
 # straight through regardless of which one), from ansible-playbook's own
 # --help output.
 
-set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit debug view; or __tangsible_implicit_run'
+set -l __tangsible_has_verb '__fish_seen_subcommand_from run rerun role template host hosts inventory revisit debug view variables; or __tangsible_implicit_run'
 
 complete -c tangsible -n $__tangsible_has_verb -l help -d 'Show ansible-playbook help and exit'
 complete -c tangsible -n $__tangsible_has_verb -l version -d 'Show ansible-playbook version info and exit'

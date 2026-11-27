@@ -84,7 +84,7 @@ func Parse(out []byte) (Playbook, error) {
 func Load(playbook string) (Playbook, error) {
 	python := "python3"
 	if runner.ExecutionEnvironment() == nil {
-		python = interpreterOf("ansible-playbook", python)
+		python = InterpreterOf("ansible-playbook", python)
 	}
 	cmd, err := runner.NewToolCommand(python, []string{"-c", loaderScript, playbook}, runner.ToolOptions{})
 	if err != nil {
@@ -102,9 +102,9 @@ func Load(playbook string) (Playbook, error) {
 	return Parse(stdout.Bytes())
 }
 
-// interpreterOf returns the interpreter named by tool's shebang line, or
+// InterpreterOf returns the interpreter named by tool's shebang line, or
 // fallback when the tool, or a usable shebang, isn't found.
-func interpreterOf(tool, fallback string) string {
+func InterpreterOf(tool, fallback string) string {
 	path, err := exec.LookPath(tool)
 	if err != nil {
 		return fallback

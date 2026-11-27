@@ -300,6 +300,27 @@ read the way ansible-playbook reads it, nothing run.
   hosts, every task with its source path) plus a `View` side table (the
   task facts and each play's host pattern, keyed by node); `PlayOf`.
 
+## internal/varscrawl and internal/variables
+
+`tangsible variables` (`design-docs/Variables.md`). `varscrawl` is the data
+(no tview), `variables` the standalone screen.
+
+- **varscrawl/loader.py** - embedded Python script, run as `python3 -c` on the
+  host with `ansible-playbook`'s interpreter: ansible's own calls for each
+  source of a host's variables, in precedence order, one layer each, plus
+  ansible's own merged answer. JSON on stdout.
+- **varscrawl/crawl.go** - `Run` (spawns it), `Parse`/`merge` (layers ->
+  `Variable`s with definitions highest precedence first, checked against
+  ansible's answer: `Disagree`), `Definition`, `Result`.
+- **variables/rows.go, render.go** - pure: which rows, value/level/location
+  text, column widths, the selected-row style.
+- **variables/filepane.go** - the file view of a definition (pure): file text
+  with the definition's lines marked (`renderFile`, `definitionSpan`),
+  `scrollOffset`.
+- **variables/run.go** - `RunVariablesVerb`: arguments like `host`, the
+  `screen` (tree, host switching with `←`/`→`/`h`, `e`, `R`, per-host cache,
+  async load). **helptables.go** - help and bottom bar.
+
 ## internal/debugverb
 
 The "debug" verb's own headless glue (`design-docs/DebugMode.md`'s

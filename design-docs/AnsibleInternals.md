@@ -53,6 +53,7 @@ series unless a line says so; "Tested releases" at the end has the results of
 | 18 | Variable names ansible provides itself | E | `tangsible_events.py` (`_BUILTIN_VARS`) | a variable labelled wrongly |
 | 19 | Exit codes and the `ansible-playbook` flag table | B/E | `internal/runner/process.go`, `internal/config/playbookargs.go` | wrong status line; a flag with a value misread as the playbook |
 | 20 | Execution-environment image conventions, Galaxy API | D | `internal/ee`, `internal/runner/ee.go`, `internal/eeinit/galaxy.go` | EE runs fail to start; collection versions unresolved |
+| 21 | The variable sources, one at a time: `PlaybookCLI._play_prereqs`, `get_vars_from_path`, `Group`/`Host`/`Role` variable methods, `VARIABLE_PRECEDENCE` | A | `internal/varscrawl/loader.py` | `tangsible variables` exits with the error; or the order is wrong (the check against ansible's own answer marks it) |
 
 ## 1. The callback plugin: hooks and objects (class B, A)
 
@@ -169,11 +170,56 @@ init_plugin_loader()` (needed so `ansible.builtin.*` resolves),
 * Without an inventory, a `hosts:` or name that needs variables stays
   unexpanded (shown as written).
 * The interpreter is read from `ansible-playbook`'s shebang line
-  (`staticplay.interpreterOf`), because `python3` need not be the one ansible
+  (`staticplay.InterpreterOf`), because `python3` need not be the one ansible
   is installed in (pipx). Inside an execution environment: plain `python3`.
 * **Failure mode**: any exception prints its message on stderr, exit 1;
   `view` prints `couldn't read <playbook>: ...` and never starts the TUI
   (`e2e/view_test.go`). A reload (`R`) keeps the old tree.
+
+## 21. The variable sources (class A) - `variables`
+
+`internal/varscrawl/loader.py` lists a host's variables level by level instead
+of asking ansible for the merged result, so every definition keeps its file
+and line. It makes the calls `ansible.vars.manager.VariableManager.get_vars`
+makes, one source at a time, in the order of `C.VARIABLE_PRECEDENCE`:
+
+* **Setup**: `ansible.cli.playbook.PlaybookCLI(args).parse()` and
+  `cli._play_prereqs()` (private) - the same inventory, vault secrets, `-i`,
+  `-e` handling as `ansible-playbook`, from the user's own options.
+  `Playbook.load` and `pb._basedir` (private; `ansible-playbook` makes it the
+  loader's basedir) for the playbook directory.
+* **Layers**: `play.roles[i].get_default_vars()` / `.get_vars(include_params=
+  False, only_exports=False)` / `._role_path`; `Group.get_vars()`,
+  `Host.get_vars()`, `host.get_groups()` ordered like the private
+  `sort_groups` (depth, priority, name); `ansible.vars.plugins.
+  get_vars_from_path(loader, path, [entity], 'task')` for `group_vars`/
+  `host_vars` directories (stage `task`, as `get_vars` calls it - `inventory`
+  skips the plugin under the default `RUN_VARS_PLUGINS`), `loader.
+  find_vars_files`, `variable_manager.extra_vars`. The names of the default
+  precedence entries (`all_inventory`, `groups_inventory`,
+  `all_plugins_inventory`, `all_plugins_play`, `groups_plugins_inventory`,
+  `groups_plugins_play`) are matched by name; an unknown one is reported as a
+  note, not guessed.
+* **The check**: `variable_manager.get_vars(play, host, include_hostvars=
+  False)` is ansible's own merged answer for the same context; its values
+  carry an `Origin` tag, so the winner's file and line is compared with the
+  layers'. Only when at most one play applies (several would need one answer
+  per play).
+* **Origins** are the data tags of 2.19+ (#3). A boolean or null cannot carry a
+  tag: for those the layer's files are searched for the top-level key by regex
+  (`top_level_line`), last file first, and the winner comparison falls back to
+  comparing values.
+* **Masking**: the loader imports `callback/tangsible_events.py` by path
+  (`importlib`) and uses `tangsible_variables`, so a vaulted value never leaves
+  the process (the fix of 2026-11-27 applies: a value no password opens is
+  masked, it does not fail the listing).
+* **Left out**: play and task variables, facts, `vars_files` (a note names
+  them), `PLAYBOOK_VARS_ROOT` search paths beyond the playbook directory.
+* **Failure mode**: any exception prints its message on stderr, exit 1; the
+  screen shows it where the list would be (an unknown host is caught earlier,
+  by the inventory listing). Tested against the fixture `testdata/variables`
+  (`internal/varscrawl`, `e2e/variables_test.go`), including that the crawl
+  and ansible agree on every variable.
 
 ## 6. The task debugger's REPL (class B/A) - `debug`
 
@@ -192,7 +238,7 @@ session.go`, `DebugMode.md`):
   asked for through one expression that handles the two shapes `result` has
   had (`registeredValuesExpr`, "Tested releases" below).
 * **Evaluating expressions**: queries are sent as `p print(__import__
-  ('json').dumps(<expr>, default=str)) or 0`: `p` runs a Python expression,
+  ('json').dumps(<expr>, default=<f>)) or 0` (`f` = the plugin's `_json_default`, else `str`; `str()` of an undecryptable vaulted value raises): `p` runs a Python expression,
   and the `or 0` keeps the debugger from printing the `None`. Responses
   hundreds of KB long (a host's gathered facts) are read with a bounded
   prompt scan (`promptCheckTail`), after one version took ~20 s on a
@@ -415,6 +461,11 @@ Results of `make test-ansible VERSION=...` (all three suites, a venv with
 |---|---|---|---|---|
 | 2.19.11 | ok | ok | ok | the series everything was developed on |
 | 2.22.0 (2026-11-26) | ok | ok | ok | needed a port of the debug mode, see below |
+
+`tangsible variables` (#21) came after this table: its `internal/varscrawl`
+tests (the loader against `testdata/variables`, including that the crawl and
+ansible's own answer agree on every variable) pass on 2.19.11 and 2.22.0; the
+full `make test-ansible` has not been re-run since.
 
 **2.22.0** (first run: callback ok; 5 unit failures, 6 e2e failures; all
 fixed below, then all three suites green):

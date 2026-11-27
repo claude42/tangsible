@@ -56,7 +56,7 @@ func TestVerbHelpTableCoversEveryVerb(t *testing.T) {
 		}
 	}
 	// Every verb ParseVerb accepts needs an entry.
-	for _, v := range []Verb{VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbEE, VerbVersion, VerbDebug, VerbView, VerbHelp} {
+	for _, v := range []Verb{VerbRun, VerbRerun, VerbRole, VerbTemplate, VerbHost, VerbHosts, VerbInventory, VerbRevisit, VerbVault, VerbEE, VerbVersion, VerbDebug, VerbView, VerbVariables, VerbHelp} {
 		if _, ok := LookupVerbHelp(v); !ok {
 			t.Errorf("verb %q has no help entry", v)
 		}
