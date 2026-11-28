@@ -140,7 +140,7 @@ func TestE2E_View_ReloadsAfterEditsAndKeepsTheOldTreeOnAnError(t *testing.T) {
 	write(original)
 	// An "editor" that renames the second task in the file it is given.
 	editor := filepath.Join(dir, "editor.sh")
-	if err := os.WriteFile(editor, []byte("#!/bin/sh\nsed -i 's/second task/second task, edited/' \"$1\"\n"), 0o755); err != nil {
+	if err := os.WriteFile(editor, []byte("#!/bin/sh\nsed -i.bak 's/second task/second task, edited/' \"$1\" && rm -f \"$1.bak\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

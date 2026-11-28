@@ -9,7 +9,7 @@
     - web
   tasks:
     - name: main one
-      ansible.builtin.command: /bin/true
+      ansible.builtin.command: "true"
       when: x is defined
     - block:
         - name: in block

@@ -12,7 +12,7 @@
       command: echo nope
       when: false
     - name: failed task
-      command: /bin/false
+      command: "false"
       ignore_errors: true
     - name: after failure
       debug:

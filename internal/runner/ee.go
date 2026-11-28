@@ -224,10 +224,13 @@ func (r *eeRun) abort() {
 }
 
 // newEventFIFO creates the scratch directory with its "events" FIFO and
-// opens both host-side ends. The reader is opened non-blocking (a blocking
-// open waits for a writer); the holder then supplies the writer a FIFO
-// needs so the reader doesn't see EOF before the container's plugin has
-// opened it. Closing the holder is what finally lets the reader reach EOF.
+// opens both host-side ends. A non-blocking read end comes first (a
+// blocking open waits for a writer); the holder then supplies the writer a
+// FIFO needs so the reader doesn't see EOF before the container's plugin
+// has opened it. Closing the holder is what finally lets the reader reach
+// EOF. The reader actually returned is reopened in blocking mode once the
+// holder exists: Go keeps FIFOs out of kqueue on darwin (golang/go#24164),
+// so a non-blocking one would hand EAGAIN to the scanner as an error.
 func newEventFIFO() (dir string, reader, holder *os.File, err error) {
 	dir, err = os.MkdirTemp("", "tangsible-ee-")
 	if err != nil {
@@ -238,14 +241,20 @@ func newEventFIFO() (dir string, reader, holder *os.File, err error) {
 		os.RemoveAll(dir)
 		return "", nil, nil, fmt.Errorf("couldn't create the event pipe: %w", err)
 	}
-	reader, err = os.OpenFile(fifo, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	opener, err := os.OpenFile(fifo, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		os.RemoveAll(dir)
 		return "", nil, nil, err
 	}
+	defer opener.Close()
 	holder, err = os.OpenFile(fifo, os.O_WRONLY, 0)
 	if err != nil {
-		reader.Close()
+		os.RemoveAll(dir)
+		return "", nil, nil, err
+	}
+	reader, err = os.OpenFile(fifo, os.O_RDONLY, 0)
+	if err != nil {
+		holder.Close()
 		os.RemoveAll(dir)
 		return "", nil, nil, err
 	}

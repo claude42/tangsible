@@ -5,7 +5,7 @@
   gather_facts: false
   tasks:
     - name: diverging task
-      command: /bin/false
+      command: "false"
       when: inventory_hostname == "host1"
       ignore_errors: true
     - name: shared ok task

@@ -554,8 +554,17 @@ func TestHostCountsFor(t *testing.T) {
 	}
 }
 
+// pinLocalZone makes time.Local a fixed UTC+3 for one test, so the
+// local-time conversion is exercised the same way on every machine.
+func pinLocalZone(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("UTC+3", 3*3600)
+	t.Cleanup(func() { time.Local = old })
+}
+
 func TestFormatRecentTime(t *testing.T) {
-	if got, want := formatRecentTime("2026-09-10T10:12:00Z"), "2026-09-10 10:12"; got != want {
+	pinLocalZone(t)
+	if got, want := formatRecentTime("2026-09-10T10:12:00Z"), "2026-09-10 13:12"; got != want {
 		t.Errorf("formatRecentTime() = %q, want %q", got, want)
 	}
 	// Falls back to the raw string on a parse failure - shouldn't happen
@@ -566,10 +575,11 @@ func TestFormatRecentTime(t *testing.T) {
 }
 
 func TestFormatRecentRunLines(t *testing.T) {
+	pinLocalZone(t)
 	got := formatRecentRunLines([]recentRunLine{
 		{name: "site.yml", time: "2026-09-10T10:12:00Z", counts: hostRunCounts{OK: 189, Skipped: 50, Changed: 7}},
 	})
-	want := "[green]2026-09-10 10:12 site.yml:[-] [lightsteelblue]ok=189  skipped=50   changed=7    unreachable=0    failed=0    warnings=0    ignored=0[-]\n"
+	want := "[green]2026-09-10 13:12 site.yml:[-] [lightsteelblue]ok=189  skipped=50   changed=7    unreachable=0    failed=0    warnings=0    ignored=0[-]\n"
 	if got != want {
 		t.Errorf("formatRecentRunLines() = %q, want %q", got, want)
 	}

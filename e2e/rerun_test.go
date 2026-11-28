@@ -116,7 +116,9 @@ type tmuxSession struct {
 func startTmuxSession(t *testing.T) *tmuxSession {
 	t.Helper()
 	name := fmt.Sprintf("tangsible-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
-	if out, err := exec.Command("tmux", "new-session", "-d", "-s", name, "-x", "160", "-y", "45").CombinedOutput(); err != nil {
+	// /bin/sh, not the user's login shell: the typed commands are POSIX
+	// (`$?`, `VAR=x cmd`), which fish, for one, rejects.
+	if out, err := exec.Command("tmux", "new-session", "-d", "-s", name, "-x", "160", "-y", "45", "/bin/sh").CombinedOutput(); err != nil {
 		t.Fatalf("tmux new-session: %v\n%s", err, out)
 	}
 	s := &tmuxSession{name: name, t: t}
@@ -384,7 +386,7 @@ func writeFailedUnreachableFixture(t *testing.T, workDir string) (playbookPath, 
     - name: ok task
       command: echo hi
     - name: fail on web2
-      command: /bin/false
+      command: "false"
       when: inventory_hostname == "web2"
 `
 	if err := os.WriteFile(playbookPath, []byte(playbookYAML), 0o644); err != nil {

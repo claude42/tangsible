@@ -57,7 +57,7 @@ func Label(o Origin, copyDir, playbookDir, base string) string {
 			line = UnspliceLine(path, line)
 			path = playbookDir + strings.TrimPrefix(path, copyDir)
 		}
-		if rel, err := filepath.Rel(base, path); err == nil && !strings.HasPrefix(rel, "..") {
+		if rel, ok := relUnder(base, path); ok {
 			path = rel
 		}
 		if line > 0 {
@@ -79,6 +79,22 @@ func Label(o Origin, copyDir, playbookDir, base string) string {
 		return "registered"
 	}
 	return ""
+}
+
+// relUnder returns path relative to base when it lies under it. Ansible
+// reports real paths, while base usually comes from $PWD and may go
+// through a symlink (macOS's /var -> /private/var, a symlinked project),
+// so base's resolved form is tried as well.
+func relUnder(base, path string) (string, bool) {
+	if rel, err := filepath.Rel(base, path); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel, true
+	}
+	if real, err := filepath.EvalSymlinks(base); err == nil && real != base {
+		if rel, err := filepath.Rel(real, path); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel, true
+		}
+	}
+	return "", false
 }
 
 // UnspliceLine maps a line of a file in the debug shadow copy back to the

@@ -53,16 +53,36 @@ func procComm(pid int) string {
 	return strings.TrimSpace(string(b))
 }
 
+// procNames returns what pid is recognized by: its comm on Linux (cut at
+// 15 chars); without /proc (macOS) the basenames of its first two
+// arguments, since ps names a script's interpreter there, not the script.
+func procNames(pid int) []string {
+	if comm := procComm(pid); comm != "" {
+		return []string{comm}
+	}
+	out, _ := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	var names []string
+	for i, f := range strings.Fields(string(out)) {
+		if i == 2 {
+			break
+		}
+		names = append(names, filepath.Base(f))
+	}
+	return names
+}
+
 // findDescendant walks the process tree under root (breadth first) for the
-// first process whose comm starts with prefix (comm is cut at 15 chars).
+// first process one of whose procNames starts with prefix.
 func findDescendant(root int, prefix string) int {
 	queue := []int{root}
 	for len(queue) > 0 {
 		pid := queue[0]
 		queue = queue[1:]
 		for _, c := range pgrepChildren(pid) {
-			if strings.HasPrefix(procComm(c), prefix) {
-				return c
+			for _, name := range procNames(c) {
+				if strings.HasPrefix(name, prefix) {
+					return c
+				}
 			}
 			queue = append(queue, c)
 		}
@@ -100,7 +120,7 @@ func waitGone(t *testing.T, pid int, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for syscall.Kill(pid, 0) == nil {
 		if time.Now().After(deadline) {
-			t.Fatalf("process %d (%s) still alive after %s", pid, procComm(pid), timeout)
+			t.Fatalf("process %d (%s) still alive after %s", pid, strings.Join(procNames(pid), " "), timeout)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

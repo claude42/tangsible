@@ -123,7 +123,7 @@ func TestE2E_Variables_EditsAFileAndReads(t *testing.T) {
 	requireE2ETools(t)
 	dir := copyVariablesFixture(t)
 	editor := filepath.Join(dir, "editor.sh")
-	if err := os.WriteFile(editor, []byte("#!/bin/sh\nsed -i 's/^listen_port: 4000/listen_port: 4444/' \"$1\"\n"), 0o755); err != nil {
+	if err := os.WriteFile(editor, []byte("#!/bin/sh\nsed -i.bak 's/^listen_port: 4000/listen_port: 4444/' \"$1\" && rm -f \"$1.bak\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	s := startTmuxSession(t)
@@ -228,7 +228,7 @@ func TestE2E_Variables_EditingFromTheFilePaneShowsTheNewContents(t *testing.T) {
 	requireE2ETools(t)
 	dir := copyVariablesFixture(t)
 	editor := filepath.Join(dir, "editor.sh")
-	if err := os.WriteFile(editor, []byte("#!/bin/sh\nsed -i 's/^listen_port: 3000/listen_port: 3333/' \"$1\"\n"), 0o755); err != nil {
+	if err := os.WriteFile(editor, []byte("#!/bin/sh\nsed -i.bak 's/^listen_port: 3000/listen_port: 3333/' \"$1\" && rm -f \"$1.bak\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	s := startTmuxSession(t)

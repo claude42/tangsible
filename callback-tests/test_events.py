@@ -315,7 +315,7 @@ class EventStreamTests(Base):
             - hosts: all
               gather_facts: false
               tasks:
-                - command: /bin/true
+                - command: "true"
         """)
         self.assertEqual(self.of(events, "playbook_on_task_start")[0]["task"]["name"],
                          "command")
@@ -340,12 +340,12 @@ class EventStreamTests(Base):
               gather_facts: false
               tasks:
                 - name: changed
-                  command: /bin/true
+                  command: "true"
                 - name: skipped
                   debug: msg=x
                   when: false
                 - name: ignored
-                  command: /bin/false
+                  command: "false"
                   ignore_errors: true
                 - name: fatal
                   fail: msg=boom
@@ -383,7 +383,7 @@ class EventStreamTests(Base):
             - hosts: all
               gather_facts: false
               tasks:
-                - command: /bin/true
+                - command: "true"
                   notify: h1
               handlers:
                 - name: h1
@@ -550,11 +550,11 @@ class StatsTests(Base):
         - hosts: all
           gather_facts: false
           tasks:
-            - command: /bin/true
+            - command: "true"
             - debug: msg=x
             - debug: msg=y
               when: false
-            - command: /bin/false
+            - command: "false"
               ignore_errors: true
             - set_stats: {data: {global_key: 1}}
             - set_stats: {data: {host_key: 2}, per_host: true}
@@ -681,7 +681,7 @@ class AdditionTests(Base):
               gather_facts: false
               strategy: free
               tasks:
-                - command: /bin/true
+                - command: "true"
                   changed_when: true
                   notify: h
               handlers:
@@ -697,7 +697,7 @@ class AdditionTests(Base):
             - hosts: all
               gather_facts: false
               tasks:
-                - command: /bin/true
+                - command: "true"
                   changed_when: true
                   notify: h
               handlers:
@@ -714,7 +714,7 @@ class AdditionTests(Base):
               gather_facts: false
               tasks:
                 - name: ignored
-                  command: /bin/false
+                  command: "false"
                   ignore_errors: true
                 - name: fatal
                   fail: msg=boom
@@ -731,7 +731,7 @@ class AdditionTests(Base):
             - hosts: all
               gather_facts: false
               tasks:
-                - command: /bin/true
+                - command: "true"
                   changed_when: true
                   notify: h
                 - debug: msg=later
@@ -792,12 +792,12 @@ class ParityTests(Base):
                 - name: ok
                   debug: msg=hi
                 - name: changed
-                  command: /bin/true
+                  command: "true"
                 - name: skipped
                   debug: msg=x
                   when: false
                 - name: ignored
-                  command: /bin/false
+                  command: "false"
                   ignore_errors: true
                 - name: loop
                   debug: msg={{ item }}
@@ -823,7 +823,7 @@ class ParityTests(Base):
             - hosts: all
               gather_facts: false
               tasks:
-                - command: /bin/true
+                - command: "true"
                   notify: h1
                 - block:
                     - fail: msg=x
@@ -839,7 +839,7 @@ class ParityTests(Base):
             - hosts: all
               gather_facts: false
               tasks:
-                - command: /bin/false
+                - command: "false"
                   register: r
                   retries: 2
                   delay: 0

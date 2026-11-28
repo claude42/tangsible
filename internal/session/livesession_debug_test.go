@@ -56,7 +56,7 @@ func TestMergeRegisteredResult_Live(t *testing.T) {
   gather_facts: false
   tasks:
     - name: run something
-      ansible.builtin.command: /bin/true
+      ansible.builtin.command: "true"
       register: result
       failed_when: result.rc not in [0, 1, 2]
       debugger: always

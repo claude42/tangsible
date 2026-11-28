@@ -129,7 +129,7 @@ func TestE2E_Vault_EditChangesOnlyTheEditedValues(t *testing.T) {
 	original, _ := os.ReadFile(filepath.Join(dir, "vault.yml"))
 
 	code, out := runVault(t, dir,
-		`sed -i -e 's/^db_password: .*/db_password: rotated secret/' -e 's/^region: .*/region: eu-west-1/' "$1"`,
+		`sed -i.bak -e 's/^db_password: .*/db_password: rotated secret/' -e 's/^region: .*/region: eu-west-1/' "$1" && rm -f "$1.bak"`,
 		"vault.yml", "--vault-password-file", "vault-password.txt")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
@@ -296,7 +296,7 @@ func TestE2E_Vault_TwoVaultIDsKeepTheirLabelsAndNewValuesUseEncryptVaultID(t *te
 	dir := multiIDFixture(t)
 
 	code, out := runVault(t, dir,
-		`sed -i -e 's/^dev_secret: .*/dev_secret: dev rotated/' -e 's/^prod_secret: .*/prod_secret: prod rotated/' "$1"; echo 'fresh: brand new' >> "$1"`,
+		`sed -i.bak -e 's/^dev_secret: .*/dev_secret: dev rotated/' -e 's/^prod_secret: .*/prod_secret: prod rotated/' "$1" && rm -f "$1.bak"; echo 'fresh: brand new' >> "$1"`,
 		"vars.yml", "--vault-id", "dev@dev.pw", "--vault-id", "prod@prod.pw", "--encrypt-vault-id", "prod")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
@@ -331,7 +331,7 @@ func TestE2E_Vault_WithoutTheProdPasswordProdValuesStayLocked(t *testing.T) {
 
 	// The editor sees a placeholder, not the secret; change the dev value.
 	code, out := runVault(t, dir,
-		`grep -q '^prod_secret: .<vaulted: prod>.' "$1" || exit 3; sed -i 's/^dev_secret: .*/dev_secret: dev changed/' "$1"`,
+		`grep -q '^prod_secret: .<vaulted: prod>.' "$1" || exit 3; sed -i.bak 's/^dev_secret: .*/dev_secret: dev changed/' "$1" && rm -f "$1.bak"`,
 		"vars.yml", "--vault-id", "dev@dev.pw")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
@@ -373,7 +373,7 @@ func TestE2E_Vault_IdentityListFromAnsibleCfg(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No password option on the command line at all.
-	code, out := runVault(t, dir, `sed -i 's/^prod_secret: .*/prod_secret: via config/' "$1"; echo 'added: by default id' >> "$1"`, "vars.yml")
+	code, out := runVault(t, dir, `sed -i.bak 's/^prod_secret: .*/prod_secret: via config/' "$1" && rm -f "$1.bak"; echo 'added: by default id' >> "$1"`, "vars.yml")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -401,7 +401,7 @@ func TestE2E_Vault_PromptsForEachVaultID(t *testing.T) {
 	dir := multiIDFixture(t)
 	bin := buildE2EBinary(t)
 	editor := filepath.Join(t.TempDir(), "editor.sh")
-	script := "#!/bin/sh\nsed -i -e 's/^dev_secret: .*/dev_secret: dev prompted/' -e 's/^prod_secret: .*/prod_secret: prod prompted/' \"$1\"\n"
+	script := "#!/bin/sh\nsed -i.bak -e 's/^dev_secret: .*/dev_secret: dev prompted/' -e 's/^prod_secret: .*/prod_secret: prod prompted/' \"$1\" && rm -f \"$1.bak\"\n"
 	if err := os.WriteFile(editor, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

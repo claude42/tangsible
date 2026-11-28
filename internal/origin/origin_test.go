@@ -53,3 +53,24 @@ func TestLabelShadowCopy(t *testing.T) {
 		t.Errorf("unreadable file keeps its line, got %d", got)
 	}
 }
+
+// Ansible reports real paths; a base reached through a symlink (macOS's
+// /var -> /private/var, a symlinked project) must still shorten them.
+func TestLabelSymlinkedBase(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(root, "proj")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	got := Label(Origin{Path: filepath.Join(real, "group_vars", "all.yml"), Line: 2}, "", "", link)
+	if got != "group_vars/all.yml:2" {
+		t.Errorf("got %q, want group_vars/all.yml:2", got)
+	}
+}
