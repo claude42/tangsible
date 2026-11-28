@@ -31,6 +31,7 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/inventory"
 	"code.aw.net/claude/tangsible/internal/uikit"
+	"code.aw.net/claude/tangsible/internal/variables"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -482,6 +483,7 @@ func RunInventoryTreeTUI(root *invNode, playbook string, rest []string, stubPath
 		detailTabs      *uikit.TabbedPane
 		detailHeader    *tview.TextView
 		detailSearch    *uikit.TabSearchBar
+		detailVars      *variables.Pane
 		detailPrimitive tview.Primitive
 		currentHostNode *invNode
 		lastTotalWidth  int
@@ -581,10 +583,10 @@ func RunInventoryTreeTUI(root *invNode, playbook string, rest []string, stubPath
 		if totalWidth >= uikit.SplitMinTotalWidth {
 			footer = splitDetailFooterText
 		}
-		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, n.name, playbook, rest, footer, pingKnown[n.name], pingOK[n.name], detailCache)
+		detail, tabs, hdr, bar, vars := BuildHostDetailPrimitive(app, stubPath, n.name, playbook, rest, footer, pingKnown[n.name], pingOK[n.name], detailCache)
 		pages.RemovePage("detail")
 		pages.AddPage("detail", detail, true, true)
-		detailTabs, detailHeader, detailSearch, detailPrimitive = tabs, hdr, bar, detail
+		detailTabs, detailHeader, detailSearch, detailPrimitive, detailVars = tabs, hdr, bar, detail, vars
 		currentHostNode = n
 		viewingDetail = true
 		layout()
@@ -801,6 +803,8 @@ func RunInventoryTreeTUI(root *invNode, playbook string, rest []string, stubPath
 			switch {
 			case event.Key() == tcell.KeyEscape && detailSearch.HasActive():
 				detailSearch.Clear()
+				return nil
+			case variablesKey(detailTabs, detailVars, detailSearch, event):
 				return nil
 			case event.Key() == tcell.KeyEscape:
 				// Closes the detail view in split mode too now, matching

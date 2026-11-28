@@ -14,7 +14,7 @@
 
 // Package varscrawl lists every place a host's variables are defined, in
 // ansible's own order of precedence, and says which definition wins - the
-// data behind `tangsible variables` (design-docs/Variables.md). Nothing runs:
+// data behind the host views' Variables tab (design-docs/Variables.md). Nothing runs:
 // an embedded Python script makes the calls ansible's VariableManager makes,
 // one source at a time, so each level of the precedence order is a layer with
 // the file and line of every value in it. The script also asks ansible for

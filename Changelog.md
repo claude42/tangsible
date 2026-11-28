@@ -4,9 +4,8 @@
 
 ### Added
 
-- `tangsible variables hostname [playbook.yml]`: where each variable of a host is defined - one line per variable with the winning value and its file and line, `Enter` shows every definition in order of precedence (inventory, `group_vars`/`host_vars`, role `defaults`/`vars`, `-e`); `Enter` on a definition shows its file with the line marked; `←`/`→`/`h` switch hosts, `e` edits the file
-- Statistics: the Slowest hosts, Slowest plays and Slowest tasks tabs draw a dotted vertical line at the average, and say what it is on the first line
-- `tangsible view`: browse a playbook's plays and tasks without running anything; `Enter` on a task shows its Task (with the play's `Hosts:`), Task definition and Docs tabs, `r` runs it; `R` (and returning from the editor opened with `e`) reads the playbook again
+- The Variables tab of `host`, `hosts` and `inventory` now shows all locations where a variable is defined in order or precedence
+- `tangsible view`: browse a playbook's plays and tasks without running anything
 - The `run` verb is now optional - `tangsible site.yml` or `tangsible run site.yml` are equivalent, a bare `tangsible` opens the run dialog first.  This makes `#!/usr/bin/env tangsible` even nicer
 - `debug`: `F6` stops a running session after the current task and leaves it in the debugger
 - `debug`: `r` starts over - back to the idle state with nothing run
@@ -14,12 +13,13 @@
 - `tangsible vault` opens a file even when no given password decrypts any of its values (all show as `<vaulted: label>`), so you can add values under a second vault id
 - `tangsible vault` on a file that does not exist creates it empty, and an empty file opens in the editor instead of failing
 - `debug`: the drill-down view now also has a Variables tab similar to `tangsible hosts`
-- Statistics screen: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result)
+- Statistics: `c` exports the run's timing as a CSV file (a line per host and task: play, start and end time, result)
+- Statistics: the Slowest hosts, Slowest plays and Slowest tasks tabs draw a dotted vertical line at the average, and say what it is on the first line
 
 ### Changed
 
 - The host verb's Facts tab shows fact names without `ansible_` (`architecture`, as in `ansible_facts['architecture']`), with a hint line saying so
-- `debug` no longer needs `--no-ee` when an execution environment is configured: it always runs on the host, and the top bar says `(host, not EE: image)`; an explicit `--ee` is still rejected
+- `debug` no longer needs `--no-ee` when an execution environment is configured: it always runs on the host, and the top bar says `(host, not EE: image)`
 - `ee init` without `--base`/`base_image` now picks the community base image matching your host's ansible-core; `--latest` also takes newest base image.
 - `ee init -t/--tag <name>` (repeatable): writes the tags to `options.tags`.
 - `ee init --resolve-packages`: a binary several packages provide is now a commented list, one `# - package` line per candidate, so picking one means removing the `# `
@@ -27,10 +27,10 @@
 ### Fixed
 
 - The File tab now shows a file a `delegate_to: localhost` task wrote through `become` into a directory only root can read (e.g. `/root/...`); it was silently missing
-- Variable origins (`variables`, `host`'s Variables tab, `debug`'s watch) are shown project-relative also when the project is reached through a symlink (e.g. under `/tmp` or `/var` on macOS)
-- `debug`: the Resolved and Variables tabs and the variable explorer came up empty when any variable in scope was vaulted with a password that isn't available (a stale file in `group_vars`)
-- `host`: the Variables tab no longer fails with "Decryption failed (no vault secrets were found that could decrypt)" when one of the host's vaulted values cannot be opened with the given password (such a value now shows as `<vaulted>`)
-- `debug` works with ansible-core 2.22: its debugger hands out a different result object (registered values missing from the Resolved and Variables views) and redoing a task with `register:` after changing a variable killed the run
+- Variable origins (`host`'s Variables tab, `debug`'s watch) are shown project-relative also when the project is reached through a symlink (e.g. under `/tmp` or `/var` on macOS)
+- `debug`: the Resolved and Variables tabs and the variable explorer came up empty when any variable in scope was vaulted with a password that isn't available
+- `host`: the Variables tab no longer fails with "Decryption failed (no vault secrets were found that could decrypt)" when one of the host's vaulted values cannot be opened with the given password
+- `debug` works correctly with ansible-core 2.22
 - Warnings and deprecations that ansible-core prints itself instead of putting them in a task result now give the running task the ⚠ marker
 - A task result that carries only `deprecations` (ansible-core 2.19+ reports them apart from `warnings`) now gets the ⚠ marker
 - `ee init --resolve-packages`: the binary a `lookup('pipe', ...)` runs (e.g. in `group_vars`) is now detected and its package looked up, like a controller-side `shell` task's

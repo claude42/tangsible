@@ -24,6 +24,19 @@ Standard *ansible-playbook*(1) arguments can be used, e.g. *--inventory* or
 	Live-gathered facts (FQDN, IP addresses, OS, architecture, RAM,
 	virtualization, and more), fetched from the host.
 
+*Facts*
+	Every gathered fact, as YAML, named as in *ansible_facts['name']* (without the *ansible_* prefix).
+
+*Variables*
+	Where each variable of the host is defined: one line per variable with the winning value and the
+	file and line it is written in. *Enter* shows every definition in order of precedence (inventory
+	*group_vars* and *host_vars*, the playbook's, role *defaults* and *vars*, *-e*), *Enter* on a
+	definition shows its file with the line marked (*Esc* goes back, *y* copies it, *e* edits it,
+	*E* / *C* open / close every variable, *R* reads everything again). Ansible's own code finds the
+	definitions and its own answer decides the winner; a variable where our reading of the order
+	disagrees is marked *?*. Nothing runs and the host is not contacted. Vaulted values show as
+	*<vaulted>*; variables of the play itself (*vars:*, *vars_files:*) are not covered.
+
 *Groups*
 	Every inventory group this host belongs to, direct or transitive —
 	a host-centric view of the group membership in contrast to the

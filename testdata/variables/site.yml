@@ -1,4 +1,4 @@
-# Fixture for `tangsible variables` (design-docs/Variables.md): the same
+# Fixture for the host views' Variables tab (design-docs/Variables.md): the same
 # variables defined at several levels, so every one has a winner and
 # shadowed definitions. Use with -i inventory/hosts.ini.
 - name: Configure the web servers

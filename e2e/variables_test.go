@@ -14,8 +14,8 @@
 
 //go:build e2e
 
-// End-to-end tests for `tangsible variables` (design-docs/Variables.md),
-// sharing e2e/rerun_test.go's tmux harness.
+// End-to-end tests for the Variables tab of the host verbs
+// (design-docs/Variables.md), sharing e2e/rerun_test.go's tmux harness.
 package e2e
 
 import (
@@ -56,23 +56,27 @@ func copyVariablesFixture(t *testing.T) string {
 	return dst
 }
 
+// startVariables starts `tangsible <verb> args` and, for the host verb,
+// switches to the Variables tab (the third).
 func (s *tmuxSession) startVariables(t *testing.T, dir, env, args string) {
 	t.Helper()
 	bin := buildE2EBinary(t)
-	s.send(fmt.Sprintf("cd %s && %s %s %s variables %s", shellQuote(dir), env, e2eCallbackEnv(t), shellQuote(bin), args), "Enter")
+	s.send(fmt.Sprintf("cd %s && %s %s %s host %s", shellQuote(dir), env, e2eCallbackEnv(t), shellQuote(bin), args), "Enter")
+	s.waitFor("Summary", 30*time.Second)
+	s.send("Tab", "Tab")
 }
 
-// TestE2E_Variables_ListsDefinitionsInPrecedenceOrderAndSwitchesHosts walks
-// the screen: the list, a variable's definitions in Ansible's order, the other
-// host with ←/→ and the picker.
-func TestE2E_Variables_ListsDefinitionsInPrecedenceOrderAndSwitchesHosts(t *testing.T) {
+// TestE2E_Variables_ListsDefinitionsInPrecedenceOrder walks the tab: the
+// list, a variable's definitions in Ansible's order, the playbook's group
+// vars winning on a host with no host_vars of its own.
+func TestE2E_Variables_ListsDefinitionsInPrecedenceOrder(t *testing.T) {
 	requireE2ETools(t)
 	dir := copyVariablesFixture(t)
 	s := startTmuxSession(t)
 	s.startVariables(t, dir, "", "-i inventory/hosts.ini web1 site.yml")
 
 	list := s.waitFor("playbook_only", 30*time.Second)
-	for _, want := range []string{"Variables: web1", "7 variables", "app_name", "inventory/host_vars/web1.yml:1", "enter: expand"} {
+	for _, want := range []string{"7 variables", "app_name", "inventory/host_vars/web1.yml:1"} {
 		if !strings.Contains(list, want) {
 			t.Errorf("list lacks %q:\n%s", want, list)
 		}
@@ -93,28 +97,38 @@ func TestE2E_Variables_ListsDefinitionsInPrecedenceOrderAndSwitchesHosts(t *test
 	if strings.Contains(open, "inventory_hostname") {
 		t.Errorf("ansible's own variables must not be listed:\n%s", open)
 	}
+}
 
-	// The next host has no host_vars of its own: the playbook's group_vars win.
+// TestE2E_Variables_HostsViewKeepsTheTabWhenHoppingHosts opens the Variables
+// tab from the hosts list and hops to the next host with →: the tab stays and
+// shows that host's variables (web2 has no host_vars: the playbook's group_vars
+// win), then ← comes back.
+func TestE2E_Variables_HostsViewKeepsTheTabWhenHoppingHosts(t *testing.T) {
+	requireE2ETools(t)
+	dir := copyVariablesFixture(t)
+	bin := buildE2EBinary(t)
+	s := startTmuxSession(t)
+	s.send(fmt.Sprintf("cd %s && %s %s hosts -i inventory/hosts.ini site.yml", shellQuote(dir), e2eCallbackEnv(t), shellQuote(bin)), "Enter")
+	s.waitFor("3 hosts", 30*time.Second)
+	// The list is in inventory order: db1, web1, web2 or as ansible lists them;
+	// open whichever row is first, then hop until web1 is shown.
+	s.send("Enter")
+	s.waitFor("Host: ", 20*time.Second)
+	s.send("Tab", "Tab")
+	for i := 0; i < 3 && !strings.Contains(s.waitFor("Host: ", 5*time.Second), "Host: web1"); i++ {
+		s.send("Right")
+		time.Sleep(500 * time.Millisecond)
+	}
+	s.waitFor("playbook_only", 30*time.Second)
 	s.send("Right")
-	s.waitFor("Variables: web2", 10*time.Second)
+	s.waitFor("Host: web2", 10*time.Second)
 	s.waitForAbsence("reading the variables", 15*time.Second)
 	web2 := s.capture()
-	if !strings.Contains(web2, "3000") {
-		t.Errorf("web2's listen_port should come from the playbook's group_vars:\n%s", web2)
+	if !strings.Contains(web2, "3000") || !strings.Contains(web2, "Variables") {
+		t.Errorf("web2's listen_port should come from the playbook's group_vars, on the Variables tab:\n%s", web2)
 	}
 	s.send("Left")
-	s.waitFor("Variables: web1", 10*time.Second)
-
-	// The picker (h) chooses a host: db1 has no role, and no web group vars.
-	s.send("h")
-	s.waitFor("host ═", 5*time.Second)
-	s.send("Up", "Enter")
-	s.waitFor("Variables: db1", 10*time.Second)
-	s.waitForAbsence("reading the variables", 15*time.Second)
-	db := s.capture()
-	if strings.Contains(db, "app_name") || strings.Contains(db, "playbook_only") {
-		t.Errorf("db1 has no role and is in no web group:\n%s", db)
-	}
+	s.waitFor("Host: web1", 10*time.Second)
 }
 
 // TestE2E_Variables_EditsAFileAndReads checks e: the editor gets the
@@ -181,9 +195,8 @@ func TestE2E_Variables_MasksVaultedValuesAndIgnoresOnesNoPasswordOpens(t *testin
 	}
 }
 
-// TestE2E_Variables_EnterOnADefinitionShowsItsFile covers the file pane: the
-// two-pane layout on a wide terminal (the list stays), copy, Esc, and the
-// full-screen pane on a narrow one.
+// TestE2E_Variables_EnterOnADefinitionShowsItsFile covers the file view in the
+// tab: the file with the definition marked, copy, and Esc back to the list.
 func TestE2E_Variables_EnterOnADefinitionShowsItsFile(t *testing.T) {
 	requireE2ETools(t)
 	dir := copyVariablesFixture(t)
@@ -194,9 +207,9 @@ func TestE2E_Variables_EnterOnADefinitionShowsItsFile(t *testing.T) {
 	// listen_port, expanded: winner (host_vars), then the playbook's group_vars.
 	s.send("Down", "Down", "Enter", "Down", "Down", "Enter")
 	pane := s.waitFor("playbook_only: yes", 10*time.Second)
-	for _, want := range []string{"listen_port  -  playbook group_vars (web), group_vars/web.yml:1", "listen_port: 3000", "Variables: web1", "esc: back"} {
+	for _, want := range []string{"listen_port  -  playbook group_vars (web), group_vars/web.yml:1", "listen_port: 3000"} {
 		if !strings.Contains(pane, want) {
-			t.Errorf("file pane lacks %q (two-pane: the list stays):\n%s", want, pane)
+			t.Errorf("file view lacks %q:\n%s", want, pane)
 		}
 	}
 
@@ -205,26 +218,14 @@ func TestE2E_Variables_EnterOnADefinitionShowsItsFile(t *testing.T) {
 
 	s.send("Escape")
 	s.waitForAbsence("playbook_only: yes", 5*time.Second)
-	if back := s.capture(); !strings.Contains(back, "enter: expand or show file") {
+	if back := s.capture(); !strings.Contains(back, "7 variables") {
 		t.Errorf("Esc should be back at the list:\n%s", back)
 	}
-
-	// A narrow terminal: the pane takes the whole screen.
-	if out, err := exec.Command("tmux", "resize-window", "-t", s.target(), "-x", "90", "-y", "40").CombinedOutput(); err != nil {
-		t.Fatalf("resize-window: %v\n%s", err, out)
-	}
-	s.send("Enter")
-	narrow := s.waitFor("playbook_only: yes", 10*time.Second)
-	if strings.Contains(narrow, "Variables: web1") {
-		t.Errorf("a narrow terminal shows the pane alone:\n%s", narrow)
-	}
-	s.send("q")
-	s.waitForAbsence("playbook_only: yes", 5*time.Second)
 }
 
-// TestE2E_Variables_EditingFromTheFilePaneShowsTheNewContents checks e inside
-// the pane: the file is edited and the pane shows the new contents.
-func TestE2E_Variables_EditingFromTheFilePaneShowsTheNewContents(t *testing.T) {
+// TestE2E_Variables_EditingFromTheFileShowsTheNewContents checks e inside the
+// file view: the file is edited and the view shows the new contents.
+func TestE2E_Variables_EditingFromTheFileShowsTheNewContents(t *testing.T) {
 	requireE2ETools(t)
 	dir := copyVariablesFixture(t)
 	editor := filepath.Join(dir, "editor.sh")
@@ -240,27 +241,5 @@ func TestE2E_Variables_EditingFromTheFilePaneShowsTheNewContents(t *testing.T) {
 	got := s.waitFor("listen_port: 3333", 20*time.Second)
 	if strings.Contains(got, "listen_port: 3000") {
 		t.Errorf("the old contents are still shown:\n%s", got)
-	}
-}
-
-// TestE2E_Variables_UnknownHostAndNoHostFailBeforeTheTUI covers the two
-// argument errors.
-func TestE2E_Variables_UnknownHostAndNoHostFailBeforeTheTUI(t *testing.T) {
-	requireE2ETools(t)
-	bin := buildE2EBinary(t)
-	dir := copyVariablesFixture(t)
-
-	cmd := exec.Command(bin, "variables", "-i", "inventory/hosts.ini", "nosuchhost", "site.yml")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), `host "nosuchhost" is not in the inventory`) {
-		t.Errorf("unknown host: err=%v out=%s", err, out)
-	}
-
-	cmd = exec.Command(bin, "variables")
-	cmd.Dir = dir
-	out, err = cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "tangsible variables") {
-		t.Errorf("no host should print the usage: err=%v out=%s", err, out)
 	}
 }

@@ -22,7 +22,7 @@
 # chased further" heuristic tangsible's own source uses for similar
 # judgment calls.
 
-_tangsible_verbs="run rerun role template host hosts inventory revisit vault ee debug view variables version help"
+_tangsible_verbs="run rerun role template host hosts inventory revisit vault ee debug view version help"
 
 # Every long/short flag ansible-playbook accepts, verbatim from its own
 # --help - tangsible interprets none of these itself, it just forwards
@@ -93,7 +93,7 @@ _tangsible_flags_for_verb()
 	role)
 		echo "$_tangsible_ap_flags $_tangsible_dialog_flags $_tangsible_ee_flags"
 		;;
-	template | host | hosts | inventory | revisit | variables)
+	template | host | hosts | inventory | revisit)
 		echo "$_tangsible_ap_flags"
 		;;
 	debug)
@@ -294,8 +294,8 @@ _tangsible()
 			compopt -o filenames 2>/dev/null
 		fi
 		;;
-	host | variables)
-		# tangsible host|variables <hostname> [<playbook>] [ansible-playbook args...]
+	host)
+		# tangsible host <hostname> [<playbook>] [ansible-playbook args...]
 		# Same "no dynamic hostname completion" reasoning as template above.
 		if [ "$pos" -eq 1 ]; then
 			_tangsible_ymlfiles "$cur"

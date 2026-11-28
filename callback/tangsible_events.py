@@ -308,7 +308,7 @@ def _set_at_path(node, path):
 def tangsible_variables(task_vars, stub_path=None):
     """The variables defined for a host, with origins, vault values masked.
 
-    Used by the tangsible_vars action plugin for the host verb's Variables
+    Used by internal/varscrawl/loader.py, behind the host verbs' Variables
     tab. Returns ``{"variables": {name: value}, "origins": {name: {...}}}``
     (origins as in ``tangsible_snapshot``). Only variables that come from a
     file (inventory, group_vars, host_vars, vars files) or ``-e`` are kept:

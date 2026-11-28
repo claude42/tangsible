@@ -177,7 +177,6 @@ If you don't specify a playbook, Tangsible can resolve one from its configuratio
 | `tangsible template` | Render and debug a Jinja2 template |
 | `tangsible host` / `hosts` | Inspect one host or browse available hosts |
 | `tangsible inventory` | Explore the inventory as a tree |
-| `tangsible variables` | See where each variable of a host is defined and which definition wins |
 | `tangsible vault` | Edit individual encrypted variables |
 | `tangsible ee init` | Generate an execution-environment definition from a playbook |
 | `tangsible ee verify` | Build and check an EE definition against a playbook |
@@ -206,11 +205,9 @@ Shows the playbook's plays and tasks as the run tree does, without host lines an
 
 ### Where is this variable defined?
 
-```sh
-tangsible variables [-i inventory] hostname [playbook.yml]
-```
+The **Variables** tab of `tangsible host`, `hosts` and `inventory` (the third tab; give the playbook as an argument to include its `group_vars`/`host_vars` and roles).
 
-One line per variable of the host: the value that wins and the file and line it is written in. `Enter` shows every definition, highest precedence first, with its level (`inventory group_vars (web)`, `role defaults (app)`, ...), so "which of my places for this variable actually won?" has an answer. It reads the inventory with its `group_vars`/`host_vars`, the `group_vars`/`host_vars` next to the playbook and the `defaults`/`vars` of the roles that apply to the host, using Ansible's own code in Ansible's own order of precedence; Ansible's own answer decides the winner, and a variable where our reading of the order disagrees is marked `?`. `Enter` on a definition shows the file it is written in, scrolled to that line (beside the list on a wide terminal). `←`/`→` (or `h`) switch hosts, `e` opens the file in your editor and reads everything again afterwards. Vaulted values show as `<vaulted>`. Variables of the play itself (`vars:`, `vars_files:`), blocks and tasks are not covered yet.
+One line per variable of the host: the value that wins and the file and line it is written in. `Enter` shows every definition, highest precedence first, with its level (`inventory group_vars (web)`, `role defaults (app)`, ...), so "which of my places for this variable actually won?" has an answer. It reads the inventory with its `group_vars`/`host_vars`, the `group_vars`/`host_vars` next to the playbook and the `defaults`/`vars` of the roles that apply to the host, using Ansible's own code in Ansible's own order of precedence; Ansible's own answer decides the winner, and a variable where our reading of the order disagrees is marked `?`. Nothing runs and the host is never contacted, so an unreachable host works. `Enter` on a definition shows the file it is written in, scrolled to that line; `Esc` goes back, `y` copies the file, `e` opens it in your editor and reads everything again afterwards. Vaulted values show as `<vaulted>`. Variables of the play itself (`vars:`, `vars_files:`), blocks and tasks are not covered yet.
 
 ### Debug execution
 

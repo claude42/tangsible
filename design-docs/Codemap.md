@@ -302,8 +302,8 @@ read the way ansible-playbook reads it, nothing run.
 
 ## internal/varscrawl and internal/variables
 
-`tangsible variables` (`design-docs/Variables.md`). `varscrawl` is the data
-(no tview), `variables` the standalone screen.
+The host verbs' Variables tab (`design-docs/Variables.md`). `varscrawl` is the
+data (no tview), `variables` the tab's body.
 
 - **varscrawl/loader.py** - embedded Python script, run as `python3 -c` on the
   host with `ansible-playbook`'s interpreter: ansible's own calls for each
@@ -317,9 +317,10 @@ read the way ansible-playbook reads it, nothing run.
 - **variables/filepane.go** - the file view of a definition (pure): file text
   with the definition's lines marked (`renderFile`, `definitionSpan`),
   `scrollOffset`.
-- **variables/run.go** - `RunVariablesVerb`: arguments like `host`, the
-  `screen` (tree, host switching with `←`/`→`/`h`, `e`, `R`, per-host cache,
-  async load). **helptables.go** - help and bottom bar.
+- **variables/pane.go** - `Pane`, the tab's body (tree and file page over the
+  same space, `e`, `R`, `E`/`C`, async load, `HandleKey` for the keys the
+  host views offer it first) and `Cache` (results and open variables, shared
+  by one session's panes). The help is `host/helptables.go`'s.
 
 ## internal/debugverb
 
@@ -372,9 +373,6 @@ run/rerun/role session and by revisit's own rerun.
 - **callbackplugin.go** - `ResolveCallbackPluginDir`: `$TANGSIBLE_CALLBACK_DIR`
   or the embedded plugin (`callback/embed.go`) extracted once per version
   into the XDG cache dir; `CallbackPluginEnv` for every spawn.
-- **actionplugin.go** - the same for the action plugin
-  (`callback/action/tangsible_vars.py`, behind the host verb's Variables
-  tab): `ResolveActionPluginDir`, `ActionPluginEnv`.
 - **ee.go** - execution-environment mode: the process-wide active
   setting, `EnsureImage` (pull before the TUI), the per-generation event
   FIFO and engine command (`newEERun`, built by `internal/ee`),

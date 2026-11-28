@@ -203,3 +203,22 @@ func TestRenderFile(t *testing.T) {
 		t.Errorf("no line: nothing marked: %q", got)
 	}
 }
+
+func TestPlainListing(t *testing.T) {
+	vars := []varscrawl.Variable{
+		{Name: "port", Defs: []varscrawl.Definition{
+			{Level: "inventory host_vars", Entity: "web1", Value: json.RawMessage(`4444`), Path: "/p/host_vars/web1.yml", Line: 2},
+			{Level: "role defaults", Entity: "app", Value: json.RawMessage(`80`), Path: "/p/roles/app/defaults/main.yml", Line: 1},
+		}},
+		{Name: "solo", Defs: []varscrawl.Definition{{Level: "extra vars", Entity: "-e", Value: json.RawMessage(`"x"`), Desc: "<CLI option '-e'>"}}},
+	}
+	got := plainListing(vars, "/p")
+	for _, want := range []string{"port: 4444  # host_vars/web1.yml:2", "inventory host_vars (web1): 4444", "role defaults (app): 80", "solo: x"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "solo") != 1 {
+		t.Errorf("a variable with one definition has no sub-lines:\n%s", got)
+	}
+}

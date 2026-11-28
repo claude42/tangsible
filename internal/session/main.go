@@ -51,7 +51,6 @@ import (
 	"code.aw.net/claude/tangsible/internal/template"
 	"code.aw.net/claude/tangsible/internal/termbg"
 	"code.aw.net/claude/tangsible/internal/uikit"
-	"code.aw.net/claude/tangsible/internal/variables"
 	"code.aw.net/claude/tangsible/internal/vault"
 )
 
@@ -211,12 +210,6 @@ func Main(build BuildInfo) {
 	if v == config.VerbHost {
 		applyColors()
 		code := host.RunHostVerb(args)
-		printStartupWarnings()
-		os.Exit(code)
-	}
-	if v == config.VerbVariables {
-		applyColors()
-		code := variables.RunVariablesVerb(args)
 		printStartupWarnings()
 		os.Exit(code)
 	}

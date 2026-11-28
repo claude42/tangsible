@@ -8,7 +8,9 @@ always clear.
 
 ## Idea
 
-Introduce new verb tangsible variables.
+Introduce new verb tangsible variables. (It was built as a verb first and then
+moved into the host views as their Variables tab, see "Moved into the host
+views" at the end; the rest of this text describes the verb it started as.)
 
 * It shall crawl all locations in a project where variables could be defined
   (of course some variables are dynamically assigned, this occasions can not
@@ -71,7 +73,7 @@ Decisions from the first round; the original idea above stays as written.
 Two sources, so the answer is as close to Ansible's as possible:
 
 * **The winner** comes from Ansible itself: the host verb's Variables tab
-  (`HostVerb.md`) already runs a stub play with `tangsible_vars.py` and gets
+  (`HostVerb.md`, as it was then) already runs a stub play with `tangsible_vars.py` and gets
   each variable's winning value and its origin (file, line, `-e`). That line
   is the top row, whatever the static analysis thinks.
 * **The other definitions** come from a static crawl, ordered by Ansible's
@@ -105,9 +107,10 @@ Order of work: `view` first (it needs the static layer), `variables` second.
 
 ## As built (2026-11-27)
 
-**Implemented**: `tangsible variables [ansible-playbook options] hostname
-[playbook.yml]` (v1: no play-level variables). Packages `internal/varscrawl`
-(data) and `internal/variables` (screen); fixture `testdata/variables`.
+**Implemented** (as a verb, `tangsible variables [ansible-playbook options]
+hostname [playbook.yml]`; since moved, see the end): v1, no play-level
+variables. Packages `internal/varscrawl` (data) and `internal/variables`
+(screen); fixture `testdata/variables`.
 
 * **One mechanism, not two.** The discussion above planned the winner from the
   host verb's stub play and the other definitions from a static crawl. Both
@@ -185,4 +188,44 @@ Order of work: `view` first (it needs the static layer), `variables` second.
   group_vars next to roles (`PLAYBOOK_VARS_ROOT=all` search paths).
 * **Next** (v2): the Variables tab of `view`'s drill-down for a chosen host
   (play and task level), built on the same layers.
+
+
+## Moved into the host views (2026-11-28)
+
+The verb is gone; its screen is the **Variables tab** (third) of `host`,
+`hosts` and `inventory`, replacing the old tab that ran a stub play with an
+action plugin and showed only the winning value and its origin as YAML (the
+action plugin, its stub and `runner.ActionPluginEnv` are deleted). The verb was
+never released, so nothing needed to stay. Reasons: the host views already have
+the hostname, the optional playbook and the ansible options; they already hop
+between hosts (the verb's `←`/`→`/`h` picker duplicated that); and the crawl
+runs nothing and never contacts the host, so the tab works for an unreachable
+host and is faster than a play.
+
+* **`variables.Pane`** is the tab's body: the tree, and over the same space the
+  file page after `Enter` on a definition. `BuildHostDetailPrimitive` builds
+  one per visit to a host (so the pane is new on every host hop); the shared
+  `variables.Cache` of the session (`HostDetailCache.variables`) holds each
+  host's result (errors are never cached) and which variables are open (by
+  name, across hosts), so a revisit is instant.
+* **Keys.** The tab body is not a text view, so the three views offer it keys
+  first (`variablesKey` in `host.go`, after an active search was cleared and
+  before their own `Esc`/arrows): in the list `e` edit, `R` read again, `E`/`C`
+  open/close all, `/` says there is no search; in a file `Esc` back (the host
+  views' `Esc` would close the whole detail view), `e` edit, and `←`/`→`/`n`/`N`
+  do nothing (the file is not the host's; `n`/`N` still step through matches
+  while a search is active). `Enter`, arrows and paging reach the list or the
+  file through the normal focus. `q` stays the view's own (closes the detail
+  view / quits the standalone `host`).
+* **Search and copy** work through `TabbedPane.ActiveTextView`'s
+  `BodyTextView()` hook: in a file it is the file's text (searchable, `y`
+  copies it), in the list a hidden text view with a plain listing (`y` copies
+  the variables with their definitions, `plainListing`).
+* **Layout.** No two-pane layout inside the tab (it is already the right pane
+  of the host views): the file takes the tab's width. The columns of the list
+  are laid out for the tab's width, re-laid when it changes (`paneRoot.Draw`).
+* **Playbook.** The host views' playbook argument (default `./site.yml`) is the
+  crawl's; a playbook that does not exist leaves only the inventory side.
+* `tangsible_variables` in the callback plugin stays: the crawl's loader uses
+  it to mask vaulted values.
 

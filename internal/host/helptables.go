@@ -128,7 +128,7 @@ var hostDetailHelp = uikit.HelpScreen{
 		{Title: "Tabs", Entries: []uikit.HelpEntry{
 			{Keys: "Summary", Desc: "Key facts, gathered live (or from the fact cache)"},
 			{Keys: "Facts", Desc: "All gathered facts, as YAML"},
-			{Keys: "Variables", Desc: "Inventory-level variables as YAML, each with where it is defined"},
+			{Keys: "Variables", Desc: "Every variable of the host and where it is defined, all definitions in order of precedence (see \"Variables tab\")"},
 			{Keys: "Groups", Desc: "Every group the host belongs to, including inherited ones"},
 			{Keys: "Plays", Desc: "Which plays and tasks would run on this host"},
 		}},
@@ -144,6 +144,14 @@ var hostDetailHelp = uikit.HelpScreen{
 		{Title: "This tab", Entries: []uikit.HelpEntry{
 			{Keys: "/", Desc: "Search this tab's text; n / N step through the matches"},
 			{Keys: "y", Desc: "Copy this tab's text to the clipboard"},
+		}},
+		{Title: "Variables tab", Entries: []uikit.HelpEntry{
+			{Keys: "Enter", Desc: "On a variable: show / hide all its definitions, the winning one first (? = the order below it is our reconstruction). On a definition: show its file with the line marked"},
+			{Keys: "Esc", Desc: "In a file: back to the list (Esc first ends a search)"},
+			{Keys: "e", Desc: "Open the file of the row in your editor; everything is read again afterwards"},
+			{Keys: "E / C", Desc: "Open / close every variable"},
+			{Keys: "R", Desc: "Read the files again"},
+			{Keys: "/, y", Desc: "In a file: search it / copy it. In the list: y copies a plain listing of the variables"},
 		}},
 		{Title: "General", Entries: []uikit.HelpEntry{
 			{Keys: "? / F1", Desc: "This help"},

@@ -283,18 +283,6 @@ func TestFetchHostFacts_CacheMissingCanaryFallsThrough(t *testing.T) {
 	}
 }
 
-func TestFetchHostVariables(t *testing.T) {
-	fakeBin(t, map[string]string{"ansible-playbook": `echo '{"_event":"v2_runner_on_ok","hosts":{"h1":{"tangsible_variables":{"variables":{"b":2,"a":"x"},"origins":{}}}}}'`})
-	got, err := FetchHostVariables("h1", nil)
-	if err != nil || !strings.Contains(got, "Inventory-level variables") || strings.Index(got, "a:") > strings.Index(got, "b:") {
-		t.Errorf("got %q, %v", got, err)
-	}
-	fakeBin(t, map[string]string{"ansible-playbook": `echo '{"_event":"v2_runner_on_failed","hosts":{"h1":{"failed":true,"msg":"plugin missing"}}}'`})
-	if _, err := FetchHostVariables("h1", nil); err == nil || !strings.Contains(err.Error(), "plugin missing") {
-		t.Errorf("err = %v", err)
-	}
-}
-
 func TestHostStubs(t *testing.T) {
 	for name, f := range map[string]func() (string, error){"summary": WriteHostSummaryStub, "ping": WriteHostPingStub} {
 		p, err := f()

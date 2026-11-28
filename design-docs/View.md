@@ -37,7 +37,7 @@ How it should look like compared to run or debug:
 Not part of the first cut. The drill-down could get a Variables tab for a
 chosen host: the variables in effect at the selected task, including play
 level (`vars:`, `vars_files:`, role vars, block and task vars). This is how
-play-level variables reach `tangsible variables` (`Variables.md`, "view and
+play-level variables reach the Variables tab (`Variables.md`, "view and
 variables"). `view` is built first because both share the static project
 layer (plays, roles, vars files).
 

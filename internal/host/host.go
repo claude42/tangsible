@@ -40,10 +40,10 @@ import (
 	"code.aw.net/claude/tangsible/internal/config"
 	"code.aw.net/claude/tangsible/internal/execerr"
 	"code.aw.net/claude/tangsible/internal/inventory"
-	"code.aw.net/claude/tangsible/internal/origin"
 	"code.aw.net/claude/tangsible/internal/playbook"
 	"code.aw.net/claude/tangsible/internal/runner"
 	"code.aw.net/claude/tangsible/internal/uikit"
+	"code.aw.net/claude/tangsible/internal/variables"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"gopkg.in/yaml.v3"
@@ -909,77 +909,6 @@ func shortFactNames(facts map[string]interface{}) map[string]interface{} {
 		}
 	}
 	return out
-}
-
-// HostVariablesStubYAML is the stub behind the Variables tab: one task that
-// runs tangsible's own action plugin (callback/action/tangsible_vars.py) for
-// the host, on the control node - it never connects to the host, so an
-// unreachable one works too.
-const HostVariablesStubYAML = "- hosts: all\n  gather_facts: false\n  ignore_unreachable: true\n  tasks:\n    - name: variables\n      tangsible_vars:\n"
-
-// variablesStub writes HostVariablesStubYAML once per process and reuses it,
-// the same "one stable scratch file for the whole session" convention as the
-// other stubs.
-var variablesStub struct {
-	once sync.Once
-	path string
-	err  error
-}
-
-func variablesStubPath() (string, error) {
-	variablesStub.once.Do(func() {
-		variablesStub.path, variablesStub.err = writeHostStub(HostVariablesStubYAML, "tangsible-host-variables-*.yml")
-	})
-	return variablesStub.path, variablesStub.err
-}
-
-// FetchHostVariables runs the Variables stub for hostname and renders the
-// variables it reports (RenderHostVariables).
-func FetchHostVariables(hostname string, rest []string) (string, error) {
-	stub, err := variablesStubPath()
-	if err != nil {
-		return "", err
-	}
-	env, err := runner.ActionPluginEnv()
-	if err != nil {
-		return "", err
-	}
-	raw, err := runHostStub(stub, hostname, rest, env)
-	if err != nil {
-		return "", err
-	}
-	return RenderHostVariables(raw)
-}
-
-// RenderHostVariables renders the action plugin's result for the Variables
-// tab: the host's inventory-level variables as YAML, sorted by name, each
-// followed by a comment saying where its winning value was defined
-// (project-relative file:line, or "-e"). Vaulted values arrive already
-// masked as <vaulted>.
-func RenderHostVariables(raw json.RawMessage) (string, error) {
-	var res struct {
-		Failed      bool   `json:"failed"`
-		Unreachable bool   `json:"unreachable"`
-		Msg         string `json:"msg"`
-		Vars        *struct {
-			Variables json.RawMessage          `json:"variables"`
-			Origins   map[string]origin.Origin `json:"origins"`
-		} `json:"tangsible_variables"`
-	}
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", err
-	}
-	if res.Failed || res.Unreachable || res.Vars == nil {
-		msg := res.Msg
-		if msg == "" {
-			msg = "the variables could not be determined"
-		}
-		return "", fmt.Errorf("%s", msg)
-	}
-	note := "[" + uikit.AnnotationColor + "]Inventory-level variables; facts are on the Facts tab[-]\n\n"
-	base, _ := os.Getwd()
-	return uikit.RenderVariablesYAML(res.Vars.Variables, origin.Labels(res.Vars.Origins, "", "", base), note,
-		"No variables are defined for this host.\n")
 }
 
 // runHostStub runs stubPath narrowed to hostname (plus the user's own
@@ -1889,7 +1818,7 @@ type HostDetailCache struct {
 	summary      map[string]string
 	summaryFacts map[string]map[string]interface{}
 	factsText    map[string]string
-	variables    map[string]string
+	variables    *variables.Cache
 	groups       map[string]string
 	plays        map[string]string
 	hostVars     map[string]string
@@ -1902,7 +1831,7 @@ func NewHostDetailCache() *HostDetailCache {
 		summary:      map[string]string{},
 		summaryFacts: map[string]map[string]interface{}{},
 		factsText:    map[string]string{},
-		variables:    map[string]string{},
+		variables:    variables.NewCache(),
 		groups:       map[string]string{},
 		plays:        map[string]string{},
 		hostVars:     map[string]string{},
@@ -1940,7 +1869,7 @@ func NewHostDetailCache() *HostDetailCache {
 // no goroutine at all; a miss fetches exactly as before and stores its
 // own result once done. nil disables caching entirely (RunHostDetailStandalone's
 // own call, which only ever shows one host once).
-func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string, pingKnown, pingOK bool, cache *HostDetailCache) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *uikit.TabSearchBar) {
+func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbook string, rest []string, footerText string, pingKnown, pingOK bool, cache *HostDetailCache) (tview.Primitive, *uikit.TabbedPane, *tview.TextView, *uikit.TabSearchBar, *variables.Pane) {
 	header := tview.NewTextView().SetDynamicColors(true)
 	header.SetTextStyle(uikit.BarStyle)
 	playbookLabel := playbook
@@ -1951,28 +1880,32 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 
 	summaryView := tview.NewTextView().SetDynamicColors(true)
 	factsView := tview.NewTextView().SetDynamicColors(true)
-	variablesView := tview.NewTextView().SetDynamicColors(true)
 	groupsView := tview.NewTextView().SetDynamicColors(true)
 	playsView := tview.NewTextView().SetDynamicColors(true)
 	hostVarsView := tview.NewTextView().SetDynamicColors(true)
 	uikit.AnimatePlaceholders(app, map[*tview.TextView]string{
-		summaryView:   "Gathering facts...",
-		factsView:     "Gathering facts...",
-		variablesView: "Loading...",
-		groupsView:    "Loading...",
-		playsView:     "Loading...",
-		hostVarsView:  "Loading...",
+		summaryView:  "Gathering facts...",
+		factsView:    "Gathering facts...",
+		groupsView:   "Loading...",
+		playsView:    "Loading...",
+		hostVarsView: "Loading...",
 	})
 	// Untagged text (the placeholders, most content) needs an explicit color -
 	// tview's default is white, invisible on a light [colors] background.
-	for _, v := range []*tview.TextView{summaryView, factsView, variablesView, groupsView, playsView, hostVarsView} {
+	for _, v := range []*tview.TextView{summaryView, factsView, groupsView, playsView, hostVarsView} {
 		v.SetTextColor(tcell.GetColor(uikit.StandardTextColor))
 	}
+
+	var varsCache *variables.Cache
+	if cache != nil {
+		varsCache = cache.variables
+	}
+	varsPane := variables.New(app, hostname, playbook, rest, varsCache)
 
 	tabs := uikit.NewTabbedPane()
 	tabs.SetTabs(
 		HostDetailTabNames,
-		detailTabViews(summaryView, factsView, variablesView, groupsView, playsView, hostVarsView),
+		detailTabViews(summaryView, factsView, varsPane.Primitive(), groupsView, playsView, hostVarsView),
 	)
 
 	// searchBar (design-docs/Search.md) replaces the plain footer TextView
@@ -2133,12 +2066,10 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		})
 	}()
 
-	var variablesCache, groupsCache, playsCache, hostVarsCache map[string]string
+	var groupsCache, playsCache, hostVarsCache map[string]string
 	if cache != nil {
-		variablesCache = cache.variables
 		groupsCache, playsCache, hostVarsCache = cache.groups, cache.plays, cache.hostVars
 	}
-	fetch(variablesView, variablesCache, func() (string, error) { return FetchHostVariables(hostname, rest) })
 	fetch(groupsView, groupsCache, func() (string, error) { return FetchHostGroups(hostname, rest) })
 	// Plays gets its own goroutine too: the list renders as soon as the
 	// --list-tasks probe is back, then each play's "last ran" line
@@ -2192,7 +2123,22 @@ func BuildHostDetailPrimitive(app *tview.Application, stubPath, hostname, playbo
 		fetch(hostVarsView, hostVarsCache, func() (string, error) { return FetchHostVars(hostname, playbook, rest) })
 	}
 
-	return flex, tabs, header, searchBar
+	return flex, tabs, header, searchBar, varsPane
+}
+
+// variablesKey offers event to the Variables tab (variables.Pane.HandleKey)
+// while it is the active one, and shows what it has to say in the bar; it
+// reports whether the tab took the key. The three views call it in their key
+// switch after an active search was cleared and before their own Esc/arrows.
+func variablesKey(tabs *uikit.TabbedPane, pane *variables.Pane, bar *uikit.TabSearchBar, event *tcell.EventKey) bool {
+	if pane == nil || tabs == nil || tabs.ActiveName() != "Variables" {
+		return false
+	}
+	handled, msg := pane.HandleKey(event, bar.HasActive())
+	if msg != "" {
+		bar.ShowMessage(" " + msg + " ")
+	}
+	return handled
 }
 
 // RunHostDetailStandalone builds and runs "tangsible host <hostname>"'s
@@ -2206,7 +2152,7 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
-	detail, tabs, header, searchBar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, hostDetailBar, false, false, nil)
+	detail, tabs, header, searchBar, varsPane := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, hostDetailBar, false, false, nil)
 	pages := tview.NewPages().AddPage("main", detail, true, true)
 	help := uikit.NewHelpOverlay(app, pages)
 
@@ -2235,6 +2181,8 @@ func RunHostDetailStandalone(hostname, playbook string, rest []string, stubPath 
 			return nil
 		case event.Key() == tcell.KeyEscape && searchBar.HasActive():
 			searchBar.Clear()
+			return nil
+		case variablesKey(tabs, varsPane, searchBar, event):
 			return nil
 		case event.Rune() == 'q':
 			app.Stop()
@@ -2376,6 +2324,7 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 		detailTabs      *uikit.TabbedPane
 		detailHeader    *tview.TextView
 		detailSearch    *uikit.TabSearchBar
+		detailVars      *variables.Pane
 		detailPrimitive tview.Primitive
 		currentHostname string
 		lastTotalWidth  int
@@ -2482,10 +2431,10 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 		if totalWidth >= uikit.SplitMinTotalWidth {
 			footer = splitDetailFooterText
 		}
-		detail, tabs, hdr, bar := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footer, pingKnown[hostname], pingOK[hostname], detailCache)
+		detail, tabs, hdr, bar, vars := BuildHostDetailPrimitive(app, stubPath, hostname, playbook, rest, footer, pingKnown[hostname], pingOK[hostname], detailCache)
 		pages.RemovePage("detail")
 		pages.AddPage("detail", detail, true, true)
-		detailTabs, detailHeader, detailSearch, detailPrimitive = tabs, hdr, bar, detail
+		detailTabs, detailHeader, detailSearch, detailPrimitive, detailVars = tabs, hdr, bar, detail, vars
 		currentHostname = hostname
 		viewingDetail = true
 		layout()
@@ -2635,6 +2584,8 @@ func RunHostsListTUI(hosts []string, playbook string, rest []string, stubPath, p
 			switch {
 			case event.Key() == tcell.KeyEscape && detailSearch.HasActive():
 				detailSearch.Clear()
+				return nil
+			case variablesKey(detailTabs, detailVars, detailSearch, event):
 				return nil
 			case event.Key() == tcell.KeyEscape:
 				// Closes the detail view in split mode too now, matching

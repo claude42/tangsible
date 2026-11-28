@@ -36,7 +36,7 @@ series unless a line says so; "Tested releases" at the end has the results of
 | 1 | Callback plugin hooks and the objects they receive | B/A | `callback/tangsible_events.py` | no events: the TUI shows nothing (the pre-flight gate reports it) |
 | 2 | Wrapping `Display.display` to catch warnings | A | `tangsible_events.py` (`_hook_display`) | warnings missing from the drill-down, nothing else |
 | 3 | Data tagging (`Origin`, `VaultedValue`, `EncryptedString`) | A | `tangsible_events.py` (`tangsible_snapshot`) | no origins, vault values not masked (see below: this one matters) |
-| 4 | Plugin module name in `sys.modules` | B | `callback/action/tangsible_vars.py`, `internal/session/vaultmask.go` | Variables tab (host) fails with a message; debug snapshot falls back |
+| 4 | Plugin module name in `sys.modules` | B | `internal/session/vaultmask.go` | debug snapshot falls back |
 | 5 | Playbook parser classes | A | `internal/staticplay/loader.py` | `tangsible view` exits with the error |
 | 6 | The task debugger's REPL: prompt, scope objects, commands | B/A | `internal/debugrun/session.go`, `internal/session/livesession_debug.go` | `debug` hangs or fails (prompt never matches) |
 | 7 | The debugger and strategies: forced linear, quiet stdout | D | `internal/debugrun/session.go`, `internal/debugcopy/strategy.go` | prompts garbled, or free plays reorder |
@@ -53,7 +53,7 @@ series unless a line says so; "Tested releases" at the end has the results of
 | 18 | Variable names ansible provides itself | E | `tangsible_events.py` (`_BUILTIN_VARS`) | a variable labelled wrongly |
 | 19 | Exit codes and the `ansible-playbook` flag table | B/E | `internal/runner/process.go`, `internal/config/playbookargs.go` | wrong status line; a flag with a value misread as the playbook |
 | 20 | Execution-environment image conventions, Galaxy API | D | `internal/ee`, `internal/runner/ee.go`, `internal/eeinit/galaxy.go` | EE runs fail to start; collection versions unresolved |
-| 21 | The variable sources, one at a time: `PlaybookCLI._play_prereqs`, `get_vars_from_path`, `Group`/`Host`/`Role` variable methods, `VARIABLE_PRECEDENCE` | A | `internal/varscrawl/loader.py` | `tangsible variables` exits with the error; or the order is wrong (the check against ansible's own answer marks it) |
+| 21 | The variable sources, one at a time: `PlaybookCLI._play_prereqs`, `get_vars_from_path`, `Group`/`Host`/`Role` variable methods, `VARIABLE_PRECEDENCE` | A | `internal/varscrawl/loader.py` | the host views' Variables tab shows the error; or the order is wrong (the check against ansible's own answer marks it) |
 
 ## 1. The callback plugin: hooks and objects (class B, A)
 
@@ -144,14 +144,13 @@ the lines `debugger: always` inserted subtracted).
 
 ## 4. The plugin's registered module name (class B)
 
-The action plugin (`tangsible_vars.py`) reaches the callback plugin's helper
-with `sys.modules["ansible.plugins.callback.tangsible_events"]`, and the debug
-snapshot expression does the same
-(`internal/session/vaultmask.go`: `debugSnapshotExpr`). The name is what
+The debug snapshot expression reaches the callback plugin's helper with
+`sys.modules["ansible.plugins.callback.tangsible_events"]`
+(`internal/session/vaultmask.go`: `debugSnapshotExpr`; the JSON default of
+`debugrun.Session.Query` looks the module up the same way). The name is what
 ansible's plugin loader registers a callback plugin's module under - an
 implementation detail of the loader. If the loader names modules differently
-the action plugin reports "needs tangsible's callback plugin to be loaded"
-and the debug snapshot query fails (the views show unmasked, unlabelled
+the debug snapshot query fails (the views show unmasked, unlabelled
 `task_vars`; see #3).
 
 ## 5. The playbook parser (class A) - `view`
@@ -176,7 +175,7 @@ init_plugin_loader()` (needed so `ansible.builtin.*` resolves),
   `view` prints `couldn't read <playbook>: ...` and never starts the TUI
   (`e2e/view_test.go`). A reload (`R`) keeps the old tree.
 
-## 21. The variable sources (class A) - `variables`
+## 21. The variable sources (class A) - the Variables tab
 
 `internal/varscrawl/loader.py` lists a host's variables level by level instead
 of asking ansible for the merged result, so every definition keeps its file
@@ -462,7 +461,7 @@ Results of `make test-ansible VERSION=...` (all three suites, a venv with
 | 2.19.11 | ok | ok | ok | the series everything was developed on |
 | 2.22.0 (2026-11-26) | ok | ok | ok | needed a port of the debug mode, see below |
 
-`tangsible variables` (#21) came after this table: its `internal/varscrawl`
+The Variables tab (#21) came after this table: its `internal/varscrawl`
 tests (the loader against `testdata/variables`, including that the crawl and
 ansible's own answer agree on every variable) pass on 2.19.11 and 2.22.0; the
 full `make test-ansible` has not been re-run since.

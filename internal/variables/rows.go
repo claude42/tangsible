@@ -104,3 +104,21 @@ func levelLabel(d varscrawl.Definition) string {
 func locationLabel(d varscrawl.Definition, base string) string {
 	return origin.Label(origin.Origin{Path: d.Path, Line: d.Line, Desc: d.Desc}, "", "", base)
 }
+
+// plainListing is the variables as plain text, for copying: one line per
+// variable with its winning value, then its definitions in order.
+func plainListing(vars []varscrawl.Variable, base string) string {
+	var b strings.Builder
+	for _, v := range vars {
+		if len(v.Defs) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "%s: %s  # %s\n", v.Name, valueSummary(v.Defs[0].Value), locationLabel(v.Defs[0], base))
+		if len(v.Defs) > 1 {
+			for _, d := range v.Defs {
+				fmt.Fprintf(&b, "    %s: %s  # %s\n", levelLabel(d), valueSummary(d.Value), locationLabel(d, base))
+			}
+		}
+	}
+	return b.String()
+}

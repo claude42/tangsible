@@ -122,17 +122,18 @@ the playbook when the editor returns), `R` reloads it, Esc goes back. `r` opens 
 session becomes a normal run. `f` (filter), `o`, `s`, `d`, `E`, `C` do
 nothing. `q`/Ctrl-C quit.
 
-## Variables (`tangsible variables`)
+## Variables tab (`host`, `hosts`, `inventory`)
 
-A standalone screen (`Variables.md`): one line per variable of a host, `Enter`
-or a click on a variable shows/hides its definitions, on a definition opens its
-file (one tab, two-pane on a wide terminal): arrows/paging scroll, `/` `n` `N`
-search, `y` copies, `e` edits, `Esc`/`q` back. Up/Down/PgUp/PgDn/Home/End and the
-usual aliases move the cursor, `E`/`C` open/close every variable, `→`/`←` the
-next/previous host (no wraparound), `h` a host picker (Enter chooses, Esc
-cancels), `e` opens the file of the definition under the cursor in
-`$VISUAL`/`$EDITOR` and reads everything again when it returns, `R` reads
-again, `?`/F1 help, `q`/Ctrl-C quit.
+The third tab of the host views (`Variables.md`): one line per variable of the
+host, `Enter` or a click on a variable shows/hides its definitions, on a
+definition opens its file in the tab (`Esc` back, arrows/paging scroll, `/` `n`
+`N` search, `y` copies it, `e` edits). Up/Down/PgUp/PgDn/Home/End and the usual
+aliases move the cursor, `E`/`C` open/close every variable, `e` opens the file
+of the definition under the cursor in `$VISUAL`/`$EDITOR` and reads everything
+again when it returns, `R` reads again, `y` copies a plain listing of the
+variables. The host keys (`←`/`→`, `n`/`N`, `Tab`, `q`, `Esc`) are the host
+view's own, except in a file where `Esc` goes back to the list first and
+`←`/`→`/`n`/`N` do nothing; `/` in the list says there is no search there.
 
 ## Output/command drill-down view
 

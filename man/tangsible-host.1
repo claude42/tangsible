@@ -5,7 +5,7 @@
 .nh
 .ad l
 .\" Begin generated content:
-.TH "tangsible-host" "1" "2026-11-21" "Tangsible" "Tangsible Manual"
+.TH "tangsible-host" "1" "2026-11-28" "Tangsible" "Tangsible Manual"
 .PP
 .SH NAME
 .PP
@@ -31,6 +31,23 @@ Standard \fBansible-playbook\fR(1) arguments can be used, e.\&g.\& \fB--inventor
 .RS 4
 Live-gathered facts (FQDN, IP addresses, OS, architecture, RAM,
 virtualization, and more), fetched from the host.\&
+.PP
+.RE
+\fBFacts\fR
+.RS 4
+Every gathered fact, as YAML, named as in \fBansible_facts['\&name'\&]\fR (without the \fBansible_\fR prefix).\&
+.PP
+.RE
+\fBVariables\fR
+.RS 4
+Where each variable of the host is defined: one line per variable with the winning value and the
+file and line it is written in.\& \fBEnter\fR shows every definition in order of precedence (inventory
+\fBgroup_vars\fR and \fBhost_vars\fR, the playbook'\&s, role \fBdefaults\fR and \fBvars\fR, \fB-e\fR), \fBEnter\fR on a
+definition shows its file with the line marked (\fBEsc\fR goes back, \fBy\fR copies it, \fBe\fR edits it,
+\fBE\fR / \fBC\fR open / close every variable, \fBR\fR reads everything again).\& Ansible'\&s own code finds the
+definitions and its own answer decides the winner; a variable where our reading of the order
+disagrees is marked \fB?\&\fR.\& Nothing runs and the host is not contacted.\& Vaulted values show as
+\fB<vaulted>\fR; variables of the play itself (\fBvars:\fR, \fBvars_files:\fR) are not covered.\&
 .PP
 .RE
 \fBGroups\fR

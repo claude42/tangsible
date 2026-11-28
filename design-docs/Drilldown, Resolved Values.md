@@ -203,9 +203,10 @@ variables. Question: can `run`/`role` get a comparable tab with no debugger?
 What we established:
 
 * The embedded action plugin `callback/action/tangsible_vars.py` (the one
-  file in `~/.cache/tangsible/action-<hash>/`) only serves the `host`
-  verb's stub play, whose single task is `tangsible_vars:`. It does not
-  wrap any real task, so one file is enough there.
+  file in `~/.cache/tangsible/action-<hash>/`) then only served the `host`
+  verb's stub play, whose single task was `tangsible_vars:` (it was removed
+  when the Variables tab moved to `internal/varscrawl`). It did not wrap any
+  real task, so one file was enough there.
 * Capturing variables for the user's *own* tasks with action plugins would
   need one thin wrapper per action name: Ansible picks exactly one action
   plugin per module name (`command`, `shell`, `copy`, `template`, `debug`,

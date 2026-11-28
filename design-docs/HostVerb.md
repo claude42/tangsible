@@ -264,25 +264,20 @@ per host like the other tabs.
 
 ## Variables tab
 
-The variables defined for the host at inventory level, as YAML, sorted by
-name, each followed by a comment naming where its winning value was defined:
-`db_host: x # group_vars/all.yml:3` (project-relative file and line, or `-e`).
-Facts, ansible's own variables and config defaults are left out - the Facts
-tab has the facts. A vaulted value (inline `!vault`, anything from a wholly
-encrypted file, and any other occurrence of its text) shows as `<vaulted>`.
-Playbook-level variables (play `vars:`, roles) are out of scope.
-
-Origins exist only inside a real ansible run, so this tab runs a one-task
-stub play (`HostVariablesStubYAML`) with `--limit <host>` whose task is
-tangsible's own action plugin (`callback/action/tangsible_vars.py`,
-`//go:embed`-ed, `runner.ActionPluginEnv`). It runs on the control node and
-never connects to the host. The plugin hands the host's `task_vars` to
-`tangsible_variables` in the callback plugin (shared with debug mode's
-`tangsible_snapshot`), which keeps only variables whose `Origin` tag names a
-file other than the stub itself, or `-e`, and masks secrets in-process so
-they never leave Python. Variables with no origin tag (a dynamic inventory
-plugin's, say) are not shown. Takes a second or two, so it loads with a
-placeholder like the other tabs and is cached per host.
+Where each variable of the host is defined: one line per variable with its
+winning value and file and line, `Enter` expands it to every definition in
+order of precedence, `Enter` on a definition shows its file in the tab. It is
+`variables.Pane` fed by `internal/varscrawl` - see `Variables.md` ("Moved into
+the host views") for the data, the keys and why it is not a text view like the
+other tabs. It takes the playbook argument into account (the playbook's
+`group_vars`/`host_vars`, the roles of the plays that apply to the host), runs
+nothing and never connects to the host, so an unreachable host works. Facts,
+ansible's own variables and config defaults are left out - the Facts tab has
+the facts. A vaulted value shows as `<vaulted>`. Play-level variables (play
+`vars:`, `vars_files:`) are out of scope. Loads in a second or two with a
+placeholder like the other tabs and is cached per host for the session.
+(Before 2026-11-28 this tab ran a stub play with an action plugin and showed
+only the winning values as YAML.)
 
 ## Groups tab
 
