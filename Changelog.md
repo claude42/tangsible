@@ -25,6 +25,7 @@
 
 ### Fixed
 
+- The File tab now shows a file a `delegate_to: localhost` task wrote through `become` into a directory only root can read (e.g. `/root/...`); it was silently missing
 - Variable origins (`variables`, `host`'s Variables tab, `debug`'s watch) are shown project-relative also when the project is reached through a symlink (e.g. under `/tmp` or `/var` on macOS)
 - `debug`: the Resolved and Variables tabs and the variable explorer came up empty when any variable in scope was vaulted with a password that isn't available (a stale file in `group_vars`)
 - `host`: the Variables tab no longer fails with "Decryption failed (no vault secrets were found that could decrypt)" when one of the host's vaulted values cannot be opened with the given password (such a value now shows as `<vaulted>`)

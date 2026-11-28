@@ -16,6 +16,8 @@ package session
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,4 +102,20 @@ func TestReadLocalFileContents(t *testing.T) {
 			t.Error("readLocalFileContents() on a missing file returned nil error, want a real one")
 		}
 	})
+}
+
+// A file the user cannot read (written through become into a root-only
+// directory) must report a permission error, which is what makes the File
+// tab fall back to fetching it from localhost with become.
+func TestReadLocalFileContentsReportsPermission(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can read anything")
+	}
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte("x"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readLocalFileContents(path); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("err = %v, want a permission error", err)
+	}
 }

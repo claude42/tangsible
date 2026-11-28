@@ -15,7 +15,9 @@
 package session
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 
 	"code.aw.net/claude/tangsible/internal/ansibledoc"
 	"code.aw.net/claude/tangsible/internal/debugverb"
@@ -223,6 +225,12 @@ func (s *liveSession) showOutputWithOrigin(task *playbook.TaskNode, host string,
 			var err error
 			if local {
 				text, err = readLocalFileContents(filePath)
+				if errors.Is(err, fs.ErrPermission) {
+					// Written on the control host through become (a
+					// root-only directory): read it the same way, by
+					// fetching from localhost with the run's own options.
+					text, err = fetchRemoteFileContents(filePath, "localhost", s.passthroughArgs)
+				}
 			} else {
 				text, err = fetchRemoteFileContents(filePath, host, s.passthroughArgs)
 			}

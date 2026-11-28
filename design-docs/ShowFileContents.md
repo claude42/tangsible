@@ -126,6 +126,12 @@ exact `"localhost"` spelling is recognized, not `127.0.0.1` or some other
 loopback address/inventory alias — narrow on purpose, matching what was
 actually asked for.
 
+The direct read runs as the user. A task that wrote the file through
+`become` (typically into `/root/...`) leaves one the user cannot read; on a
+permission error the tab fetches it from `localhost` instead, with the run's
+own options (so `become` applies), like a remote file. Without that the tab
+was silently missing.
+
 ## Caching / refetch semantics
 
 - The file is fetched (or read, for control-host actions) once per (task,
