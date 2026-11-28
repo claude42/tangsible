@@ -444,6 +444,10 @@ The callback plugin has its own Python test suite in `callback-tests/`:
 python3 -m unittest discover -s callback-tests -v
 ```
 
+`python3` must be one that can import ansible. If the one on your `PATH` can't
+(common on macOS), use the interpreter named in the first line of
+`ansible-playbook`.
+
 ## License
 
 Tangsible and its bundled Ansible callback plugin are licensed under Apache-2.0. See [LICENSE](LICENSE).

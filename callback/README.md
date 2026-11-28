@@ -11,7 +11,8 @@ the `notes` of `ansible-doc -t callback tangsible_events`
 `design-docs/OwnCallbackPlugin.md`.
 
 Tests: `python3 -m unittest discover -s callback-tests -v` (from the repo root;
-needs `ansible-playbook`).
+needs `ansible-playbook`, and a `python3` that can import ansible - if the one
+on `PATH` can't, use the interpreter in `ansible-playbook`'s first line).
 
 ## Provenance
 

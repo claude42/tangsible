@@ -30,7 +30,9 @@ a real TTY. Root `main.go` just calls `session.Main`.
 go build ./...
 go vet ./...
 go test ./...                     # unit tests; -run <Name> for one
-python3 -m unittest discover -s callback-tests   # callback plugin (needs ansible)
+"$(head -1 "$(command -v ansible-playbook)" | sed 's/^#! *//')" -m unittest discover -s callback-tests
+                                  # callback plugin: ansible's own interpreter (some tests
+                                  #   import ansible; python3 on PATH may lack it, e.g. macOS)
 go test -tags e2e ./...           # + tmux-driven e2e (e2e/rerun_test.go; needs tmux, ansible-playbook;
                                   #   e2e/ee_test.go also needs podman + TANGSIBLE_EE_IMAGE=<pulled image>)
 make test-ansible VERSION=2.20      # all of the above against another ansible-core
