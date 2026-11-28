@@ -248,7 +248,12 @@ further to prevent that specific class of bug.
 
 ## Facts tab
 
-The complete `ansible_facts` as YAML, keys sorted, from the same gather (or
+The complete `ansible_facts` as YAML, keys sorted and shown without their
+`ansible_` prefix (`architecture`, not `ansible_architecture`: the
+`ansible_facts['architecture']` form, which keeps working once
+`inject_facts_as_vars` is off; a one-line hint at the top says so; a fact
+that never had the prefix keeps its name, and a collision keeps the full
+one), from the same gather (or
 fact-cache read) Summary already did: Summary's goroutine hands the facts to
 the Facts goroutine through a buffered channel, so the tab fills in the moment
 the facts arrive, not after Summary's slower Recent section. A host with no

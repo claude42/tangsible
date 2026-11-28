@@ -661,7 +661,7 @@ func TestRenderHostFacts(t *testing.T) {
 		"ansible_default_ipv4": map[string]interface{}{"address": "10.0.0.1", "mtu": float64(1500)},
 	}
 	got := RenderHostFacts("", "", facts)
-	for _, want := range []string{"ansible_big", " 1934000000000[-]", "ansible_memtotal_mb", " 1934[-]", "- [", "lo[-]", "address", "10.0.0.1"} {
+	for _, want := range []string{"big", " 1934000000000[-]", "memtotal_mb", " 1934[-]", "ansible_facts['<name>']", "- [", "lo[-]", "address", "10.0.0.1"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
@@ -669,8 +669,34 @@ func TestRenderHostFacts(t *testing.T) {
 	if strings.Contains(got, "{") || strings.Contains(got, "e+") {
 		t.Errorf("flow style or exponent leaked into:\n%s", got)
 	}
-	if strings.Index(got, "ansible_big") > strings.Index(got, "ansible_distribution") {
+	if strings.Contains(got, "ansible_distribution") || strings.Contains(got, "ansible_big") {
+		t.Errorf("the ansible_ prefix should be gone:\n%s", got)
+	}
+	if strings.Index(got, "big") > strings.Index(got, "distribution") {
 		t.Errorf("keys are not alphabetical:\n%s", got)
+	}
+}
+
+func TestShortFactNames(t *testing.T) {
+	got := shortFactNames(map[string]interface{}{
+		"ansible_architecture": "x86_64",
+		"gather_subset":        []interface{}{"all"},
+		"mount_points":         map[string]interface{}{},
+		"ansible_local":        map[string]interface{}{},
+		"local":                "taken", // collides with ansible_local
+		"ansible_":             "odd",   // nothing left after the prefix
+	})
+	want := map[string]bool{"architecture": true, "gather_subset": true, "mount_points": true, "local": true, "ansible_local": true, "ansible_": true}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for k := range want {
+		if _, ok := got[k]; !ok {
+			t.Errorf("missing %q in %v", k, got)
+		}
+	}
+	if got["local"] != "taken" {
+		t.Errorf("the unprefixed fact must keep its name, got %v", got["local"])
 	}
 }
 

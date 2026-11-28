@@ -852,7 +852,7 @@ type factsOutcome struct {
 }
 
 // RenderHostFacts renders a host's complete ansible_facts as YAML, keys
-// sorted, for the Facts tab. prefix is the "(from fact cache)" line when the
+// sorted and without their "ansible_" prefix (shortFactNames), for the Facts tab. prefix is the "(from fact cache)" line when the
 // facts came from there; with no facts at all, note (or a generic line) says
 // so instead. Goes through JSON into a yaml.Node so integers stay integers
 // (a decoded float64 would print as 1.9e+09).
@@ -863,7 +863,7 @@ func RenderHostFacts(prefix, note string, facts map[string]interface{}) string {
 		}
 		return note
 	}
-	data, err := json.Marshal(facts)
+	data, err := json.Marshal(shortFactNames(facts))
 	if err != nil {
 		return tview.Escape(err.Error())
 	}
@@ -879,7 +879,36 @@ func RenderHostFacts(prefix, note string, facts map[string]interface{}) string {
 		return tview.Escape(err.Error())
 	}
 	_ = enc.Close()
-	return prefix + uikit.HighlightYAMLKeys(buf.String())
+	hint := "[" + uikit.AnnotationColor + "]use as ansible_facts['<name>'][-]\n\n"
+	return prefix + hint + uikit.HighlightYAMLKeys(buf.String())
+}
+
+// shortFactNames drops the "ansible_" prefix of every fact, the names
+// ansible_facts['architecture'] takes - the form that keeps working once
+// inject_facts_as_vars is off, where the prefixed top-level variable is gone.
+// Display only: the Summary reads the prefixed names. A fact with no prefix
+// (gather_subset, module_setup, mount_points) is kept; one whose short name is
+// already taken keeps its full name, so nothing is overwritten.
+func shortFactNames(facts map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(facts))
+	for k, v := range facts {
+		short := strings.TrimPrefix(k, "ansible_")
+		if short == k || short == "" {
+			out[k] = v
+		}
+	}
+	for k, v := range facts {
+		short := strings.TrimPrefix(k, "ansible_")
+		if short == k || short == "" {
+			continue
+		}
+		if _, taken := out[short]; taken {
+			out[k] = v
+		} else {
+			out[short] = v
+		}
+	}
+	return out
 }
 
 // HostVariablesStubYAML is the stub behind the Variables tab: one task that
