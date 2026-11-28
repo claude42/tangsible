@@ -4132,7 +4132,7 @@ its marker).
   may be left half-configured. Not offered: Start with play (it works through a
   trimmed copy of the playbook that debug's copy would have to be built from),
   the failed/unreachable checkboxes (they read a complete run's outcome), and
-  the execution environment (debug rejects it).
+  the execution environment (debug runs on the host; a configured image is ignored, `--ee` is rejected).
 - **New arguments** replace the old tags/limit for the rest of the session once
   the rebuild worked (`passthroughArgs`, `Refresher.Reprepare(rest)`); other
   options stay.

@@ -159,6 +159,14 @@ filesystem as the project and is then mounted as the project root;
 symlinks pointing outside the mount root break. The stdout-jsonl
 fallback would rule `debug` out (no return channel).
 
+Until then `debug` always runs on the host. An image that is only configured
+in `[execution_environment]` is ignored (the setting says where playbooks run;
+refusing to debug until `--no-ee` was typed every time was an annoyance, not a
+protection) and the top bar says so - `site.yml (host, not EE: image)` - since
+the host's ansible-core and collections can differ from the image's. An
+explicit `--ee` is still a usage error; `--no-ee` is accepted and shows no
+notice.
+
 ### The container user: `run_as_root` and a hint for `become`
 
 **Problem.** The container runs as the host user (`--userns=keep-id`, a

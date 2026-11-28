@@ -101,7 +101,7 @@ func Main(build BuildInfo) {
 
 	// --ee/--no-ee (design-docs/ExecutionEnvironments.md) likewise: run,
 	// rerun and role take them (setupExecutionEnvironment), debug has its
-	// own message (rejectExecutionEnvironmentForDebug).
+	// own handling (debugExecutionEnvironment).
 	if v != config.VerbRun && v != config.VerbRerun && v != config.VerbRole && v != config.VerbDebug && v != config.VerbView && config.HasEEFlag(args) {
 		fmt.Fprintln(os.Stderr, "tangsible: --ee/--no-ee are only supported for run, rerun, role, and view")
 		os.Exit(2)
@@ -260,6 +260,7 @@ func Main(build BuildInfo) {
 	// plain run's do (design-docs/DebugMode.md's "Stage 2": Apply's own
 	// task/play identity resolution can't reuse a pre-built skeleton node
 	// at all).
+	var debugIgnoredEE string // a configured image debug did not use
 	var debugPrep debugverb.SessionPrep
 	// debugNodes/debugNodePlay are debugverb.SeedState's own second/third
 	// return values (skeleton's index parallel: one *TaskNode and its
@@ -600,7 +601,7 @@ func Main(build BuildInfo) {
 		// --dialog handling is. Exits on any fatal error itself (same
 		// convention role.StartRoleSession already uses).
 		var debugCleanup func()
-		args = rejectExecutionEnvironmentForDebug(args)
+		args, debugIgnoredEE = debugExecutionEnvironment(args)
 		debugPrep, debugCleanup = debugverb.PrepareSession(args)
 		playbook = debugPrep.Playbook
 		cleanup = func() {
@@ -955,6 +956,9 @@ func Main(build BuildInfo) {
 	displayName := filepath.Base(playbook)
 	if v == config.VerbDebug && debugPrep.ForcedLinear {
 		displayName += " (free → linear)"
+	}
+	if v == config.VerbDebug && debugIgnoredEE != "" {
+		displayName += " (host, not EE: " + debugIgnoredEE + ")"
 	}
 	targetPlaybook, targetRole := playbook, ""
 	if roleDisplayName != "" {

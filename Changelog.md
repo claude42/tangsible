@@ -18,6 +18,7 @@
 
 ### Changed
 
+- `debug` no longer needs `--no-ee` when an execution environment is configured: it always runs on the host, and the top bar says `(host, not EE: image)`; an explicit `--ee` is still rejected
 - `ee init` without `--base`/`base_image` now picks the community base image matching your host's ansible-core; `--latest` also takes newest base image.
 - `ee init -t/--tag <name>` (repeatable): writes the tags to `options.tags`.
 - `ee init --resolve-packages`: a binary several packages provide is now a commented list, one `# - package` line per candidate, so picking one means removing the `# `

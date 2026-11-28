@@ -732,3 +732,22 @@ func TestE2E_Debug_StaleVaultedValueKeepsTheSnapshot(t *testing.T) {
 		}
 	}
 }
+
+// TestE2E_Debug_ConfiguredEEIsIgnoredAndTheTopBarSaysSo: an image configured
+// in [execution_environment] must not stop debug (it runs on the host), and
+// the top bar tells it is not in the image.
+func TestE2E_Debug_ConfiguredEEIsIgnoredAndTheTopBarSaysSo(t *testing.T) {
+	requireE2ETools(t)
+	s, _ := startDebugSession(t, `- name: host play
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: only task
+      command: echo hi
+`, map[string]string{".tangsible/config.toml": "[execution_environment]\nimage = \"registry.example.com/team/ee:1\"\n"}, "-i localhost,")
+	got := s.waitFor("F5: run", 15*time.Second)
+	if !strings.Contains(got, "(host, not EE: ") {
+		t.Errorf("the top bar should say debug runs on the host although an image is configured:\n%s", got)
+	}
+}

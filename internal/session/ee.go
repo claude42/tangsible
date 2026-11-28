@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"code.aw.net/claude/tangsible/internal/config"
+	eepkg "code.aw.net/claude/tangsible/internal/ee"
 	"code.aw.net/claude/tangsible/internal/runner"
 )
 
@@ -53,12 +54,14 @@ func activateExecutionEnvironment(o config.EEOverride, recorded string) {
 	}
 }
 
-// rejectExecutionEnvironmentForDebug keeps debug on the host for now
+// debugExecutionEnvironment keeps debug on the host for now
 // (design-docs/ExecutionEnvironments.md, "Debug mode in an EE"): an
-// explicit --ee is a usage error, and so is a configured image unless
-// --no-ee says the host run is intended - silently ignoring the config
-// would defeat its purpose. It returns args without --no-ee.
-func rejectExecutionEnvironmentForDebug(args []string) []string {
+// explicit --ee is a usage error, but an image that is only configured in
+// [execution_environment] is ignored - the config says where playbooks run,
+// debug is a separate activity. It returns args without --no-ee, and the
+// configured image's short name when one was ignored (empty otherwise, also
+// for an explicit --no-ee) so the top bar can say debug is not in it.
+func debugExecutionEnvironment(args []string) (rest []string, ignored string) {
 	o, rest, err := config.ExtractEEFlags(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, config.UsageLine(config.VerbDebug))
@@ -69,9 +72,10 @@ func rejectExecutionEnvironmentForDebug(args []string) []string {
 		fmt.Fprintln(os.Stderr, "tangsible: debug does not support execution environments yet (--ee)")
 		os.Exit(2)
 	}
-	if !o.Disable && config.ResolveEE(config.MergedSettingsConfig(), o) != nil {
-		fmt.Fprintln(os.Stderr, "tangsible: debug does not support execution environments yet; an image is configured in [execution_environment] - pass --no-ee to debug on the host")
-		os.Exit(2)
+	if !o.Disable {
+		if ee := config.ResolveEE(config.MergedSettingsConfig(), o); ee != nil {
+			ignored = eepkg.ShortImageName(ee.Image)
+		}
 	}
-	return rest
+	return rest, ignored
 }
